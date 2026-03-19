@@ -1,0 +1,111 @@
+import OpenAI from "openai";
+import { db } from "./db";
+import { socialPostAssets } from "@/shared/schema";
+
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error("OPENAI_API_KEY is required for image generation");
+}
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Platform-specific aspect ratios mapped to DALL-E supported sizes
+// DALL-E-3 only supports: 1024x1024, 1792x1024, 1024x1792
+const ASPECT_RATIOS: Record<string, { ratio: string; size: string; dalleSize: "1024x1024" | "1792x1024" | "1024x1792" }> = {
+  x: { ratio: "16:9", size: "1792x1024", dalleSize: "1792x1024" },          // 16:9 landscape
+  facebook: { ratio: "1.91:1", size: "1792x1024", dalleSize: "1792x1024" },  // 1.91:1 landscape → nearest 16:9
+  instagram: { ratio: "1:1", size: "1024x1024", dalleSize: "1024x1024" },    // 1:1 square
+  linkedin: { ratio: "1.91:1", size: "1792x1024", dalleSize: "1792x1024" },  // 1.91:1 landscape → nearest 16:9
+  pinterest: { ratio: "2:3", size: "1024x1792", dalleSize: "1024x1792" },    // 2:3 vertical
+};
+
+interface GenerateSocialImagesRequest {
+  socialPostId: number;
+  prompt: string;
+  platforms: string[];
+  industry: string;
+}
+
+interface ImageResult {
+  platform: string;
+  storageUrl: string;
+  altText: string;
+  aspectRatio: string;
+}
+
+export async function generateSocialImages(
+  request: GenerateSocialImagesRequest
+): Promise<ImageResult[]> {
+  const { socialPostId, prompt, platforms, industry } = request;
+
+  console.log(`🖼️ Generating images for ${platforms.length} platforms`);
+
+  const results: ImageResult[] = [];
+
+  // Generate one image per platform with platform-specific aspect ratio
+  for (const platform of platforms) {
+    const aspectConfig = ASPECT_RATIOS[platform] || ASPECT_RATIOS.x;
+
+    // Create image prompt optimized for social media
+    const imagePrompt = `Create a professional, eye-catching social media image for ${platform}. 
+Theme: ${prompt}
+Industry: ${industry}
+Style: Modern, clean, visually appealing
+Requirements:
+- High quality and professional
+- Suitable for ${industry} industry
+- Optimized for ${platform} (${aspectConfig.ratio} aspect ratio)
+- Include relevant visual elements
+- No text overlays needed`;
+
+    try {
+      console.log(`📸 Generating ${platform} image (${aspectConfig.ratio})...`);
+
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt.slice(0, 4000), // DALL-E has 4000 char limit
+        n: 1,
+        size: aspectConfig.dalleSize,
+        quality: "standard",
+      });
+
+      if (!response.data || response.data.length === 0) {
+        throw new Error(`No image data returned for ${platform}`);
+      }
+
+      const imageUrl = response.data[0]?.url;
+      if (!imageUrl) {
+        throw new Error(`No image URL returned for ${platform}`);
+      }
+
+      // Alt text for accessibility
+      const altText = `${industry} social media image for ${platform}`;
+
+      // Save to database
+      await db.insert(socialPostAssets).values({
+        socialPostId,
+        platform,
+        imagePromptUsed: imagePrompt.slice(0, 1000),
+        storageUrl: imageUrl,
+        altText,
+        aspectRatio: aspectConfig.ratio,
+        width: parseInt(aspectConfig.size.split('x')[0]),
+        height: parseInt(aspectConfig.size.split('x')[1]),
+        fileFormat: "png",
+      });
+
+      results.push({
+        platform,
+        storageUrl: imageUrl,
+        altText,
+        aspectRatio: aspectConfig.ratio,
+      });
+
+      console.log(`✅ Generated ${platform} image (${aspectConfig.ratio})`);
+    } catch (error) {
+      console.error(`❌ Failed to generate image for ${platform}:`, error);
+      // Continue with other platforms even if one fails
+    }
+  }
+
+  return results;
+}

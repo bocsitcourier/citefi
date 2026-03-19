@@ -1,0 +1,132 @@
+stabilize the video generation pipeline again while keeping the vivid, full-frame look.
+
+🧠 1️⃣ Common Causes of Video Regeneration Failures
+Root Cause	Symptoms	Fix
+Image file format or metadata mismatch	FFmpeg error: “width not divisible by 2” or “invalid pixel format”	Ensure all images are RGB JPEGs with even dimensions (see fix below)
+Async race condition	Sometimes works, sometimes fails, missing frames	Use await to ensure each image is fully saved before FFmpeg starts
+FFmpeg input pattern mismatch	FFmpeg can't find images	Use correct pattern: image_%d_fixed.jpg or exact filenames
+Aspect ratio mismatch	Output video has bars or fails on scale filters	Force consistent scale + crop in filter
+Corrupted temp images	Blank frames or black screen	Use fs.existsSync and sharp to verify images before video build
+⚙️ 2️⃣ Safe Video Builder (Node.js + FFmpeg)
+
+Below is a robust version that ensures all files are ready and formatted before FFmpeg runs:
+
+Dependencies:
+npm install fluent-ffmpeg fs-extra
+
+Code:
+import fs from "fs-extra";
+import ffmpeg from "fluent-ffmpeg";
+import path from "path";
+
+const OUTPUT_VIDEO = "./output/final_video.mp4";
+const OUTPUT_DIR = "./images";
+const AUDIO_FILE = "./audio/narration.mp3";
+const LOGO_FILE = "./branding/logo.png"; // bottom-right overlay
+
+async function buildVideoFromImages() {
+  // 1. Validate inputs
+  const images = fs.readdirSync(OUTPUT_DIR).filter(f => f.endsWith("_fixed.jpg"));
+  if (images.length === 0) throw new Error("No processed images found!");
+
+  for (const img of images) {
+    const filePath = path.join(OUTPUT_DIR, img);
+    if (!fs.existsSync(filePath)) throw new Error(`Missing file: ${filePath}`);
+  }
+
+  // 2. Sort in sequence
+  images.sort((a, b) => a.localeCompare(b));
+
+  // 3. Create file list for FFmpeg
+  const fileListPath = path.join(OUTPUT_DIR, "ffmpeg_list.txt");
+  const fileList = images.map(img => `file '${path.join(OUTPUT_DIR, img)}'`).join("\n");
+  fs.writeFileSync(fileListPath, fileList);
+
+  // 4. Build video
+  console.log("🎥 Generating video...");
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(fileListPath)
+      .inputOptions(["-f concat", "-safe 0"])
+      .loop(5) // hold each frame for 5s (adjust as needed)
+      .input(AUDIO_FILE)
+      .complexFilter([
+        // Scale and crop for full screen
+        "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080[v1];" +
+        // Overlay logo bottom-right
+        `[v1][1:v]overlay=W-w-50:H-h-50:enable='between(t,0,99999)'`
+      ])
+      .outputOptions([
+        "-c:v libx264",
+        "-pix_fmt yuv420p",
+        "-r 30",
+        "-shortest",
+      ])
+      .output(OUTPUT_VIDEO)
+      .on("end", () => {
+        console.log("✅ Video successfully generated:", OUTPUT_VIDEO);
+        resolve(OUTPUT_VIDEO);
+      })
+      .on("error", (err) => {
+        console.error("❌ Video generation failed:", err.message);
+        reject(err);
+      })
+      .run();
+  });
+}
+
+🧩 3️⃣ Key Reliability Fixes
+
+✅ Normalize all images before FFmpeg
+
+await sharp(imagePath)
+  .ensureAlpha()
+  .resize(1920, 1080, { fit: "cover" })
+  .jpeg({ quality: 95 })
+  .toFile(fixedPath);
+
+
+Ensures valid pixel format (yuv420p safe).
+
+Prevents “odd dimension” issues.
+
+✅ Check for audio readiness
+Before composition, ensure the audio narration file exists and is >0 bytes.
+
+✅ Use sequential async calls
+If you’re running Promise.all() on image fixes and video creation, FFmpeg might start before images finish. Always await image processing fully first.
+
+✅ Don’t mix resolutions
+Even one mismatched frame (1080x1078) can crash FFmpeg.
+Validate dimensions:
+
+const meta = await sharp(imgPath).metadata();
+if (meta.width % 2 !== 0 || meta.height % 2 !== 0) {
+  console.warn(`Fixing odd resolution for ${imgPath}`);
+  await sharp(imgPath)
+    .resize(Math.floor(meta.width / 2) * 2, Math.floor(meta.height / 2) * 2)
+    .toFile(imgPath);
+}
+
+🧠 4️⃣ Debugging Tip
+
+If you still see intermittent failures, log FFmpeg output:
+
+ffmpeg()
+  .input(fileListPath)
+  .on('stderr', line => console.log('FFmpeg:', line))
+
+
+That will tell you exactly which step or file is failing.
+
+✅ TL;DR: To Fix Video Regeneration Failures
+
+Ensure all images are processed (await each step).
+
+Force even dimensions and JPEG RGB.
+
+Build consistent FFmpeg input list.
+
+Add error logging for missing files.
+
+Only start video build after image processing completes.

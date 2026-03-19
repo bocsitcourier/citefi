@@ -1,0 +1,120 @@
+Audio Generation Module – Gemini TTS
+1️⃣ Database Schema
+CREATE TABLE article_audio (
+    id SERIAL PRIMARY KEY,
+    article_id INT REFERENCES articles(id),
+    audio_url TEXT,
+    voice VARCHAR(50) DEFAULT 'female_friendly', -- options: female_friendly, male_friendly, podcast_duo
+    duration INT, -- in seconds
+    status VARCHAR(50) DEFAULT 'pending', -- pending, processing, failed, ready
+    retry_count INT DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+2️⃣ Key Fixes
+Issue	Fix
+JSON size overflow	Chunk large article text if needed before sending to Gemini. Use streaming API if supported.
+Storage leak (orphaned audio files)	Upload audio only after DB insert succeeds. Keep temp files and clean them on failure.
+Failed article recovery	Retry mechanism: increment retry_count, log last_error, set status='failed' if max retries reached.
+Audio not linked to article	Always associate article_id in DB before moving to permanent storage.
+Concurrent audio generation	Use Promise.allSettled for multiple articles, limit concurrency to prevent API throttling.
+3️⃣ Backend Flow (Node.js / TypeScript)
+async function generateArticleAudio(articleId: number, voice: string = 'female_friendly') {
+    try {
+        const article = await db.getArticle(articleId);
+        if (!article) throw new Error('Article not found');
+
+        // 1. Chunk text if too large
+        const chunks = chunkText(article.final_html_content, 5000); // adjust chunk size
+
+        // 2. Generate TTS per chunk
+        const audioBuffers = [];
+        for (const chunk of chunks) {
+            const buffer = await geminiTTS(chunk, voice);
+            audioBuffers.push(buffer);
+        }
+
+        // 3. Merge audio chunks
+        const mergedAudio = mergeAudioBuffers(audioBuffers);
+
+        // 4. Insert DB record before permanent storage
+        const audioId = await db.insertAudioMetadata(articleId, voice, mergedAudio.length);
+
+        // 5. Upload to DigitalOcean Spaces
+        const storageUrl = await uploadToSpaces(mergedAudio, `article_${articleId}_audio.mp3`);
+        await db.updateAudioUrl(audioId, storageUrl, 'ready');
+
+        // 6. Clean temp buffers
+        audioBuffers.length = 0;
+
+        return storageUrl;
+
+    } catch (err: any) {
+        console.error('Audio generation failed', err);
+        await db.logAudioError(articleId, err.message);
+        await db.updateAudioStatus(articleId, 'failed');
+        throw err;
+    }
+}
+
+4️⃣ Retry Mechanism
+async function retryAudio(articleId: number) {
+    const audioRecord = await db.getAudioRecord(articleId);
+    if (!audioRecord) throw new Error('Audio record missing');
+
+    if (audioRecord.retry_count >= 3) {
+        await db.updateAudioStatus(articleId, 'failed');
+        return;
+    }
+
+    await db.incrementAudioRetryCount(articleId);
+    await generateArticleAudio(articleId, audioRecord.voice);
+}
+
+5️⃣ Frontend / Editor Integration
+
+Article Editor Panel:
+
+Play / Pause audio
+
+Download button
+
+Regenerate audio button
+
+Voice selection dropdown (female_friendly, male_friendly, podcast_duo)
+
+Live status:
+
+Shows processing, ready, failed
+
+Progress bar for longer articles
+
+6️⃣ Best Practices
+
+Always validate article.final_html_content before sending to TTS
+
+Chunking + streaming prevents JSON size overflows
+
+Temporary storage ensures no orphan files if DB insert fails
+
+Log all errors in article_audio.last_error and centralized error_logs table
+
+Support concurrent audio generation with controlled concurrency
+
+Attach audio to media library after upload to DO Spaces for reuse
+
+✅ Outcome
+
+No orphaned files
+
+Full retry / recovery system
+
+Female, male, or dual podcast voices
+
+Editable & regenerable audio
+
+Stored and linked correctly to the article
+
+Ready to integrate with the article playback feature

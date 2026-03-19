@@ -1,0 +1,121 @@
+Node.js Workflow Overview
+
+Goal: Generate multiple vivid Gemini images → validate dimensions → crop/resize → ready for video composition.
+
+🧩 1️⃣ Install Dependencies
+
+You’ll need:
+
+npm install sharp axios fs path
+
+
+sharp → fast image processing (crop, resize, detect padding)
+
+axios → for API calls
+
+fs, path → file management
+
+🧠 2️⃣ Gemini Image Generation with Aspect Enforcement
+
+(Replace YOUR_GEMINI_API_KEY and endpoint as needed.)
+
+import axios from "axios";
+import fs from "fs";
+import sharp from "sharp";
+import path from "path";
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY";
+const OUTPUT_DIR = "./images";
+const ASPECT_RATIO = "16:9"; // Change to "9:16" for vertical
+const WIDTH = ASPECT_RATIO === "16:9" ? 1920 : 1080;
+const HEIGHT = ASPECT_RATIO === "16:9" ? 1080 : 1920;
+
+async function generateGeminiImage(prompt, index) {
+  const payload = {
+    prompt: `${prompt}. Use full ${ASPECT_RATIO} frame, vivid, edge-to-edge, no borders, no empty space. Resolution ${WIDTH}x${HEIGHT}.`,
+  };
+
+  const response = await axios.post(
+    "https://api.google.com/v1/gemini/image", // Example endpoint; replace with real Gemini endpoint
+    payload,
+    {
+      headers: {
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      responseType: "arraybuffer",
+    }
+  );
+
+  const imagePath = path.join(OUTPUT_DIR, `image_${index}.jpg`);
+  fs.writeFileSync(imagePath, response.data);
+  return imagePath;
+}
+
+🎨 3️⃣ Auto-Crop and Resize Function (Fix Black Bars)
+
+This function ensures each image fills the frame and removes any black padding:
+
+async function fixImageAspect(inputPath) {
+  const outputPath = inputPath.replace(".jpg", "_fixed.jpg");
+
+  const img = sharp(inputPath);
+  const metadata = await img.metadata();
+
+  // Resize to fill target frame and crop overflow
+  await img
+    .resize(WIDTH, HEIGHT, {
+      fit: "cover", // fills frame and crops excess
+      position: "centre",
+    })
+    .toFile(outputPath);
+
+  return outputPath;
+}
+
+🖼️ 4️⃣ Generate Multiple Images Sequentially (Safer)
+async function generateImagesForArticle(articleTitle) {
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
+
+  const basePrompt = `Create a vivid, cinematic image for the article: "${articleTitle}". 
+Include the company name "Private Inhome Caregiver" exactly as written. 
+Use ${ASPECT_RATIO} framing, full-screen coverage, realistic detail, no borders.`;
+
+  const images = [];
+  for (let i = 1; i <= 5; i++) {
+    console.log(`Generating image ${i}...`);
+    const imgPath = await generateGeminiImage(basePrompt + ` Scene ${i}`, i);
+    const fixedPath = await fixImageAspect(imgPath);
+    images.push(fixedPath);
+  }
+
+  console.log("✅ All images generated and corrected:", images);
+  return images;
+}
+
+⚙️ 5️⃣ Example Usage
+(async () => {
+  try {
+    const articleTitle = "How Private Inhome Caregiver Brings Comfort to Families";
+    await generateImagesForArticle(articleTitle);
+  } catch (err) {
+    console.error("Error:", err.message);
+  }
+})();
+
+🧱 6️⃣ Optional Enhancements
+Need	Solution
+Batch 100 articles	Use a queue (e.g. p-queue or bullmq) with global concurrency limit
+Validate brand name	Add regex or OCR check (Tesseract.js) to ensure “Private Inhome Caregiver” appears
+Generate video next	Pipe the output to an FFmpeg script or node wrapper (fluent-ffmpeg)
+✅ Outcome
+
+After implementing this:
+
+Each Gemini image will fill the video frame completely
+
+No more black bars or letterboxing
+
+Brand name consistently correct
+
+Images ready for video stitching with logo + audio overlay

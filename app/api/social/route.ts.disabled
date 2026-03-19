@@ -1,0 +1,59 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { articles, articleSocialPosts, auditLog } from "@/shared/schema";
+import { eq } from "drizzle-orm";
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { articleId, platform, userId, scheduledFor } = body;
+
+    if (!articleId || !platform || !userId) {
+      return NextResponse.json(
+        { error: "Missing required fields: articleId, platform, userId" },
+        { status: 400 }
+      );
+    }
+
+    const [article] = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, articleId));
+
+    if (!article) {
+      return NextResponse.json(
+        { error: "Article not found" },
+        { status: 404 }
+      );
+    }
+
+    const socialPosts = await db
+      .select()
+      .from(articleSocialPosts)
+      .where(eq(articleSocialPosts.articleId, articleId));
+
+    const platformPost = socialPosts.find(p => p.platform === platform);
+
+    if (!platformPost) {
+      return NextResponse.json(
+        { error: `No ${platform} social post generated for this article. Generate social content first in the worker pipeline.` },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: false,
+      message: `Social media scheduling for ${platform} not yet implemented`,
+      info: "To enable social media scheduling, configure API credentials for Buffer, Hootsuite, or platform-specific APIs (Twitter, Facebook, LinkedIn).",
+      socialPost: platformPost,
+      note: "The social content has been generated and stored in the database. You can manually copy and post it, or integrate with a social media management API.",
+    });
+
+  } catch (error) {
+    console.error("Social scheduling error:", error);
+    return NextResponse.json(
+      { error: "Failed to schedule social post", message: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}

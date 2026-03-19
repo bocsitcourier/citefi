@@ -1,0 +1,176 @@
+. Use Asynchronous File Writes
+
+Avoid blocking the event loop with synchronous writes.
+
+Before:
+
+fs.writeFileSync(imagePath, Buffer.from(imageBase64, "base64"));
+
+
+After:
+
+await fs.promises.writeFile(imagePath, Buffer.from(imageBase64, "base64"));
+
+2. Add Request Timeout & Retry Wrapper
+
+GPT’s DALL·E calls can hang if the API delays. Wrap each call with a timeout and exponential backoff retry.
+
+async function withTimeout(promise, ms = 60000) {
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms));
+  return Promise.race([promise, timeout]);
+}
+
+async function generateImageWithRetry(prompt, articleId, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await withTimeout(
+        openai.images.generate({
+          model: "gpt-image-1",
+          prompt,
+          size: "1024x1024",
+          n: 1
+        })
+      );
+
+      const imageBase64 = res.data[0].b64_json;
+      const imagePath = `./public/articles/${articleId}.png`;
+      await fs.promises.writeFile(imagePath, Buffer.from(imageBase64, "base64"));
+      return `/articles/${articleId}.png`;
+    } catch (err) {
+      console.warn(`Retry ${i + 1} failed for image ${articleId}:`, err.message);
+      if (i === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, (i + 1) * 3000));
+    }
+  }
+}
+
+
+✅ This ensures:
+
+Slow images fail fast (60s timeout)
+
+Automatic retries
+
+No stuck async promises
+
+3. Throttle Concurrency with p-limit or a Simple Queue
+
+Even if you want 50 concurrent articles, don’t hit the image endpoint 50× simultaneously.
+
+Instead, run them in micro-batches of 5–10.
+
+import pLimit from "p-limit";
+const limitImages = pLimit(5);
+
+const imageTasks = articles.map(a =>
+  limitImages(() => generateImageWithRetry(`Image for ${a.title}`, a.id))
+);
+
+const imageResults = await Promise.allSettled(imageTasks);
+
+
+This:
+
+Keeps throughput high
+
+Prevents queue lockups
+
+Adapts dynamically to rate limits
+
+4. Stream Real-Time Status to Front-End
+
+You’ll want to notify the UI whenever an image finishes or errors. Use WebSockets or Server-Sent Events (SSE):
+
+// Server: emit progress
+ws.send(JSON.stringify({ articleId, status: "image_done", imageUrl }));
+
+// Client: update progress UI
+socket.onmessage = e => {
+  const msg = JSON.parse(e.data);
+  if (msg.status === "image_done") showImagePreview(msg.articleId, msg.imageUrl);
+};
+
+
+This helps you see stuck items live.
+
+5. Protect Against Memory Buildup
+
+When generating 50+ images, each base64 image (≈1.3MB) will spike memory.
+
+Fix:
+
+Use temporary file streaming (fs.createWriteStream)
+
+Immediately free memory after writing:
+
+Buffer.alloc(0);
+global.gc?.(); // if Node run with --expose-gc
+
+
+Or — better yet — upload directly to S3 or DigitalOcean Spaces from the stream.
+
+6. Graceful Error Logging + Cleanup
+
+Add a catch-all monitor:
+
+process.on("unhandledRejection", (reason, p) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", err => {
+  console.error("Uncaught Exception:", err);
+});
+
+
+And periodically remove incomplete images:
+
+find ./public/articles -type f -size 0 -delete
+
+7. Example Optimized Concurrent Runner
+import pLimit from "p-limit";
+const limitText = pLimit(10);
+const limitImage = pLimit(5);
+
+async function generateArticles(topics) {
+  const tasks = topics.map((topic, i) =>
+    limitText(async () => {
+      const article = await generateArticle(topic);
+      const image = await limitImage(() =>
+        generateImageWithRetry(`Featured image for ${article.title}`, i)
+      );
+      return { ...article, image };
+    })
+  );
+
+  return Promise.allSettled(tasks);
+}
+
+
+✅ Benefits:
+
+Text and image run concurrently but within safe concurrency bounds.
+
+No blocking, no Redis, no queue daemons.
+
+Auto recovery on transient API hangs.
+
+8. Monitoring
+
+Log stats every 30s:
+
+setInterval(() => {
+  console.log(`Active: ${process._getActiveHandles().length} handles`);
+  console.log(`Memory: ${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`);
+}, 30000);
+
+
+If handle count or memory climbs indefinitely → you’ve got dangling Promises or sync file locks.
+
+🧾 TL;DR — Ultimate Fix Stack
+Issue	Fix
+Stuck requests	Add Promise.race timeout
+Rate limits	Use p-limit(5) for images
+Event loop block	Switch to async file writes
+Memory freeze	Stream/write and release Buffers
+Silent hangs	Retry + backoff logic
+No visibility	Emit live progress to UI

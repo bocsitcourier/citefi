@@ -1,0 +1,131 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { articles, publishedPosts, auditLog } from "@/shared/schema";
+import { eq } from "drizzle-orm";
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { articleId, cmsType, userId, cmsConfig } = body;
+
+    if (!articleId || !cmsType || !userId) {
+      return NextResponse.json(
+        { error: "Missing required fields: articleId, cmsType, userId" },
+        { status: 400 }
+      );
+    }
+
+    const [article] = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, articleId));
+
+    if (!article) {
+      return NextResponse.json(
+        { error: "Article not found" },
+        { status: 404 }
+      );
+    }
+
+    if (!article.finalHtmlContent) {
+      return NextResponse.json(
+        { error: "Article content not ready for publishing" },
+        { status: 400 }
+      );
+    }
+
+    let externalUrl: string;
+    let externalId: string;
+
+    if (cmsType === 'wordpress') {
+      const result = await publishToWordPress(article, cmsConfig);
+      externalUrl = result.url;
+      externalId = result.id;
+    } else if (cmsType === 'shopify') {
+      return NextResponse.json(
+        { error: "Shopify publishing not yet implemented. Configure Shopify API credentials in lib/cms/shopify.ts" },
+        { status: 501 }
+      );
+    } else if (cmsType === 'webflow') {
+      return NextResponse.json(
+        { error: "Webflow publishing not yet implemented. Configure Webflow API credentials in lib/cms/webflow.ts" },
+        { status: 501 }
+      );
+    } else {
+      return NextResponse.json(
+        { error: `Unsupported CMS type: ${cmsType}` },
+        { status: 400 }
+      );
+    }
+
+    const [publishedPost] = await db
+      .insert(publishedPosts)
+      .values({
+        articleId,
+        cmsType,
+        externalUrl,
+        externalId,
+        status: "PUBLISHED",
+      })
+      .returning();
+
+    await db.insert(auditLog).values({
+      userId,
+      action: "PUBLISH_ARTICLE",
+      entityType: "article",
+      entityId: articleId,
+      detailsJson: { cmsType, externalUrl, externalId },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Article published to ${cmsType}`,
+      publishedPost,
+      externalUrl,
+    });
+
+  } catch (error) {
+    console.error("Publishing error:", error);
+    return NextResponse.json(
+      { error: "Failed to publish article", message: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
+
+async function publishToWordPress(article: any, config: any): Promise<{ url: string; id: string }> {
+  if (!config?.wpUrl || !config?.username || !config?.appPassword) {
+    throw new Error("WordPress configuration missing. Provide wpUrl, username, and appPassword in request body.");
+  }
+
+  const wpApiUrl = `${config.wpUrl}/wp-json/wp/v2/posts`;
+  
+  const auth = Buffer.from(`${config.username}:${config.appPassword}`).toString('base64');
+
+  const response = await fetch(wpApiUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${auth}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: article.seoTitle || article.chosenTitle,
+      content: article.finalHtmlContent,
+      excerpt: article.metaDescription || '',
+      status: 'publish',
+      slug: article.slug,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`WordPress API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    url: data.link,
+    id: String(data.id),
+  };
+}

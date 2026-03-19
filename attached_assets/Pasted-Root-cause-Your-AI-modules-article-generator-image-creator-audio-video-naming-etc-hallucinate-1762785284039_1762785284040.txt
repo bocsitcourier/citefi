@@ -1,0 +1,119 @@
+Root cause: Your AI modules (article generator, image creator, audio/video naming, etc.) hallucinate or misspell company names because the business name field is not validated or enforced at generation time.
+
+Impact: Brand inconsistency, loss of credibility, failed image renders, wasted API calls.
+
+Symptoms: Wrong or random company names in articles, images, and metadata despite correct inputs upstream.
+
+🎯 Decision Goal
+
+You have two main approaches:
+
+Make businessName a required field across all generation tasks.
+
+Implement graceful degradation: proceed when missing, but validate and correct before output.
+
+Let’s analyze both.
+
+✅ Option 1: Make businessName Required (Recommended)
+
+Description:
+Every generation request must include a valid businessName parameter. The system blocks processing if it’s missing, malformed, or fails validation.
+
+Advantages:
+
+Absolute brand consistency. No hallucinations — if name is absent, job never starts.
+
+Simpler validation logic. Upstream enforcement prevents errors downstream.
+
+Reliable prompt injection. You can safely embed the company name in text/image/audio prompts knowing it’s correct.
+
+Auditability. Every output is traceable to a known business entity.
+
+Implementation approach:
+
+Schema enforcement:
+
+{
+  "businessName": {
+    "type": "string",
+    "minLength": 2,
+    "required": true,
+    "pattern": "^[A-Za-z0-9&.,' -]+$"
+  }
+}
+
+
+Pre-run validation layer: Reject any job missing a valid businessName.
+
+Centralize prompt injection: Use a getBusinessName() function that sanitizes and confirms the exact text before use in any module.
+
+Log & notify: If validation fails, log error and notify operator.
+
+Downside:
+
+Fails fast — you’ll need fallback UX for users who don’t yet have a business name ready.
+
+⚙️ Option 2: Graceful Degradation + Validation
+
+Description:
+Allow jobs to proceed without businessName, but apply real-time validation and fallback correction.
+
+How it works:
+
+If businessName missing → auto-insert neutral placeholder (“Your Company”).
+
+After generation → run validation step (regex, OCR, text scan).
+
+If hallucination detected → automatically replace or overlay correct businessName.
+
+Advantages:
+
+More flexible for testing or partial data ingestion.
+
+Prevents total job failure when the name is missing.
+
+Disadvantages:
+
+Higher complexity — every output requires a post-validation pass.
+
+Residual risk — hallucinated names may still slip through if OCR or validation fails.
+
+Inconsistent outputs if placeholder content accidentally goes live.
+
+🔍 Brand Validation Enforcement Layer (applies to both)
+
+Regardless of which path you pick, add this shared middleware:
+
+Check	Implementation	Fallback
+Text outputs (articles, captions)	Regex match for businessName in final text.	Replace or re-run generation with correct name.
+Image outputs	OCR scan for correct spelling.	Retry → overlay correct name.
+Audio/video	Speech-to-text check for correct name.	Regenerate or overlay correct TTS audio.
+💡 Recommendation
+
+Go with Option 1: Make businessName required.
+
+Then layer Option 2’s validation checks as a safety net for quality assurance.
+
+That means:
+
+No generation runs without a valid businessName.
+
+Every output (text/image/audio) still passes through a lightweight validator before publishing.
+
+This “strict + graceful fallback” hybrid ensures zero hallucination risk and no lost processing time.
+
+🚀 Implementation Plan
+
+Update Schema: Enforce businessName as required field in job payload.
+
+Centralize Prompt Templates: All modules pull name via a single validated function.
+
+Add Brand Validator Service:
+
+Checks every output for correct spelling.
+
+Runs OCR or regex match depending on modality.
+
+Rewrites or re-overlays if mismatch detected.
+
+Log + Report: Keep telemetry on correction frequency to track model reliability.

@@ -1,0 +1,142 @@
+Step 1: Confirm Where Images Are Saved
+
+First, confirm the actual storage location and path being written.
+
+If you’re saving locally:
+
+ls public/hero/
+
+
+If using DigitalOcean Spaces (S3-compatible):
+
+aws --endpoint-url https://nyc3.digitaloceanspaces.com s3 ls s3://your-space-name/hero/
+
+
+✅ Expected: You should see files like:
+
+ai-optimized-local-seo-strategy.png
+
+
+If yes — perfect.
+If no — your backend wrote them to a wrong directory (e.g., /tmp or outside /public/).
+
+⚙️ Step 2: Check What URL the Front-End Is Using
+
+Open your browser’s Developer Tools → Network tab,
+and check the image request URL (the one showing as broken).
+
+Example:
+
+GET http://yourapp.com/hero/ai-optimized-local-seo-strategy.png 404
+
+
+✅ Expected: The URL path should map to where the file really is.
+
+If the file exists locally at public/hero/ai-optimized-local-seo-strategy.png,
+your SSR app (Node/Express/Next.js) must serve /hero as a static directory.
+
+⚙️ Step 3: Enable Static Serving (Node.js / Express)
+
+If using Express:
+
+import express from "express";
+import path from "path";
+
+const app = express();
+app.use("/hero", express.static(path.join(process.cwd(), "public", "hero")));
+
+
+This exposes /hero/... files publicly.
+
+If you’re on Next.js, verify your images are in the /public/hero folder and you use:
+
+<Image
+  src={`/hero/${slug}.png`}
+  alt={title}
+  width={1024}
+  height={1024}
+/>
+
+
+Or, if hosted on a bucket:
+
+<Image
+  src={`https://your-space-name.nyc3.digitaloceanspaces.com/hero/${slug}.png`}
+  alt={title}
+/>
+
+
+Then add the domain to next.config.js:
+
+module.exports = {
+  images: {
+    domains: ["your-space-name.nyc3.digitaloceanspaces.com"],
+  },
+};
+
+
+Rebuild with:
+
+npm run build && npm start
+
+🧠 Step 4: Check Database Field
+
+Your article should have a valid hero_image_url (or similar) field.
+
+Example SQL:
+
+SELECT id, title, hero_image_url FROM articles ORDER BY id DESC LIMIT 5;
+
+
+✅ Expected: URLs like:
+
+https://your-space-name.nyc3.digitaloceanspaces.com/hero/ai-optimized-local-seo-strategy.png
+
+
+If it’s blank, your backend never stored the URL — update your generator:
+
+await db("articles")
+  .update({ hero_image_url: imageUrl })
+  .where({ id: articleId });
+
+🧩 Step 5: Add a Safe Fallback
+
+If an image can’t load, ensure your front-end displays a placeholder instead of breaking the layout:
+
+<Image
+  src={hero_image_url || "/assets/no-hero.png"}
+  alt={title}
+  onError={(e) => e.target.src = "/assets/no-hero.png"}
+/>
+
+🔍 Step 6: Log Real-Time Image URLs in Dashboard
+
+Add a console or dashboard log in your generation service:
+
+console.log(`[HeroImage] Article: ${articleTitle}`);
+console.log(`[HeroImage] Image URL: ${imageUrl}`);
+
+
+This lets you confirm what URL was stored — if it’s missing a domain or /hero prefix, it won’t render.
+
+✅ Step 7: Quick Diagnostic Summary
+Issue	Symptom	Fix
+Wrong path	404 error	Map /hero → public/hero
+Missing URL	<img src="">	Save hero_image_url to DB
+Bad domain	Broken external image	Add domain to next.config.js
+No permissions	Image missing in Spaces	Check ACL = public-read
+Cached no-image	Browser cache	Hard-refresh or version URLs
+⚡ Optional: Add a Live Hero Image Test Endpoint
+
+Create a route to quickly verify image serving:
+
+app.get("/test-hero/:slug", (req, res) => {
+  const file = path.join(process.cwd(), "public", "hero", `${req.params.slug}.png`);
+  if (!fs.existsSync(file)) return res.status(404).send("Not found");
+  res.sendFile(file);
+});
+
+
+Test:
+
+http://yourapp.com/test-hero/ai-optimized-local-seo-strategy

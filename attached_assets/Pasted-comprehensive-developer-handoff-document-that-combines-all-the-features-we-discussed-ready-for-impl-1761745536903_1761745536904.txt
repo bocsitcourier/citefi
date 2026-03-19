@@ -1,0 +1,337 @@
+comprehensive developer handoff document that combines all the features we discussed, ready for implementation. This will include:
+
+System Architecture & SSR Deployment Notes (Next.js/Node.js on DigitalOcean)
+
+Database Schema & ERD diagrams (text-based for now)
+
+Async Job Queue & AI Workflow
+
+AI Prompt Design & Smart Generation Principles (BLUF, competitor grounding, SERP targeting, semantic clusters)
+
+Geo-SEO & Local Optimization Features
+
+Guided Content Wizard & UI/UX Flows
+
+Rich Content Editor Features (hyperlinking, images, audio/video, hashtags, social posts)
+
+SEO & Schema Markup Templates
+
+Admin Dashboard & Monitoring (token cost, Cost_Per_Rank, refresh suggestions)
+
+Error Logging & Schema Validation
+
+Export & Publishing Options (CSV, Google Sheets, WordPress API, Markdown)
+
+Here’s the full handoff document draft (text-based ERDs included).
+
+ApexContent Engine 5.0 — Developer Handoff Document
+
+Version: 5.0
+Deployment Target: DigitalOcean App Platform
+Stack: Next.js (SSR), Node.js/TypeScript, PostgreSQL, Redis/BullMQ, Gemini API, GPT-4 API, DigitalOcean Spaces
+
+Table of Contents
+
+System Architecture & Deployment
+
+Database Schema & ERD
+
+Async Job Queue & AI Workflow
+
+API Specifications
+
+AI Prompt Design & Smart Generation Principles
+
+Geo-SEO & Local Optimization
+
+Guided Content Wizard & UI/UX Flow
+
+Rich Content Editor Features
+
+Admin Dashboard & Reporting
+
+Schema Markup & SEO Templates
+
+Export & Publishing Options
+
+Error Handling & Monitoring
+
+1. System Architecture & Deployment
+
+Architecture Overview:
+
+User Browser
+    ↓
+Next.js SSR Server (Pages + API Routes)
+    ↓
+Job Queue Worker (BullMQ / Redis)
+    ↓
+AI Services:
+   - Gemini API → Draft Article + Hero Image
+   - GPT-4 API → Optimization, Hyperlinking, SEO & Schema
+    ↓
+PostgreSQL → Stores Users, Jobs, Articles, Assets, SEO Logs
+DigitalOcean Spaces → Stores Optimized Images/Media
+
+
+Deployment Notes:
+
+Next.js app is server-side rendered (SSR) for SEO.
+
+Use DigitalOcean App Platform for auto-scaling, high CPU/memory tiers for fast AI generation.
+
+Environment variables for API keys, DB credentials, and Spaces credentials.
+
+2. Database Schema & ERD
+Tables
+
+1. users
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	User ID
+email	VARCHAR(255)	UNIQUE, NOT NULL	Email
+password_hash	VARCHAR(255)	NOT NULL	Secure password
+role	VARCHAR(50)	NOT NULL	admin, client
+created_at	TIMESTAMP	DEFAULT NOW()	Registration
+
+2. job_batches
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	Batch Job ID
+user_id	INT	FK → users.id	Submitting user
+core_topic	VARCHAR(255)	NOT NULL	Main topic seed
+target_url	TEXT	NOT NULL	For hyperlinking
+status	VARCHAR(50)	NOT NULL	PENDING, RUNNING, PARTIAL_COMPLETE, COMPLETE, FAILED
+num_articles_requested	INT	NOT NULL	Desired articles
+title_pool_json	JSONB	NULL	Generated title pool
+competitor_urls	JSONB	NULL	Competitor grounding URLs
+topic_cluster	VARCHAR(255)	NULL	Semantic cluster selected
+serp_feature	VARCHAR(50)	NULL	Featured Snippet, PAA, List
+refresh_mode	BOOLEAN	DEFAULT FALSE	Refresh job
+created_at	TIMESTAMP	DEFAULT NOW()	Creation timestamp
+completed_at	TIMESTAMP	NULL	Completion timestamp
+
+3. articles
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	Article ID
+batch_id	INT	FK → job_batches.id	Parent batch
+article_status	VARCHAR(50)	NOT NULL	PENDING, GEMINI_DONE, GPT_DONE, COMPLETE, FAILED
+chosen_title	VARCHAR(255)	NOT NULL	Final title
+final_html_content	TEXT	NOT NULL	Ready-to-publish content
+slug	VARCHAR(255)	UNIQUE, NOT NULL	URL-friendly slug
+seo_title	VARCHAR(60)	NOT NULL	SEO title
+meta_description	VARCHAR(160)	NOT NULL	Meta description
+keywords_json	JSONB	NOT NULL	Long-tail keywords
+hashtags_json	JSONB	NOT NULL	Social hashtags
+internal_link_suggestions	JSONB	NULL	Anchor text + target URLs
+geo_accuracy_flag	BOOLEAN	DEFAULT TRUE	Geo content relevance
+last_refreshed	TIMESTAMP	NULL	Last refresh
+hero_image_url	TEXT	NULL	Generated hero image
+created_at	TIMESTAMP	DEFAULT NOW()	Creation
+
+4. article_assets
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	Asset ID
+article_id	INT	FK → articles.id	Parent article
+image_prompt_used	TEXT	NOT NULL	AI prompt
+storage_url	TEXT	NOT NULL	DigitalOcean Spaces URL
+alt_text	VARCHAR(255)	NOT NULL	SEO alt text
+file_format	VARCHAR(10)	NOT NULL	webp, jpg, etc.
+
+5. seo_logs
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	Log ID
+article_id	INT	FK → articles.id	Article reference
+tokens_used	INT	NOT NULL	Gemini + GPT
+cost_estimate	DECIMAL	NOT NULL	$
+rank_before	INT	NULL	Previous SERP rank
+rank_after	INT	NULL	Current SERP rank
+cost_per_rank	DECIMAL	NULL	Tokens / Rank Improvement
+geo_accuracy_score	INT	0–100	Local entity relevance
+created_at	TIMESTAMP	DEFAULT NOW()	Log time
+
+6. error_logs
+
+Column	Type	Constraints	Description
+id	SERIAL	PK	Error ID
+article_id	INT	FK → articles.id	Article reference
+error_type	VARCHAR(50)	NOT NULL	Gemini, GPT, schema_validation_failure, media_upload
+message	TEXT	NOT NULL	Error details
+created_at	TIMESTAMP	DEFAULT NOW()	Timestamp
+ERD (Text-Based)
+users (1) ──< job_batches (M) ──< articles (M) ──< article_assets (M)
+                     │
+                     └────> seo_logs (M)
+                     └────> error_logs (M)
+
+3. Async Job Queue & AI Workflow
+
+Queue: BullMQ on Redis
+
+Steps:
+
+User submits batch → /api/jobs/batch-submit → job stored in DB + queued
+
+Title Pool Generation → Gemini API → generate 50 titles
+
+Competitor Grounding → summarize top 3–5 competitor subheadings/entities
+
+Geo-SEO Draft → Gemini generates article draft + hero image
+
+GPT-4 Optimization → hyperlink keywords, insert schema markup, semantic cluster links, SERP feature formatting
+
+Technical SEO Validation → check headings, schema, HTML
+
+Geo-Accuracy Scoring → calculate 0–100 score
+
+Save Article & Assets → DB + DigitalOcean Spaces
+
+Admin Dashboard Updates → live progress, token cost, geo/SEO score
+
+4. API Specifications
+
+Job Batch
+
+POST /api/jobs/batch-submit
+Body: {
+  user_id,
+  core_topic,
+  num_articles,
+  target_url,
+  competitor_urls,
+  topic_cluster,
+  serp_feature
+}
+Response: { batch_id, status }
+
+GET /api/jobs/status/[id]
+Response: {
+  batch: { id, status, articles_generated, seo_score, geo_accuracy_score }
+}
+
+
+Article CRUD
+
+GET /api/articles/[id]
+PUT /api/articles/[id]
+PATCH /api/articles/[id]/refresh
+DELETE /api/articles/[id]
+Body (PUT/PATCH): {
+  final_html_content,
+  slug,
+  seo_title,
+  meta_description,
+  keywords_json,
+  hashtags_json,
+  internal_link_suggestions
+}
+
+
+Admin Reporting
+
+GET /api/admin/seo-report
+Response: {
+  article_id,
+  tokens_used,
+  cost_estimate,
+  rank_before,
+  rank_after,
+  cost_per_rank
+}
+
+5. AI Prompt Design & Smart Generation Principles
+
+BLUF: Lead with concise factual summary
+
+Competitor Grounding: Incorporate top competitor headings/entities
+
+SERP Feature Targeting: Featured snippet, PAA, List, Q&A
+
+Semantic Cluster Linking: Internal anchor text suggestions
+
+Geo-Optimization: Local landmarks, entities, slang, seasonal trends
+
+Content Refresh Mode: Update content based on rank drop
+
+Rich Media Integration: Hero image, audio/video uploads, embedded media
+
+6. Geo-SEO & Local Optimization
+
+Location inputs: City, State, ZIP, Neighborhood, Landmark
+
+Local entity integration, semantic keywords, structured data (FAQ, HowTo, Organization)
+
+Geo-Accuracy scoring (0–100), flagged for review if low
+
+7. Guided Content Wizard & UX/UI Flow
+
+Steps:
+
+Input Topic + Target URL + Competitor URLs
+
+Select Topic Cluster
+
+Choose SERP feature
+
+Set Article Length, # of Articles
+
+Generate Article → Live Dashboard shows progress
+
+Preview, edit, approve
+
+8. Rich Content Editor Features
+
+Inline HTML/Markdown editor (CodeMirror/Monaco)
+
+Edit slug, meta description, keywords, hashtags
+
+Hyperlink text
+
+Upload & edit images/audio/video
+
+Social media description with emojis & hashtags
+
+Internal link suggestions from cluster
+
+9. Admin Dashboard & Reporting
+
+Live progress of generation
+
+Token usage & Cost_Per_Rank calculation
+
+Content refresh suggestions
+
+Error logs & schema validation alerts
+
+Geo-Accuracy & SEO scoring
+
+10. Schema Markup & SEO Templates
+
+Article, HowTo, FAQPage, Organization
+
+Expandable sections for “What is…” and “How to…” queries
+
+Internal links mapped from Topic Cluster
+
+11. Export & Publishing Options
+
+CSV / Google Sheets
+
+WordPress REST API
+
+Markdown for CMS
+
+XML for Sitemap import
+
+12. Error Handling & Monitoring
+
+Structured logging (Pino/Winston)
+
+Health check endpoint /api/health
+
+Retry & backoff for API calls
+
+PM2 process management for workers

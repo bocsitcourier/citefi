@@ -1,0 +1,175 @@
+Social Media AI Module – Developer Handoff Document
+1. Purpose
+
+The Social Media AI Module generates, optimizes, and manages SEO- and GEO-aware social posts for platforms like X (Twitter), Facebook, Instagram, Pinterest, and LinkedIn. It creates posts based on article content and allows users to preview, edit, schedule, and auto-share posts with AI-generated images, hashtags, and captions.
+
+Key Goals:
+
+Generate platform-specific content automatically.
+
+Align posts with article SEO, GEO, and semantic clusters.
+
+Include AI-generated media (images/videos) relevant to platform and content.
+
+Allow user edits and provide a full dashboard for monitoring and scheduling.
+
+2. Stack
+
+Backend: Node.js (TypeScript), Express.js or Next.js API routes
+
+Database: PostgreSQL
+
+Async Queue: BullMQ (Redis-backed)
+
+Object Storage: DigitalOcean Spaces or S3-compatible storage
+
+AI Services: GPT-4 API, Gemini API (for image/video generation)
+
+Frontend: Next.js SSR pages with React components
+
+Social API Integration: Platform-specific SDKs / REST APIs (X, Facebook, Instagram, Pinterest, LinkedIn)
+
+3. Database Schema
+Tables
+
+social_posts
+
+Column	Type	Constraint	Description
+id	SERIAL	PK	Unique social post ID
+article_id	INT	FK (articles.id)	Related article
+platform	VARCHAR(20)	NOT NULL	Platform: X, Facebook, Instagram, etc.
+tone	VARCHAR(50)	NULL	Post tone (Friendly, Formal, Conversational)
+mood	VARCHAR(50)	NULL	Mood of post (Energetic, Calm, Professional)
+industry	VARCHAR(50)	NULL	Industry/sector context
+caption	TEXT	NOT NULL	AI-generated text
+hashtags_json	JSONB	NOT NULL	List of hashtags
+media_url	TEXT	NULL	AI-generated image/video URL
+schedule_at	TIMESTAMP	NULL	Scheduled posting time
+status	VARCHAR(50)	NOT NULL	PENDING / GENERATED / POSTED / FAILED
+created_at	TIMESTAMP	DEFAULT NOW()	Creation timestamp
+updated_at	TIMESTAMP	NULL	Last update timestamp
+
+social_post_logs
+
+Column	Type	Constraint	Description
+id	SERIAL	PK	Log entry ID
+social_post_id	INT	FK (social_posts.id)	Linked post
+action	VARCHAR(50)	NOT NULL	GENERATE, EDIT, DELETE, POSTED
+success	BOOLEAN	NOT NULL	Success/failure flag
+error_message	TEXT	NULL	Error details
+timestamp	TIMESTAMP	DEFAULT NOW()	Log timestamp
+4. API Endpoints
+Endpoint	Method	Purpose	Input/Body Parameters	Output/Response
+/api/social_posts/generate	POST	Generate AI social posts	article_id, platforms[], tone, mood, industry	posts[] (caption, hashtags, media_url)
+/api/social_posts/edit/[id]	PUT	Edit existing post	caption, hashtags, media_url, schedule_at	updated post object
+/api/social_posts/delete/[id]	DELETE	Delete a social post	social_post_id	success/failure
+/api/social_posts/schedule	POST	Schedule posts for auto-publishing	social_post_id, schedule_at	status update
+/api/social_posts/status/[id]	GET	Check current post status	social_post_id	status, errors, posted_time
+/api/social_posts/batch-delete	POST	Delete multiple posts at once	post_ids[]	success/failure
+5. AI Generation Workflow
+Step 1 – Input Collection
+
+User selects article, platforms, tone, mood, industry.
+
+Optional: input target keywords or hashtags.
+
+Step 2 – AI Generation (Async Job)
+
+BullMQ Queue: Each post generation is queued to allow batch generation and retries.
+
+Prompt Engineering:
+
+Base prompt on article content.
+
+Include platform-specific rules (e.g., X character limit, Instagram emojis, Pinterest keywords).
+
+GEO-optimized hashtags and captions.
+
+Generate media prompts for Gemini image/video generation.
+
+Step 3 – Media Generation
+
+Gemini generates platform-specific images or short videos.
+
+Assets optimized (resized, format converted) and stored in DO Spaces.
+
+URLs linked to social_posts table.
+
+Step 4 – Caption & Hashtag Optimization
+
+AI ensures semantic relevance, brand tone, and geo/local context.
+
+Generates multiple variants (3–5 per platform).
+
+Step 5 – Post Scheduling / Publishing
+
+Integrate with platform APIs for auto-posting.
+
+Status updates logged in social_post_logs.
+
+Retry logic for failed posts.
+
+6. Frontend / UI Features
+
+Dashboard Overview:
+
+View all posts, grouped by article.
+
+Status indicators (Generated, Pending, Posted, Failed).
+
+Quick filters by platform, status, scheduled date.
+
+Post Editor:
+
+Edit captions, hashtags, media.
+
+Preview platform-specific post appearance.
+
+Adjust tone/mood or regenerate AI suggestions.
+
+Batch Controls:
+
+Generate 1–50 posts at once.
+
+Delete single or multiple posts.
+
+Schedule posts with calendar view.
+
+Media Management:
+
+Inline upload/edit.
+
+AI image/video previews.
+
+Re-generate media from same prompt.
+
+7. ERD Diagram (Simplified)
+[articles] 1---* [social_posts] 1---* [social_post_logs]
+
+8. Deployment Considerations
+
+Async Worker: Node.js worker consuming BullMQ queue for generation & media processing.
+
+SSR Dashboard: Next.js for user-friendly dashboard & preview.
+
+Storage: DigitalOcean Spaces for media assets; CDN optional.
+
+API Rate Limits: Handle platform-specific API limits (X, Facebook, Instagram, LinkedIn, Pinterest).
+
+Logging: All actions logged in social_post_logs for auditing.
+
+9. Features Summary
+
+Platform-specific AI generation: captions, hashtags, emojis.
+
+AI-generated media per platform (images/videos).
+
+Auto-share & scheduling with retry handling.
+
+Full user dashboard with progress tracking.
+
+Editing tools: rich text, hashtags, images, videos.
+
+Batch operations: delete, regenerate, schedule multiple posts.
+
+Semantic GEO optimization and tone/mood adjustment.

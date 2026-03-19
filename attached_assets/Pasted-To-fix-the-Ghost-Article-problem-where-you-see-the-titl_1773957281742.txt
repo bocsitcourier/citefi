@@ -1,0 +1,58 @@
+To fix the "Ghost Article" problem (where you see the title and metadata but no body or images), we must ensure the Sender (your main engine) provides the full data package that the Receiver (the client website) is now expecting.
+
+This is the "Platinum" payload structure. It includes the encoded images so the receiver doesn't have to "guess" where they are.
+
+The "Platinum" POST Request (lib/publisher.ts)
+In your main worker, replace the simple metadata push with this comprehensive payload. This ensures the receiver has every tool it needs to build the page locally.
+
+TypeScript
+import axios from 'axios';
+import { db } from "../lib/db";
+import { articles, media } from "@/shared/schema";
+
+async function publishToClient(articleId: string, clientEndpoint: string) {
+  // 1. Fetch the Article and its associated Media from your DB
+  const [article] = await db.select().from(articles).where(eq(articles.id, articleId));
+  const articleMedia = await db.select().from(media).where(eq(media.articleId, articleId));
+
+  // 2. Convert Media to Base64 (The "Fuel" for the Receiver)
+  // This assumes you store images in an S3 bucket or local folder
+  const mediaPayload = await Promise.all(articleMedia.map(async (item) => {
+    const base64Data = await fetchImageAsBase64(item.url); // Helper to get the image bits
+    return {
+      id: item.url, // This matches the <img> src in the bodyHtml
+      filename: item.filename,
+      base64Data: base64Data
+    };
+  }));
+
+  // 3. Construct the Master Payload
+  const payload = {
+    title: article.title,
+    slug: article.slug,
+    metadata: {
+      description: article.description,
+      keywords: article.keywords,
+      persona: article.persona,
+      author: "Apex AI Engine"
+    },
+    bodyHtml: article.contentHtml, // The raw HTML with the temporary <img> tags
+    media: mediaPayload          // The actual image data to be saved on the client
+  };
+
+  // 4. Send to the Receiver's new 'upsertArticleByTitle' endpoint
+  try {
+    const response = await axios.post(`${clientEndpoint}/api/v1/articles/upsert`, payload, {
+      headers: { 'Authorization': `Bearer ${process.env.CLIENT_API_KEY}` }
+    });
+    console.log(`✅ Successfully pushed to ${clientEndpoint}:`, response.data);
+  } catch (error) {
+    console.error(`❌ Deployment failed for ${article.title}:`, error.response?.data || error.message);
+  }
+}
+Why this solves the "Ghosting" & "404" gaps:
+Synchronized Handshake: The Receiver now has a function named upsertArticleByTitle. By sending this specific JSON structure, you satisfy the "not a function" error Replit found.
+
+No More Broken Images: Because you are sending the base64Data, the receiver can save those images into its own /public folder. The Cheerio logic we wrote in the previous step then rewrites the HTML to point to its own local files.
+
+Enterprise Resilience: Even if your main engine goes offline, the client's website (Private In-Home Caregiver) stays 100% functional because it now "owns" the HTML and the Images.

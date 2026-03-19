@@ -1,0 +1,257 @@
+ApexContent Engine – Full Developer Handoff Document (SSR, Node.js, DigitalOcean Deployment)
+1. System Overview
+
+Purpose:
+A high-speed, scalable AI content generation web app that produces SEO- and GEO-optimized articles with social media posts. Supports batch article generation, rich editing, media uploads, internal linking, semantic clusters, and localized SERP optimization.
+
+Stack:
+
+Frontend: Next.js 14+ with SSR (App Router)
+
+Backend: Node.js 20+ with TypeScript
+
+Database: PostgreSQL (Managed via DigitalOcean)
+
+Job Queue / Async Processing: BullMQ (Redis-backed)
+
+Object Storage: DigitalOcean Spaces (S3-compatible)
+
+AI Services: Gemini API, GPT-4 API
+
+Social API Integration: X (Twitter), Facebook, Instagram, Pinterest, LinkedIn
+
+Deployment: DigitalOcean App Platform or Droplets, Docker optional
+
+2. High-Level Architecture
+        +----------------+
+        |  User Browser  |
+        |  (Web App)     |
+        +--------+-------+
+                 |
+        SSR / API Requests
+                 |
+        +--------v-------+
+        |  Next.js SSR   |  <-- Frontend + API routes
+        +--------+-------+
+                 |
+        +--------v-------+      +------------------+
+        |  Node.js API   +----->| BullMQ Job Queue |
+        +--------+-------+      +------------------+
+                 |
+        +--------v-------+
+        | PostgreSQL DB  |
+        | (Users, Jobs,  |
+        | Articles, Logs)|
+        +--------+-------+
+                 |
+        +--------v-------+
+        | DigitalOcean   |
+        | Spaces (Media) |
+        +----------------+
+
+
+Notes:
+
+SSR ensures pages and dashboards are SEO-friendly.
+
+Async job queue decouples AI generation, image processing, and social post generation from the frontend.
+
+Redis handles queue management and caching.
+
+PostgreSQL handles relational data: jobs, users, articles, social posts, error logs, SEO metrics.
+
+3. Database Schema (ERD)
+
+Tables:
+
+users
+Column	Type	Constraint	Description
+id	SERIAL	PRIMARY KEY	Unique user ID
+email	VARCHAR(255)	UNIQUE, NOT NULL	Login email
+password_hash	TEXT	NOT NULL	Secure password storage
+role	VARCHAR(50)	NOT NULL	admin / editor / client
+created_at	TIMESTAMP	DEFAULT NOW()	Creation timestamp
+job_batches
+Column	Type	Constraint	Description
+id	SERIAL	PRIMARY KEY	Batch Job ID
+user_id	INT	FK (users.id)	Submitting user
+core_topic	VARCHAR(255)	NOT NULL	Topic seed
+status	VARCHAR(50)	NOT NULL	PENDING / RUNNING / COMPLETE / PARTIAL_COMPLETE / FAILED
+num_articles_requested	INT	NOT NULL	Total articles in batch
+competitor_urls_json	JSONB	NULL	Array of 1–3 URLs for grounding
+semantic_cluster_id	INT	NULL	Optional linking cluster
+serp_feature_target	VARCHAR(50)	NULL	Featured Snippet / PAA / List
+created_at	TIMESTAMP	DEFAULT NOW()	
+completed_at	TIMESTAMP	NULL	Batch completion timestamp
+articles
+Column	Type	Constraint	Description
+id	SERIAL	PRIMARY KEY	Unique article ID
+batch_id	INT	FK (job_batches.id)	Parent batch
+article_status	VARCHAR(50)	NOT NULL	PENDING / GEMINI_DONE / GPT_DONE / COMPLETE / FAILED
+chosen_title	VARCHAR(255)	NOT NULL	Selected title
+final_html_content	TEXT	NOT NULL	Final HTML with links/images
+seo_title	VARCHAR(60)	NOT NULL	SEO title
+meta_description	VARCHAR(160)	NOT NULL	SEO meta description
+slug	VARCHAR(255)	UNIQUE, NOT NULL	URL-friendly slug
+keywords_json	JSONB	NOT NULL	Long-tail keywords
+hashtags_json	JSONB	NOT NULL	Social hashtags
+geo_accuracy_score	INT	NULL	0–100, for local relevance
+internal_link_suggestions	JSONB	NULL	Suggested anchors for cluster linking
+created_at	TIMESTAMP	DEFAULT NOW()	
+article_assets
+Column	Type	Constraint	Description
+id	SERIAL	PRIMARY KEY	Asset ID
+article_id	INT	FK	Parent article
+image_prompt	TEXT	NOT NULL	Original AI prompt
+storage_url	TEXT	NOT NULL	DO Spaces public URL
+alt_text	VARCHAR(255)	NOT NULL	SEO alt text
+file_format	VARCHAR(10)	NOT NULL	webp/jpg
+seo_logs
+Column	Type	Constraint	Description
+id	SERIAL	PK	Log ID
+article_id	INT	FK	Article reference
+token_cost	FLOAT	NOT NULL	AI token consumption
+geo_accuracy_score	INT	NULL	0–100 score
+schema_validation_fail	BOOLEAN	DEFAULT FALSE	Schema validation status
+rank_tracking_score	FLOAT	NULL	Optional rank improvement metric
+created_at	TIMESTAMP	DEFAULT NOW()	Log creation timestamp
+social_posts
+Column	Type	Constraint	Description
+id	SERIAL	PK	Unique post ID
+article_id	INT	FK	Source article
+platform	VARCHAR(20)	NOT NULL	X, Facebook, Instagram, Pinterest, LinkedIn
+caption	TEXT	NOT NULL	Generated caption with hashtags
+hashtags_json	JSONB	NOT NULL	SEO + GEO hashtags
+media_url	TEXT	NULL	AI-generated image/video URL
+schedule_at	TIMESTAMP	NULL	Scheduled auto-post time
+status	VARCHAR(50)	NOT NULL	PENDING / POSTED / FAILED
+4. API Specifications
+Job & Article Management
+Endpoint	Method	Purpose	Input Body/Params	Output
+/api/jobs/title-pool	POST	Generate 50-title pool	core_topic: string, numTitles: int	pool: string[], primarySEO: object
+/api/jobs/batch-submit	POST	Submit bulk job	userId: int, batchConfig: object	batchId, status
+/api/jobs/status/[id]	GET	Retrieve batch status	batch_id (URL param)	batch progress (articles done)
+/api/articles/[id]	GET	Retrieve full article	article_id	article object (HTML, SEO data, assets)
+/api/articles/[id]	PUT	Update article	updates JSON (slug, meta, keywords, hashtags, internal links)	updated article object
+/api/social_posts/generate	POST	Generate AI social posts	article_id, platforms[], tone, mood, industry	posts[]
+/api/social_posts/schedule	POST	Schedule auto-share	social_post_id, schedule_at	status
+AI Processing Workflow (Async Jobs)
+
+Batch Queue (BullMQ + Redis)
+
+Jobs: article generation, image processing, GPT-4 SEO/Geo optimization, social post generation.
+
+Retry logic & concurrency limits.
+
+Stage 1 – Gemini Draft Generation
+
+Input: user topic, competitor URLs, target geo, semantic cluster, desired SERP feature.
+
+Output: structured JSON (article_text, subheadings, image prompts, keywords, hashtags).
+
+Stage 2 – Asset Generation
+
+Input: image/video prompts from Stage 1.
+
+Processing: Sharp / FFmpeg to optimize and convert images/videos to web-friendly formats.
+
+Output: Storage URLs for HTML embedding.
+
+Stage 3 – GPT-4 SEO & Geo Optimization
+
+Input: draft article, internal link suggestions, competitor data.
+
+Actions: Insert hyperlinks, format H1/H2/H3, validate schema markup (Article, FAQ, HowTo).
+
+Output: final_html_content, meta, slug, geo score, suggested social posts.
+
+Stage 4 – Social Post Generation
+
+Input: final_html_content, tone/mood, platform, industry.
+
+Output: 3–5 smart posts per platform with hashtags, emojis, AI-generated image/video.
+
+5. Frontend & UX/UI
+
+Dashboard (SSR): Job progress, geo-score, SEO-score, social post previews.
+
+Article Editor:
+
+Rich text editor (Monaco / CodeMirror).
+
+Inline image/video/audio uploads.
+
+Edit slug, meta, keywords, hashtags.
+
+Preview final HTML and social media formats.
+
+Batch Controls: Delete single article or full batch.
+
+Social Post Manager: Edit, schedule, auto-share, delete posts.
+
+Admin Panel: View all users, jobs, SEO logs, error logs, cost-per-rank reports, refresh suggestions.
+
+6. Deployment (DigitalOcean)
+
+App Platform or Droplets: Node.js with Next.js SSR.
+
+Environment Variables: Gemini & GPT API keys, DB credentials, DO Spaces credentials.
+
+Auto-Scaling: At least 2 instances for high concurrency.
+
+PM2: Process management and auto-restart for job workers.
+
+Redis: Hosted or self-managed for BullMQ queue.
+
+Backups: Daily PostgreSQL snapshot & Spaces backup.
+
+7. SEO & Geo Optimization Rules
+
+Inverted pyramid style with BLUF first.
+
+H2/H3 question-based headings, bulleted lists, tables, FAQs.
+
+Semantic keywords, internal linking, structured schema markup.
+
+Geo-accuracy score 0–100; local entity inclusion mandatory.
+
+Competitor URLs used as grounding reference for content coverage.
+
+SERP targeting (Featured Snippet, PAA, Lists) adjusts prompt and formatting.
+
+Cost-per-rank tracking and content refresh suggestions included.
+
+8. Admin Modules & Features
+
+View all batches, individual articles, logs, SEO performance.
+
+Error log monitoring, schema validation failures, Geo score alerts.
+
+Token consumption and cost-per-rank calculations.
+
+Trigger "Refresh Existing Content" mode on underperforming articles.
+
+Permission-based access control for user roles.
+
+9. ERD Diagram (Conceptual)
+[users] 1---* [job_batches] 1---* [articles] 1---* [article_assets]
+            |                  |
+            |                  *--- [seo_logs]
+            |
+            *---* [social_posts]
+
+10. Additional Features
+
+Guided content wizard with topic, competitor URLs, geo-location, semantic cluster, and SERP feature input.
+
+Fast batch generation (1–50 articles) with progress updates.
+
+Multi-platform AI social post generation with media.
+
+Editing capabilities: rich text, images, videos, audio, SEO fields.
+
+Auto-link internal content and semantic clusters.
+
+Structured data validation and schema markup embedding.
+
+Token usage logging and cost optimization.

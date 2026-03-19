@@ -1,0 +1,22 @@
+Deterministic Humanization (DH-Spec)The goal is to solve for "The Uncanny Valley of Perfection." AI is too smooth; humans are "bursty." We don't simulate emotion; we simulate Structural Entropy.1. The DH-Pipeline ArchitectureThe pipeline must exist as a Stateless Middleware between the Fact-Gated Validator and the Delivery API.2. Module A: The Prosody Engine (Computational Burstiness)Humans exhibit high variance in sentence length ($L$). An AI's $L$ distribution is usually a tight Bell Curve. A human's is "Bursty."The Logic:Calculate the variance $\sigma^2$ of sentence lengths in the raw output:$$\sigma^2 = \frac{1}{n} \sum_{i=1}^{n} (L_i - \mu)^2$$Platinum Rule: If $\sigma^2 < \text{Threshold}_T$, the engine triggers Recursive Splitting/Joining.The 3-1-2 Rhythm Pattern: The engine enforces a sequence where every three long sentences ($>20$ words) are punctuated by a "Stinger" ($<7$ words).3. Module B: Semantic Scrub & Lexical MappingWe replace "AI-Fingerprint" tokens using a Tiered Replacement Matrix. This is a hard-coded dictionary, ensuring no LLM "drift."TierCategoryAI PatternDeterministic ReplacementITransitions"Furthermore," "Moreover""Also," "And," or [Delete]IISuperlatives"Tapestry," "Revolutionary"[Contextual Noun]IIIHedges"It is important to note..."[Delete - Start with Noun]IVComplexity"Utilize," "Facilitate""Use," "Help"Audit Rule: If a replacement word is not in the "Safe-Thesaurus," the transformation is aborted.4. Module C: Syntactic "Jitter" (Controlled Asymmetry)This module breaks the "Grammatical Mirroring" common in AI (where every sentence starts with [Subject] + [Verb]).Anaphora Break: If three consecutive sentences start with the same Part-of-Speech (e.g., Noun-Noun-Noun), the second sentence is transformed into a Prepositional Lead.Raw: "The fleet is large. The trucks are fast. The drivers are safe."Processed: "The fleet is large. With fast trucks and safe drivers, we deliver."Contraction Enforcement: A deterministic regex-based pass forces all [Noun] + [Verb] into [Contraction] (e.g., "Company is" $\rightarrow$ "Company's"), lowering the formal temperature without losing authority.5. Module D: The "Fact-Lock" Integrity GuardThis is the most critical Platinum layer. It prevents the humanization rules from accidentally breaking Rule Zero.The "Entity Intersection" Test:Before the humanized text is released, it must pass a Vector-Free Integrity Check:Extract Noun Phrases (NPs) from the Raw text.Extract NPs from the Humanized text.Verification: $\text{Set}(NP_{Humanized}) \subseteq \text{Set}(NP_{Raw})$.Result: If the Humanization Engine added a noun (e.g., "The friendly courier") that wasn't in the Fact-Lock, the system Aborts.6. Implementation Specification (The "Kill Switch")A Platinum system does not "try its best." It either succeeds or it fails.JavaScript/**
+ * Platinum Standard Humanization Wrapper
+ */
+async function assembleContent(factObject, styleConfig) {
+  let draft = await generateGroundedDraft(factObject); // LLM Call
+  
+  // Deterministic Chain starts here
+  try {
+    const validated = validateFactBinding(draft, factObject);
+    const rhytmicallyAdjusted = applyBurstiness(validated, 0.45);
+    const scrubbed = applyLexicalScrub(rhytmicallyAdjusted, "standard_v2");
+    const formatted = applyChannelFormatting(scrubbed, styleConfig);
+    
+    // Final Integrity Check
+    if (integrityCheck(draft, formatted)) {
+      return formatted;
+    }
+  } catch (e) {
+    return logErrorAndAbort(e); // Never ship "almost right"
+  }
+}
+7. Why this is "Platinum"Zero Hallucination Surface: Because the humanizer is a script, not an AI, it cannot imagine.Brand Consistency: You tune the "Burstiness" once, and every piece of content globally follows that exact rhythm.Speed: Deterministic regex and string manipulation run in milliseconds, whereas a "Humanizing LLM" adds latency and cost.Legal Safety: The "Entity Intersection" test provides a mathematical proof that the humanization process did not add unverified claims.

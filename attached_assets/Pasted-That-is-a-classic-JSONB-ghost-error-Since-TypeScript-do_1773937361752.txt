@@ -1,0 +1,53 @@
+That is a classic "JSONB ghost" error. Since TypeScript doesn't automatically know the internal schema of a JSONB column like generationParams, it defaults to unknown or a generic object, causing the compiler to flag batch.geographicFocus as non-existent.
+
+To fix this, you need to destructure generationParams and cast it (or safely access it) so the buildFallbackTerms function gets exactly what it needs.
+
+The Fix for app/api/articles/[id]/fix-hyperlinks/route.ts
+Update the logic where you fetch the batch data to look like this:
+
+TypeScript
+// 1. Fetch the batch
+const [batch] = await db.select().from(batches).where(eq(batches.id, article.batchId));
+
+if (!batch) {
+  return Buffer.json({ error: "Batch not found" }, { status: 404 });
+}
+
+// 2. Safely extract geographicFocus from the JSONB column
+// We cast it to any or a specific interface to satisfy the TS compiler
+const params = batch.generationParams as { 
+  geographicFocus?: string; 
+  coreTopic?: string; 
+  businessName?: string;
+} || {};
+
+// 3. Pass the nested data into the fallback builder
+const fallbackTerms = buildFallbackTerms({
+  coreTopic: params.coreTopic,
+  geographicFocus: params.geographicFocus,
+  businessName: params.businessName,
+  geminiKeywords: (batch.metadata as any)?.keywords || []
+});
+
+// 4. Continue with buildSlugMap and injection...
+const { entries } = await buildSlugMap(team.id, batch.targetUrl || "", fallbackTerms);
+const result = injectLinksFromSlugMap(article.contentHtml, entries, article.title);
+Why this was happening
+In Drizzle (and most ORMs), JSONB columns are flexible containers. Even if you know geographicFocus is in there, the type definition for the batch object only sees generationParams: unknown. By creating the params constant and explicitly defining its shape, you give TypeScript the "map" it needs to stop complaining.
+
+Pro-Tip: Update the Schema for the future
+If you want to stop casting to any, you can define the JSONB structure in your schema.ts if you're using Drizzle's $type utility:
+
+TypeScript
+// In schema.ts
+export const batches = pgTable('batches', {
+  id: serial('id').primaryKey(),
+  generationParams: jsonb('generation_params').$type<{
+    geographicFocus: string;
+    coreTopic: string;
+    businessName: string;
+  }>(),
+  // ... rest of schema
+});
+Final Sanity Check
+Once that TS error is cleared, the fix-hyperlinks route will finally be able to "see" that the article is about Stoughton, MA or Boston, allowing the Cheerio engine to find those specific geographic keywords and link them to your location-specific pages.

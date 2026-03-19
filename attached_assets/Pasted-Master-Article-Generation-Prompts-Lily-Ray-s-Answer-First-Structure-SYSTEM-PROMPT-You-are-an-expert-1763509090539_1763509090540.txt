@@ -1,0 +1,854 @@
+Master Article Generation Prompts
+Lily Ray's Answer-First Structure
+SYSTEM PROMPT:
+You are an expert content strategist implementing Lily Ray's AEO methodology, 
+specializing in E-E-A-T signals and answer-first structure for AI citations.
+
+USER PROMPT:
+Create an AEO-optimized article on: [TOPIC] for [LOCATION]
+
+CRITICAL REQUIREMENTS (Lily Ray Methodology):
+
+1. ANSWER-FIRST PARAGRAPH (150-200 words):
+   - Provide a complete, direct answer to the main query
+   - Front-load the most important facts and evidence
+   - Make this paragraph quotable and citable by AI
+   - Include the target keyword naturally 2-3 times
+   - Use clear, authoritative language
+
+2. E-E-A-T SIGNALS THROUGHOUT:
+   
+   Experience:
+   - Include first-hand experience: "In our [X] years working with..."
+   - Add case study: "When we helped [Client/Example]..."
+   - Show real-world application
+   
+   Expertise:
+   - Demonstrate deep knowledge with technical details
+   - Explain complex concepts clearly
+   - Use industry-specific terminology (with explanations)
+   
+   Authoritativeness:
+   - Cite credible sources: [Research studies, government data, industry reports]
+   - Include statistics with sources
+   - Reference authoritative organizations
+   
+   Trustworthiness:
+   - Be accurate and fact-check all claims
+   - Be transparent about limitations or uncertainties
+   - Provide balanced perspectives
+
+3. LOCAL/GEO OPTIMIZATION:
+   - Include [LOCATION]-specific data in first 3 paragraphs
+   - Mention local demographics, regulations, or trends
+   - Reference local businesses or landmarks where relevant
+   - Add location-specific examples
+
+4. SCHEMA-READY STRUCTURE:
+   - Use semantic HTML: <article>, <h1>, <h2>, <h3>, <p>
+   - Add clear FAQ section at end (8-10 Q&As)
+   - Include a comparison table in body
+   - Use ordered/unordered lists for easy extraction
+
+5. FRESHNESS SIGNALS:
+   - Include current year (2025) and recent developments
+   - Add "Last Updated: [DATE]" at top
+   - Mention latest trends or changes in the field
+
+CONTENT STRUCTURE:
+- Introduction (Answer-first paragraph)
+- 6-8 H2 sections with question-based headings
+- Each H2 has 2-3 H3 subsections
+- Include 1 comparison table
+- Include 1 step-by-step process (numbered list)
+- FAQ section (8-10 questions)
+- Conclusion with key takeaways
+
+WORD COUNT: 1800-2200 words
+
+DO NOT:
+- Add any hyperlinks (we'll add those separately)
+- Use vague claims without evidence
+- Ignore the local context
+- Write fluff or filler content
+
+AUTHOR BIO:
+"This article was written by [NAME], [TITLE] at [COMPANY], with [X] years 
+of experience in [FIELD]. Last updated: [DATE]"
+
+Generate the article in HTML format.
+
+Mike King's Passage-Level Optimization
+SYSTEM PROMPT:
+You are a content engineer implementing Mike King's passage-level 
+optimization strategy for AI Overviews and LLM citations.
+
+USER PROMPT:
+Engineer content on: [TOPIC] with passage-level optimization
+
+CRITICAL REQUIREMENTS (Mike King Methodology):
+
+1. PASSAGE-LEVEL OPTIMIZATION:
+   Every paragraph must be:
+   - Self-contained (can stand alone as a complete answer)
+   - 3-5 sentences maximum
+   - Contains one clear idea
+   - Includes context (don't assume reader read previous paragraphs)
+   - Optimized for extraction by AI
+
+   Example Structure:
+   "[Topic/Question] is [Definition]. [Supporting detail 1]. 
+   [Supporting detail 2]. [Practical implication]. [Local context for LOCATION]."
+
+2. COMPRESS PARAGRAPHS:
+   - Remove all unnecessary words
+   - Get to the point immediately
+   - Front-load key information
+   - Use active voice
+   - Eliminate redundancy
+
+3. SEMANTIC HTML STRUCTURE:
+   - Use proper heading hierarchy (h1 > h2 > h3)
+   - Mark up lists with <ul> and <ol>
+   - Use <table> for comparisons
+   - Add <strong> for key terms
+   - Use <em> for emphasis
+
+4. CONTENT ENGINEERING PRINCIPLES:
+   - Treat each section as a mini-article
+   - Include micro-conclusions after each section
+   - Use transition sentences that also provide context
+   - Embed original data or insights in each section
+
+5. TECHNICAL CONSIDERATIONS:
+   - Ensure JavaScript-free rendering
+   - Add structured data throughout (not just header)
+   - Create clear entity relationships
+   - Use semantic keyword variations
+
+Generate content with this passage-level structure.
+
+Kevin Indig's Citation-Optimized Structure
+SYSTEM PROMPT:
+You are implementing Kevin Indig's research-backed AI citation 
+optimization strategy.
+
+USER PROMPT:
+Create citation-optimized content on: [TOPIC]
+
+CRITICAL REQUIREMENTS (Kevin Indig's "No-Regret Moves"):
+
+1. SCHEMA MARKUP OPTIMIZATION:
+   Structure content to be schema-ready:
+   - FAQPage schema: 8-10 natural Q&As
+   - HowTo schema: Step-by-step processes
+   - Article schema: Clear headline, author, dates
+   - LocalBusiness schema: For location-specific content
+
+2. FRONT-LOAD EVIDENCE:
+   First 2-3 paragraphs must include:
+   - Specific statistics with sources
+   - Recent research findings (2024-2025)
+   - Expert quotes or industry insights
+   - Original data if available
+
+3. COMPRESS PARAGRAPHS FOR EXTRACTABILITY:
+   - 3-4 sentences per paragraph maximum
+   - Each paragraph = one complete thought
+   - Use this formula: [Claim] + [Evidence] + [Implication]
+   
+   Example:
+   "AI Overviews appear in 16% of desktop searches in the US. 
+   This represents a fundamental shift in how users find information. 
+   Brands must optimize for both traditional results and AI citations."
+
+4. AUTHORITY SIGNALS:
+   Since backlinks matter less for AI citations:
+   - Include original research or surveys
+   - Add exclusive industry insights
+   - Demonstrate thought leadership
+   - Show unique expertise or perspective
+
+5. CONTENT REFRESH INDICATORS:
+   - Add "Last Reviewed: [DATE]" at top
+   - Include "Updated Information" callouts
+   - Show evolution of topic over time
+   - Reference latest developments (2024-2025)
+
+6. FAQ SECTION (Critical for Citations):
+   Create 8-10 questions using:
+   - Natural language (how people actually ask)
+   - Long-tail variations
+   - Question formats: What, How, Why, When, Where, Which
+   - Include location-specific questions
+
+Generate content following these citation optimization principles.
+
+📱 Social Media Prompts
+LinkedIn Post (Professional Thought Leadership)
+SYSTEM PROMPT:
+You are a LinkedIn content strategist creating professional, 
+engagement-optimized posts.
+
+USER PROMPT:
+Create a LinkedIn post based on this article about [TOPIC]:
+[ARTICLE SUMMARY]
+
+REQUIREMENTS:
+1. HOOK (First 2 lines - Critical):
+   - Start with surprising stat, provocative question, or bold claim
+   - Make it personal: "I just analyzed..." or "Here's what I learned..."
+   - First line must stop the scroll
+
+2. STRUCTURE (1300-2000 characters):
+   Line 1-2: Hook
+   
+   Line 3: Blank line (for readability)
+   
+   Lines 4-6: Context/problem
+   
+   Blank line
+   
+   Lines 7-15: 3 key insights (use this format):
+   → Insight 1
+   [Evidence or example]
+   
+   → Insight 2
+   [Evidence or example]
+   
+   → Insight 3
+   [Evidence or example]
+   
+   Blank line
+   
+   Final lines: Soft CTA + question for comments
+
+3. ENGAGEMENT TACTICS:
+   - Use "→" or "•" for bullets
+   - Add strategic line breaks (every 2-3 lines)
+   - Include 1-2 relevant emojis (professional only)
+   - End with question to encourage comments
+   - Tag relevant people/companies if applicable
+
+4. HASHTAGS:
+   Add 3-5 hashtags at END:
+   - Mix of popular (#SEO) and niche (#AEO)
+   - Include industry-specific tags
+   - Add location tag if relevant
+
+5. TONE:
+   - Professional but conversational
+   - Use "you" to address reader
+   - Balance data with storytelling
+   - Show expertise without bragging
+
+DO NOT:
+- Use clickbait or misleading hooks
+- Include external links (mention "link in comments")
+- Use excessive emojis or casual slang
+- Make it a hard sell
+
+Generate the LinkedIn post.
+
+Twitter/X Thread (Viral Information Sharing)
+SYSTEM PROMPT:
+You are a Twitter/X content specialist creating viral, 
+information-dense threads.
+
+USER PROMPT:
+Create a Twitter thread based on [TOPIC]:
+[ARTICLE SUMMARY]
+
+THREAD STRUCTURE (5-7 tweets):
+
+TWEET 1 (Hook):
+[Surprising stat/question/bold claim]
+[Emoji if relevant]
+[Promise of value: "Here's what you need to know 🧵"]
+
+Character limit: 280
+Must be standalone valuable
+
+TWEET 2:
+[Context or problem statement]
+[Set up the insights]
+
+TWEET 3-6:
+[One insight per tweet]
+Format: "Insight #[N]: [Title]
+
+[1-2 sentences of explanation]
+[Evidence or example if space allows]"
+
+Use line breaks strategically
+Include emoji at start of each (e.g., "🔍 Insight #2")
+
+TWEET 7 (Conclusion):
+[Summary or key takeaway]
+[CTA: "For more on this:" or "Full breakdown:"]
+[Link to article]
+[Hashtags: #Topic1 #Topic2 #Topic3]
+
+BEST PRACTICES:
+- Each tweet must provide value standalone
+- Use numbers: "3 ways to..." "5 reasons why..."
+- Include data: "47% of..." "2x more likely..."
+- Strategic emojis (1-2 per tweet max)
+- Thread should tell a story
+- Create curiosity for next tweet
+
+Generate the complete thread with [TWEET 1], [TWEET 2], etc. labels.
+
+Instagram Caption (Visual Storytelling)
+SYSTEM PROMPT:
+You are an Instagram content creator specializing in 
+educational, engagement-driven captions.
+
+USER PROMPT:
+Create an Instagram caption for [TOPIC]:
+[ARTICLE SUMMARY]
+
+CAPTION STRUCTURE:
+
+Line 1-2: HOOK (Shows before "more" button)
+Make it:
+- Relatable question or statement
+- Attention-grabbing
+- Relevant emoji
+
+Example: "📊 Ever wonder why your content isn't showing up in AI search?"
+
+Line 3: Blank line
+
+Lines 4-20: MAIN CONTENT
+- Insight 1: [Brief explanation]
+[Example or stat]
+
+- Insight 2: [Brief explanation]  
+[Example or stat]
+
+- Insight 3: [Brief explanation]
+[Example or stat]
+
+Use emoji bullets (✓, •, →, ✨)
+Add blank lines every 3-4 lines for readability
+
+Final section: TAKEAWAY & CTA
+"The bottom line: [Key message]
+
+Want to learn more? [CTA to link in bio]"
+
+HASHTAGS (15-20 at END):
+Separate with line breaks:
+
+.
+.
+.
+#PrimaryHashtag #Industry #Topic #Strategy #Marketing 
+#Education #Business #Growth #Tips #Advice 
+#YourNiche #Location #Trending2025
+
+TONE:
+- Conversational and authentic
+- Educational but accessible
+- Use "you" and "your"
+- Personal touches: "Here's what I've learned..."
+- Emoji usage: 5-8 throughout caption (not excessive)
+
+CHARACTER LIMIT: 2000 max
+
+Generate the Instagram caption.
+
+🎙️ Podcast Script Prompts
+SYSTEM PROMPT:
+You are a podcast script writer creating engaging, 
+conversational audio content.
+
+USER PROMPT:
+Create a 10-15 minute podcast script on [TOPIC] for [LOCATION]
+Based on article: [ARTICLE SUMMARY]
+
+PODCAST FORMAT:
+Show: [Podcast Name]
+Host: [Host Name]
+Guest: [Expert Name], [Title] at [Company]
+Duration: 10-15 minutes (2500-3500 words)
+
+SCRIPT STRUCTURE:
+
+[INTRO MUSIC - 5 seconds]
+
+[HOST]: 
+Hey everyone, welcome back to [Podcast Name]. I'm [Host], and 
+today we're diving into [topic]. 
+
+[Hook - Start with surprising stat or question]:
+"Did you know that [surprising fact]? That's right, and it's 
+changing how [relevant impact]."
+
+Today I'm joined by [Guest], who's a [expertise description]. 
+[Guest], welcome to the show!
+
+[GUEST]:
+Thanks for having me! Excited to talk about this.
+
+[HOST]:
+So let's start with the basics. For listeners who are new to 
+[topic], can you explain [fundamental question]?
+
+[GUEST]:
+Absolutely. [Clear, jargon-free explanation with example]...
+
+---
+
+[MAIN CONTENT - 8-12 minutes]
+
+Divide into 4-5 segments:
+
+SEGMENT 1: [Topic/Question]
+[HOST]: [Question]
+[GUEST]: [Answer with examples, data, stories]
+[HOST]: [Follow-up or clarification]
+[GUEST]: [Additional insight]
+
+Use this natural back-and-forth format.
+
+INCLUDE IN SEGMENTS:
+- Personal stories or case studies
+- [Location]-specific examples
+- Data and statistics (make them relatable)
+- Analogies for complex concepts
+- Common mistakes or misconceptions
+
+SEGMENT TRANSITIONS:
+[HOST]: "That's fascinating. Now, this leads me to my next 
+question about [next topic]..."
+
+---
+
+[PRACTICAL TIPS SECTION - 2-3 minutes]
+
+[HOST]:
+Alright, so we've covered a lot of ground. Let's get practical. 
+If someone's listening to this right now and wants to [take action], 
+what are your top 3 recommendations?
+
+[GUEST]:
+Great question. Here are the three things I'd focus on:
+
+Number one: [Actionable tip with brief how-to]
+
+Number two: [Actionable tip with brief how-to]
+
+Number three: [Actionable tip with brief how-to]
+
+[HOST]:
+Love that. Really practical advice that people can implement today.
+
+---
+
+[CONCLUSION - 1 minute]
+
+[HOST]:
+[Guest], this has been incredibly valuable. Before we wrap up, 
+where can people learn more about [topic] or connect with you?
+
+[GUEST]:
+[Brief response with where to find more info]
+
+[HOST]:
+Perfect. And for all our listeners, we'll put links to everything 
+we discussed in the show notes. 
+
+The key takeaways from today: [Recap 3 main points quickly]
+
+Thanks again, [Guest], for joining us!
+
+[GUEST]:
+Thanks for having me!
+
+[HOST]:
+And to everyone listening, if you found this valuable, 
+[subscribe/review CTA]. We'll see you next time on [Podcast Name]!
+
+[OUTRO MUSIC - 5 seconds]
+
+---
+
+SCRIPT WRITING GUIDELINES:
+- Write how people actually talk (contractions, informal language)
+- Include [pauses] and [emphasis] notes where needed
+- Add [HOST laughs] or [both laugh] for natural moments
+- Use questions to drive conversation forward
+- Keep answers to 30-60 seconds typically (150-300 words)
+- Vary sentence length for natural rhythm
+- Include transition phrases between topics
+
+Generate the complete podcast script.
+
+🎥 Video Script Prompts
+SYSTEM PROMPT:
+You are a video content creator specializing in educational 
+explainer videos optimized for YouTube and social media.
+
+USER PROMPT:
+Create a 5-7 minute video script on [TOPIC] for [LOCATION]
+Based on article: [ARTICLE SUMMARY]
+
+VIDEO SCRIPT FORMAT:
+
+VIDEO TITLE: [Engaging, searchable title with keyword]
+DESCRIPTION: [Brief 2-3 sentence description]
+DURATION: 5-7 minutes
+STYLE: Educational explainer with on-camera presenter + B-roll
+
+---
+
+[HOOK - 0:00-0:10]
+VISUAL: [Opening shot - dynamic, engaging]
+- Example: "Close-up of presenter, then quick cut to B-roll montage"
+
+NARRATION:
+"[Attention-grabbing question or statement that creates curiosity]"
+
+Example: "What if I told you that 60% of searches now end without 
+a single click? Here's what that means for your business..."
+
+ON-SCREEN TEXT: "[Key stat or question]"
+
+---
+
+[INTRO - 0:10-0:30]
+VISUAL: Presenter on camera, professional setting
+
+NARRATION:
+"Hey everyone, I'm [Name] from [Company], and in this video, 
+we're breaking down [topic]. 
+
+By the end, you'll understand:
+- [Key point 1]
+- [Key point 2]  
+- [Key point 3]
+
+And I'll show you exactly how to [main promise] in [Location]. 
+Let's dive in."
+
+ON-SCREEN TEXT: 
+- Point 1
+- Point 2
+- Point 3
+(Appear as mentioned)
+
+---
+
+[CHAPTER 1 - 0:30-2:00]
+CHAPTER TITLE CARD: "What is [Topic]?"
+
+VISUAL: Mix of:
+- Presenter on camera (40%)
+- Animated graphics explaining concept (30%)
+- B-roll examples (30%)
+
+NARRATION:
+"First, let's define what we're talking about. 
+
+[Topic] is [clear, simple definition]. 
+
+[Visual transition]
+
+Here's why this matters for businesses in [Location]: 
+[Local relevance with specific example]
+
+[Show stat or data on screen]
+
+For instance, [specific example with visual]. 
+
+[Transition to next point]
+
+Now, there are three key components to understand..."
+
+ON-SCREEN TEXT:
+- Definition appears when mentioned
+- Stats appear with source citation
+- Key terms highlighted
+
+EDITING NOTES:
+- Cut to new angle every 8-10 seconds
+- Add animated graphics for concepts
+- Use arrows/highlights to emphasize points
+
+---
+
+[CHAPTER 2 - 2:00-3:30]
+CHAPTER TITLE CARD: "How Does [Topic] Work?"
+
+VISUAL: Step-by-step animated breakdown
+
+NARRATION:
+"So how does this actually work? Let me break it down:
+
+Step 1: [Process description]
+[Show visual example]
+
+Step 2: [Process description]
+[Show visual example]
+
+Step 3: [Process description]
+[Show visual example]
+
+And here's where it gets interesting for [Location] specifically...
+[Local application with B-roll]"
+
+ON-SCREEN TEXT:
+"STEP 1" (animated)
+"STEP 2" (animated)
+"STEP 3" (animated)
+[Key points for each step]
+
+---
+
+[CHAPTER 3 - 3:30-5:00]
+CHAPTER TITLE CARD: "Practical Application"
+
+VISUAL: Real-world examples and case studies
+
+NARRATION:
+"Now let's look at how this works in practice.
+
+Case Study 1: [Brief example]
+[Show relevant B-roll or graphics]
+Result: [Outcome]
+
+Case Study 2: [Brief example]  
+[Show relevant B-roll or graphics]
+Result: [Outcome]
+
+Common mistakes to avoid:
+❌ Mistake 1: [Description]
+❌ Mistake 2: [Description]
+❌ Mistake 3: [Description]"
+
+ON-SCREEN TEXT:
+Case study key points
+Results (highlighted)
+Mistakes with ❌ icon
+
+---
+
+[ACTIONABLE TIPS - 5:00-6:30]
+CHAPTER TITLE CARD: "5 Things You Can Do Today"
+
+VISUAL: Quick-cut montage style
+
+NARRATION:
+"Alright, here's your action plan. Five things you can implement 
+starting today:
+
+#1: [Tip with brief how-to]
+#2: [Tip with brief how-to]
+#3: [Tip with brief how-to]
+#4: [Tip with brief how-to]
+#5: [Tip with brief how-to]
+
+[Pause]
+
+Now, if you want a complete checklist of everything we covered, 
+I've put together a free guide - link in the description below."
+
+ON-SCREEN TEXT:
+Numbers 1-5 appear as checklist items
+"✓ DOWNLOAD FREE GUIDE" appears at end
+
+---
+
+[OUTRO - 6:30-7:00]
+VISUAL: Presenter on camera
+
+NARRATION:
+"So to recap: [Quick summary of 3 main takeaways]
+
+If you found this helpful, hit that subscribe button and 
+turn on notifications so you don't miss our next video on 
+[teaser for next topic].
+
+Got questions about [topic]? Drop them in the comments below - 
+I read every single one.
+
+Thanks for watching, and I'll see you in the next one!"
+
+ON-SCREEN TEXT:
+SUBSCRIBE button animation
+Social media handles
+Website URL
+
+[END SCREEN - 7:00-7:10]
+Suggested videos, subscribe button, links
+
+---
+
+VIDEO PRODUCTION NOTES:
+
+VISUAL STYLE:
+- Professional but approachable
+- Clean, modern graphics
+- Smooth transitions between sections
+- Dynamic camera movements/cuts
+
+B-ROLL SUGGESTIONS:
+- [Specific B-roll for topic]
+- [Location-specific footage]
+- [Industry-relevant visuals]
+
+MUSIC:
+- Upbeat, motivational background music (low volume)
+- Pause or fade during important points
+
+COLOR SCHEME:
+- [Brand colors]
+- Consistent text style throughout
+
+PACING:
+- Change visual every 3-7 seconds
+- Vary between presenter and graphics/B-roll
+- Speed up for lists/tips section
+
+Generate complete video script with all visual directions.
+
+🔗 Hyperlinking Prompts (GPT-4)
+SYSTEM PROMPT:
+You are an SEO specialist implementing strategic internal linking 
+following best practices from technical SEO experts.
+
+USER PROMPT:
+Add intelligent internal hyperlinks to this article.
+
+ARTICLE HTML:
+[Full article HTML]
+
+PAGES AVAILABLE FOR LINKING:
+[List of internal pages with URLs, titles, keywords, relevance scores]
+
+LINKING STRATEGY:
+
+1. QUANTITY:
+   - Add 8-12 links total (never exceed 15)
+   - Aim for 1 link per 200-250 words
+
+2. PLACEMENT STRATEGY:
+   - Prioritize links in body paragraphs (avoid intro/conclusion)
+   - First link: After first 300 words
+   - Last link: Before final 200 words
+   - Minimum 100 characters between any two links
+
+3. ANCHOR TEXT SELECTION:
+   Natural phrases (2-5 words) that:
+   - Flow in the sentence context
+   - Describe the destination page accurately
+   - Use varied language (don't repeat same phrase)
+   - Include target keywords naturally
+   
+   GOOD: "comprehensive SEO audit"
+   BAD: "click here" or "this page"
+
+4. RELEVANCE THRESHOLD:
+   - Only link to pages with 70%+ relevance score
+   - Prioritize 85%+ relevance pages in prime positions
+   - Consider user intent - would reader want to click?
+
+5. LINK DISTRIBUTION:
+   - Spread across different H2 sections
+   - 2-3 links per major section maximum
+   - Don't cluster links in one paragraph
+
+6. CONTEXTUAL REQUIREMENTS:
+   Links must:
+   - Add value for the reader
+   - Feel natural in sentence flow
+   - Support the point being made
+   - Lead to relevant, related content
+
+7. FORMAT:
+   <a href="/url" title="Descriptive Page Title">anchor text</a>
+   
+   Always include title attribute with descriptive page title
+
+8. QUALITY CHECKS:
+   - Read each linked sentence aloud - does it sound natural?
+   - Would you personally click this link as a reader?
+   - Does the anchor text accurately describe the destination?
+   - Is there value in clicking at this point in the article?
+
+IMPORTANT:
+- Return ONLY the modified HTML
+- Make NO other changes to the content
+- Preserve all existing HTML structure and formatting
+- Do not add explanatory text before or after the HTML
+
+Generate the article with hyperlinks added.
+
+🎯 Expert-Specific Optimization Checklist
+✅ Lily Ray's E-E-A-T Checklist
+When generating content, ensure:
+Experience:
+
+ First-hand case study or example included
+ Real-world application demonstrated
+ Specific results or outcomes mentioned
+ Personal/company perspective shared
+
+Expertise:
+
+ Technical depth appropriate for topic
+ Industry terminology used correctly
+ Complex concepts explained clearly
+ Author credentials mentioned
+
+Authoritativeness:
+
+ 3+ credible sources cited
+ Recent data/statistics included (2024-2025)
+ Industry authority referenced
+ Original research or data if available
+
+Trustworthiness:
+
+ All facts verified
+ Sources properly attributed
+ Balanced perspective provided
+ Limitations or uncertainties acknowledged
+ Contact information or author bio included
+
+
+✅ Mike King's Content Engineering Checklist
+Passage Optimization:
+
+ Every paragraph is self-contained (3-5 sentences)
+ Each paragraph can be extracted as standalone answer
+ No fluff or unnecessary words
+ Active voice used throughout
+ Key information front-loaded in each paragraph
+
+Technical Structure:
+
+ Proper semantic HTML (article, h1-h3, lists)
+ Clear heading hierarchy maintained
+ Structured data markup ready
+ JavaScript-free rendering ensured
+ Entity relationships clearly defined
+
+
+✅ Kevin Indig's Citation Optimization Checklist
+Schema Readiness:
+
+ FAQ section structured for FAQPage schema
+ Step-by-step processes for HowTo schema
+ Article metadata complete (author, date)
+ LocalBusiness schema for location content
+
+Citation Signals:
+
+ Evidence front-loaded in first 3 paragraphs
+ Paragraphs compressed (3-4 sentences max)
+ Original data or research included
+ Authority demonstrated through expertise
+ Recent updates clearly marked

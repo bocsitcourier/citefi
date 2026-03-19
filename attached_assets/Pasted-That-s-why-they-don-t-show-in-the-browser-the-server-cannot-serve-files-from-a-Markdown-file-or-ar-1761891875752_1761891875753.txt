@@ -1,0 +1,76 @@
+That’s why they don’t show in the browser — the server cannot serve files from a Markdown file or arbitrary Replit storage path.
+
+Here’s how to fix it:
+
+1️⃣ Extract and Save the Image Properly
+
+If replit.md contains image bytes/base64:
+
+import fs from "fs";
+import path from "path";
+
+// Example: slug and base64 data
+const slug = "my-article-hero";
+const base64Image = "data:image/png;base64,iVBORw0KGgoAAAANSUhE..."; // from replit.md
+
+// Strip metadata prefix if needed
+const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
+const buffer = Buffer.from(base64Data, "base64");
+
+// Save to /public/hero
+const localDir = path.join(process.cwd(), "public/hero");
+if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+
+fs.writeFileSync(path.join(localDir, `${slug}.png`), buffer);
+console.log("Hero image saved to /public/hero");
+
+
+Optional: Upload to DigitalOcean Spaces
+
+Same as the previous heroImageManager.js code using PutObjectCommand.
+
+2️⃣ Serve the Saved Images
+
+Local: /public/hero/<slug>.png is automatically served by Next.js.
+
+In your page:
+
+import Image from "next/image";
+
+export default function HeroImage({ slug, title }) {
+  return (
+    <Image
+      src={`/hero/${slug}.png`}
+      alt={title}
+      width={1024}
+      height={512}
+      onError={(e) => (e.currentTarget.src = "/assets/no-hero.png")}
+    />
+  );
+}
+
+
+Check: Open in browser:
+
+http://<your-replit-app>.repl.co/hero/my-article-hero.png
+
+
+It should show immediately.
+
+3️⃣ Update the DB
+
+Make sure your articles.hero_image_url points to the served path, not replit.md:
+
+UPDATE articles
+SET hero_image_url = '/hero/my-article-hero.png'
+WHERE id = <article_id>;
+
+⚡ Key Takeaways
+
+You cannot serve images directly from replit.md. They must be extracted to a proper file path.
+
+Next.js SSR serves only /public and remote URLs.
+
+Update the DB so the article references the proper file path.
+
+Once the image is in /public/hero or DO Spaces, it will show in previews, dashboards, and downloads.

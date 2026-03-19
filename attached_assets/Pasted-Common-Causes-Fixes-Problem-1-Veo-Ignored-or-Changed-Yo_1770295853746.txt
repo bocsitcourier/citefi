@@ -1,0 +1,79 @@
+Common Causes & Fixes
+Problem 1: Veo Ignored or Changed Your Dialogue
+Likely cause: Prompt structure wasn't clear enough
+typescript// ❌ WEAK PROMPT - Veo may improvise
+const weakPrompt = `
+Chef in kitchen talking about risotto.
+He explains the cooking process.
+`;
+
+// ✅ STRONG PROMPT - Forces exact dialogue
+const strongPrompt = `
+SCENE: Chef Marco stands at stove in rustic Italian kitchen.
+
+EXACT DIALOGUE (word-for-word, do not paraphrase):
+Chef Marco says: "The secret to a perfect risotto... is patience."
+
+CRITICAL: The character must speak these EXACT words. 
+Do not change, summarize, or improvise the dialogue.
+Do not add additional dialogue.
+
+Voice: Warm, slow, Italian accent. Pause before "patience".
+`;
+
+Problem 2: Dialogue Format Issues
+Veo responds best to specific formatting:
+typescript// ❌ FORMATS THAT OFTEN FAIL
+
+// Too indirect
+"The chef explains that patience is important for risotto"
+
+// Stage direction style
+"CHEF: (warmly) The secret is patience."
+
+// Multiple quotes
+"He says 'hello' and then 'goodbye'"
+
+// Narrative style
+"Chef Marco began to speak about the importance of patience in cooking risotto."
+
+
+// ✅ FORMATS THAT WORK
+
+// Direct quote with speaker
+Chef Marco says: "The secret to a perfect risotto... is patience."
+
+// Or with delivery cues inline
+Chef Marco says warmly: "The secret to a perfect risotto... is patience."
+
+// Or structured
+SPEAKER: Chef Marco
+DIALOGUE: "The secret to a perfect risotto... is patience."
+DELIVERY: Warm, slow, meaningful pause before final word.
+
+Problem 3: The "Exact Words" Enforcement
+Add explicit instructions that Veo should not improvise:
+typescriptfunction buildStrictDialoguePrompt(scene: SceneSegment): string {
+  return `
+=== VISUAL DESCRIPTION ===
+${scene.visualPrompt}
+
+=== MANDATORY DIALOGUE ===
+CHARACTER: ${scene.speaker}
+SPEAKS THESE EXACT WORDS: "${scene.dialogue}"
+
+⚠️ CRITICAL INSTRUCTIONS:
+1. The character MUST say these EXACT words - no paraphrasing
+2. The character MUST NOT say anything else before or after
+3. The character MUST NOT improvise or add filler words
+4. If the dialogue cannot be spoken exactly, the generation has FAILED
+
+=== DELIVERY DIRECTION ===
+${scene.voiceDirection}
+
+=== TECHNICAL ===
+- Lip-sync to the exact dialogue above
+- Scene duration: ${scene.duration} seconds
+- Only ${scene.speaker} speaks (other characters silent)
+  `.trim();
+}

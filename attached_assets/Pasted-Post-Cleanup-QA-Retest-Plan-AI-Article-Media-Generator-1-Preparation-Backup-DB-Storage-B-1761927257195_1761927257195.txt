@@ -1,0 +1,106 @@
+Post-Cleanup QA & Retest Plan – AI Article & Media Generator
+1️⃣ Preparation
+
+Backup DB & Storage
+
+Backup PostgreSQL database.
+
+Backup DigitalOcean Spaces for images/audio.
+
+Reset Environment
+
+Pull latest cleaned code from repository.
+
+Rebuild Next.js app and backend.
+
+Ensure environment variables (API keys, DB credentials, storage keys) are correctly configured.
+
+2️⃣ Testing Modules
+A. Article Generation
+Test Case	Expected Result	Notes
+Submit batch of 1–50 titles	All articles generated successfully	Check hero image, audio, SEO metadata, slug, meta description, keywords, hashtags
+Retry failed articles	Only failed articles are regenerated	Status updates correctly in dashboard
+Delete article / batch	Files removed from storage, DB cleaned	Confirm no orphaned data
+B. Image Generation
+Test Case	Expected Result
+Hero image generation	Images appear in frontend and preview
+Concurrent image generation	50+ images processed simultaneously without blocking
+Image deletion	Deletes from DigitalOcean Spaces correctly
+C. Audio / Podcast Module
+Test Case	Expected Result
+Generate female/male podcast voices	Audio files playable and linked to articles
+Edit / regenerate audio	Updated audio replaces old version
+Download audio	File downloads correctly
+Audio deletion	Audio file removed from storage and DB
+D. Social Media Post Generation
+Test Case	Expected Result
+Input social handles + select platforms	Posts generated for selected platforms
+Emojis and hashtags	Added and hyperlinked to user email
+Edit posts	Updates reflected in dashboard
+Delete posts	Removed from DB and cannot be posted
+Auto-share	Posts shared correctly to selected accounts
+E. SEO & GEO Optimization
+Test Case	Expected Result
+Semantic cluster linking	Internal link suggestions appear
+Competitor URL grounding	AI covers all key points from competitors
+SERP feature targeting	Structured content matches Featured Snippet / PAA goals
+Geo-Accuracy score	Correctly calculated and displayed
+Schema validation	JSON-LD valid, HTML structured correctly
+F. Frontend (Next.js SSR)
+Test Case	Expected Result
+Dashboard live update	Job progress updates in real-time
+Article editor	Rich text, images, audio, hyperlinks editable
+Preview	Accurate rendering of final HTML
+Filters / search	Functional for all job metrics and article properties
+G. Admin Module
+Test Case	Expected Result
+Admin login	Admin can access all users, jobs, logs
+Error logs	All types visible, schema validation errors flagged
+Token / cost metrics	Displayed accurately per article
+Delete redundant articles	Works without leaving orphaned files
+3️⃣ Performance & Concurrency Testing
+
+Generate 50 articles simultaneously with hero images and audio.
+
+Confirm concurrent social media posts generation.
+
+Monitor CPU / memory usage; ensure no process crashes or memory leaks.
+
+Confirm that job queue processes asynchronously and updates dashboard live.
+
+4️⃣ Security & Permissions
+
+Ensure only authenticated users can submit articles.
+
+Admin-only modules secured.
+
+API keys and sensitive data not exposed to frontend.
+
+5️⃣ Regression Testing
+
+Confirm all old/deprecated code removed:
+
+Unused API routes
+
+Redundant utilities
+
+Old front-end components
+
+Verify no functionality was broken during cleanup.
+
+6️⃣ Reporting
+
+Document each test result (Pass / Fail) with screenshots/logs.
+
+List any issues found after cleanup for immediate fix.
+
+Confirm all critical defects resolved (hero image, audio generation, social media posts, SEO validation).
+
+✅ Outcome
+After this retest, the system should:
+
+Generate articles, images, audio, and social media posts flawlessly
+
+Maintain live progress, SEO & GEO optimization, admin oversight
+
+Be clean, efficient, and free of redundant code, ready for production deployment

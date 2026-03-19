@@ -1,0 +1,92 @@
+The Surgical Fix is the "Special Ops" of your AI pipeline. Instead of asking GPT-4 to "try again" (which usually leads to it fixing the FAQ but forgetting the images), we give it a specific, narrow task: "Keep everything the same, but inject these 3 specific things."
+
+This is how you stop the "Instruction Amnesia" and ensure 100% compliance with your Platinum standards.
+
+1. The Surgical Fix Code (lib/surgical-fix.ts)
+This function targets the gaps identified by the Guardian Agent. It uses a "Diff-based" approach where the AI is instructed to act as an editor, not a writer.
+
+TypeScript
+import { OpenAI } from "openai";
+
+export async function surgicalFix(currentHtml: string, auditIssues: string[]): Promise<string> {
+  const openai = new OpenAI();
+  
+  const prompt = `
+    ROLE: Senior Content Editor.
+    TASK: Fix the following HTML article by addressing ONLY the specific issues listed. 
+    
+    CRITICAL RULES:
+    1. DO NOT rewrite the existing text.
+    2. DO NOT change the tone or persona.
+    3. SURGICALLY INSERT the missing elements (FAQs, Images, or Links) into the existing HTML.
+    4. Maintain all existing <div> and <span> wrappers.
+
+    ISSUES TO FIX:
+    ${auditIssues.map(issue => `- ${issue}`).join('\n')}
+
+    EXISTING HTML:
+    ${currentHtml}
+
+    Return the FULL corrected HTML.
+  `;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o", // Use the strongest model for surgical precision
+    messages: [
+      { role: "system", content: "You are a precise HTML editor. You only return valid HTML code." },
+      { role: "user", content: prompt }
+    ],
+    temperature: 0.2 // Low temperature for maximum stability
+  });
+
+  return response.choices[0].message.content || currentHtml;
+}
+2. Making the App "Learn" (The Memory Ledger)
+You mentioned the app doesn't feel like it's getting smarter. To fix this, we need to create a Failure Memory.
+
+Every time the Guardian catches a mistake, we log it. Then, before we generate the next article, we "remind" the AI of its past failures. This is called In-Context Learning (ICL).
+
+The "Memory" Table Schema:
+
+SQL
+CREATE TABLE ai_learning_ledger (
+  id SERIAL PRIMARY KEY,
+  team_id INTEGER,
+  error_type VARCHAR(255), -- e.g., "MISSING_FAQ", "BAD_TONE"
+  count INTEGER DEFAULT 1,
+  last_occurrence TIMESTAMP DEFAULT NOW()
+);
+The "Optimization" Logic (in worker.ts):
+Before you call generateArticle, run this:
+
+Query ai_learning_ledger for the top 3 most frequent error_type for that team.
+
+Inject a "Hard Warning" into the GPT prompt:
+
+"WARNING: In the last 10 articles, you forgot the FAQ 4 times. This is unacceptable. Prioritize the FAQ section above all else."
+
+3. Solving the "Terrible Navigation" (UX Platinum Upgrade)
+Since you said the UX is "horrible" and "nothing connects," we need to move away from the "Home Grid" and into a Workspace Frame.
+
+Instead of a "Home" button, your app needs a Universal Sidebar and Global Search. This allows a user to jump from a "Persona" to an "Article" to a "Media File" in two clicks.
+
+The "Platinum" UI Architecture:
+
+Left Sidebar: Persistent navigation (Dashboard, Library, Media, SEO, Social).
+
+Top Bar: Breadcrumbs (Content Library > Boston Courier Service > Edit) + Search.
+
+Right "Inspector" Panel: When an article is open, this panel shows the Guardian Score, the Persona traits, and a Checklist of what’s inside.
+
+🏗️ The "Platinum" Roadmap
+To turn this into the enterprise app you want, here is the sequence of events I suggest:
+
+Done: Hyperlink Injection Engine (Cheerio).
+
+Done: Guardian Auditor (Checklist Agent).
+
+Next Step: The Surgical Fix Implementation.
+
+Followed By: The Navigation Refactor (Replacing the grid with a Sidebar).
+
+Final Step: The Memory Ledger (Actually making it "learn" from the Guardian).

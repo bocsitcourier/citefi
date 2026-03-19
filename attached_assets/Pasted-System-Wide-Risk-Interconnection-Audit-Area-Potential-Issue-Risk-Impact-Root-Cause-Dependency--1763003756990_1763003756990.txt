@@ -1,0 +1,62 @@
+System-Wide Risk & Interconnection Audit
+Area	Potential Issue / Risk	Impact	Root Cause / Dependency	Recommended Fix / Mitigation
+Authentication (Email / Google / 2FA)	OAuth tokens expiring or mismatched between providers	Users randomly logged out or unable to re-authenticate	Improper token refresh handling between JWT & Google OAuth	Use short-lived access tokens + long-lived refresh tokens; verify Google token via backend each login
+	2FA desync (user deletes Google Authenticator app)	Locked-out accounts	No recovery fallback	Add backup email code recovery or admin reset route
+	Weak password enforcement	Security breach risk	Missing server-side validation	Enforce strong password rules server-side (length, complexity, no common patterns)
+User Accounts & Roles	Role escalation exploit	Team members gain admin access	Missing server-side role validation	Role-based middleware on every route (backend enforced)
+	Orphaned users (invited but never joined)	Database clutter	No cleanup for stale invites	Add cron job to delete invites older than 7 days
+	Duplicate users (Google + email same address)	Split identity, confusing ownership	Separate auth records	Normalize users by verified email and link multiple login methods
+Teams & Permissions	Cross-team data leaks	One team sees another’s videos	Missing team_id filter on queries	Enforce team_id filter in every DB query and API route
+	Team deletion cascade issues	Orphaned videos/logs	Poor foreign key setup	Use cascading delete for team_id relationships or soft-delete pattern
+Video Generation (FFmpeg)	Wrong scaling → black bars or cropping	TikTok videos not full-screen	Aspect ratio mismatch	Use tested filter: scale='if(gt(a,9/16),1080,-2)':'if(gt(a,9/16),-2,1920)',crop=1080:1920
+	High CPU / RAM load	Server slowdown or crash	Parallel FFmpeg jobs	Implement job queue (BullMQ / Redis Queue) with concurrency limit
+	Audio cut-off or desync	Bad UX on TikTok	Trim mismatch or re-encoding errors	Use -shortest or sync -map options and test all durations
+	Failed generation retry loop	System overload	Poor job error handling	Implement exponential backoff retry and manual retry trigger
+Storage & File Management	Orphaned files (deleted users, old videos)	Storage bloat	Missing cleanup tasks	Add weekly cleanup cron for unused S3/local files
+	Storage folder collisions	Wrong user files overwritten	Non-unique paths	Always use /users/{user_id}/videos/{video_id} storage convention
+Sessions & Activity Logs	Unbounded session growth	Database bloat	No session expiry	Auto-delete sessions >30 days old or inactive for 7 days
+	Stale login tokens after password change	Users stay logged in post-reset	Missing token invalidation logic	Invalidate all active sessions on password reset
+	Activity logs too verbose	Slow queries / bloated DB	No log rotation	Archive logs to cold storage monthly
+Admin Dashboard	Slow dashboard load	Too many real-time queries	Large unoptimized tables	Paginate results + use caching for dashboard metrics
+	Admin forced logout breaks other sessions	Session dependency bug	Shared tokens or bad indexing	Use per-session token tracking (not global user logout)
+	Lack of proper audit export	Compliance issues	Missing endpoint	Build CSV/PDF log export via API
+Security & Privacy	SQL Injection / API abuse	System compromise	Unvalidated inputs	Parameterized queries + input sanitization
+	Unencrypted API calls	Data leak	Missing HTTPS	Enforce HTTPS only + HSTS
+	Weak JWT secret or long TTL	Token hijack risk	Poor key management	Use 256-bit keys + 15-min expiry + refresh tokens
+	2FA bypass through API	Account takeover	No API 2FA enforcement	Require verified 2FA challenge on all sensitive routes
+Monitoring & Logging	Logs expose user info	Privacy violations	Overlogging	Mask emails/IPs in audit logs
+	No alerting on anomalies	Missed security incidents	Lack of monitoring	Add anomaly detection (e.g. new IP alerts)
+System Scalability	Queue backlog under high load	Job failures or long delays	No rate limiting	Rate limit FFmpeg jobs per user/team and scale horizontally
+	Race conditions (e.g. multiple updates to same video)	Data corruption	Missing transaction handling	Use database transactions for multi-step writes
+	Slow DB under heavy read	Lag in dashboard	Unindexed fields	Index on user_id, team_id, created_at
+🧰 Mitigation Summary
+Category	Top 3 Fixes
+Security	Enforce 2FA, encrypt all connections, sanitize inputs
+Data Cleanliness	Cron jobs to purge old sessions/invites/files
+Performance	Queue all FFmpeg jobs, limit concurrency, index DB
+User Isolation	Strict team_id + user_id scoping on every resource
+Maintainability	Soft deletes, log rotation, audit exports
+⚡ Additional Hardening Recommendations
+
+Use a background worker (BullMQ, RabbitMQ, Celery) to handle video generation asynchronously.
+
+Add an event-driven cleanup pipeline: when a user is deleted → delete their videos → revoke sessions → clean logs.
+
+Deploy monitoring (Prometheus + Grafana) for FFmpeg CPU/memory metrics.
+
+Use feature flags for rolling out changes to generation pipelines safely.
+
+Run automated tests (unit + integration) for auth, team, and video APIs before each deploy.
+
+✅ End Result
+If you apply these fixes:
+
+Each user is isolated.
+
+Each team’s data is scoped.
+
+Admin oversight is clear and safe.
+
+Video processing remains stable and full-screen.
+
+Database, logs, and storage remain clean and performant.

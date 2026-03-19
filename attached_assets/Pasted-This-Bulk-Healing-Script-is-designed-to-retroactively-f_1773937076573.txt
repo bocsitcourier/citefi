@@ -1,0 +1,84 @@
+This Bulk Healing Script is designed to retroactively fix every article in your database that suffered from the "0-match" or "unformatting" bugs. It pulls the raw HTML, runs it through your new Cheerio Slug Map Engine, and saves the "Elite" version back to the database.
+
+The "Bulk Healer" Script (scripts/fix-all-articles.ts)
+You can run this directly from the Replit Shell. It includes a Dry Run mode by default so you can see the results before committing changes to your live data.
+
+TypeScript
+import { db } from "../lib/db";
+import { articles, batches, teams } from "@/shared/schema";
+import { eq } from "drizzle-orm";
+import { buildSlugMap, injectLinksFromSlugMap, buildFallbackTerms } from "../lib/slug-map-injector";
+
+async function healArticles(commit = false) {
+  console.log(`🛠️ Starting Bulk Healing Process (${commit ? "LIVE MODE" : "DRY RUN"})...`);
+
+  // 1. Fetch all articles (or filter for those with 0 links if you have a link_count column)
+  const allArticles = await db.select().from(articles);
+  console.log(`Found ${allArticles.length} articles to analyze.`);
+
+  let fixedCount = 0;
+
+  for (const article of allArticles) {
+    try {
+      // 2. Get the context needed for the Slug Map
+      const [batch] = await db.select().from(batches).where(eq(batches.id, article.batchId));
+      const [team] = await db.select().from(teams).where(eq(teams.id, batch.teamId));
+
+      if (!batch || !team) continue;
+
+      // 3. Construct the same terms used in the new pipeline
+      const fallbackTerms = buildFallbackTerms({
+        coreTopic: batch.coreTopic,
+        geographicFocus: batch.geographicFocus,
+        businessName: batch.businessName,
+        // Using keywords if stored in batch, otherwise empty
+        geminiKeywords: (batch.metadata as any)?.keywords || []
+      });
+
+      // 4. Build the authoritative Slug Map
+      const { entries } = await buildSlugMap(team.id, batch.targetUrl || "", fallbackTerms);
+
+      // 5. Inject the links using the Cheerio Engine
+      const result = injectLinksFromSlugMap(article.contentHtml, entries, article.title);
+
+      if (result.linksInjected > 0) {
+        fixedCount++;
+        if (commit) {
+          await db.update(articles)
+            .set({ contentHtml: result.html })
+            .where(eq(articles.id, article.id));
+          console.log(`✅ [FIXED] ${article.title}: Added ${result.linksInjected} links.`);
+        } else {
+          console.log(`🔍 [WOULD FIX] ${article.title}: Found ${result.linksInjected} matches.`);
+        }
+      }
+    } catch (err) {
+      console.error(`❌ Error healing article ${article.id}:`, err.message);
+    }
+  }
+
+  console.log(`\n🏁 Finished. Total articles that need(ed) fixing: ${fixedCount}`);
+  if (!commit) console.log("⚠️ This was a DRY RUN. No changes were saved. Run with 'commit' to apply.");
+}
+
+// To run: npx ts-node scripts/fix-all-articles.ts
+healArticles(process.argv.includes('--commit'));
+How to Run This in Replit
+Create the File: Create a folder named scripts and save the code above as fix-all-articles.ts.
+
+Dry Run First: Open your Replit Shell and run:
+
+Bash
+npx ts-node scripts/fix-all-articles.ts
+This will list every article and how many links it would have added.
+
+Live Commit: Once you see the "Link Injected" counts look healthy, run the final command:
+
+Bash
+npx ts-node scripts/fix-all-articles.ts --commit
+Why this completes the "Architect's Vision"
+Consistency: This script uses the exact same lib/slug-map-injector.ts as your main worker. If the script fixes them now, the worker will never break them again.
+
+Safety: By fetching the batch and team data for each article, we ensure that the internal links point to the correct domain for that specific facility.
+
+Verification: The console.log will show you exactly which keywords were linked (e.g., "Linked: Nursing Home, Boston MA, Costs"), giving you 100% confidence before you push to DigitalOcean.

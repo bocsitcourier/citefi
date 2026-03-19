@@ -1,0 +1,187 @@
+1️⃣ Authentication & User Management
+
+Current structure:
+
+app/login/, app/signup/
+
+api/auth/ for endpoints
+
+admin/users/ for user management
+
+Potential issues:
+
+No explicit team invitation/management endpoints (team join via email/Google) appear in api/admin/ or api/auth/.
+
+2FA isn’t mentioned in the structure.
+
+No session tracking for concurrent login monitoring for all users.
+
+Fixes / Recommendations:
+
+Add api/teams/:
+
+invite/ → send invite email / Google OAuth
+
+join/ → accept invite and assign role (editor, admin)
+
+Add 2FA module under api/auth/2fa/
+
+Extend sessions/ (already under admin) to track all users with timestamps, active devices, logout control.
+
+2️⃣ Video & Media Integration
+
+Current structure:
+
+lib/workers/video-worker.ts
+
+lib/services/ has social-generator.ts and image-worker.ts
+
+app/media/ and api/media/
+
+Potential issues:
+
+Video functionality isn’t integrated into team workflows. Teams can generate articles/social posts, but video generation is not exposed for team users.
+
+TikTok black bars issue may persist if aspect ratio/format isn’t configurable per user/team.
+
+Media storage relies on storage.ts (Replit Object Storage). For long-term availability, a cloud storage solution (S3/GCS) may be needed, especially for embedding in articles externally.
+
+Fixes / Recommendations:
+
+Expose video endpoints in api/social_posts/ or api/media/ for team users.
+
+Add format/aspect ratio parameters in video-worker.
+
+Consider cloud storage for reliability:
+
+storage.ts wrapper could include GCS/S3 option
+
+CDN or public URLs for media embedded in articles
+
+3️⃣ Social Media Module
+
+Current structure:
+
+app/social/ with create/, dashboard/, [id]/
+
+api/social_posts/ for generate/schedule/batch-delete
+
+Potential issues:
+
+LinkedIn prompts aren’t yet reflected in the library (lib/ai/prompts/)
+
+Scheduling may need time zone awareness per user/team.
+
+No team-specific API scoping visible (team A shouldn’t see team B’s posts).
+
+Fixes / Recommendations:
+
+Add social-generator.ts support for LinkedIn (already have prompt library, but endpoints need wrapping).
+
+Enforce team scoping: add team_id checks on all social post APIs.
+
+Implement timezone-aware scheduling in schedule/ endpoint.
+
+4️⃣ Batch / Job Queue System
+
+Current structure:
+
+lib/workers/*-worker.ts
+
+lib/queue.ts using pg-boss
+
+api/jobs/ and batches/ routes
+
+Potential issues:
+
+No auto-retry logic explicitly mentioned (ChatGPT slowdown issue).
+
+Monitoring (app/monitoring/, api/jobs/status/[id]/) may lack historical logs or failure reasons.
+
+Job priorities or throttling per user/team may be missing.
+
+Fixes / Recommendations:
+
+Implement retry/backoff policy in workers (e.g., 3 retries with exponential backoff).
+
+Add job_logs table in Drizzle schema with:
+
+job_id, team_id, user_id, status, attempts, error_message, timestamps
+
+Consider rate limiting per team/user in rate-limiters.ts.
+
+5️⃣ Admin Monitoring / Cleanup
+
+Current structure:
+
+admin/sessions/, activity-logs/, analytics/, cleanup/, health/
+
+cleanup-worker.ts handles cleanup policies
+
+Potential issues:
+
+Cleanup policies might affect media/video storage used by teams; need team-specific scoping.
+
+Analytics is not detailed; likely only system-level, not team-level.
+
+Activity logs may not capture AI usage metrics (tokens, requests, generated content type).
+
+Fixes / Recommendations:
+
+Add per-team usage logging (articles generated, videos created, API calls, etc.)
+
+Add admin controls for forced logout per user/session
+
+Ensure cleanup worker respects active team content (don’t delete media still referenced in articles)
+
+6️⃣ Database / Schema Concerns
+
+Current structure:
+
+shared/schema.ts for Drizzle ORM
+
+drizzle/ for migrations
+
+Potential issues:
+
+No explicit teams table or team_roles table
+
+social_posts and articles may need team_id + user_id references
+
+Media storage and video references may need expiration / retention metadata
+
+Fixes / Recommendations:
+
+Add:
+
+teams { id, name, created_at }
+team_members { id, team_id, user_id, role, joined_at }
+social_posts { id, article_id?, team_id, user_id, status, scheduled_at, platform }
+media { id, type, owner_team_id, uploaded_by, url, retention_date }
+
+
+Ensure foreign key constraints for team scoping
+
+7️⃣ Potential Security / Scaling Issues
+
+2FA and secure OAuth flows not explicitly in place
+
+Rate limiting may not account for multi-user spikes
+
+Replit Object Storage may not scale or persist reliably → consider GCS/S3
+
+No caching for repeated AI outputs or media references → may increase cost
+
+8️⃣ Summary Table
+Area	Current State	Potential Issue	Suggested Fix
+Auth & Teams	login/signup	No 2FA, team invite, role enforcement	Add api/teams/, 2FA, enforce team roles
+Video	video-worker	Not exposed to teams, black bars, Replit storage	Expose endpoints, allow aspect ratio, migrate to cloud storage
+Social Media	social-generator	LinkedIn not in endpoints, scheduling TZ issues	Add LinkedIn endpoints, timezone-aware scheduling, team scoping
+Batch/Jobs	pg-boss	No auto-retry, no historical logs, rate limits per team	Add retry/backoff, job_logs table, per-team rate limiting
+Admin	admin/*	Limited analytics, cleanup may delete active content	Per-team usage metrics, safe cleanup, forced logout
+Database	schema.ts	Missing teams & roles, media retention	Add teams, team_members, team_scoped tables
+Security	auth/api	No 2FA, OAuth scope, token limits	Add 2FA, token expiration, limit AI requests per user/team
+Media Storage	storage.ts	Relies on Replit Object Storage	Support GCS/S3 with public URLs for embedding
+
+✅ Overall:
+The structure is modular and mostly ready for a multi-team content generation platform. The main gaps are team management, 2FA, video/media exposure for teams, LinkedIn social media integration, job monitoring/retries, and cloud storage.

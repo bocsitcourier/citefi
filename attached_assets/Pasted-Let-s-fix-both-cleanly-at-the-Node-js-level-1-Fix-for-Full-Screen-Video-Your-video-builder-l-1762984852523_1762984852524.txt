@@ -1,0 +1,113 @@
+Let’s fix both cleanly at the Node.js level.
+
+🔧 1. Fix for Full-Screen Video
+
+Your video builder (likely using ffmpeg or a wrapper like fluent-ffmpeg) is using incorrect scaling or padding.
+
+Use this scaling filter:
+
+.filter_complex([
+  `[0:v]scale=1920:1080:force_original_aspect_ratio=cover[v0]`,
+  `[v0]setsar=1`
+])
+
+
+This ensures:
+
+The image fills the frame (1920x1080)
+
+Aspect ratio preserved, but edges cropped instead of letterboxed
+
+No black bars
+
+If you’re using multiple images, you can chain them like:
+
+.filter_complex([
+  '[0:v]scale=1920:1080:force_original_aspect_ratio=cover[v0]',
+  '[1:v]scale=1920:1080:force_original_aspect_ratio=cover[v1]',
+  '[2:v]scale=1920:1080:force_original_aspect_ratio=cover[v2]',
+  ...
+])
+
+🔊 2. Fix for Audio Cutting Off
+
+Common cause: the audio track duration is longer than the image slideshow duration or vice versa.
+
+To fix this, use:
+
+.outputOptions([
+  '-shortest',  // ensures video stops when the shorter of the two ends
+  '-af apad'    // pads audio with silence if it's shorter than video
+])
+
+
+But if you want to guarantee the audio always plays fully, then base your final duration on the audio length:
+
+// Determine audio length dynamically
+const audioDuration = await getAudioDurationInSeconds(audioFile);
+
+ffmpeg()
+  .input(imageSequence)
+  .input(audioFile)
+  .duration(audioDuration)   // extend video to match full audio
+  .outputOptions(['-af apad'])
+
+
+You can use a helper:
+
+import getAudioDurationInSeconds from 'get-audio-duration';
+
+const duration = await getAudioDurationInSeconds('output.mp3');
+
+🪄 3. Bonus — Logo Placement
+
+To overlay your logo at the bottom-right corner, use:
+
+.filter_complex([
+  '[0:v][1:v]overlay=W-w-50:H-h-50'
+])
+
+
+Where:
+
+[0:v] is your main video/images
+
+[1:v] is your logo (transparent PNG preferred)
+
+W and H are video width/height
+
+w and h are logo width/height
+
+Adjust offset (50) as needed
+
+🧩 Final Example
+
+Here’s a simplified Node.js snippet using fluent-ffmpeg:
+
+import ffmpeg from 'fluent-ffmpeg';
+import getAudioDurationInSeconds from 'get-audio-duration';
+
+async function generateVideo(images, audioFile, logoFile, outputFile) {
+  const duration = await getAudioDurationInSeconds(audioFile);
+  const perImage = duration / images.length;
+
+  const inputOptions = images.flatMap(img => ['-loop', '1', '-t', perImage, '-i', img]);
+
+  ffmpeg()
+    .inputOptions(inputOptions)
+    .input(audioFile)
+    .input(logoFile)
+    .complexFilter([
+      '[0:v]scale=1920:1080:force_original_aspect_ratio=cover[v0]',
+      '[1:v]scale=1920:1080:force_original_aspect_ratio=cover[v1]',
+      // overlay logo bottom right
+      '[v0][2:v]overlay=W-w-50:H-h-50:enable=between(t,0,100)'
+    ])
+    .audioFilters('apad')
+    .outputOptions(['-shortest'])
+    .duration(duration)
+    .output(outputFile)
+    .on('end', () => console.log('✅ Video generation complete'))
+    .on('error', err => console.error('❌ Video generation failed:', err))
+    .run();
+}

@@ -1,0 +1,117 @@
+This is the exact piece of engineering missing from the @apex/receiver package. By handling the image extraction and HTML rewriting on the receiving server, you ensure the client's website owns its content 100%—no hotlinking, no 404s, and perfect SEO.
+
+Here is the Cheerio Image Hydration code. This script intercepts the payload, rips out the base64 images, saves them to the client's public folder, and surgically updates the HTML before saving it to the database.
+
+The "Platinum" Receiver Storage Logic (storage-adapter.ts)
+TypeScript
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as cheerio from 'cheerio';
+
+// 1. Define the strict Payload Contract
+export interface MediaItem {
+  id: string;          // The temporary ID or relative path from your main engine
+  filename: string;    // e.g., "boston-senior-care.jpg"
+  base64Data: string;  // The actual image data
+}
+
+export interface ArticlePayload {
+  title: string;
+  slug: string;
+  metadata: Record<string, any>; // SEO keywords, author, etc.
+  bodyHtml: string;
+  media: MediaItem[];
+}
+
+export class LocalFilesystemAdapter {
+  // Define where the client website serves public images (e.g., Next.js uses './public/media')
+  private mediaDirectory = path.join(process.cwd(), 'public', 'media', 'articles');
+  private dataDirectory = path.join(process.cwd(), 'data', 'articles');
+
+  constructor() {
+    // Ensure directories exist on startup
+    this.initDirectories();
+  }
+
+  private async initDirectories() {
+    await fs.mkdir(this.mediaDirectory, { recursive: true });
+    await fs.mkdir(this.dataDirectory, { recursive: true });
+  }
+
+  // 2. The Missing Method that caused the 41 failures
+  public async upsertArticleByTitle(payload: ArticlePayload): Promise<void> {
+    console.log(`📥 Receiver: Processing article "${payload.title}"...`);
+
+    const imageMap = new Map<string, string>();
+
+    // STEP A: Extract and Save Images
+    if (payload.media && payload.media.length > 0) {
+      for (const item of payload.media) {
+        // Strip the "data:image/jpeg;base64," prefix if the main engine sent it
+        const base64Clean = item.base64Data.replace(/^data:image\/\w+;base64,/, "");
+        const imageBuffer = Buffer.from(base64Clean, 'base64');
+        
+        // Create a safe, SEO-friendly filename
+        const safeFilename = `${payload.slug}-${item.filename}`;
+        const savePath = path.join(this.mediaDirectory, safeFilename);
+        
+        await fs.writeFile(savePath, imageBuffer);
+        
+        // Map the old engine ID/path to the new local public URL
+        const newPublicUrl = `/media/articles/${safeFilename}`;
+        imageMap.set(item.id, newPublicUrl);
+        
+        console.log(`   📸 Saved local image: ${newPublicUrl}`);
+      }
+    }
+
+    // STEP B: Hydrate the HTML via Cheerio
+    const $ = cheerio.load(payload.bodyHtml, { decodeEntities: false });
+    let imagesRewritten = 0;
+
+    $('img').each((_, el) => {
+      const currentSrc = $(el).attr('src');
+      if (!currentSrc) return;
+
+      // Check if this image matches one of the IDs we just downloaded
+      // (This handles both exact ID matches and partial path matches)
+      for (const [oldId, newUrl] of imageMap.entries()) {
+        if (currentSrc.includes(oldId)) {
+          $(el).attr('src', newUrl);
+          imagesRewritten++;
+          break;
+        }
+      }
+    });
+
+    const finalHydratedHtml = $.html();
+    console.log(`   🔗 Rewrote ${imagesRewritten} image URLs in the DOM.`);
+
+    // STEP C: Save the Final Unified Object (Metadata + Hydrated HTML)
+    // Here we save it as a JSON file, but if the client uses a DB (like Postgres/Mongo), 
+    // you would run your INSERT/UPDATE query here instead.
+    const articleRecord = {
+      title: payload.title,
+      slug: payload.slug,
+      metadata: payload.metadata,
+      contentHtml: finalHydratedHtml,
+      lastUpdated: new Date().toISOString()
+    };
+
+    const recordPath = path.join(this.dataDirectory, `${payload.slug}.json`);
+    await fs.writeFile(recordPath, JSON.stringify(articleRecord, null, 2));
+
+    console.log(`✅ Receiver: Successfully published "${payload.title}".`);
+  }
+}
+🏗️ How to Deploy This Fix
+Update the Package: Put this code into your @apex/receiver repository.
+
+Update the Sender: Ensure your main generation engine (where worker.ts lives) actually includes the media array with base64 data when it makes the POST request to privateinhomecaregiver.com.
+
+Upgrade the Client: Connect to the privateinhomecaregiver.com server, run npm install @apex/receiver@latest, and restart the server.
+
+Why this permanently fixes the "Ghost" articles
+Right now, your website’s Card Grid looks for metadata, but the article page itself looks for HTML that was never properly formatted or saved.
+
+By saving a single .json file (or a single DB row) that contains both the metadata and the contentHtml, the frontend of privateinhomecaregiver.com can finally render the full article with local, perfectly loading images.

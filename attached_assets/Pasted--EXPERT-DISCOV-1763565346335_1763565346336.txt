@@ -1,0 +1,797 @@
+/**
+ * ============================================================================
+ * EXPERT DISCOVERY & REDDIT RESEARCH SYSTEM
+ * ============================================================================
+ * 
+ * Features:
+ * 1. Find subject matter experts via web search
+ * 2. Scrape Reddit for real user questions
+ * 3. Analyze search intent and question patterns
+ * 4. Generate data-driven article prompts
+ * 5. Build comprehensive topic briefs
+ * 
+ * Installation:
+ * npm install axios cheerio node-fetch snoowrap
+ */
+
+const axios = require('axios');
+const cheerio = require('cheerio');
+
+// ============================================================================
+// EXPERT DISCOVERY MODULE
+// ============================================================================
+
+class ExpertDiscovery {
+  constructor(config = {}) {
+    this.searchApiKey = config.braveApiKey || process.env.BRAVE_API_KEY;
+    this.useWebSearch = config.useWebSearch !== false;
+  }
+
+  /**
+   * Find top experts in a given topic/industry
+   */
+  async findExperts(topic, industry, options = {}) {
+    console.log(`🔍 Searching for experts in: ${topic}`);
+
+    const searchQueries = [
+      `"${topic}" expert author -job -hiring`,
+      `"${topic}" thought leader ${industry}`,
+      `"${topic}" specialist consultant ${industry}`,
+      `best "${topic}" professionals ${industry}`,
+      `top "${topic}" researchers authors`
+    ];
+
+    const allExperts = [];
+
+    for (const query of searchQueries) {
+      try {
+        const results = await this.webSearch(query);
+        const experts = this.extractExpertsFromResults(results, topic);
+        allExperts.push(...experts);
+      } catch (error) {
+        console.error(`Search failed for: ${query}`, error.message);
+      }
+    }
+
+    // Deduplicate and rank experts
+    const rankedExperts = this.rankExperts(allExperts, topic);
+
+    console.log(`✅ Found ${rankedExperts.length} experts`);
+    return rankedExperts.slice(0, options.limit || 10);
+  }
+
+  /**
+   * Perform web search (using Brave Search API or placeholder)
+   */
+  async webSearch(query) {
+    // If using Brave Search API
+    if (this.searchApiKey) {
+      try {
+        const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
+          headers: {
+            'Accept': 'application/json',
+            'X-Subscription-Token': this.searchApiKey
+          },
+          params: {
+            q: query,
+            count: 10
+          }
+        });
+        return response.data.web?.results || [];
+      } catch (error) {
+        console.error('Brave API error:', error.message);
+      }
+    }
+
+    // Fallback: Return mock data structure
+    console.log('⚠️  Using mock search data (add BRAVE_API_KEY for real search)');
+    return this.getMockSearchResults(query);
+  }
+
+  extractExpertsFromResults(results, topic) {
+    const experts = [];
+
+    for (const result of results) {
+      // Extract from title and description
+      const text = `${result.title} ${result.description}`.toLowerCase();
+      
+      // Look for expert indicators
+      const indicators = [
+        /(\w+\s+\w+),?\s+(phd|dr\.|professor|ceo|founder|director|vp|chief|senior|lead)/i,
+        /by\s+(\w+\s+\w+)/i,
+        /authored?\s+by\s+(\w+\s+\w+)/i,
+        /written\s+by\s+(\w+\s+\w+)/i
+      ];
+
+      for (const pattern of indicators) {
+        const match = text.match(pattern);
+        if (match) {
+          experts.push({
+            name: this.cleanName(match[1]),
+            title: match[2] || 'Expert',
+            source: result.url,
+            snippet: result.description,
+            credibilityScore: this.calculateCredibility(result),
+            topic: topic
+          });
+        }
+      }
+
+      // Check for LinkedIn, company pages, academic profiles
+      if (result.url.includes('linkedin.com')) {
+        experts.push({
+          name: this.extractNameFromUrl(result.url),
+          title: 'Professional',
+          source: result.url,
+          snippet: result.description,
+          credibilityScore: 0.7,
+          topic: topic
+        });
+      }
+    }
+
+    return experts;
+  }
+
+  rankExperts(experts, topic) {
+    // Deduplicate by name
+    const uniqueExperts = new Map();
+    
+    for (const expert of experts) {
+      const key = expert.name.toLowerCase();
+      if (!uniqueExperts.has(key)) {
+        uniqueExperts.set(key, expert);
+      } else {
+        // Merge data if expert appears multiple times (increases credibility)
+        const existing = uniqueExperts.get(key);
+        existing.credibilityScore = Math.min(
+          1.0,
+          existing.credibilityScore + 0.1
+        );
+      }
+    }
+
+    // Sort by credibility score
+    return Array.from(uniqueExperts.values())
+      .sort((a, b) => b.credibilityScore - a.credibilityScore);
+  }
+
+  calculateCredibility(result) {
+    let score = 0.5;
+
+    // Boost for authoritative domains
+    const authDomains = [
+      'edu', 'gov', 'forbes.com', 'harvard.edu', 'mit.edu',
+      'stanford.edu', 'linkedin.com', 'medium.com', 'substack.com'
+    ];
+
+    for (const domain of authDomains) {
+      if (result.url.includes(domain)) {
+        score += 0.3;
+        break;
+      }
+    }
+
+    // Boost for academic titles
+    if (result.description.match(/phd|professor|dr\.|doctorate|researcher/i)) {
+      score += 0.2;
+    }
+
+    // Boost for C-level executives
+    if (result.description.match(/ceo|cto|founder|chief|director/i)) {
+      score += 0.15;
+    }
+
+    return Math.min(score, 1.0);
+  }
+
+  cleanName(name) {
+    return name
+      .replace(/[,\.\-\(\)]/g, '')
+      .split(/\s+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ')
+      .trim();
+  }
+
+  extractNameFromUrl(url) {
+    const match = url.match(/linkedin\.com\/in\/([^\/\?]+)/);
+    if (match) {
+      return match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    return 'Unknown Expert';
+  }
+
+  getMockSearchResults(query) {
+    // Mock data for testing without API
+    return [
+      {
+        title: 'Expert Guide to ' + query,
+        description: 'Written by John Smith, PhD, Professor of Marketing at Stanford University',
+        url: 'https://stanford.edu/research'
+      },
+      {
+        title: 'Industry Analysis by Leading Professional',
+        description: 'Sarah Johnson, CEO and Founder of Digital Marketing Institute',
+        url: 'https://example.com/analysis'
+      }
+    ];
+  }
+}
+
+// ============================================================================
+// REDDIT RESEARCH MODULE
+// ============================================================================
+
+class RedditResearch {
+  constructor(config = {}) {
+    this.useRedditAPI = config.useRedditAPI || false;
+    this.redditClientId = config.redditClientId || process.env.REDDIT_CLIENT_ID;
+    this.redditSecret = config.redditSecret || process.env.REDDIT_SECRET;
+  }
+
+  /**
+   * Find real questions from Reddit for a given keyword/topic
+   */
+  async findQuestions(keyword, options = {}) {
+    console.log(`🔍 Searching Reddit for questions about: ${keyword}`);
+
+    const subreddits = options.subreddits || this.getRelevantSubreddits(keyword);
+    const allQuestions = [];
+
+    for (const subreddit of subreddits) {
+      try {
+        const questions = await this.searchSubreddit(subreddit, keyword, options);
+        allQuestions.push(...questions);
+      } catch (error) {
+        console.error(`Reddit search failed for r/${subreddit}:`, error.message);
+      }
+    }
+
+    // Analyze and categorize questions
+    const analyzed = this.analyzeQuestions(allQuestions, keyword);
+
+    console.log(`✅ Found ${analyzed.length} unique questions`);
+    return analyzed;
+  }
+
+  /**
+   * Get relevant subreddits based on topic
+   */
+  getRelevantSubreddits(keyword) {
+    const keywordLower = keyword.toLowerCase();
+    
+    // Industry-specific subreddit mapping
+    const subredditMap = {
+      // Marketing & SEO
+      'seo': ['SEO', 'bigseo', 'TechSEO', 'marketing', 'digitalmarketing'],
+      'marketing': ['marketing', 'digitalmarketing', 'socialmedia', 'content_marketing'],
+      'content': ['content_marketing', 'copywriting', 'blogging', 'marketing'],
+      
+      // Tech
+      'javascript': ['javascript', 'learnjavascript', 'webdev', 'programming'],
+      'python': ['Python', 'learnpython', 'programming', 'coding'],
+      'web': ['webdev', 'web_design', 'frontend', 'javascript'],
+      
+      // Business
+      'business': ['Entrepreneur', 'smallbusiness', 'business', 'startups'],
+      'startup': ['startups', 'Entrepreneur', 'smallbusiness'],
+      'ecommerce': ['ecommerce', 'shopify', 'Entrepreneur'],
+      
+      // Finance
+      'investment': ['investing', 'stocks', 'personalfinance'],
+      'crypto': ['cryptocurrency', 'Bitcoin', 'CryptoMarkets'],
+      
+      // Health & Fitness
+      'fitness': ['Fitness', 'loseit', 'gainit', 'bodyweightfitness'],
+      'nutrition': ['nutrition', 'EatCheapAndHealthy', 'HealthyFood']
+    };
+
+    // Find matching category
+    for (const [category, subs] of Object.entries(subredditMap)) {
+      if (keywordLower.includes(category)) {
+        return subs;
+      }
+    }
+
+    // Default general subreddits
+    return ['AskReddit', 'NoStupidQuestions', 'explainlikeimfive'];
+  }
+
+  /**
+   * Search a specific subreddit
+   */
+  async searchSubreddit(subreddit, keyword, options = {}) {
+    const limit = options.limit || 25;
+    const timeframe = options.timeframe || 'year';
+
+    try {
+      // Using Reddit JSON API (no auth required)
+      const searchUrl = `https://www.reddit.com/r/${subreddit}/search.json`;
+      const params = {
+        q: keyword,
+        restrict_sr: 'on',
+        sort: 'relevance',
+        t: timeframe,
+        limit: limit
+      };
+
+      const response = await axios.get(searchUrl, {
+        params,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Research Bot)'
+        }
+      });
+
+      const posts = response.data.data.children;
+      const questions = [];
+
+      for (const post of posts) {
+        const data = post.data;
+        
+        // Filter for question-like posts
+        if (this.isQuestion(data.title) || this.isQuestion(data.selftext)) {
+          questions.push({
+            title: data.title,
+            body: data.selftext,
+            subreddit: subreddit,
+            url: `https://reddit.com${data.permalink}`,
+            score: data.score,
+            numComments: data.num_comments,
+            created: new Date(data.created_utc * 1000),
+            author: data.author
+          });
+        }
+      }
+
+      // Also get top comments if needed
+      if (options.includeComments) {
+        for (const question of questions.slice(0, 5)) {
+          const comments = await this.getTopComments(question.url);
+          question.topComments = comments;
+        }
+      }
+
+      return questions;
+
+    } catch (error) {
+      console.error(`Error searching r/${subreddit}:`, error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Check if text is a question
+   */
+  isQuestion(text) {
+    if (!text) return false;
+    
+    const questionIndicators = [
+      /\?$/, // Ends with question mark
+      /^(how|what|why|when|where|who|which|can|should|is|are|do|does|will|would)/i,
+      /(help|advice|recommend|suggest|best way|looking for)/i
+    ];
+
+    return questionIndicators.some(pattern => pattern.test(text));
+  }
+
+  /**
+   * Get top comments from a Reddit post
+   */
+  async getTopComments(postUrl, limit = 5) {
+    try {
+      const jsonUrl = postUrl.replace(/\/$/, '') + '.json';
+      const response = await axios.get(jsonUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Research Bot)' }
+      });
+
+      const comments = response.data[1].data.children
+        .filter(c => c.kind === 't1')
+        .slice(0, limit)
+        .map(c => ({
+          text: c.data.body,
+          score: c.data.score,
+          author: c.data.author
+        }));
+
+      return comments;
+
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Analyze and categorize questions
+   */
+  analyzeQuestions(questions, keyword) {
+    // Deduplicate similar questions
+    const unique = this.deduplicateQuestions(questions);
+
+    // Categorize by intent
+    const categorized = unique.map(q => ({
+      ...q,
+      intent: this.categorizeIntent(q.title),
+      questionType: this.getQuestionType(q.title),
+      keywords: this.extractKeywords(q.title + ' ' + q.body),
+      priority: this.calculatePriority(q)
+    }));
+
+    // Sort by priority
+    return categorized.sort((a, b) => b.priority - a.priority);
+  }
+
+  deduplicateQuestions(questions) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const q of questions) {
+      const normalized = q.title.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .sort()
+        .join(' ');
+
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        unique.push(q);
+      }
+    }
+
+    return unique;
+  }
+
+  categorizeIntent(text) {
+    const intents = {
+      howTo: /how (to|do|can|should)|step by step|guide|tutorial/i,
+      comparison: /vs|versus|compare|better|difference|best/i,
+      recommendation: /recommend|suggest|best|top|which/i,
+      explanation: /what is|why|explain|understand|definition/i,
+      troubleshooting: /problem|issue|error|fix|not working|help/i,
+      opinion: /thoughts|opinions|worth|should i/i
+    };
+
+    for (const [intent, pattern] of Object.entries(intents)) {
+      if (pattern.test(text)) {
+        return intent;
+      }
+    }
+
+    return 'general';
+  }
+
+  getQuestionType(text) {
+    const types = {
+      how: /^how/i,
+      what: /^what/i,
+      why: /^why/i,
+      when: /^when/i,
+      where: /^where/i,
+      who: /^who/i,
+      which: /^which/i,
+      should: /^should/i,
+      can: /^can/i,
+      is: /^is|^are|^does/i
+    };
+
+    for (const [type, pattern] of Object.entries(types)) {
+      if (pattern.test(text)) {
+        return type;
+      }
+    }
+
+    return 'other';
+  }
+
+  extractKeywords(text) {
+    // Simple keyword extraction
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/);
+
+    const stopWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at',
+      'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was',
+      'are', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did',
+      'will', 'would', 'should', 'could', 'may', 'might', 'can',
+      'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+      'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how'
+    ]);
+
+    const keywords = words
+      .filter(w => w.length > 3 && !stopWords.has(w))
+      .reduce((acc, word) => {
+        acc[word] = (acc[word] || 0) + 1;
+        return acc;
+      }, {});
+
+    return Object.entries(keywords)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([word]) => word);
+  }
+
+  calculatePriority(question) {
+    let score = 0;
+
+    // Engagement score
+    score += Math.log10(question.score + 1) * 10;
+    score += Math.log10(question.numComments + 1) * 5;
+
+    // Recency bonus
+    const daysSincePost = (Date.now() - question.created) / (1000 * 60 * 60 * 24);
+    if (daysSincePost < 30) score += 10;
+    else if (daysSincePost < 90) score += 5;
+
+    // Question quality indicators
+    if (question.title.length > 20) score += 5;
+    if (question.body && question.body.length > 100) score += 5;
+
+    return score;
+  }
+}
+
+// ============================================================================
+// DYNAMIC PROMPT BUILDER
+// ============================================================================
+
+class DynamicPromptBuilder {
+  constructor() {
+    this.expertDiscovery = new ExpertDiscovery();
+    this.redditResearch = new RedditResearch();
+  }
+
+  /**
+   * Build comprehensive article prompt with expert and Reddit data
+   */
+  async buildArticlePrompt(topic, location, keyword, options = {}) {
+    console.log(`\n🏗️  Building data-driven prompt for: ${topic}`);
+
+    // Step 1: Find experts
+    const experts = await this.expertDiscovery.findExperts(
+      keyword || topic,
+      options.industry || 'general'
+    );
+
+    // Step 2: Get Reddit questions
+    const redditQuestions = await this.redditResearch.findQuestions(
+      keyword || topic,
+      {
+        subreddits: options.subreddits,
+        limit: 30
+      }
+    );
+
+    // Step 3: Analyze search intent
+    const intentAnalysis = this.analyzeSearchIntent(redditQuestions);
+
+    // Step 4: Build comprehensive prompt
+    const prompt = this.constructPrompt({
+      topic,
+      location,
+      keyword,
+      experts,
+      redditQuestions,
+      intentAnalysis,
+      brandData: options.brandData || {}
+    });
+
+    return {
+      prompt,
+      metadata: {
+        expertsFound: experts.length,
+        questionsFound: redditQuestions.length,
+        primaryIntent: intentAnalysis.primaryIntent,
+        topQuestions: redditQuestions.slice(0, 10)
+      }
+    };
+  }
+
+  analyzeSearchIntent(questions) {
+    const intents = {};
+    const questionTypes = {};
+
+    for (const q of questions) {
+      intents[q.intent] = (intents[q.intent] || 0) + 1;
+      questionTypes[q.questionType] = (questionTypes[q.questionType] || 0) + 1;
+    }
+
+    const primaryIntent = Object.entries(intents)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'general';
+
+    const primaryQuestionType = Object.entries(questionTypes)
+      .sort((a, b) => b[1] - a[1])[0]?.[0] || 'how';
+
+    return {
+      primaryIntent,
+      primaryQuestionType,
+      intentDistribution: intents,
+      questionTypeDistribution: questionTypes
+    };
+  }
+
+  constructPrompt(data) {
+    const {
+      topic,
+      location,
+      keyword,
+      experts,
+      redditQuestions,
+      intentAnalysis,
+      brandData
+    } = data;
+
+    return `You are an expert content strategist creating a comprehensive, data-driven article that answers REAL user questions found on Reddit.
+
+TOPIC: ${topic}
+LOCATION: ${location}
+PRIMARY KEYWORD: ${keyword}
+BRAND: ${brandData.name || 'Your Company'}
+
+═══════════════════════════════════════════════════════════════
+REAL USER QUESTIONS FROM REDDIT (Address these throughout article)
+═══════════════════════════════════════════════════════════════
+
+PRIMARY SEARCH INTENT: ${intentAnalysis.primaryIntent}
+QUESTION TYPE: ${intentAnalysis.primaryQuestionType}
+
+TOP 10 REAL QUESTIONS TO ANSWER:
+${redditQuestions.slice(0, 10).map((q, i) => 
+  `${i + 1}. "${q.title}" (r/${q.subreddit}, ${q.score} upvotes, ${q.numComments} comments)`
+).join('\n')}
+
+ADDITIONAL RELEVANT QUESTIONS:
+${redditQuestions.slice(10, 20).map(q => `• ${q.title}`).join('\n')}
+
+═══════════════════════════════════════════════════════════════
+EXPERT INSIGHTS TO REFERENCE
+═══════════════════════════════════════════════════════════════
+
+${experts.slice(0, 5).map((expert, i) => 
+  `${i + 1}. ${expert.name} - ${expert.title}
+   Expertise: ${expert.topic}
+   Source: ${expert.source}
+   Quote/Insight: "${expert.snippet}"`
+).join('\n\n')}
+
+═══════════════════════════════════════════════════════════════
+ARTICLE STRUCTURE REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+1. ANSWER-FIRST PARAGRAPH (200 words):
+   - Directly answer the #1 most asked question from Reddit
+   - Front-load the most valuable information
+   - Use data/statistics if available
+   - Make it highly quotable for AI citations
+
+2. TABLE OF CONTENTS:
+   Create section links based on the top Reddit questions
+
+3. MAIN SECTIONS (6-8 sections):
+   Each section should:
+   - Address 2-3 related Reddit questions
+   - Include expert perspective (reference the experts found)
+   - Provide actionable advice based on Reddit user needs
+   - Add ${location}-specific context where relevant
+   - Use real examples that Reddit users mentioned
+
+4. REDDIT-INSPIRED FAQ SECTION:
+   Use the actual questions from Reddit (reworded for SEO)
+   Provide comprehensive answers to each
+
+5. COMPARISON/ANALYSIS SECTION:
+   If users are comparing options (based on intent analysis), create a comparison table
+
+6. TROUBLESHOOTING SECTION:
+   If primary intent is "troubleshooting", dedicate a section to common problems
+
+7. EXPERT ROUNDUP:
+   Include a section summarizing perspectives from the experts found:
+   ${experts.slice(0, 3).map(e => `- ${e.name}: [Key insight]`).join('\n   ')}
+
+═══════════════════════════════════════════════════════════════
+CONTENT OPTIMIZATION
+═══════════════════════════════════════════════════════════════
+
+E-E-A-T SIGNALS:
+- Experience: Reference real Reddit user experiences
+- Expertise: Cite the experts found in research
+- Authoritativeness: Use data and credible sources
+- Trustworthiness: Acknowledge different perspectives from Reddit
+
+PASSAGE-LEVEL OPTIMIZATION:
+- Each paragraph: 3-5 sentences, self-contained
+- Start each paragraph with the key point
+- Include one Reddit question answer per 2-3 paragraphs
+
+LOCAL OPTIMIZATION (${location}):
+- Include ${location}-specific data in first 3 paragraphs
+- Mention local considerations throughout
+- Add ${location} examples where relevant
+
+SCHEMA-READY STRUCTURE:
+- Use semantic HTML: <article>, <h1>, <h2>, <h3>
+- FAQ section formatted for FAQPage schema
+- Include author bio with expert credentials
+
+═══════════════════════════════════════════════════════════════
+WRITING STYLE
+═══════════════════════════════════════════════════════════════
+
+- Use conversational tone (like answering a Reddit question)
+- Be direct and practical (no fluff)
+- Include specific numbers and data
+- Use "you" to address reader
+- Answer objections and concerns raised on Reddit
+- Acknowledge when there's debate (like on Reddit threads)
+
+WORD COUNT: 2000-2500 words
+
+DO NOT:
+- Add hyperlinks (handled separately)
+- Ignore the Reddit questions
+- Use generic advice not grounded in real user needs
+- Skip local context for ${location}
+
+═══════════════════════════════════════════════════════════════
+
+Generate the complete article in HTML format, ensuring every Reddit question in the top 10 is answered somewhere in the content.`;
+  }
+}
+
+// ============================================================================
+// USAGE EXAMPLE
+// ============================================================================
+
+async function main() {
+  const promptBuilder = new DynamicPromptBuilder();
+
+  // Example 1: Build prompt with expert and Reddit research
+  console.log('\n' + '='.repeat(70));
+  console.log('EXAMPLE: Dynamic Prompt Building with Expert & Reddit Research');
+  console.log('='.repeat(70));
+
+  const result = await promptBuilder.buildArticlePrompt(
+    'Best Local SEO Strategies for Restaurants',
+    'Austin, TX',
+    'local SEO restaurants',
+    {
+      industry: 'Digital Marketing',
+      subreddits: ['SEO', 'smallbusiness', 'Entrepreneur'],
+      brandData: {
+        name: 'Digital Growth Agency'
+      }
+    }
+  );
+
+  console.log('\n📊 RESEARCH SUMMARY:');
+  console.log(`Experts Found: ${result.metadata.expertsFound}`);
+  console.log(`Reddit Questions: ${result.metadata.questionsFound}`);
+  console.log(`Primary Intent: ${result.metadata.primaryIntent}`);
+  
+  console.log('\n📝 TOP QUESTIONS FROM REDDIT:');
+  result.metadata.topQuestions.slice(0, 5).forEach((q, i) => {
+    console.log(`${i + 1}. ${q.title}`);
+    console.log(`   r/${q.subreddit} | ${q.score} points | ${q.numComments} comments\n`);
+  });
+
+  console.log('\n📄 GENERATED PROMPT:');
+  console.log(result.prompt.substring(0, 1000) + '...\n');
+
+  // Save prompt to file
+  const fs = require('fs').promises;
+  await fs.writeFile('generated-prompt.txt', result.prompt);
+  console.log('✅ Full prompt saved to generated-prompt.txt');
+}
+
+// Export modules
+module.exports = {
+  ExpertDiscovery,
+  RedditResearch,
+  DynamicPromptBuilder
+};
+
+// Run example
+if (require.main === module) {
+  main().catch(console.error);
+}

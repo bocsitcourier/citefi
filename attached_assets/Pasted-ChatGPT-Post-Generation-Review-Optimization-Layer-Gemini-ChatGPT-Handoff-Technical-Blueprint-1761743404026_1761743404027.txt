@@ -1,0 +1,299 @@
+ChatGPT Post-Generation Review & Optimization Layer
+
+(“Gemini → ChatGPT Handoff” Technical Blueprint)
+
+1. 🔄 Workflow Overview
+
+Pipeline Context:
+
+Gemini → ChatGPT → Publish / Export
+
+
+Gemini Role: Generates draft article + meta (structured JSON: title, slug, body, keywords, hashtags, etc.).
+
+ChatGPT Role: Performs automated review + enrichment for:
+
+Quality validation
+
+Hyperlink generation (long-phrase keywords + local)
+
+Local hashtag enrichment
+
+SEO meta + OpenGraph/Social descriptions
+
+Hero image prompt validation and tagging
+
+Localized markup (hreflang, geo tags)
+
+Publisher Role: Receives polished HTML/JSON payload from ChatGPT and pushes to CMS, Sheets, XML, etc.
+
+2. 🧭 ChatGPT Review Journey (Customer + System Flow)
+Step 1. Input Handoff
+
+Gemini returns:
+
+{
+  "title": "Same Day Courier Services in Boston, MA",
+  "slug": "same-day-courier-boston-ma",
+  "article_text": "<p>Boston businesses rely on...</p>",
+  "meta_description": "Need same-day courier services in Boston?",
+  "long_phrase_keywords": ["same day courier Boston", "express courier Boston", "Back Bay delivery service"],
+  "hashtags": ["#BostonCourier", "#SameDayDelivery"],
+  "local_references": ["Back Bay", "Seaport District"],
+  "image_prompts": ["Boston courier van at dawn near Seaport"],
+  "locale": {"country":"US","region":"MA","city":"Boston","language":"en-US"}
+}
+
+Step 2. ChatGPT Processing Pipeline
+Phase	Description	Output
+2.1 Validation	Checks if required keys exist and data types are valid.	Validated JSON
+2.2 Enrichment	Creates hyperlinked long-phrase keywords for internal and external URLs, expands hashtags with local context, and creates a new hero image prompt with embedded tags.	Enriched JSON
+2.3 SEO Review	Analyzes keyword density, readability, meta limits, and local signals.	SEO score + recommendations
+2.4 Meta & Social	Writes meta description, OpenGraph description, and social SEO snippet (with emojis + hashtags).	Social meta block
+2.5 Final Output Build	Combines enriched HTML, localized links, meta tags, hero image, hashtags, and schema markup.	final_html_output payload
+3. 🧩 Technical Schema (ChatGPT Output Spec)
+Input (from Gemini)
+{
+  "title": "string",
+  "slug": "string",
+  "article_text": "string (HTML or markdown)",
+  "meta_description": "string",
+  "long_phrase_keywords": ["string"],
+  "hashtags": ["string"],
+  "local_references": ["string"],
+  "image_prompts": ["string"],
+  "locale": {
+    "country": "string",
+    "region": "string",
+    "city": "string",
+    "language": "string"
+  }
+}
+
+Output (to Exporter)
+{
+  "title": "Same Day Courier Services in Boston, MA",
+  "slug": "same-day-courier-boston-ma",
+  "final_html_content": "<article>...</article>",
+  "meta": {
+    "description": "Need same-day courier services in Boston? Learn how local couriers help Back Bay businesses move faster.",
+    "og_title": "Same Day Courier Services in Boston, MA | Acme Courier",
+    "og_description": "🚚 Fast, reliable same-day courier service across Boston — Back Bay, Seaport, and more. #BostonCourier #SameDayDelivery",
+    "geo": {
+      "region": "US-MA",
+      "placename": "Boston",
+      "position": "42.3601;-71.0589"
+    }
+  },
+  "hyperlinked_keywords": [
+    {
+      "phrase": "same day courier Boston",
+      "url": "https://bocsit.com/same-day-courier-boston"
+    },
+    {
+      "phrase": "Back Bay delivery service",
+      "url": "https://bocsit.com/back-bay-courier-delivery"
+    }
+  ],
+  "hashtags": [
+    "#BostonCourier",
+    "#SameDayDelivery",
+    "#BackBayBusiness",
+    "#SeaportBoston"
+  ],
+  "hero_image": {
+    "prompt": "Photorealistic image of a courier van near Boston Seaport sunrise, local skyline visible, tagged with: 'same day courier Boston MA', 'express local delivery'",
+    "keywords": ["Boston", "Courier", "Delivery", "Local", "MA"],
+    "generated_url": "https://cdn.apexcontent.ai/images/same-day-courier-boston.webp"
+  },
+  "seo_score": {
+    "readability": 87,
+    "keyword_density": "2.3%",
+    "meta_length_ok": true,
+    "local_signals": 5,
+    "score": 92
+  }
+}
+
+4. 🧠 Prompt Engineering (ChatGPT Side)
+System Prompt
+You are ChatGPT, acting as an SEO editor and publishing assistant for a geo-localized AI content engine. 
+Your task is to review the content created by Gemini and optimize it for:
+- Long-phrase hyperlinked keywords (internal/external)
+- Local hashtags and geo tags
+- Enhanced meta and OpenGraph descriptions
+- A hero image prompt with tagging
+- Social media SEO snippet (emojis + hashtags)
+Return final JSON strictly following the output schema. Preserve all locale and schema data.
+
+Chat Prompt Template
+Input article from Gemini:
+{gemini_json}
+
+Now:
+1. Review article quality and metadata.
+2. Generate at least 5–10 long-phrase hyperlinked keywords (primary + secondary, localized).
+3. Generate 10–20 localized hashtags (mix SEO + geo).
+4. Refine meta description (<=160 chars).
+5. Write social SEO description (1–2 lines) using emojis and hashtags.
+6. Generate hero image prompt tagged with title keywords + location.
+7. Output JSON following schema.
+
+5. 🧭 Hyperlink Generation Logic
+a. Internal Links (to brand domain)
+
+Use local long-phrase keyword + location:
+
+"same day courier Boston" → https://bocsit.com/same-day-courier-boston
+"express delivery Back Bay" → https://bocsit.com/back-bay-delivery
+
+b. External Links (authoritative)
+
+Use schema-aware outbound linking:
+
+"Boston business logistics" → https://www.mass.gov/topics/business
+"Back Bay neighborhood" → https://www.boston.gov/neighborhood/back-bay
+
+c. Embedding Example
+<p>When searching for a 
+<a href="https://bocsit.com/same-day-courier-boston" target="_blank">same day courier in Boston</a>, 
+choose local experts who know Back Bay and Seaport inside out.</p>
+
+6. 🏷️ Hashtag Localization Rules
+
+Start with 5 SEO hashtags (service + intent)
+
+Add 5–10 geo hashtags (city, neighborhood, event)
+
+Add 2–3 emotional/brand-tone hashtags
+
+Example:
+
+#BostonCourier  #SameDayDelivery  #BackBayBusiness  
+#SeaportBoston  #LoganAirport  #LocalDelivery  #FastCourier  
+#BostonSmallBiz  #ReliableService  #CourierLife
+
+7. 🌆 Hero Image Workflow (Gemini → ChatGPT → ImageGen)
+a. Gemini provides base image prompt.
+
+Example:
+
+"Boston courier van at dawn near Seaport"
+
+b. ChatGPT enhances:
+
+"Photorealistic image of a courier van near Boston Seaport sunrise, brownstone skyline, subtle motion blur, keywords: 'same day courier Boston MA', 'express delivery service', 'local logistics'"
+
+c. ChatGPT calls ImageGen API:
+{
+  "prompt": "Photorealistic image of a courier van near Boston Seaport sunrise...",
+  "tags": ["Boston", "Courier", "Delivery", "MA"],
+  "size": "1024x576",
+  "transparent_background": false
+}
+
+
+Stores the URL and embeds in article header:
+
+<img src="https://cdn.apexcontent.ai/images/same-day-courier-boston.webp" alt="Boston courier van near Seaport" loading="lazy" />
+
+8. 💬 SEO Social Snippet Format
+
+Example Output:
+
+🚚 Deliver faster, smarter, and locally! Discover how Boston’s top courier services keep your business on schedule. 
+#BostonCourier  #SameDayDelivery  #LocalBusinessMA  #SeaportBoston
+
+
+This text is used for:
+
+OG:description
+
+Twitter Card description
+
+LinkedIn post preview
+
+Optional: short social caption export
+
+9. 📈 SEO Review Metrics (ChatGPT Validation)
+Metric	Target	Method
+Title length	≤ 60 chars	regex length check
+Meta description	≤ 160 chars	check + warn
+Keyword density	1–3%	count occurrences
+Local signal count	≥ 3 (city/region mentions)	search
+Image alt tags	must contain city	enforce rule
+Schema validation	JSON-LD presence	verify keys
+Readability (Flesch)	≥ 70	compute via textlib
+SEO score	Weighted total (0–100)	composite formula
+10. ⚙️ Developer Integration Notes
+
+Implement ChatGPT as a post-generation webhook triggered after Gemini finishes.
+
+Use structured JSON to pass through.
+
+ChatGPT enriches → returns final JSON → stored to articles.final_html_content & articles.meta.
+
+Add cost logging per article (token usage for ChatGPT).
+
+Enable per-locale PromptTemplate overrides (for multi-language optimization).
+
+11. 🔐 Optional: Auto-Publish Trigger
+
+When auto_publish=true, system runs:
+
+Gemini → ChatGPT pipeline
+
+Publish final enriched article to WordPress REST API (or Notion, or Sheets)
+
+Return post URL + metadata to dashboard.
+
+12. 🧮 Example End-to-End (Simplified)
+
+Gemini output → ChatGPT enriched:
+
+Step	Input	Output
+Gemini	Raw text + keywords	Draft article
+ChatGPT	Review + local link enrichment	Final HTML + hero image + social
+Exporter	WordPress API	Published post with OG + Local schema
+13. ✅ Developer Deliverables Checklist
+
+ Create /api/review/gpt endpoint to handle Gemini → ChatGPT JSON.
+
+ Add post_review_schema.json validator.
+
+ Implement hyperlinker util (internal + external mapping).
+
+ Add seo_analyzer.js module (density, readability, etc.).
+
+ Add image_gen_service wrapper.
+
+ Extend articles table with columns:
+
+final_html_content
+
+meta -> jsonb
+
+seo_score -> int
+
+ Integrate prompt caching for efficiency.
+
+ Add export to Sheets/WordPress with enriched tags.
+
+14. ✨ Example Final Output Snippet
+<article>
+  <h1>Same Day Courier Services in Boston, MA</h1>
+  <p>Need a <a href="https://bocsit.com/same-day-courier-boston">same day courier in Boston</a> that delivers reliability?</p>
+
+  <img src="https://cdn.apexcontent.ai/images/same-day-courier-boston.webp" alt="Courier van in Boston Seaport area" loading="lazy" />
+
+  <p>Acme Courier offers <a href="https://bocsit.com/back-bay-delivery">Back Bay delivery services</a> trusted by local businesses...</p>
+</article>
+
+<!-- Meta + Schema -->
+<meta name="description" content="Need same-day courier in Boston? Learn how local couriers serve Back Bay & Seaport.">
+<meta property="og:title" content="Same Day Courier Services in Boston, MA | Acme Courier">
+<meta property="og:description" content="🚚 Deliver faster, smarter, locally! #BostonCourier #SameDayDelivery">
+<meta name="geo.region" content="US-MA">
+<meta name="geo.placename" content="Boston">
+<meta name="geo.position" content="42.3601;-71.0589">
+<meta name="ICBM" content="42.3601,-71.0589">

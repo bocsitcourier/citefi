@@ -1,0 +1,170 @@
+The API returns valid post data
+
+The frontend correctly maps all fields (no empty UI)
+
+No redundant API or state updates occur
+
+🧩 1. Folder Setup
+
+Create the following structure inside your frontend project:
+
+/src
+ ├─ components/
+ │   └─ PostDetail.tsx
+ ├─ __tests__/
+ │   └─ PostDetail.test.tsx
+ ├─ __mocks__/
+ │   └─ handlers.ts
+ ├─ setupTests.ts
+
+🧰 2. Mock API (MSW)
+
+File: /src/__mocks__/handlers.ts
+
+import { rest } from 'msw';
+
+export const handlers = [
+  rest.get('/api/posts/:id', (req, res, ctx) => {
+    const { id } = req.params;
+    return res(
+      ctx.status(200),
+      ctx.json({
+        id,
+        title: "Top 10 SEO Strategies for 2025",
+        content: "AI-driven marketing is transforming local SEO optimization...",
+        hashtags: ["#SEO", "#DigitalMarketing", "#AITrends"],
+        created_at: "2025-10-31T15:20:00Z",
+      })
+    );
+  }),
+];
+
+⚙️ 3. React Component to Test
+
+File: /src/components/PostDetail.tsx
+
+import React, { useEffect, useState } from 'react';
+
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  hashtags: string[];
+  created_at: string;
+}
+
+export default function PostDetail({ postId }: { postId: string }) {
+  const [post, setPost] = useState<Post | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchPost() {
+      try {
+        const res = await fetch(`/api/posts/${postId}`);
+        if (!res.ok) throw new Error('Failed to load post');
+        const data = await res.json();
+        setPost(data);
+      } catch (err: any) {
+        setError(err.message);
+      }
+    }
+    fetchPost();
+  }, [postId]);
+
+  if (error) return <p data-testid="error">{error}</p>;
+  if (!post) return <p data-testid="loading">Loading...</p>;
+
+  return (
+    <div data-testid="post-detail">
+      <h1>{post.title}</h1>
+      <p>{post.content}</p>
+      <div>
+        {post.hashtags.map((tag) => (
+          <span key={tag}>{tag} </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+🧪 4. Unit + Integration Test
+
+File: /src/__tests__/PostDetail.test.tsx
+
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { setupServer } from 'msw/node';
+import { handlers } from '../__mocks__/handlers';
+import PostDetail from '../components/PostDetail';
+
+const server = setupServer(...handlers);
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+test('renders post details after API fetch', async () => {
+  render(<PostDetail postId="101" />);
+
+  expect(screen.getByTestId('loading')).toBeInTheDocument();
+
+  await waitFor(() => expect(screen.getByTestId('post-detail')).toBeInTheDocument());
+
+  expect(screen.getByText(/Top 10 SEO Strategies for 2025/i)).toBeInTheDocument();
+  expect(screen.getByText(/AI-driven marketing/i)).toBeInTheDocument();
+  expect(screen.getByText(/#SEO/)).toBeInTheDocument();
+});
+
+test('shows error message if API fails', async () => {
+  server.use(
+    // override to simulate failure
+    require('msw').rest.get('/api/posts/:id', (_, res, ctx) => res(ctx.status(500)))
+  );
+
+  render(<PostDetail postId="999" />);
+
+  await waitFor(() => expect(screen.getByTestId('error')).toBeInTheDocument());
+});
+
+🧩 5. Jest + MSW Setup
+
+File: /src/setupTests.ts
+
+import '@testing-library/jest-dom';
+
+
+Then update your package.json:
+
+"jest": {
+  "setupFilesAfterEnv": ["<rootDir>/src/setupTests.ts"],
+  "testEnvironment": "jsdom",
+  "transform": {
+    "^.+\\.tsx?$": "ts-jest"
+  }
+}
+
+🚀 6. Run the QA Audit
+# Run all automated tests
+npm run test
+
+# Or specifically test this file
+npx jest PostDetail.test.tsx
+
+🧭 Optional E2E Playwright Test
+
+If you’d like browser-level validation (real DOM & routing):
+
+Command:
+
+npx playwright test post-detail.spec.ts
+
+
+Test Example:
+
+import { test, expect } from '@playwright/test';
+
+test('Post detail displays correct data', async ({ page }) => {
+  await page.goto('/post/101');
+  await expect(page.locator('h1')).toContainText('Top 10 SEO Strategies for 2025');
+  await expect(page.locator('text=#SEO')).toBeVisible();
+});

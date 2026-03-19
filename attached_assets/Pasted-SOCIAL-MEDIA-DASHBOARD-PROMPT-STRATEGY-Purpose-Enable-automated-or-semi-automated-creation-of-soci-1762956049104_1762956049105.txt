@@ -1,0 +1,106 @@
+SOCIAL MEDIA DASHBOARD PROMPT STRATEGY
+Purpose:
+
+Enable automated or semi-automated creation of social media content (posts, captions, short videos, visuals) while maintaining brand consistency, tone, and identity across all platforms.
+
+1️⃣ DASHBOARD MODULES & PROMPT TYPES
+Module	Goal	Output	Key Prompt Focus
+Brand Voice Generator	Ensures tone matches your brand guide	Voice & tone template	Style adjectives, examples, dos/don’ts
+Post Generator	Creates written post content for each platform	Caption + CTA	Hook, emotion, target audience
+Visual/Video Prompt Generator	Generates AI-ready image/video prompts	Scene + visual prompt	Branding, text overlay, company name validation
+Hashtag Optimizer	Creates branded + trending hashtags	10–20 hashtags	Blend of evergreen + campaign-specific
+Engagement/Response Module	Creates replies to comments	Reply templates	Politeness, humor, or empathy
+Analytics Prompt	Suggests next post type based on performance	Content recommendations	Trends, engagement metrics
+2️⃣ CORE BRAND VALIDATION PROMPT (ALWAYS INCLUDED)
+
+Before every generation request (for articles, visuals, or videos), prepend this validation block:
+
+“⚠️ Validation rule: The company name must appear exactly as written — PRIVATE INHOME CAREGIVER — in all generated text, visuals, and captions. Do not alter, abbreviate, misspell, or create variations. Verify that this exact name appears before final output.”
+
+This ensures all AI tools (like Gemini or OpenAI image modules) consistently use the correct name.
+
+3️⃣ PROMPT FRAMEWORKS BY CONTENT TYPE
+📝 A. Social Post Prompt Template (for Articles or Brand Highlights)
+You are the social media voice of [BRAND NAME]. Create a compelling [platform: Facebook/Instagram/LinkedIn] post promoting the following article or topic:
+
+[Insert article summary or main talking point]
+
+Follow this brand voice:
+- Tone: [friendly, compassionate, knowledgeable]
+- Core values: [trust, compassion, consistency]
+- Target audience: [families seeking private in-home care]
+- Platform: [LinkedIn/Instagram/etc.]
+
+Include:
+- A powerful opening hook
+- 2–3 lines of emotionally resonant copy
+- 1 call-to-action
+- 5 hashtags that align with our voice and content
+- Always include the exact brand name “PRIVATE INHOME CAREGIVER” once naturally.
+
+🎥 B. Video Prompt Template (AI Video or Short-Form Script)
+Create a 30-second social video script for PRIVATE INHOME CAREGIVER that promotes [topic or service]. 
+
+Tone: Warm, trustworthy, and community-focused.
+Visual Style: Bright, natural lighting, home environment.
+Include spoken and onscreen text that features the **exact company name**. 
+End with a friendly call-to-action inviting viewers to learn more or contact PRIVATE INHOME CAREGIVER.
+
+
+✅ Optional: Add "Include the exact text 'PRIVATE INHOME CAREGIVER' in all on-screen visuals" for image/video models.
+
+🖼️ C. AI Image Prompt (Gemini / DALL·E / Midjourney)
+Create a high-quality, realistic image for PRIVATE INHOME CAREGIVER. 
+Include the exact text: “PRIVATE INHOME CAREGIVER” on a banner, wall sign, or overlay. 
+The scene should depict compassionate in-home care — caregivers assisting seniors in a warm, home setting.
+Do not alter or abbreviate the company name. Ensure it is clear, readable, and correctly spelled.
+
+💬 D. Comment / Engagement Prompt
+Generate 5 friendly, on-brand responses for user comments thanking PRIVATE INHOME CAREGIVER for their services. 
+Tone: Authentic, kind, and professional. Avoid generic responses.
+Each reply should include empathy, gratitude, or encouragement for the commenter.
+
+📊 E. Dashboard Data Prompt for Post Scheduling
+Analyze engagement data from the last 30 posts. Identify top-performing content themes.
+Recommend 3 new post ideas following the same tone and imagery style for PRIVATE INHOME CAREGIVER.
+Include optimized posting times for Facebook, Instagram, and LinkedIn.
+
+4️⃣ PROMPT AUTOMATION PIPELINE (FOR DASHBOARD OR API)
+
+To automate this, build the pipeline as follows:
+
+Input: Topic / Article / Campaign Goal
+
+Validate: Check businessName field — required (if missing, return error or prompt user to confirm spelling).
+
+Generate:
+
+Article → SEO content prompt
+
+Image prompt → Gemini/DALL·E
+
+Video script → OpenAI + Runway / Synthesia / Pika
+
+Brand Validation Check:
+
+Auto-scan output text for the exact company name
+
+If incorrect → re-run generation with stricter prompt:
+
+“Re-generate using the exact text PRIVATE INHOME CAREGIVER — prior output contained an error.”
+
+Output: Publish-ready content batch (post + hashtags + media)
+
+5️⃣ SAMPLE DASHBOARD PROMPT BUNDLE (READY TO INTEGRATE)
+Type	Prompt Snippet
+LinkedIn	“Craft a professional post introducing our new private-pay home care services. Include the exact company name, emotional storytelling, and 3 trust-building hashtags.”
+Instagram	“Create a warm, visual-driven caption for an image of caregivers and seniors. Use emojis sparingly, tone: uplifting and human. Include ‘PRIVATE INHOME CAREGIVER’.”
+TikTok Video Script	“Generate a 20-second TikTok script that introduces PRIVATE INHOME CAREGIVER’s mission — emphasize compassion and professionalism. Include a smiling caregiver scene.”
+Facebook	“Write a short, heartfelt Facebook post sharing a success story. Mention PRIVATE INHOME CAREGIVER once naturally, and end with a gentle call to action.”
+6️⃣ Ongoing Optimization
+
+✅ AI Validation Layer: Auto-check for name integrity, banned words, off-brand tone
+
+✅ Speed: Use batching — pre-cache prompts + reuse base brand context
+
+✅ Content Diversity: Alternate tone themes (education, testimonial, value-based, motivational)
