@@ -1415,6 +1415,18 @@ Violations will cause the article to be automatically rejected and regenerated.
 3. FAQ LINKS: The FAQ section MUST contain at least 2 internal hyperlinks. Every <dd> answer block is eligible for a long-phrase semantic link.
 4. CITY PADDING FORBIDDEN: Do NOT pad content by repeating city names to hit keyword density. Every city mention must accompany a service, benefit, or outcome.
 
+**SEMANTIC HOOK INSTRUCTION (CRITICAL — READ BEFORE WRITING):**
+As you write EVERY paragraph and EVERY FAQ answer, you must deliberately embed "Semantic Hook" phrases — natural 4-7 word phrases that our hyperlinker can later anchor to. These are NOT forced keyword inserts; they are natural sentences written so the long phrase itself carries meaning.
+
+HOW TO WRITE SEMANTIC HOOKS:
+- WRONG: "We offer care in Boston." (bare city, no anchor hook)
+- RIGHT: "Our specialized senior home care services in Boston provide families with the consistent, compassionate support they need." (the phrase "specialized senior home care services in Boston" is a 7-word hook ✅)
+- WRONG: "Home care is important for seniors." (too vague, no service+location cluster)
+- RIGHT: "Families navigating post-hospital recovery care for elderly parents gain confidence when a consistent routine is established." (the phrase "post-hospital recovery care for elderly parents" is a 6-word hook ✅)
+
+Every FAQ answer MUST contain at least one such 4-7 word Semantic Hook phrase. Hooks make internal linking natural and authoritative.
+FAILURE TO INCLUDE SEMANTIC HOOKS IN THE FAQ SECTION WILL RESULT IN AUTOMATIC REJECTION.
+
 **CRITICAL FORMATTING REQUIREMENT:**
 Return the article text in MARKDOWN format with proper structure:
 - Use ## for H2 headers (main sections)

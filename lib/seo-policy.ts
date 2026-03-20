@@ -135,3 +135,12 @@ export function getFullArticleContext(
 
   return `${head} [...] [FAQ/CONCLUSION]: ${tail}`;
 }
+
+// ============================================================================
+// COMPATIBILITY RE-EXPORTS
+// ============================================================================
+// These re-export the AI prompt strings from seo-ai-laws.ts so code that
+// imports from './seo-policy' keeps working without duplicating law text.
+// Runtime validators (above) stay in this file; prompt strings stay in
+// seo-ai-laws.ts. Both can be imported from either path.
+export { GLOBAL_SEO_LAWS, SEO_LAW_REMINDER, buildSeoLawBlock } from "./seo-ai-laws";
