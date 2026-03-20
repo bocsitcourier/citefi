@@ -1037,12 +1037,30 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
     }
   }
 
+  // NEURAL LOOP: Inject Guardian failure warnings so the AI learns from past mistakes.
+  // Fetches the top recurring failures from the ai_learning_ledger for this team and
+  // injects them as hard "negative constraints" at the top of the prompt. If the AI
+  // previously used a bare city anchor or missed FAQ links, the next generation opens
+  // with a specific warning about that exact error type.
+  let guardianWarningsContext = "";
+  if (teamId) {
+    try {
+      const { getGuardianFailureWarnings } = await import("./learning-integration");
+      guardianWarningsContext = await getGuardianFailureWarnings(teamId, "article");
+      if (guardianWarningsContext) {
+        console.log(`🧠 [NEURAL LOOP] Injecting ${guardianWarningsContext.split("\n").filter(l => l.startsWith("  -")).length} Guardian failure warning(s) into Gemini prompt`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to fetch Guardian failure warnings:`, error);
+    }
+  }
+
   const prompt = `You are an expert content strategist implementing a composite 3-layer methodology combining Lily Ray's Answer-First structure, Mike King's passage-level optimization, and Kevin Indig's citation optimization for maximum AI visibility and E-E-A-T signals.
 
 Article Title: ${title}
 Target URL for Internal Linking: ${targetUrl}
 Word Count Range: ${wordCountMin}-${wordCountMax} words${geographicContext}${audienceContext}${toneContext}${customContext}
-${brandLockContext}${batchSeoContext}${personaContext}
+${brandLockContext}${batchSeoContext}${personaContext}${guardianWarningsContext}
 
 **CRITICAL CONTENT FOCUS - THIS IS EDUCATIONAL CONTENT, NOT AN ADVERTISEMENT:**
 The article MUST be ABOUT THE TOPIC/SUBJECT MATTER, NOT about ${businessName}.

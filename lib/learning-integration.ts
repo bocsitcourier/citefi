@@ -205,6 +205,15 @@ export async function getGuardianFailureWarnings(
         "Your content tone frequently mismatches the required persona. Read the persona description carefully and apply it consistently throughout the article.",
       MISSING_FORMATTING:
         "Articles contain raw markdown instead of proper HTML. Use <strong>, <em>, <h2>, <h3>, <ul>, <li> tags — never **, *, #, or - list syntax.",
+      // SEO POLICY FAILURES — logged by ReformatGuard and DOM injector
+      BARE_GEO_ANCHOR:
+        "Your articles have repeatedly produced bare city/state names as hyperlink anchors (e.g. 'Boston', 'Boston MA', 'Weston MA'). This is FORBIDDEN. All anchor text MUST be a 4-7 word Semantic Cluster pairing a service with location context — e.g. 'specialized in-home care services near Boston' not 'Boston'. Write every sentence so the long phrase is the natural anchor candidate.",
+      SHORT_ANCHOR:
+        "Your articles have repeatedly produced hyperlink anchors under 4 words (e.g. 'home care', 'senior services'). This violates the SEO policy. ALL anchor text MUST be 4-7 words. Proactively write 'Semantic Hook' phrases — natural sentences containing 4-7 word clusters — so the hyperlinker has quality material to work with.",
+      MISSING_FAQ_LINKS:
+        "The FAQ section in your articles frequently contains no hyperlinks. Every FAQ answer (<dd> block) must contain at least one 4-7 word Semantic Hook phrase that can serve as an internal link anchor. Write each FAQ answer with a linkable long phrase embedded naturally.",
+      REFORMAT_STRIPPED_ANCHORS:
+        "The reformatter has been stripping invalid hyperlinks from your articles — anchors were either bare city names or fewer than 4 words. Write 4-7 word Semantic Cluster phrases throughout the body AND in every FAQ answer so valid links survive the quality gate.",
     };
 
     const lines = failures

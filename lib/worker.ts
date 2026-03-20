@@ -1242,15 +1242,19 @@ export async function registerWorkers() {
             // REFORMAT GUARDIAN: Validate any pre-stored hyperlinks against SEO policy.
             // Old articles may have bare-geo or short anchors saved before the policy existed.
             const { isHighQualityAnchor, isBareGeoAnchor } = await import("./seo-policy");
+            let hadBareGeo = false;
+            let hadShortAnchor = false;
             let hyperlinks = (rawHyperlinks as Array<{ anchorText?: string; phrase?: string; url?: string; type?: string }>).filter((link) => {
               const anchor = (link.anchorText || link.phrase || "").trim();
               if (!anchor) return false;
               if (isBareGeoAnchor(anchor)) {
                 console.warn(`[ReformatGuard] Stripped bare-geo hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                hadBareGeo = true;
                 return false;
               }
               if (!isHighQualityAnchor(anchor)) {
                 console.warn(`[ReformatGuard] Stripped low-quality hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                hadShortAnchor = true;
                 return false;
               }
               return true;
@@ -1258,6 +1262,14 @@ export async function registerWorkers() {
 
             if (rawHyperlinks.length !== hyperlinks.length) {
               console.log(`[ReformatGuard] Article ${articleId}: ${rawHyperlinks.length - hyperlinks.length} invalid hyperlinks removed (${hyperlinks.length} remain)`);
+              // NEURAL LOOP: Record stripped anchor failures in the ledger so the AI
+              // learns from this in future article generations for the same team.
+              const guardianFailureCodes: string[] = [];
+              if (hadBareGeo) guardianFailureCodes.push("BARE_GEO_ANCHOR");
+              if (hadShortAnchor) guardianFailureCodes.push("SHORT_ANCHOR");
+              if (guardianFailureCodes.length > 0 && batch?.teamId) {
+                learningService.recordGuardianFailures(batch.teamId, "article", guardianFailureCodes).catch(() => {});
+              }
             }
 
             // CRITICAL: If article has no valid hyperlinks after policy filter, generate them now
