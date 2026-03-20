@@ -143,7 +143,7 @@ export function NotificationBell() {
     if (unreadCount > lastCount) {
       const newNotifications = notifications.filter(n => n.read === 0);
       if (newNotifications.length > 0) {
-        const latest = newNotifications[0];
+        const latest = newNotifications[0]!;
         playNotificationSound(latest.type);
         toast({
           title: latest.title,

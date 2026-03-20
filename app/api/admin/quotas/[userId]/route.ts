@@ -135,7 +135,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       userId: adminUserId,
       action: 'quota_updated',
       targetType: 'user',
-      targetId: userId.toString(),
+      targetId: userId,
       details: JSON.stringify({
         quotaType,
         limitValue,
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       userId: adminUserId,
       action: 'quota_reset',
       targetType: 'user',
-      targetId: userId.toString(),
+      targetId: userId,
       details: JSON.stringify({ 
         reason: 'Manual reset by admin',
         ipAddress: clientIp,

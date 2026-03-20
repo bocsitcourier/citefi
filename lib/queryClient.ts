@@ -33,7 +33,7 @@ export async function apiRequest(url: string, options?: RequestInit) {
   const token = localStorage.getItem("auth_token");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options?.headers ?? {}),
+    ...(options?.headers as Record<string, string> | undefined ?? {}),
   };
   
   if (token && !headers.Authorization) {

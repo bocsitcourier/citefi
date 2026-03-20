@@ -26,10 +26,10 @@ function runCheck(name: string, command: string, failOnWarning = false): CheckRe
     const stdout = error.stdout?.toString() || '';
     const output = stdout + stderr;
     
-    const errorLines = output.split('\n').filter(line => 
+    const errorLines = output.split('\n').filter((line: string) => 
       /error|Error|TS\d{4}/.test(line)
     );
-    const warningLines = output.split('\n').filter(line => 
+    const warningLines = output.split('\n').filter((line: string) => 
       /warning|Warning/.test(line)
     );
     

@@ -345,7 +345,7 @@ export function generateSEOVideoTitle(
   
   // Add primary keyword if provided
   if (keywords.length > 0) {
-    const primaryKeyword = keywords[0];
+    const primaryKeyword = keywords[0]!;
     title = `${title} - ${primaryKeyword.charAt(0).toUpperCase() + primaryKeyword.slice(1)}`;
   }
   

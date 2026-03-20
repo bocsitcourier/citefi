@@ -227,7 +227,7 @@ function escapeHtml(text: string): string {
     '"': '&quot;',
     "'": '&#39;',
   };
-  return text.replace(/[&<>"']/g, char => escapeMap[char]);
+  return text.replace(/[&<>"']/g, char => escapeMap[char] ?? '');
 }
 
 function escapeRegExp(string: string): string {

@@ -177,7 +177,7 @@ export async function generateImagesForArticle(
   // CRITICAL: Set first image as hero image
   if (results.length > 0) {
     try {
-      const heroImageUrl = results[0].url;
+      const heroImageUrl = results[0]!.url;
       console.log(`🎯 Setting hero image for article ${articleId}: ${heroImageUrl}`);
       
       await db
@@ -265,9 +265,9 @@ export async function generateImagesForArticle(
             i < paragraphMatches.length - 1; // Don't insert after last paragraph
           
           if (shouldInsertImage) {
-            const image = results[insertionsMade];
+            const image = results[insertionsMade]!;
             // Generate SEO-friendly alt text (brief, descriptive, max 10 words)
-            const altText = image.prompt.split('.')[0].slice(0, 80).replace(/[^\w\s-]/g, '').trim();
+            const altText = image.prompt.split('.')[0]!.slice(0, 80).replace(/[^\w\s-]/g, '').trim();
             // Use targetUrl directly (passed from batch configuration)
             const companyUrl = targetUrl || '#';
             // Format display URL (remove protocol, keep clean)

@@ -117,8 +117,8 @@ export async function generateVeoTTS(
   const ttsNarration = applyPhoneticCorrections(fullNarration, companyName, website);
   console.log(`  📝 Applied phonetic corrections for natural TTS delivery`);
 
-  const voice = TONE_VOICE_MAP[tone] || TONE_VOICE_MAP.default;
-  const emotionInstructions = TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS.default;
+  const voice = (TONE_VOICE_MAP[tone] || TONE_VOICE_MAP['default'])!;
+  const emotionInstructions = (TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS['default'])!;
 
   try {
     console.log(`  🎤 Using voice: ${voice} (tone: ${tone})`);

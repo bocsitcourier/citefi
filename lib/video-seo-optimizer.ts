@@ -178,7 +178,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
         const urlObj = new URL(landingPageUrl.startsWith("http") ? landingPageUrl : `https://${landingPageUrl}`);
         domain = urlObj.hostname; // e.g., www.privateinhomecaregiver.com
       } catch {
-        domain = landingPageUrl.replace(/^https?:\/\//, "").split("/")[0];
+        domain = landingPageUrl.replace(/^https?:\/\//, "").split("/")[0]!;
       }
     }
     
@@ -217,7 +217,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
         const urlObj = new URL(landingPageUrl.startsWith("http") ? landingPageUrl : `https://${landingPageUrl}`);
         fallbackDomain = urlObj.hostname;
       } catch {
-        fallbackDomain = landingPageUrl.replace(/^https?:\/\//, "").split("/")[0];
+        fallbackDomain = landingPageUrl.replace(/^https?:\/\//, "").split("/")[0]!;
       }
     }
     

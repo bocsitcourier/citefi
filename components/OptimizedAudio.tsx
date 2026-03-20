@@ -186,8 +186,8 @@ export function OptimizedAudio({
 
   const handleSeek = (value: number[]) => {
     if (!audioRef.current) return;
-    audioRef.current.currentTime = value[0];
-    setCurrentTime(value[0]);
+    audioRef.current.currentTime = value[0]!;
+    setCurrentTime(value[0]!);
   };
 
   const skipForward = () => {
@@ -422,8 +422,8 @@ export function OptimizedAudioPlaylist({
       <div className={cn("space-y-4", className)}>
         {/* Current Episode */}
         <OptimizedAudio
-          {...episodes[currentEpisode]}
-          podcastName={podcastName || episodes[currentEpisode].podcastName}
+          {...episodes[currentEpisode]!}
+          podcastName={podcastName || episodes[currentEpisode]!.podcastName}
           includeSchema={includeSchema}
         />
 

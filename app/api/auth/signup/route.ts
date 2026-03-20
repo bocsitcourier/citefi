@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     const userRole = isFirstUser ? "admin" : "team_member";
     const accountStatus = isFirstUser ? "active" : "pending_approval";
     
-    const [newUser] = await db
+    const [newUserRow] = await db
       .insert(users)
       .values({
         email: email.toLowerCase(),
@@ -78,10 +78,9 @@ export async function POST(req: Request) {
         accountStatus: accountStatus,
         emailVerified: isFirstUser ? 1 : 0, // First user auto-verified
         twoFactorEnabled: 0,
-        emailVerificationToken,
-        emailVerificationExpiry,
       })
       .returning();
+    const newUser = newUserRow!;
 
     // Log activity
     await db.insert(activityLogs).values({

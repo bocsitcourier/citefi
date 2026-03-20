@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    console.log(`📅 Created schedule "${schedule.name}" (ID: ${schedule.id}), next run: ${nextRunAt.toISOString()}`);
+    console.log(`📅 Created schedule "${schedule!.name}" (ID: ${schedule!.id}), next run: ${nextRunAt.toISOString()}`);
 
     return NextResponse.json({ success: true, data: schedule }, { status: 201 });
   } catch (error: any) {

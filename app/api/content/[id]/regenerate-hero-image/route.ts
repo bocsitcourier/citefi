@@ -131,7 +131,7 @@ export async function POST(
       articleId,
       altText: `Hero image - ${prompt.slice(0, 100)}`,
       metadata: {
-        ...heroAsset[0].metadataJson,
+        ...(heroAsset[0]?.metadataJson as object | undefined),
         regeneratedAt: new Date().toISOString(),
         model: "gemini-2.5-flash-image",
         originalPrompt: prompt,
@@ -149,7 +149,7 @@ export async function POST(
     // CRITICAL: Delete old hero image with team filter (AFTER successful upload)
     await db.delete(articleAssets).where(
       and(
-        eq(articleAssets.id, heroAsset[0].id),
+        eq(articleAssets.id, heroAsset[0]!.id),
         eq(articleAssets.teamId, teamId) // CRITICAL TEAM FILTER ON DELETE
       )
     );

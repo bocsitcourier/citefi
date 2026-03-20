@@ -95,8 +95,8 @@ export default function ContentWizard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{steps[step - 1].title}</CardTitle>
-            <CardDescription>{steps[step - 1].description}</CardDescription>
+            <CardTitle>{steps[step - 1]!.title}</CardTitle>
+            <CardDescription>{steps[step - 1]!.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {step === 1 && (

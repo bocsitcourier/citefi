@@ -423,6 +423,7 @@ export default function SocialPostDetailPage() {
 
       return () => clearInterval(pollInterval);
     }
+    return undefined;
   }, [post?.videoStatus, postId]);
 
   const platformIcon = (platform: string, className = "w-4 h-4") => {
@@ -953,7 +954,7 @@ export default function SocialPostDetailPage() {
                   <OptimizedVideo
                     src={post.videoUrl}
                     title={post.companyName ? `${post.companyName} Social Video` : 'Social Video'}
-                    description={post.caption || undefined}
+                    description={(post as any).caption || undefined}
                     duration={post.videoDuration ? `PT${post.videoDuration}S` : undefined}
                     preload="none"
                     lazy={false}
@@ -1226,7 +1227,7 @@ export default function SocialPostDetailPage() {
                         <div className="flex flex-wrap gap-1">
                           {variant.hashtagsJson.map((tag, idx) => (
                             <Badge key={idx} variant="secondary" className="text-xs">
-                              {typeof tag === 'string' ? tag : tag.tag}
+                              {typeof tag === 'string' ? tag : (tag as any).tag}
                             </Badge>
                           ))}
                         </div>

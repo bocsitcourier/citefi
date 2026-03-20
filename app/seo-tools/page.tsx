@@ -327,7 +327,7 @@ export default function SEOToolsPage() {
                   onChange={(e) => setAuditArticleId(e.target.value)}
                 >
                   <option value="">Choose an article...</option>
-                  {userArticles?.map((article: any) => (
+                  {(userArticles as any[])?.map((article: any) => (
                     <option key={article.id} value={article.id}>
                       {article.title} {article.location ? `(${article.location})` : ""}
                     </option>

@@ -677,7 +677,8 @@ export async function generateIdeaVideoSlideshow(
         const fs = await import("fs/promises");
         const path = await import("path");
         const { objectStorageClient } = await import("./storage");
-        const bucket = objectStorageClient.bucket();
+        const BUCKET_ID = process.env.GCS_BUCKET_NAME || process.env.STORAGE_BUCKET || '';
+        const bucket = objectStorageClient.bucket(BUCKET_ID);
         const objectPath = companyLogoUrl.replace("/api/public-objects/", "");
         const logoDir = `/tmp/video-${videoIdeaId}`;
         await fs.mkdir(logoDir, { recursive: true });

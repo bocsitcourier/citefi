@@ -30,6 +30,7 @@ openaiLimiter.on("failed", async (error, jobInfo) => {
     console.warn(`⚠️  OpenAI rate limit hit, retrying in ${delay}ms (attempt ${jobInfo.retryCount + 1}/3)`);
     return delay;
   }
+  return undefined;
 });
 
 console.log(`🔧 OpenAI rate limiter initialized: ${OPENAI_CONCURRENCY} concurrent requests with Bottleneck`);

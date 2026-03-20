@@ -136,7 +136,7 @@ export class ExpertDiscovery {
         const match = text.match(pattern);
         if (match) {
           experts.push({
-            name: this.cleanName(match[1]),
+            name: this.cleanName(match[1]!),
             title: match[2] || 'Expert',
             source: result.url,
             snippet: result.description,
@@ -223,7 +223,7 @@ export class ExpertDiscovery {
   private extractNameFromUrl(url: string): string {
     const match = url.match(/linkedin\.com\/in\/([^\/\?]+)/);
     if (match) {
-      return match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      return match[1]!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
     return 'Unknown Expert';
   }

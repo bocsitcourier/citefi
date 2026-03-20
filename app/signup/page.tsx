@@ -59,7 +59,7 @@ export default function SignupPage() {
       const response = await signup(email, password);
       toast({
         title: "Account created!",
-        description: response.message || "Please check your email to verify your account and wait for admin approval.",
+        description: (response as any)?.message || "Please check your email to verify your account and wait for admin approval.",
       });
       // Redirect to login page with a message
       setTimeout(() => {

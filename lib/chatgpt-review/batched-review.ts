@@ -188,7 +188,7 @@ ${content}
 
 3. **HASHTAGS** (10-20 total, categorized):
    - SEO hashtags (40%): Core topic keywords
-   - Geographic hashtags (30%): Location-specific ${geographicFocus ? `(must include #${geographicFocus.split(',')[0].replace(/\s+/g, '')})` : ""}
+   - Geographic hashtags (30%): Location-specific ${geographicFocus ? `(must include #${geographicFocus.split(',')[0]!.replace(/\s+/g, '')})` : ""}
    - Brand/Industry hashtags (20%)
    - Trending hashtags (10%)
    - Use PascalCase for multi-word tags
@@ -250,7 +250,7 @@ ${content}
     "hashtags": ["#Tag1", "#Tag2", ...],
     "categories": {
       "seo": ["#SEOTag1", ...],
-      "geo": ["#${geographicFocus?.split(',')[0].replace(/\s+/g, '') || 'Location'}", ...],
+      "geo": ["#${geographicFocus?.split(',')[0]!.replace(/\s+/g, '') || 'Location'}", ...],
       "brand": ["#IndustryTag1", ...],
       "trending": ["#TrendingTag1", ...]
     },

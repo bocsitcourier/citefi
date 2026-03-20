@@ -92,13 +92,14 @@ export async function uploadImages(
   const urls: string[] = [];
 
   for (let i = 0; i < images.length; i++) {
+    const img = images[i]!;
     const url = await uploadImage({
-      imageData: images[i].imageData,
+      imageData: img.imageData,
       articleId,
       batchId,
       slug,
       index: i,
-      prompt: images[i].prompt,
+      prompt: img.prompt,
     });
     urls.push(url);
   }

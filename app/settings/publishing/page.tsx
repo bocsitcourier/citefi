@@ -232,7 +232,7 @@ export default function PublishingDashboard() {
 
   const retryMutation = useMutation({
     mutationFn: async (jobId: number) => {
-      const res = await apiRequest("POST", `/api/publishing/jobs/${jobId}/retry`);
+      const res = await apiRequest(`/api/publishing/jobs/${jobId}/retry`, { method: "POST" });
       return res.json();
     },
     onMutate: (jobId) => setRetryingId(jobId),

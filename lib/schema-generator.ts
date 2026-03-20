@@ -262,7 +262,7 @@ export function generateSchemas(params: SchemaGeneratorParams): SchemaGeneration
     if (geographicFocus) {
       localBusinessSchema.areaServed = {
         "@type": "City",
-        name: geographicFocus.split(',')[0].trim(), // Extract city from "Seattle, WA"
+        name: geographicFocus.split(',')[0]!.trim(), // Extract city from "Seattle, WA"
       };
     }
 
@@ -366,11 +366,11 @@ function extractSteps(content: string): Array<{ name: string; text: string }> {
   const matches = content.matchAll(stepRegex);
   
   for (const match of matches) {
-    const stepText = match[1].trim();
+    const stepText = match[1]!.trim();
     if (stepText.length > 10) { // Minimum length for valid step
       // Extract first sentence as name
       const sentences = stepText.split(/[.!?]/);
-      const name = sentences[0].trim().substring(0, 100); // Max 100 chars for name
+      const name = sentences[0]!.trim().substring(0, 100); // Max 100 chars for name
       const text = stepText.substring(0, 500); // Max 500 chars for text
       
       steps.push({ name, text });

@@ -11,6 +11,71 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { DollarSign, Clock, TrendingUp, AlertCircle, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
+interface CostData {
+  summary: {
+    costPer50Articles: string;
+    costPerArticle: string;
+    totalCostRange: string;
+    perArticleBreakdown: {
+      titleGeneration: string;
+      contentGeneration: string;
+      reviewEnhancement: string;
+      imageGeneration: string;
+      podcastGeneration: string;
+    };
+  };
+  benchmarks: Record<string, string>;
+  batch?: {
+    totalCost: string;
+    costPerArticle: string;
+    numArticles: number;
+    includeImages: boolean;
+    includePodcasts: boolean;
+  };
+}
+
+interface BatchMonitoringData {
+  liveStatus: {
+    status: string;
+    batchId: number;
+    progress: number;
+    articlesCompleted: number;
+    articlesTotal: number;
+    articlesInProgress: number;
+    articlesFailed: number;
+    currentCost: number;
+    recentErrors: Array<{ timestamp: string; message: string }>;
+  };
+  performanceMetrics?: {
+    averageTimePerArticle: number;
+    totalDuration: number;
+    errorRate: number;
+    concurrentWorkers: number;
+    imagesGenerated: number;
+    podcastsGenerated: number;
+  };
+}
+
+interface BatchDetailsData {
+  seoCache?: {
+    cacheVersion?: string;
+    redditResearch?: {
+      consolidatedOutline?: {
+        consolidatedIntents: any[];
+        overallTheme: string;
+        targetAudience: string;
+      };
+      questions?: any[];
+      subreddits?: string[];
+      contentGaps?: any[];
+    };
+    locationAnalysis?: any;
+    locationKeywords?: any[];
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
 export default function MonitoringDashboard() {
   const [batchId, setBatchId] = useState<string>("");
   const [monitoringBatchId, setMonitoringBatchId] = useState<number | null>(null);
@@ -19,18 +84,18 @@ export default function MonitoringDashboard() {
   const [includePodcasts, setIncludePodcasts] = useState(false);
 
   // Fetch cost estimates
-  const { data: costData, isLoading: costLoading } = useQuery({
+  const { data: costData, isLoading: costLoading } = useQuery<CostData>({
     queryKey: ["/api/monitoring/cost-calculator"],
   });
 
   // Fetch custom cost calculation
-  const { data: customCostData, refetch: refetchCustomCost } = useQuery({
+  const { data: customCostData, refetch: refetchCustomCost } = useQuery<CostData>({
     queryKey: ["/api/monitoring/cost-calculator", numArticles, includeImages, includePodcasts],
     enabled: false,
   });
 
   // Fetch batch monitoring data — poll every 6s (down from 3s), pause in background
-  const { data: batchData, isLoading: batchLoading } = useQuery({
+  const { data: batchData, isLoading: batchLoading } = useQuery<BatchMonitoringData>({
     queryKey: monitoringBatchId !== null ? [`/api/monitoring/batch/${monitoringBatchId}`] : ["/api/monitoring/batch/null"],
     enabled: monitoringBatchId !== null,
     refetchInterval: 6000,
@@ -39,7 +104,7 @@ export default function MonitoringDashboard() {
 
   // Fetch batch details (includes Reddit research and SEO cache)
   // SAFETY: Only fetch when we have a valid batch ID (don't poll `/api/batches/null`)
-  const { data: batchDetailsData } = useQuery({
+  const { data: batchDetailsData } = useQuery<BatchDetailsData>({
     queryKey: [`/api/batches/${monitoringBatchId}`],
     enabled: monitoringBatchId !== null && monitoringBatchId > 0,
     refetchInterval: 15000,
@@ -201,7 +266,7 @@ export default function MonitoringDashboard() {
               Calculate Cost
             </Button>
 
-            {customCostData && (
+            {customCostData?.batch && (
               <div className="mt-4 p-4 rounded-lg bg-primary/10 border border-primary">
                 <div className="text-2xl font-bold text-primary mb-2">
                   {customCostData.batch.totalCost}
@@ -384,24 +449,24 @@ export default function MonitoringDashboard() {
                   </div>
                   
                   {/* Phase 1 Consolidated Outline */}
-                  {batchDetailsData.seoCache.redditResearch.consolidatedOutline?.consolidatedIntents?.length > 0 && (
+                  {(batchDetailsData.seoCache?.redditResearch?.consolidatedOutline?.consolidatedIntents?.length ?? 0) > 0 && (
                     <div className="mb-4 p-3 rounded bg-background/50 border border-primary/10">
                       <div className="flex items-center gap-2 mb-2">
                         <h4 className="font-semibold text-sm">📋 AEO-Ready Article Structure</h4>
                         <Badge variant="outline" className="text-xs">
-                          {batchDetailsData.seoCache.redditResearch.consolidatedOutline.consolidatedIntents.length} themes
+                          {batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.consolidatedIntents.length} themes
                         </Badge>
                       </div>
                       
                       {/* Overall Theme & Audience */}
                       <div className="text-xs text-muted-foreground mb-3">
-                        <span className="font-medium">Theme:</span> {batchDetailsData.seoCache.redditResearch.consolidatedOutline.overallTheme} • 
-                        <span className="font-medium ml-2">Audience:</span> {batchDetailsData.seoCache.redditResearch.consolidatedOutline.targetAudience}
+                        <span className="font-medium">Theme:</span> {batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.overallTheme} • 
+                        <span className="font-medium ml-2">Audience:</span> {batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.targetAudience}
                       </div>
                       
                       {/* Consolidated Intent Cards */}
                       <div className="space-y-3">
-                        {batchDetailsData.seoCache.redditResearch.consolidatedOutline.consolidatedIntents.slice(0, 5).map((intent: any, idx: number) => (
+                        {batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.consolidatedIntents.slice(0, 5).map((intent: any, idx: number) => (
                           <div key={idx} className="p-3 rounded border border-primary/10 bg-background">
                             <div className="flex items-start gap-2 mb-2">
                               <Badge variant="secondary" className="text-xs shrink-0">
@@ -431,9 +496,9 @@ export default function MonitoringDashboard() {
                         ))}
                       </div>
                       
-                      {batchDetailsData.seoCache.redditResearch.consolidatedOutline.consolidatedIntents.length > 5 && (
+                      {batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.consolidatedIntents.length > 5 && (
                         <div className="text-xs text-muted-foreground mt-2 text-center">
-                          +{batchDetailsData.seoCache.redditResearch.consolidatedOutline.consolidatedIntents.length - 5} more themes
+                          +{batchDetailsData.seoCache!.redditResearch!.consolidatedOutline!.consolidatedIntents.length - 5} more themes
                         </div>
                       )}
                     </div>

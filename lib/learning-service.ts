@@ -207,13 +207,13 @@ export class LearningService {
 
     const patternsByType = patterns.reduce((acc, p) => {
       if (!acc[p.patternType]) acc[p.patternType] = [];
-      acc[p.patternType].push(p);
+      acc[p.patternType]!.push(p);
       return acc;
     }, {} as Record<string, LearnedPattern[]>);
 
     for (const [type, typePatterns] of Object.entries(patternsByType)) {
       if (typePatterns.length > 0) {
-        const topPattern = typePatterns[0];
+        const topPattern = typePatterns[0]!;
         const confidence = topPattern.confidence;
         
         if (confidence >= 70) {
@@ -239,7 +239,7 @@ export class LearningService {
     patternsUsed: number[],
     qualityScore: number
   ): Promise<number> {
-    const [metric] = await db
+    const [metricRow] = await db
       .insert(contentPerformanceMetrics)
       .values({
         teamId,
@@ -251,6 +251,7 @@ export class LearningService {
         qualityScore,
       })
       .returning({ id: contentPerformanceMetrics.id });
+    const metric = metricRow!;
 
     await db
       .update(learningAgents)
@@ -410,7 +411,7 @@ export class LearningService {
 
     if (!agent) throw new Error(`Agent ${agentId} not found`);
 
-    const [newPattern] = await db
+    const [newPatternRow] = await db
       .insert(learningPatterns)
       .values({
         agentId,
@@ -423,6 +424,7 @@ export class LearningService {
         confidence: 0,
       })
       .returning({ id: learningPatterns.id });
+    const newPattern = newPatternRow!;
 
     console.log(`✅ Added new pattern: ${pattern.patternName} (${pattern.patternType})`);
 
@@ -643,6 +645,7 @@ export class LearningService {
     options: { topic?: string; entityTypes?: string[] } = {}
   ): Promise<OptimizationContext & { factCoverage: { totalFacts: number; recommendations: string[] } }> {
     const baseContext = await this.getOptimizationContext(teamId, contentType);
+    if (!baseContext) throw new Error(`No optimization context for team ${teamId}, type ${contentType}`);
     
     const factCoverage = await getFactCoverageReport(teamId, options.topic, options.entityTypes);
     
@@ -673,7 +676,7 @@ export class LearningService {
         totalFacts: factCoverage.totalFacts,
         recommendations: factCoverage.recommendations,
       },
-    };
+    } as OptimizationContext & { factCoverage: { totalFacts: number; recommendations: string[] } };
   }
 
   async validatePatternAgainstFacts(
@@ -774,16 +777,16 @@ export class LearningService {
    */
   humanizePatternForApplication(
     patternValue: string,
-    contentType: ContentType
+    contentType: string
   ): HumanizationResult {
-    const configByType: Record<ContentType, HumanizationConfig> = {
+    const configByType: Record<string, HumanizationConfig> = {
       [ContentType.ARTICLE]: { burstinessTarget: 0.45, scrubLevel: "standard", channelFormat: "article" },
       [ContentType.SOCIAL]: { burstinessTarget: 0.35, scrubLevel: "aggressive", channelFormat: "social" },
       [ContentType.VIDEO]: { burstinessTarget: 0.40, scrubLevel: "standard", channelFormat: "video" },
       [ContentType.PODCAST]: { burstinessTarget: 0.50, scrubLevel: "minimal", channelFormat: "podcast" },
     };
 
-    const config = configByType[contentType] || configByType[ContentType.ARTICLE];
+    const config = configByType[contentType] || configByType[ContentType.ARTICLE]!
     return humanizeContent(patternValue, config);
   }
 
@@ -793,7 +796,7 @@ export class LearningService {
    */
   async getHumanizedOptimizationContext(
     teamId: number,
-    contentType: ContentType,
+    contentType: string,
     options?: {
       industry?: string;
       audience?: string;
@@ -801,6 +804,7 @@ export class LearningService {
     }
   ): Promise<OptimizationContext & { humanizationGuidelines: string[] }> {
     const baseContext = await this.getOptimizationContext(teamId, contentType, options);
+    if (!baseContext) throw new Error(`No optimization context for team ${teamId}, type ${contentType}`);
     
     const humanizationGuidelines = [
       "Vary sentence lengths naturally - mix short punchy sentences with longer ones",
@@ -821,7 +825,7 @@ export class LearningService {
     return {
       ...baseContext,
       humanizationGuidelines,
-    };
+    } as OptimizationContext & { humanizationGuidelines: string[] };
   }
 
   // ============================================================================
@@ -838,7 +842,7 @@ export class LearningService {
       const now = new Date();
 
       for (const failure of failures) {
-        const errorType = failure.split(":")[0].trim().toUpperCase();
+        const errorType = failure.split(":")[0]!.trim().toUpperCase();
         const existing = await db
           .select()
           .from(aiLearningLedger)
@@ -854,8 +858,8 @@ export class LearningService {
         if (existing.length > 0) {
           await db
             .update(aiLearningLedger)
-            .set({ count: existing[0].count + 1, lastOccurrence: now })
-            .where(eq(aiLearningLedger.id, existing[0].id));
+            .set({ count: existing[0]!.count + 1, lastOccurrence: now })
+            .where(eq(aiLearningLedger.id, existing[0]!.id));
         } else {
           await db.insert(aiLearningLedger).values({
             teamId,

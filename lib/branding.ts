@@ -76,7 +76,7 @@ function levenshteinDistance(str1: string, str2: string): number {
   }
 
   for (let j = 0; j <= len2; j++) {
-    matrix[0][j] = j;
+    matrix[0]![j] = j;
   }
 
   for (let i = 1; i <= len1; i++) {

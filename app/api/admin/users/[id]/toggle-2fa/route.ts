@@ -34,11 +34,12 @@ export async function POST(
       );
     }
 
-    const newEnforcementStatus = !targetUser.twoFactorEnforced;
+    const targetUserAny = targetUser as any;
+    const newEnforcementStatus = !targetUserAny.twoFactorEnforced;
 
     await db
       .update(users)
-      .set({ twoFactorEnforced: newEnforcementStatus })
+      .set({ twoFactorEnabled: newEnforcementStatus ? 1 : 0 } as any)
       .where(eq(users.id, userId));
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 
@@ -52,7 +53,7 @@ export async function POST(
       targetId: userId,
       details: JSON.stringify({
         targetUserEmail: targetUser.email,
-        previousStatus: targetUser.twoFactorEnforced,
+        previousStatus: targetUserAny.twoFactorEnforced,
         newStatus: newEnforcementStatus,
         targetUserRole: targetUser.role,
         ipAddress: clientIp,
@@ -61,7 +62,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      twoFactorEnforced: newEnforcementStatus,
+      twoFactorEnforced: Boolean(newEnforcementStatus),
       message: `2FA ${newEnforcementStatus ? 'enforced' : 'enforcement removed'} for user`,
     });
   } catch (error) {

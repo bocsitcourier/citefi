@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial, jsonb, index, uniqueIndex, uuid, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, serial, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -13,7 +13,7 @@ export const teams = pgTable("teams", {
   id: serial("id").primaryKey(),
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
-  createdBy: integer("created_by").notNull().references(() => users.id), // Circular reference handled by Drizzle
+  createdBy: integer("created_by").notNull().references((): AnyPgColumn => users.id), // Circular reference handled by Drizzle
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -66,7 +66,7 @@ export const users = pgTable("users", {
   profilePictureUrl: text("profile_picture_url"),
   
   // Team Management
-  defaultTeamId: integer("default_team_id").references(() => teams.id),
+  defaultTeamId: integer("default_team_id").references((): AnyPgColumn => teams.id),
   
   // Soft Delete Support
   deletedAt: timestamp("deleted_at"),

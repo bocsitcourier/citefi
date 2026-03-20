@@ -204,7 +204,7 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
         .set({ 
           status: "FAILED",
           errorMessage: `Auto-recovered from ${batch.status} state`
-        })
+        } as any)
         .where(eq(jobBatches.id, batch.id));
     }
     

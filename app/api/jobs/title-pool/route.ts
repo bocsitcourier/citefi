@@ -210,11 +210,11 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    console.log(`✅ Title pool generated for batch ${batch.id}${isMultiCity ? ` (${cities.length} cities, ${allTitles.length} total titles)` : ''}`);
+    console.log(`✅ Title pool generated for batch ${batch!.id}${isMultiCity ? ` (${cities.length} cities, ${allTitles.length} total titles)` : ''}`);
 
     return NextResponse.json({
       success: true,
-      batchId: batch.id,
+      batchId: batch!.id,
       isMultiCity,
       cities: isMultiCity ? cities : undefined,
       titles: allTitles,

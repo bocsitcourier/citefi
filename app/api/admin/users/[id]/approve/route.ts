@@ -75,14 +75,14 @@ export async function POST(
     
     const message = error instanceof Error ? error.message : "";
     
-    if (error.statusCode === 403 || message === "Admin access required") {
+    if ((error as any).statusCode === 403 || message === "Admin access required") {
       return NextResponse.json(
         { error: "Admin access required" },
         { status: 403 }
       );
     }
 
-    if (error.statusCode === 401 ||
+    if ((error as any).statusCode === 401 ||
         message === "Authentication required" ||
         message === "No authentication token provided" || 
         message === "Invalid or expired token") {

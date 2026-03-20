@@ -36,10 +36,10 @@ export async function generateImages(prompts: string[]): Promise<GeneratedImage[
 
   for (let i = 0; i < prompts.length; i++) {
     try {
-      const imageData = await generateImage(prompts[i]);
+      const imageData = await generateImage(prompts[i]!);
       results.push({
         imageData,
-        prompt: prompts[i],
+        prompt: prompts[i]!,
       });
       console.log(`✅ Generated placeholder image ${i + 1}/${prompts.length}`);
     } catch (error) {

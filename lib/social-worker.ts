@@ -188,7 +188,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         console.log(`📱 Generating ${platform} post for social post ${socialPostId}`);
 
         // Create variant with GENERATING status
-        const [variant] = await db.insert(socialPostVariants).values({
+        const [variantRow] = await db.insert(socialPostVariants).values({
           socialPostId,
           platform,
           caption: "", // Will be updated after generation
@@ -199,6 +199,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           characterLimit: CHAR_LIMITS[platform as keyof typeof CHAR_LIMITS],
           status: "GENERATING",
         }).returning();
+        const variant = variantRow!;
 
         // STAGE 1: Gemini generates initial content (with retry)
         const geminiResult = await retryWithBackoff(

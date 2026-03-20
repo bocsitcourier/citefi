@@ -82,10 +82,10 @@ export async function downloadMultipleMedia(
   
   downloads.forEach((result, index) => {
     if (result.status === 'fulfilled') {
-      results.set(mediaList[index].id, result.value);
+      results.set(mediaList[index]!.id, result.value);
     } else {
       logger.error('Failed to download media', {
-        id: mediaList[index].id,
+        id: mediaList[index]!.id,
         error: result.reason?.message,
       });
     }

@@ -103,11 +103,12 @@ export async function PATCH(
       updateData.autoPublishEnabled = validatedData.autoPublishEnabled ? 1 : 0;
     }
 
-    const [updated] = await db
+    const [updatedRow] = await db
       .update(contentSchedules)
       .set(updateData)
       .where(eq(contentSchedules.id, scheduleId))
       .returning();
+    const updated = updatedRow!;
 
     console.log(`📅 Updated schedule "${updated.name}" (ID: ${updated.id})`);
 

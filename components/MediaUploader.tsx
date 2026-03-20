@@ -198,7 +198,7 @@ export function MediaUploader({ articleId, assetType, onUploadComplete, maxSizeM
                     {progress || "Drag & drop your file here, or click to browse"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Accepted formats: {acceptedTypes[assetType].split(',').map(t => t.split('/')[1].toUpperCase()).join(', ')}
+                    Accepted formats: {acceptedTypes[assetType]!.split(',').map(t => t.split('/')[1]!.toUpperCase()).join(', ')}
                   </p>
                 </div>
               </div>

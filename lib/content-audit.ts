@@ -247,7 +247,7 @@ export async function discoverInternalLinkOpportunities(
 ${articleContent.substring(0, 8000)}
 
 **AVAILABLE ARTICLES FOR LINKING:**
-${targets.slice(0, 20).map((t, i) => `${i + 1}. "${t.title}" (ID: ${t.id})${t.location ? ` - Location: ${t.location}` : ""}`).join('\n')}
+${targets.slice(0, 20).map((t, i) => `${i + 1}. "${t.title}" (ID: ${t.id})`).join('\n')}
 
 **CRITERIA FOR GOOD INTERNAL LINKS:**
 1. Semantic relevance - Topics are closely related

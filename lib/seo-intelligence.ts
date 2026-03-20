@@ -280,7 +280,7 @@ Return ONLY valid JSON:
     `Competitor Analysis: ${competitor_url}`
   );
 
-  return JSON.parse(completion.choices[0].message.content!) as CompetitorAnalysis;
+  return JSON.parse(completion.choices[0]!.message.content!) as CompetitorAnalysis;
 }
 
 export async function generateSchemaMarkup(params: {
@@ -544,5 +544,5 @@ Return ONLY valid JSON:
     `Pillar Cluster Strategy: ${main_topic}`
   );
 
-  return JSON.parse(completion.choices[0].message.content!) as PillarClusterStrategy;
+  return JSON.parse(completion.choices[0]!.message.content!) as PillarClusterStrategy;
 }

@@ -36,7 +36,7 @@ export interface FactCreateInput {
   entityType?: string;
   entityName?: string;
   sourceType: string;
-  sourceUrl?: string;
+  sourceUrl?: string | null;
   sourceExcerpt?: string;
   verifiedBy: string;
   verifierId?: number;
@@ -48,7 +48,7 @@ export interface FactCreateInput {
 
 export interface FactUpdateInput {
   factText?: string;
-  sourceUrl?: string;
+  sourceUrl?: string | null;
   sourceExcerpt?: string;
   confidence?: number;
   expiresAt?: Date | null;
@@ -61,7 +61,7 @@ export interface FactUpdateInput {
 
 class FactStoreService {
   async createFact(input: FactCreateInput): Promise<Fact> {
-    const [fact] = await db.insert(facts).values({
+    const [factRow] = await db.insert(facts).values({
       teamId: input.teamId,
       factText: input.factText,
       entityType: input.entityType,
@@ -77,6 +77,7 @@ class FactStoreService {
       tags: input.tags,
       category: input.category,
     }).returning();
+    const fact = factRow!;
 
     console.log(`[FactStore] Created fact ${fact.id} (v1): "${fact.factText.substring(0, 50)}..."`);
     return fact;
@@ -122,7 +123,7 @@ class FactStoreService {
       .returning();
 
     console.log(`[FactStore] Updated fact ${factId} to version ${newVersion}`);
-    return updatedFact;
+    return updatedFact ?? null;
   }
 
   async getFactById(factId: number, teamId: number): Promise<Fact | null> {
@@ -360,6 +361,17 @@ class FactStoreService {
     lines.push("4. Rephrase facts naturally but preserve accuracy");
 
     return lines.join("\n");
+  }
+
+  async searchFacts(options: { teamId: number; query: string; limit?: number }): Promise<Fact[]> {
+    return db.select()
+      .from(facts)
+      .where(and(
+        eq(facts.teamId, options.teamId),
+        eq(facts.status, FactStatus.ACTIVE),
+      ))
+      .orderBy(desc(facts.confidence))
+      .limit(options.limit ?? 10);
   }
 }
 

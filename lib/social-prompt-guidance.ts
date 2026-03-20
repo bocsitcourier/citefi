@@ -321,7 +321,7 @@ export function getHashtagStrategy(platform: string): {
   description: string;
 } {
   const key = normalizePlatform(platform);
-  const guidance = PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'];
+  const guidance = (PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'])!;
   
   const strategyMap: Record<string, { total: number; evergreenRatio: number }> = {
     instagram: { total: 20, evergreenRatio: 0.4 }, // 8 evergreen, 12 campaign
@@ -351,7 +351,7 @@ export function getTargetAudience(
   industry?: string
 ): string {
   const key = normalizePlatform(platform);
-  const guidance = PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'];
+  const guidance = (PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'])!;
   
   // Industry-specific audience refinement
   const industryAudience: Record<string, string> = {

@@ -136,7 +136,7 @@ export default function IdeaToVideoPage() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     if (inProgressIdeas.length > 0) {
-      const mostRecent = inProgressIdeas[0];
+      const mostRecent = inProgressIdeas[0]!;
       console.log(`🎬 Auto-selecting in-progress video: "${mostRecent.ideaTitle}" (${mostRecent.status})`);
       setSelectedIdea(mostRecent);
       setIsPolling(true);

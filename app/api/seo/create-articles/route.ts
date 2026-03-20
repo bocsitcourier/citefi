@@ -137,11 +137,11 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    console.log(`✅ SEO batch created: ${batch.id} with ${titlePoolResult.titles.length} titles from ${seoToolType}`);
+    console.log(`✅ SEO batch created: ${batch!.id} with ${titlePoolResult.titles.length} titles from ${seoToolType}`);
 
     return NextResponse.json({
       success: true,
-      batchId: batch.id,
+      batchId: batch!.id,
       titleCount: titlePoolResult.titles.length,
       message: `Title pool generated with ${titlePoolResult.titles.length} titles. Select titles and configure generation settings to proceed.`,
     });

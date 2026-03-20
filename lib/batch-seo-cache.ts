@@ -445,12 +445,12 @@ Return ONLY valid JSON in this exact structure:
     if (text.includes("```json")) {
       const match = text.match(/```json\s*([\s\S]*?)\s*```/);
       if (match) {
-        jsonText = match[1];
+        jsonText = match[1]!;
       }
     } else if (text.includes("```")) {
       const match = text.match(/```\s*([\s\S]*?)\s*```/);
       if (match) {
-        jsonText = match[1];
+        jsonText = match[1]!;
       }
     }
 

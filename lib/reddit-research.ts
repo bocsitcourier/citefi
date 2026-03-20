@@ -381,6 +381,6 @@ export class RedditResearch {
       .map(sr => audienceMap[sr])
       .filter(Boolean);
 
-    return audiences.length > 0 ? audiences[0] : 'General audience';
+    return audiences[0] ?? 'General audience';
   }
 }

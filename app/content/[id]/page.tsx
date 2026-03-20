@@ -372,7 +372,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
 
   const updateHashtagUrl = (index: number, url: string) => {
     const updated = [...editedHashtags];
-    updated[index] = { ...updated[index], url: url.trim() || undefined };
+    updated[index] = { ...updated[index]!, url: url.trim() || undefined };
     setEditedHashtags(updated);
   };
 
@@ -1195,7 +1195,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                                 <div className="flex gap-1 flex-wrap mt-2">
                                   {variant.hashtagsJson.slice(0, 3).map((tagItem, idx) => (
                                     <Badge key={idx} variant="secondary" className="text-xs">
-                                      {typeof tagItem === 'string' ? tagItem : (tagItem?.tag || tagItem?.hashtag || JSON.stringify(tagItem))}
+                                      {typeof tagItem === 'string' ? tagItem : ((tagItem as any)?.tag || (tagItem as any)?.hashtag || JSON.stringify(tagItem))}
                                     </Badge>
                                   ))}
                                   {variant.hashtagsJson.length > 3 && (
@@ -1898,7 +1898,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                             data-testid={`badge-hashtag-${index}`}
                           >
                             {hashtag}
-                            {customUrl && <ExternalLink className="w-3 h-3 ml-1" />}
+                            {customUrl && <ExternalLinkIcon className="w-3 h-3 ml-1" />}
                           </Badge>
                         </a>
                       );
@@ -1940,7 +1940,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                     size="sm"
                     variant="default"
                     onClick={() => {
-                      const faqText = article.faq
+                      const faqText = (article.faq ?? [])
                         .map((item: any, i: number) => `Q${i + 1}: ${item.question}\nA${i + 1}: ${item.answer}`)
                         .join("\n\n");
                       copyToClipboard(faqText, "FAQ");

@@ -75,7 +75,7 @@ function extractVimeoId(url: string): string | null {
 
 /** Returns true if the URL looks like a direct video file. */
 function isDirectVideoUrl(url: string): boolean {
-  const lower = url.toLowerCase().split("?")[0];
+  const lower = url.toLowerCase().split("?")[0]!;
   return /\.(mp4|webm|mov|avi|mkv|m4v|ogv)$/.test(lower);
 }
 
@@ -121,7 +121,7 @@ async function getYouTubeThumbnailFrames(videoId: string, outputDir: string): Pr
   const framePaths: string[] = [];
   for (let i = 0; i < candidates.length; i++) {
     const destPath = path.join(framesDir, `frame_${String(i).padStart(3, "0")}.jpg`);
-    const ok = await downloadImageToFile(candidates[i], destPath);
+    const ok = await downloadImageToFile(candidates[i]!, destPath);
     if (ok) framePaths.push(destPath);
     if (framePaths.length >= 6) break;
   }

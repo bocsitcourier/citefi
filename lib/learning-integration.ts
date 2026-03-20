@@ -24,7 +24,7 @@ export async function getPromptEnhancement(
     // Use humanized optimization context for better content quality
     const context = await learningService.getHumanizedOptimizationContext(
       teamId,
-      contentType as ContentType,
+      contentType,
       options
     );
 

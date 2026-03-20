@@ -114,9 +114,10 @@ export async function POST(
     // Upload to permanent storage
     console.log(`📤 Uploading to storage: ${storagePath}`);
     const permanentUrl = await uploadMedia({
-      buffer: Buffer.from(imageBuffer),
-      key: storagePath,
-      contentType: "image/png"
+      fileData: Buffer.from(imageBuffer),
+      fileName: filename,
+      contentType: "image/png",
+      assetType: 'image',
     });
 
     console.log(`✅ Uploaded to permanent storage: ${permanentUrl}`);
@@ -131,7 +132,7 @@ export async function POST(
         storageUrl: permanentUrl,
         imagePromptUsed: prompt,
         metadataJson: {
-          ...asset.metadataJson,
+          ...(asset.metadataJson as Record<string, unknown> | null ?? {}),
           regeneratedAt: new Date().toISOString(),
           originalPrompt: asset.imagePromptUsed,
         }

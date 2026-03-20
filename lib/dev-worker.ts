@@ -134,8 +134,9 @@ class DevWorker {
         articleText: geminiResult.articleText,
         keywords: geminiResult.keywords,
         targetUrl,
-        imageUrls: [],
+        imageUrls: [] as string[],
         hashtags: geminiResult.hashtags,
+        faq: [],
       });
 
       await db.update(articles)
@@ -182,7 +183,7 @@ class DevWorker {
     console.log(`🔍 Checking for pending articles in batch ${batchId}`);
     
     const batch = await db.select().from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
-    if (batch.length === 0 || batch[0].status === "COMPLETE") {
+    if (batch.length === 0 || batch[0]!.status === "COMPLETE") {
       return;
     }
     
@@ -200,7 +201,7 @@ class DevWorker {
     
     console.log(`🔄 Recovering ${pending.length} pending articles from batch ${batchId}`);
     
-    const batchData = batch[0];
+    const batchData = batch[0]!;
     for (const article of pending) {
       this.enqueue({
         batchId,

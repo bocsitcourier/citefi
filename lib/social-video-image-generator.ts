@@ -54,8 +54,8 @@ export async function generateVideoImages(
 
   console.log(`🖼️ Generating 5 images in parallel for 60-second video (${platform} format)`);
 
-  const aspectRatio = PLATFORM_ASPECT_RATIOS[platform] || PLATFORM_ASPECT_RATIOS.default;
-  const dimensions = PLATFORM_DIMENSIONS[platform] || PLATFORM_DIMENSIONS.default;
+  const aspectRatio = (PLATFORM_ASPECT_RATIOS[platform] ?? PLATFORM_ASPECT_RATIOS['default'])!;
+  const dimensions = (PLATFORM_DIMENSIONS[platform] ?? PLATFORM_DIMENSIONS['default'])!;
   const { width: targetWidth, height: targetHeight } = dimensions;
   
   console.log(`  📐 Target dimensions: ${targetWidth}x${targetHeight} (${aspectRatio})`);
@@ -295,7 +295,7 @@ Visual Elements:
       sceneNumber: scene.sceneNumber,
       storageUrl,
       localPath,
-      aspectRatio,
+      aspectRatio: aspectRatio as string,
     };
   });
 

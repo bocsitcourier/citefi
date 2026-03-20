@@ -243,7 +243,7 @@ export async function validateExistingContent(
     const extractedFactIds = (sentence.factRefs || [])
       .map(ref => {
         const match = ref.match(/F?(\d+)/i);
-        return match ? parseInt(match[1], 10) : null;
+        return match ? parseInt(match[1]!, 10) : null;
       })
       .filter((id): id is number => id !== null && factIds.has(id));
 

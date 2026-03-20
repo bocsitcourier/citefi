@@ -98,7 +98,7 @@ export async function POST(
     }
 
     const businessName = batch.businessName || undefined;
-    const geographicFocus = batch.geographicFocus || undefined;
+    const geographicFocus = (batch as any).geographicFocus as string | undefined;
 
     if (!businessName || businessName.trim().length === 0) {
       return NextResponse.json({ 
@@ -112,6 +112,7 @@ export async function POST(
       .select({
         id: articles.id,
         title: articles.chosenTitle,
+        chosenTitle: articles.chosenTitle,
         content: articles.finalHtmlContent,
         imagePrompts: articles.imagePromptsJson,
         heroImageUrl: articles.heroImageUrl,

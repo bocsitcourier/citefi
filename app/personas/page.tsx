@@ -274,7 +274,7 @@ export default function PersonasPage() {
             <span className="text-xs text-muted-foreground w-20">Risk-averse</span>
             <Slider
               value={[formData.riskTolerance]}
-              onValueChange={(v) => setFormData({ ...formData, riskTolerance: v[0] })}
+              onValueChange={(v) => setFormData({ ...formData, riskTolerance: v[0]! })}
               max={100}
               step={5}
               className="flex-1"

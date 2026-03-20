@@ -8,7 +8,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY!);
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -151,16 +151,15 @@ Return a valid JSON object with this structure:
 
 Generate the JSON outline now:`;
 
-    const model = genAI.getGenerativeModel({ 
+    const result = await genAI.models.generateContent({
       model: "gemini-2.0-flash-exp",
-      generationConfig: {
-        temperature: 0.3, // Lower temperature for structured analysis
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        temperature: 0.3,
         responseMimeType: "application/json",
-      }
+      },
     });
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    const responseText = result.text || "";
     
     // Parse JSON response
     const parsed = JSON.parse(responseText);

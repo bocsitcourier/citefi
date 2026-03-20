@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const parsed = new URL(data.baseUrl);
     const domain = parsed.hostname.replace(/^www\./, "");
 
-    const [crawlJob] = await db.insert(siteCrawlJobs).values({
+    const [crawlJobRow] = await db.insert(siteCrawlJobs).values({
       teamId,
       userId,
       domain,
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       maxPages: data.maxPages,
       maxDepth: data.maxDepth,
     }).returning();
+    const crawlJob = crawlJobRow!;
 
     await addSiteCrawlJob({
       crawlJobId: crawlJob.id,

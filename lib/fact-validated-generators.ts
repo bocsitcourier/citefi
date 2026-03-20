@@ -230,12 +230,13 @@ export async function ingestFactsFromResearch(
       await factStore.createFact({
         teamId,
         factText: fact.text,
-        sourceType: fact.source.includes("http") ? "url" : "document",
+        sourceType: fact.source.includes("http") ? "website" : "document",
         sourceUrl: fact.sourceUrl,
         confidence: fact.confidence ?? 70,
         entityType: fact.entityType,
         entityName: fact.entityName,
         category: fact.category,
+        verifiedBy: "ai_research",
         verifierId,
       });
       created++;

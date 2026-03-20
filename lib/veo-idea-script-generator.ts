@@ -315,8 +315,8 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
 
     if (companyName) {
       const validationResult = validateBrandInOutput(cleanedText, companyName);
-      if (!validationResult.isValid) {
-        console.warn(`⚠️ Brand validation issues: ${validationResult.issues?.join(", ")}`);
+      if (!validationResult.valid) {
+        console.warn(`⚠️ Brand validation issues: ${validationResult.errors?.join(", ")}`);
       }
     }
 

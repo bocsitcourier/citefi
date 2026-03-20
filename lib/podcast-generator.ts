@@ -159,8 +159,8 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
     // DETERMINISTIC HUMANIZATION: Apply burstiness and scrub AI-isms to segment text
     for (let i = 0; i < script.segments.length; i++) {
-      const humanized = humanizePodcastScript(script.segments[i].text, 0.50);
-      script.segments[i].text = humanized.content;
+      const humanized = humanizePodcastScript(script.segments[i]!.text, 0.50);
+      script.segments[i]!.text = humanized.content;
     }
     console.log(`🔧 [DH] Podcast script humanized: ${script.segments.length} segments processed`);
 

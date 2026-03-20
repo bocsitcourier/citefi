@@ -45,7 +45,7 @@ export default function MediaLibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem("auth_token");
     return token ? { Authorization: `Bearer ${token}` } : {};
   };

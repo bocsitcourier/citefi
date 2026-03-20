@@ -45,7 +45,7 @@ export async function POST(
       .where(eq(publishingJobs.id, jobId));
 
     // Re-enqueue in pg-boss
-    const pgBossJobId = await addPublishingJob({ dbJobId: job.id });
+    const pgBossJobId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
 
     if (pgBossJobId) {
       await db

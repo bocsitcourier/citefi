@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       userId: adminUserId,
       action: 'maintenance_mode_toggled',
       targetType: 'system',
-      targetId: 'maintenance_mode',
+      targetId: null,
       details: JSON.stringify({
         isEnabled,
         message,

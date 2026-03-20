@@ -228,7 +228,7 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
     console.log(
       `🧠 [IntentEngine] ${validated.length}/${pageIntents.length} pages matched with intent-driven anchor text` +
         (validated.length > 0
-          ? ` | Sample: "${validated[0].keyword.slice(0, 50)}" → ${new URL(validated[0].url).pathname}`
+          ? ` | Sample: "${validated[0]!.keyword.slice(0, 50)}" → ${new URL(validated[0]!.url).pathname}`
           : " (no matches)")
     );
 

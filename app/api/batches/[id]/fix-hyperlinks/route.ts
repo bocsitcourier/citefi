@@ -205,7 +205,7 @@ function cleanHyperlinksFromSchema(html: string): string {
     return html; // No schema found
   }
   
-  let schemaContent = scriptMatch[1];
+  let schemaContent = scriptMatch[1]!;
   
   // Remove hyperlinks from schema content, preserving just the anchor text
   // Match: <a href="..." ... class="text-primary hover:underline">text</a>

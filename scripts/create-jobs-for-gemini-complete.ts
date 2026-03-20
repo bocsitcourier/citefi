@@ -1,6 +1,6 @@
 import { db } from '../lib/db';
 import { articles, jobBatches } from '../shared/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { addArticleJob } from '../lib/queue';
 
 async function createJobsForGeminiComplete() {
@@ -9,8 +9,7 @@ async function createJobsForGeminiComplete() {
   const geminiArticles = await db
     .select()
     .from(articles)
-    .where(inArray(articles.batchId, [60, 61]))
-    .where(eq(articles.articleStatus, 'GEMINI_COMPLETE'));
+    .where(and(inArray(articles.batchId, [60, 61]), eq(articles.articleStatus, 'GEMINI_COMPLETE')));
   
   console.log(`Found ${geminiArticles.length} articles at GEMINI_COMPLETE`);
   
@@ -34,20 +33,21 @@ async function createJobsForGeminiComplete() {
         continue;
       }
       
+      const batchAny = batch as any;
       await addArticleJob({
         articleId: article.id,
         batchId: article.batchId,
         runId: crypto.randomUUID(),
         title: article.chosenTitle,
         targetUrl: batch.targetUrl || '',
-        tone: batch.tone || 'professional',
-        wordCountMin: batch.wordCountMin || 800,
-        wordCountMax: batch.wordCountMax || 2000,
-        geographicFocus: batch.geographicFocus || '',
-        audience: batch.audience || '',
+        tone: batchAny.tone || 'professional',
+        wordCountMin: batchAny.wordCountMin || 800,
+        wordCountMax: batchAny.wordCountMax || 2000,
+        geographicFocus: batchAny.geographicFocus || '',
+        audience: batchAny.audience || '',
         businessName: batch.businessName || '',
         companyLogoUrl: batch.companyLogoUrl || undefined,
-        competitorUrls: batch.competitorUrls || undefined,
+        competitorUrls: (batch.competitorUrlsJson as string[] | undefined) || undefined,
         semanticClusterId: undefined,
         serpFeatureTarget: batch.serpFeatureTarget || undefined,
         customInstructions: undefined,

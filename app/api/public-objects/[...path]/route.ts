@@ -56,7 +56,7 @@ export async function GET(
     if (rangeHeader && fileSize > 0) {
       const match = rangeHeader.match(/^bytes=(\d+)-(\d*)/);
       if (match) {
-        const start = parseInt(match[1], 10);
+        const start = parseInt(match[1]!, 10);
         const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
         const chunkSize = end - start + 1;
 

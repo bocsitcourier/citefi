@@ -22,7 +22,7 @@ export default function AccountSettingsPage() {
 
   const changePasswordMutation = useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
-      const res = await apiRequest("POST", "/api/auth/change-password", data);
+      const res = await apiRequest("/api/auth/change-password", { method: "POST", body: JSON.stringify(data) });
       if (!res.ok) {
         const body = await res.json();
         throw new Error(body.error || "Failed to change password");
@@ -75,7 +75,7 @@ export default function AccountSettingsPage() {
           </div>
           <div className="flex items-center justify-between py-2 border-b">
             <span className="text-sm text-muted-foreground">Name</span>
-            <span className="text-sm font-medium">{user?.fullName || "—"}</span>
+            <span className="text-sm font-medium">{(user as any)?.fullName || "—"}</span>
           </div>
           <div className="flex items-center justify-between py-2 border-b">
             <span className="text-sm text-muted-foreground">Role</span>

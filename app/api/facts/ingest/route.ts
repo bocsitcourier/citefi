@@ -3,11 +3,14 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { ingestFactsFromResearch, extractFactsFromContent, getFactCoverageReport } from "@/lib/fact-validated-generators";
 
 export async function POST(req: NextRequest) {
-  const auth = await requireTeamMember(req);
-  if (!auth.success) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  let teamId: number, userId: number;
+  try {
+    const auth = await requireTeamMember(req);
+    teamId = auth.teamId;
+    userId = auth.userId;
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { teamId, userId } = auth;
 
   try {
     const body = await req.json();

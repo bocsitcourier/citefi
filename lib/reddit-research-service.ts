@@ -60,8 +60,8 @@ export function identifySubreddits(topic: string, location: string): string[] {
   
   // Extract city/state from location
   const locationParts = location.split(',').map(p => p.trim());
-  const city = locationParts[0];
-  const state = locationParts[1] || '';
+  const city = locationParts[0] ?? '';
+  const state = locationParts[1] ?? '';
   
   // Local subreddits (city-specific)
   const cityClean = city.replace(/\s+/g, '').toLowerCase();
