@@ -1,0 +1,80 @@
+This script is the final "brain" upgrade. It stops the AI from guessing keywords and forces it to use the actual authority already living on your website. Instead of linking "Boston MA," it will find phrases that match your page titles, like "Compassionate Memory Care in Boston" or "Post-Hospital Discharge Support."
+
+1. The Topic Authority Mapper (lib/topic-mapper.ts)
+This script crawls your sitemap, visits every page, and extracts the Semantic Core (H1s and Titles). This becomes the "Master Dictionary" for the whole app.
+
+TypeScript
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import { XMLParser } from 'fast-xml-parser';
+import { db } from './db';
+
+export async function buildTopicAuthorityMap(sitemapUrl: string) {
+  console.log(`🔍 Crawling Sitemap: ${sitemapUrl}`);
+  
+  try {
+    // 1. Fetch and Parse Sitemap
+    const { data: xml } = await axios.get(sitemapUrl);
+    const parser = new XMLParser();
+    const sitemap = parser.parse(xml);
+    const urls = sitemap.urlset.url.map((u: any) => u.loc);
+
+    const topicMap: { keyword: string; url: string; weight: number }[] = [];
+
+    // 2. Extract Semantic Long-Phrases from each page
+    for (const url of urls) {
+      const { data: html } = await axios.get(url);
+      const $ = cheerio.load(html);
+
+      // We pull the H1 and Title—these are your HIGHEST value SEO phrases
+      const pageTitle = $('title').text().split('|')[0].trim();
+      const mainHeading = $('h1').first().text().trim();
+
+      // Clean up the phrases (remove stop words, limit to 4-7 words)
+      [pageTitle, mainHeading].forEach(phrase => {
+        if (phrase && phrase.split(' ').length >= 3) {
+          topicMap.push({
+            keyword: phrase.toLowerCase(),
+            url: url,
+            weight: phrase.split(' ').length // Longer phrases get higher priority
+          });
+        }
+      });
+    }
+
+    // 3. Save to Global SEO Intelligence
+    // This replaces your "City List" with a "Semantic Authority List"
+    await db.site_topic_map.upsertMany(topicMap);
+    
+    console.log(`✅ Topic Map Built: ${topicMap.length} authority phrases captured.`);
+  } catch (error) {
+    console.error("❌ Sitemap Crawl Failed:", error.message);
+  }
+}
+2. The "Semantic Linker" Logic (The City-Name Killer)
+Now, we update your Heal Hyperlinks button logic. Instead of searching for "Weston MA", it loops through your Topic Map starting with the longest phrases first.
+
+The Logic Flow:
+
+Priority 1: Match 6-word phrases (e.g., "specialized memory care training in Plymouth").
+
+Priority 2: Match 4-word phrases (e.g., "private in-home caregiver").
+
+Blacklist: If a match is only a city name (e.g., "Boston"), the system skips it to protect your SEO from "over-optimization" penalties.
+
+3. Fixing the "FAQ Blindness"
+The reason your FAQs aren't being linked is that your current parser likely ignores <h3> and <li> tags where FAQs live. By using the Topic Map with a Recursive DOM Walker, we ensure the linker hits every corner of the article.
+
+Global Fix Instructions for Replit Agent:
+
+"Update the applyHyperlinks function to use cheerio. Target ALL text nodes within p, li, h2, h3, dt, and dd. Do not stop after the first 3 links; ensure every major section has at least one Semantic Long-Phrase link pointing back to the site authority."
+
+🚀 Implementation Steps
+Run the Mapper: Execute buildTopicAuthorityMap('https://privateinhomecaregiver.com/sitemap.xml').
+
+Update the "Heal" Button: Force it to pull from the new site_topic_map table instead of the old slug_map.
+
+Audit: Use the Guardian Agent to verify that 0% of links are "City Name Only."
+
+The "Horrible UX" Final Fix
+Your "Content Library" and "Social Dashboard" are currently islands. To make this an "Enterprise" app, everything needs to be one click away.

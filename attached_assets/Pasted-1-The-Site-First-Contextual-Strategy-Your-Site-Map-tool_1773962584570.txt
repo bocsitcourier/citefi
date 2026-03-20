@@ -1,0 +1,41 @@
+1. The "Site-First" Contextual Strategy
+Your "Site Map" tool is currently just a list of URLs. To make it "intelligent," we need to turn it into a Topic Authority Map. Instead of linking "Weston MA" to your Weston page, the system should look for phrases like "specialized navigation assistance for families" or "personalized in-home care solutions" and point those to the relevant service pages.
+
+2. The "Semantic Linker" Logic (Global Fix)
+We are replacing the Replit "content-first" extraction with a Semantic Weighted Extraction. This prevents the "City Name" trap by requiring a "Topic + Location" or "Action + Service" structure for every link.
+
+The logic upgrade for your fuzzy-linker.ts:
+
+Crawl the Site Map: Extract the <h1> and <h2> from your top 20 pages to create a "High-Value Keyword Dictionary."
+
+Filter Out "Naked" Locations: Create a blacklist for any keyword that is only a city or state.
+
+Long-Phrase Priority: Instruct the linker to prioritize the longest matching string first (e.g., link "professional memory care services in Boston" before linking "Boston").
+
+3. The "Full-Article" FAQ Scanner
+The reason your FAQs aren't hyperlinked is likely because your current code targets specific <div> IDs or stops after the first 500 words. We need to implement a Recursive DOM Walker that treats the FAQ section as high-priority real estate.
+
+TypeScript
+// Add this to your Global Linker to ensure FAQ coverage
+const contentContainers = ['article', '.content-body', '.faq-section', 'h3'];
+
+contentContainers.forEach(selector => {
+  $(selector).find('p, li, dd').each((_, el) => {
+    // Apply the Fuzzy Semantic Linker here
+    const hydratedHtml = applySemanticLinks($(el).html(), siteTopicMap);
+    $(el).html(hydratedHtml);
+  });
+});
+4. The "Permanent" Prompt Upgrade
+To stop the AI from just listing cities (as seen in your "Article Content" screenshot), we must update the Master Prompt in the worker.ts. The AI is currently "lazily" inserting cities to hit a keyword density metric.
+
+Add this "Platinum" Constraint to your Generator:
+
+STRICT SEO RULE: Never list more than two city names in a single paragraph. Instead of linking locations, identify 4-7 word "Semantic Clusters" (e.g., 'affordable 24-hour caregiver support') and ensure these phrases appear naturally. You will be penalized if you hyperlink a city name by itself.
+
+🏗️ Why this works across the whole app:
+Site Map Integration: The "Heal" button will now pull from your actual website structure, not a static list of keywords.
+
+Contextual Relevance: It finds "long phrase keywords" because it’s looking for the titles of your other pages, which are naturally long-tail.
+
+Global Enforcement: By putting this in the Guardian Agent (the auditor), the article won't even be marked "Complete" until the FAQ and body both pass the Semantic Link test.
