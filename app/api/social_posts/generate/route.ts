@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     const safeLocation = (location || "Global").substring(0, 250);
     const safeCompanyName = (validatedData.companyName || "").substring(0, 250);
     
-    const [socialPost] = await db.insert(socialPosts).values({
+    const [socialPostRow] = await db.insert(socialPosts).values({
       userId,
       teamId, // TEAM ISOLATION
       articleId: validatedData.articleId ? parseInt(validatedData.articleId) : null,
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
       companyLogoUrl: validatedData.companyLogoUrl || null,
       status: "PENDING",
     }).returning();
+    const socialPost = socialPostRow!;
 
     // Queue job for AI generation
     const jobId = await addSocialPostJob({

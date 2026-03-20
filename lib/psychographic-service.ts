@@ -509,7 +509,7 @@ export class PsychographicService {
       .returning();
 
     console.log(`✅ Created persona: ${data.name} for team ${teamId}`);
-    return persona;
+    return persona!;
   }
 
   async updatePersona(
@@ -641,7 +641,7 @@ export class PsychographicService {
     const presets = await this.getPresetPersonas();
     
     for (let i = 0; i < presets.length; i++) {
-      const preset = presets[i];
+      const preset = presets[i]!;
       await this.createPersona(teamId, {
         name: preset.name,
         description: preset.description,

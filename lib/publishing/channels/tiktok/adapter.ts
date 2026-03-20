@@ -12,7 +12,7 @@ import { getOAuthCredentials, isTokenExpired, refreshTikTokToken } from '../soci
 export class TikTokChannelAdapter implements ChannelAdapter {
   channel = 'tiktok' as const;
 
-  async validate(connection: PublishingConnection): Promise<ValidationResult> {
+  async validate(_content: PublishableContent, connection: PublishingConnection): Promise<ValidationResult> {
     try {
       let creds = await getOAuthCredentials(connection.id);
       
@@ -102,7 +102,7 @@ export class TikTokChannelAdapter implements ChannelAdapter {
         return { success: false, error: 'TikTok requires a video file to publish', errorCode: 'NO_VIDEO' };
       }
 
-      const videoUrl = content.mediaUrls[0];
+      const videoUrl = content.mediaUrls[0]!;
 
       const initResponse = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
         method: 'POST',

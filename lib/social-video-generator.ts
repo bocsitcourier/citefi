@@ -311,10 +311,10 @@ export async function generateSocialVideo(
     console.log(`📐 Resolution: ${video.resolution}`);
     console.log(`📦 File size: ${(video.fileSize / 1024 / 1024).toFixed(2)}MB`);
     console.log(`\n📊 TIMING SUMMARY:`);
-    console.log(`  Script generation: ${(timings.script_complete - timings.script_start) / 1000}s`);
-    console.log(`  Images + TTS (parallel): ${(timings.parallel_complete - timings.parallel_start) / 1000}s`);
-    console.log(`  FFmpeg + SEO (parallel): ${(timings.ffmpeg_complete - timings.ffmpeg_start) / 1000}s`);
-    console.log(`  TOTAL: ${timings.complete / 1000}s\n`);
+    console.log(`  Script generation: ${(timings.script_complete! - timings.script_start!) / 1000}s`);
+    console.log(`  Images + TTS (parallel): ${(timings.parallel_complete! - timings.parallel_start!) / 1000}s`);
+    console.log(`  FFmpeg + SEO (parallel): ${(timings.ffmpeg_complete! - timings.ffmpeg_start!) / 1000}s`);
+    console.log(`  TOTAL: ${timings.complete! / 1000}s\n`);
 
     return {
       videoUrl: video.videoUrl,

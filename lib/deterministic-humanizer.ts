@@ -253,13 +253,13 @@ function applyBurstiness(content: string, targetCV: number = 0.45): string {
   }
 
   for (const idx of modifications) {
-    const sentence = modifiedSentences[idx];
+    const sentence = modifiedSentences[idx]!;
     const words = sentence.split(/\s+/);
     
     if (words.length > 12 && Math.random() > 0.5) {
       const midPoint = Math.floor(words.length / 2);
       const conjunctions = [" and ", " but ", " so ", ", which ", " – "];
-      const splitWord = words[midPoint];
+      const splitWord = words[midPoint]!;
       
       if (!conjunctions.some(c => splitWord.includes(c.trim()))) {
         const firstHalf = words.slice(0, midPoint).join(" ");
@@ -272,7 +272,7 @@ function applyBurstiness(content: string, targetCV: number = 0.45): string {
       }
     }
     else if (words.length < 8 && idx + 1 < modifiedSentences.length) {
-      const nextSentence = modifiedSentences[idx + 1];
+      const nextSentence = modifiedSentences[idx + 1]!;
       const nextWords = nextSentence.split(/\s+/);
       
       if (nextWords.length < 8 && words.length + nextWords.length < 20) {

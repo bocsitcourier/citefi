@@ -20,11 +20,7 @@ const CHUNK_DELAY_MS = 5000; // 5 seconds between chunks
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireTeamMember(request);
-    if (auth.error) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
-    const { teamId } = auth;
+    const { teamId } = await requireTeamMember(request);
 
     const body = await request.json();
     const { socialPostIds, platform = "tiktok" } = body;
@@ -121,7 +117,7 @@ export async function POST(request: NextRequest) {
     const queuedJobIds: string[] = [];
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex];
+      const chunk = chunks[chunkIndex]!;
       
       // Add delay between chunks (except for first chunk)
       const startDelaySeconds = chunkIndex * (CHUNK_DELAY_MS / 1000);

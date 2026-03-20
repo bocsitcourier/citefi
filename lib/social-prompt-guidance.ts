@@ -282,7 +282,7 @@ export function getPlatformStructureGuidance(
   contentSource: 'article' | 'standalone'
 ): string {
   const key = normalizePlatform(platform);
-  const guidance = PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'];
+  const guidance = (PLATFORM_GUIDANCE[key] ?? PLATFORM_GUIDANCE['x'])!;
   
   const articleContext = contentSource === 'article' 
     ? "Transform the article's main points into compelling social content that drives traffic back to the full article."
@@ -331,7 +331,7 @@ export function getHashtagStrategy(platform: string): {
     pinterest: { total: 10, evergreenRatio: 0.5 }  // 5 evergreen, 5 campaign
   };
   
-  const strategy = strategyMap[key] || strategyMap['x'];
+  const strategy = (strategyMap[key] ?? strategyMap['x'])!;
   const evergreenCount = Math.round(strategy.total * strategy.evergreenRatio);
   const campaignCount = strategy.total - evergreenCount;
   

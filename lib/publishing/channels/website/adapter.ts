@@ -74,7 +74,7 @@ function makeAbsoluteUrl(url: string): string | undefined {
   // Auto-detect from Replit's injected domain list when no explicit URL is configured.
   // REPLIT_DOMAINS is a comma-separated list; the first entry is the primary domain.
   if (!engineBase && process.env.REPLIT_DOMAINS) {
-    const firstDomain = process.env.REPLIT_DOMAINS.split(',')[0].trim();
+    const firstDomain = process.env.REPLIT_DOMAINS.split(',')[0]!.trim();
     if (firstDomain) {
       engineBase = `https://${firstDomain}`;
     }
@@ -386,7 +386,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     // subdirectory where articles are displayed) but the receiver API is always rooted
     // at the domain origin, e.g. https://example.com/api/v1/articles.
     const receiverOrigin = new URL(connection.baseUrl).origin;
-    const endpoint = `${receiverOrigin}${endpointMap[content.type] || '/api/v1/articles'}`;
+    const endpoint = `${receiverOrigin}${endpointMap[content.type ?? ''] || '/api/v1/articles'}`;
     const payload = {
       ...content.payload,
       jobId,

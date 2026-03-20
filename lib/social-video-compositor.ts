@@ -192,7 +192,7 @@ export async function composeVideo(
 
   console.log(`🎬 Composing 60-second video with FFmpeg`);
 
-  const resolution = PLATFORM_RESOLUTIONS[platform] || PLATFORM_RESOLUTIONS.default;
+  const resolution = (PLATFORM_RESOLUTIONS[platform] ?? PLATFORM_RESOLUTIONS['default'])!;
   const { width, height } = resolution;
 
   try {
@@ -255,7 +255,7 @@ export async function composeVideo(
       const delta = 60 - currentTotal;
       // Distribute rounding error to the last scene (branded CTA)
       if (delta !== 0) {
-        normalizedDurations[normalizedDurations.length - 1] += delta;
+        normalizedDurations[normalizedDurations.length - 1]! += delta;
       }
     } else {
       normalizedDurations = [10, 12, 12, 12, 14]; // Fallback
@@ -276,7 +276,7 @@ export async function composeVideo(
     });
     
     // Add final image again without duration to ensure it displays fully
-    const lastImage = sortedImages[sortedImages.length - 1];
+    const lastImage = sortedImages[sortedImages.length - 1]!;
     concatLines.push(`file '${lastImage.localPath}'`);
     
     const concatContent = concatLines.join("\n");
@@ -354,7 +354,7 @@ export async function composeVideo(
       const cropMatch = cropdetectOutput.match(/crop=(\d+:\d+:\d+:\d+)/g);
       if (cropMatch && cropMatch.length > 0) {
         // Get the last crop detection (most stable)
-        cropFilter = cropMatch[cropMatch.length - 1];
+        cropFilter = cropMatch[cropMatch.length - 1] ?? null;
         console.log(`  ✅ Detected crop filter: ${cropFilter}`);
       } else {
         console.log(`  ℹ️ No black bars detected - video is already full-frame`);
@@ -434,7 +434,7 @@ export async function composeVideo(
     let urlFilter = '';
     if (landingPageUrl) {
       const scene5Start = normalizedDurations.slice(0, 4).reduce((sum, d) => sum + d, 0); // Sum of first 4 scenes
-      const scene5End = scene5Start + normalizedDurations[4]; // Add Scene 5 duration
+      const scene5End = scene5Start + normalizedDurations[4]!; // Add Scene 5 duration
       
       // Extract domain only from URL (strip protocol, path, and query params)
       let displayUrl = landingPageUrl;
@@ -443,7 +443,7 @@ export async function composeVideo(
         displayUrl = urlObj.hostname; // Gets just the domain (e.g., www.privateinhomecaregiver.com)
       } catch {
         // Fallback: simple regex extraction if URL parsing fails
-        displayUrl = landingPageUrl.replace(/^https?:\/\//, '').split('/')[0];
+        displayUrl = landingPageUrl.replace(/^https?:\/\//, '').split('/')[0]!;
       }
       
       // Escape special characters for FFmpeg

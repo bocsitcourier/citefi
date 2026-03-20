@@ -44,9 +44,10 @@ export function encryptApiKey(apiKey: string): string {
 export function decryptApiKey(encryptedApiKey: string): string {
   const keyBuffer = getEncryptionKey();
   const [ivHex, encryptedHex] = encryptedApiKey.split(':');
-  const iv = Buffer.from(ivHex, 'hex');
+  const iv = Buffer.from(ivHex!, 'hex');
   const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv);
-  let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+  let decrypted = '';
+  decrypted += decipher.update(encryptedHex!, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
 }

@@ -112,7 +112,7 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
     .limit(1);
 
   if (existingCache.length > 0) {
-    const cache = existingCache[0];
+    const cache = existingCache[0]!;
     
     // Check cache version - invalidate if outdated
     if (cache.cacheVersion !== CURRENT_CACHE_VERSION) {
@@ -152,7 +152,7 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
     return null;
   }
 
-  const batchData = batch[0];
+  const batchData = batch[0]!;
   const params = batchData.generationParams as any;
   const geographicFocus = params?.geographicFocus || "";
   
@@ -210,18 +210,19 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
     console.log(`✅ [Batch ${batchId}] SEO cache stored successfully - will be reused for all articles`);
     
     // Return the stored cache to ensure consistency (another worker may have inserted first)
+    const stored = storedCache[0]!;
     return {
-      locationAnalysis: storedCache[0].locationAnalysisJson as any,
-      locationKeywords: storedCache[0].locationKeywordsJson as any,
-      localRegulations: storedCache[0].localRegulations as any,
-      authorityEntities: storedCache[0].authorityEntities as any,
-      keyStatistics: storedCache[0].keyStatistics as any,
-      redditResearch: storedCache[0].redditResearch as any,
-      expertDiscovery: storedCache[0].expertDiscovery as any,
-      competitorInsights: storedCache[0].competitorInsightsJson as any,
-      competitorKeywords: storedCache[0].competitorKeywordsJson as any,
-      semanticClusters: storedCache[0].semanticClustersJson as any,
-      topicalAuthority: storedCache[0].topicalAuthorityJson as any,
+      locationAnalysis: stored.locationAnalysisJson as any,
+      locationKeywords: stored.locationKeywordsJson as any,
+      localRegulations: stored.localRegulations as any,
+      authorityEntities: stored.authorityEntities as any,
+      keyStatistics: stored.keyStatistics as any,
+      redditResearch: stored.redditResearch as any,
+      expertDiscovery: stored.expertDiscovery as any,
+      competitorInsights: stored.competitorInsightsJson as any,
+      competitorKeywords: stored.competitorKeywordsJson as any,
+      semanticClusters: stored.semanticClustersJson as any,
+      topicalAuthority: stored.topicalAuthorityJson as any,
     };
   }
 

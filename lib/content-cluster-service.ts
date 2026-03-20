@@ -278,7 +278,7 @@ export async function createCluster(params: {
   const { teamId, topicPillar, location, localeId, clusterPlan } = params;
   
   // Insert cluster
-  const [cluster] = await db.insert(contentClusters).values({
+  const [clusterRow] = await db.insert(contentClusters).values({
     teamId,
     topicPillar,
     location,
@@ -287,6 +287,7 @@ export async function createCluster(params: {
     totalNodesPlanned: clusterPlan.estimatedNodeCount,
     totalNodesComplete: 0,
   }).returning();
+  const cluster = clusterRow!;
   
   // Insert coverage nodes
   const nodeValues = clusterPlan.subtopicCategories.flatMap(category =>
@@ -393,9 +394,9 @@ export async function getClusterHealth(clusterId: number): Promise<ClusterHealth
     if (!categoryGaps[node.subtopicCategory]) {
       categoryGaps[node.subtopicCategory] = { total: 0, completed: 0 };
     }
-    categoryGaps[node.subtopicCategory].total++;
+    categoryGaps[node.subtopicCategory]!.total++;
     if (node.status === 'complete') {
-      categoryGaps[node.subtopicCategory].completed++;
+      categoryGaps[node.subtopicCategory]!.completed++;
     }
   });
   

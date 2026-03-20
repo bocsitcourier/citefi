@@ -318,13 +318,13 @@ export function parseArticleSections(content: string): ArticleSection[] {
   }
   
   // Add introduction (content before first H2)
-  if (matches[0].index! > 0) {
+  if (matches[0]!.index! > 0) {
     sections.push({
       id: 'intro',
       heading: 'Introduction',
-      content: content.substring(0, matches[0].index!).trim(),
+      content: content.substring(0, matches[0]!.index!).trim(),
       startIndex: 0,
-      endIndex: matches[0].index!,
+      endIndex: matches[0]!.index!,
       sectionType: 'introduction',
       allowPromotionalContent: false
     });
@@ -332,10 +332,10 @@ export function parseArticleSections(content: string): ArticleSection[] {
   
   // Process each H2 section
   for (let i = 0; i < matches.length; i++) {
-    const match = matches[i];
-    const heading = match[1];
+    const match = matches[i]!;
+    const heading = match[1]!;
     const startIndex = match.index!;
-    const endIndex = i < matches.length - 1 ? matches[i + 1].index! : content.length;
+    const endIndex = i < matches.length - 1 ? matches[i + 1]!.index! : content.length;
     const sectionContent = content.substring(startIndex, endIndex).trim();
     
     // Determine section type based on heading
@@ -690,8 +690,8 @@ export class ArticleCritique {
             claim,
             verified: matchesFound > 0,
             confidence: Math.min(100, matchesFound * 33),
-            evidence: topResult.snippet,
-            source: topResult.url
+            evidence: topResult!.snippet,
+            source: topResult!.url
           });
         } else {
           results.push({
@@ -786,7 +786,7 @@ export class ArticleCritique {
       firstParagraph.length > 50 &&
       !firstParagraph.toLowerCase().startsWith('in this article') &&
       !firstParagraph.toLowerCase().startsWith('in this guide') &&
-      (firstParagraph.includes(topic.split(' ')[0]) || firstParagraph.includes(location));
+      (firstParagraph.includes(topic.split(' ')[0]!) || firstParagraph.includes(location));
     
     // Keyword density
     const words = content.split(/\s+/);

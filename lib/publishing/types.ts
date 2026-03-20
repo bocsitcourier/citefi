@@ -43,9 +43,10 @@ export interface PublishableContent {
 }
 
 export interface FormattedContent {
-  type: 'article' | 'social_post' | 'video' | 'podcast';
-  payload: Record<string, unknown>;
+  type?: 'article' | 'social_post' | 'video' | 'podcast';
+  payload?: Record<string, unknown>;
   mediaToUpload?: MediaUpload[];
+  mediaUrls?: string[];
   text?: string;
   metadata?: Record<string, unknown>;
 }
@@ -63,14 +64,18 @@ export interface PublishResult {
   success: boolean;
   publishedUrl?: string;
   platformPostId?: string;
+  remoteId?: string;
+  remoteUrl?: string;
   error?: string;
   errorCode?: string;
   rawResponse?: unknown;
+  metadata?: Record<string, unknown>;
 }
 
 export interface VerifyResult {
   verified: boolean;
-  status: 'published' | 'pending' | 'failed' | 'deleted';
+  status: 'published' | 'pending' | 'failed' | 'deleted' | 'live' | 'unknown' | 'processing';
+  url?: string;
   details?: Record<string, unknown>;
 }
 

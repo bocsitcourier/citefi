@@ -63,10 +63,10 @@ function extractTextContent(html: string): string {
 
 function extractTitle(html: string): string {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  if (titleMatch) return titleMatch[1].trim().substring(0, 500);
+  if (titleMatch) return titleMatch[1]!.trim().substring(0, 500);
 
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-  if (h1Match) return h1Match[1].replace(/<[^>]*>/g, "").trim().substring(0, 500);
+  if (h1Match) return h1Match[1]!.replace(/<[^>]*>/g, "").trim().substring(0, 500);
 
   return "";
 }
@@ -74,7 +74,7 @@ function extractTitle(html: string): string {
 function extractMetaDescription(html: string): string {
   const match = html.match(/<meta\s+name=["']description["']\s+content=["']([\s\S]*?)["']/i) ||
     html.match(/<meta\s+content=["']([\s\S]*?)["']\s+name=["']description["']/i);
-  return match ? match[1].trim().substring(0, 500) : "";
+  return match ? match[1]!.trim().substring(0, 500) : "";
 }
 
 function extractHeadings(html: string): string[] {
@@ -82,7 +82,7 @@ function extractHeadings(html: string): string[] {
   const regex = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi;
   let match;
   while ((match = regex.exec(html)) !== null && headings.length < 20) {
-    const text = match[1].replace(/<[^>]*>/g, "").trim();
+    const text = match[1]!.replace(/<[^>]*>/g, "").trim();
     if (text.length > 2 && text.length < 200) {
       headings.push(text);
     }
@@ -95,10 +95,10 @@ function extractInternalLinks(html: string, baseUrl: string, domain: string): st
   const regex = /<a\s[^>]*href=["']([^"'#]+)["'][^>]*>/gi;
   let match;
   while ((match = regex.exec(html)) !== null) {
-    const href = match[1].trim();
+    const href = match[1]!.trim();
     if (isInternalLink(href, domain)) {
       try {
-        const fullUrl = new URL(href, baseUrl).href.split("?")[0].split("#")[0];
+        const fullUrl = new URL(href, baseUrl).href.split("?")[0]!.split("#")[0]!;
         const path = new URL(fullUrl).pathname;
         if (!path.match(/\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|mp4|mp3|woff|woff2|ttf|eot)$/i)) {
           links.add(fullUrl);
@@ -233,7 +233,7 @@ export async function crawlWebsite(
     while (queue.length > 0 && pagesIndexed < maxPages) {
       const { url, depth } = queue.shift()!;
 
-      const normalizedUrl = url.split("?")[0].split("#")[0].replace(/\/$/, "");
+      const normalizedUrl = url.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
       if (visited.has(normalizedUrl)) continue;
       visited.add(normalizedUrl);
 
@@ -277,7 +277,7 @@ export async function crawlWebsite(
       if (depth < maxDepth) {
         const links = extractInternalLinks(html, normalizedUrl, domain);
         for (const link of links) {
-          const normalizedLink = link.split("?")[0].split("#")[0].replace(/\/$/, "");
+          const normalizedLink = link.split("?")[0]!.split("#")[0]!.replace(/\/$/, "");
           if (!visited.has(normalizedLink)) {
             queue.push({ url: normalizedLink, depth: depth + 1 });
           }
@@ -342,7 +342,7 @@ function extractRootDomain(domain: string): string {
   const parts = domain.replace(/^www\./, "").split(".");
   // Keep last two segments (handles .com, .net, .org, etc.)
   // For ccTLDs like .co.uk keep last three
-  const ccTLD = parts.length >= 3 && parts[parts.length - 2].length <= 3;
+  const ccTLD = parts.length >= 3 && parts[parts.length - 2]!.length <= 3;
   return ccTLD ? parts.slice(-3).join(".") : parts.slice(-2).join(".");
 }
 

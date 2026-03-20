@@ -218,9 +218,8 @@ export async function discoverInternalLinkOpportunities(
     const potentialTargets = await db
       .select({
         id: articles.id,
-        title: articles.title,
-        finalHtml: articles.finalHtml,
-        location: articles.location,
+        title: articles.chosenTitle,
+        finalHtml: articles.finalHtmlContent,
       })
       .from(articles)
       .where(eq(articles.teamId, teamId))
@@ -328,16 +327,16 @@ export async function auditArticle(
 
   // Perform quality audit
   const qualityAudit = await performQualityAudit(
-    article.finalHtml || article.draftHtml || "",
-    article.title || "",
-    article.location || undefined,
-    article.companyName || undefined
+    article.finalHtmlContent || "",
+    article.chosenTitle || "",
+    undefined,
+    undefined
   );
 
   // Discover internal link opportunities
   const linkOpportunities = await discoverInternalLinkOpportunities(
     articleId,
-    article.finalHtml || article.draftHtml || "",
+    article.finalHtmlContent || "",
     teamId
   );
 

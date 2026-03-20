@@ -36,7 +36,7 @@ Return ONLY the new SEO title, nothing else.`;
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const newTitle = cleanSeoTitle(responseText.trim());
   if (!newTitle || newTitle.length < 10) {
     throw new Error("Failed to generate valid SEO title");
@@ -70,7 +70,7 @@ Return ONLY the new meta description, nothing else.`;
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const newMeta = cleanMetaDescription(responseText.trim());
   if (!newMeta || newMeta.length < 50) {
     throw new Error("Failed to generate valid meta description");
@@ -98,7 +98,7 @@ Return ONLY the new slug (e.g., "best-seo-tips-2025"), nothing else.`;
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const rawSlug = responseText.trim();
   const newSlug = rawSlug
     .toLowerCase()
@@ -142,7 +142,7 @@ Example format: ["home care Wellesley MA", "post-rehab caregivers Wellesley", "t
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const rawText = responseText.trim();
   
   // Extract JSON array from response
@@ -184,7 +184,7 @@ Example format: ["#SEO", "#ContentMarketing", "#DigitalMarketing", "#SEOTips", "
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const rawText = responseText.trim();
   
   // Extract JSON array from response
@@ -225,7 +225,7 @@ Example format: [{"question": "What is SEO?", "answer": "SEO stands for Search E
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
-  const responseText = result.response?.text() || result.text || "";
+  const responseText = result.text || "";
   const rawText = responseText.trim();
   
   // Extract JSON array from response

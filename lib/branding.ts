@@ -81,16 +81,16 @@ function levenshteinDistance(str1: string, str2: string): number {
 
   for (let i = 1; i <= len1; i++) {
     for (let j = 1; j <= len2; j++) {
-      const cost = str1[i - 1].toLowerCase() === str2[j - 1].toLowerCase() ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,      // deletion
-        matrix[i][j - 1] + 1,      // insertion
-        matrix[i - 1][j - 1] + cost // substitution
+      const cost = str1[i - 1]!.toLowerCase() === str2[j - 1]!.toLowerCase() ? 0 : 1;
+      matrix[i]![j] = Math.min(
+        matrix[i - 1]![j]! + 1,      // deletion
+        matrix[i]![j - 1]! + 1,      // insertion
+        matrix[i - 1]![j - 1]! + cost // substitution
       );
     }
   }
 
-  return matrix[len1][len2];
+  return matrix[len1]![len2]!;
 }
 
 export function validateBrandInOutput(output: string, brandName: string): {
@@ -165,7 +165,7 @@ export function validateBrandInOutput(output: string, brandName: string): {
     // Hybrid validation approach to reduce false positives:
     
     // 1. First letter must match (catches "Boscit" but not "boost")
-    if (word[0].toLowerCase() !== normalizedBrandName[0].toLowerCase()) {
+    if (word[0]!.toLowerCase() !== normalizedBrandName[0]!.toLowerCase()) {
       continue;
     }
     
@@ -246,7 +246,7 @@ export function validateImagePromptBranding(
   ];
   
   for (let i = 0; i < imagePrompts.length; i++) {
-    const prompt = imagePrompts[i];
+    const prompt = imagePrompts[i]!;
     const promptNum = i + 1;
     
     // Check for generic placeholder patterns

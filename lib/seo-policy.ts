@@ -51,11 +51,11 @@ export function isBareGeoAnchor(phrase: string): boolean {
 
   // Single word — if it looks like a proper noun city or a state abbrev, reject
   if (words.length === 1) {
-    const lower = words[0].toLowerCase();
+    const lower = words[0]!.toLowerCase();
     // State abbreviations
     if (US_STATE_ABBREVS.has(lower)) return true;
     // Looks like a proper noun (capitalized single word) — could be a city name
-    if (/^[A-Z][a-z]{2,}$/.test(words[0])) return true;
+    if (/^[A-Z][a-z]{2,}$/.test(words[0]!)) return true;
     return false;
   }
 
@@ -90,8 +90,8 @@ export function isHighQualityAnchor(phrase: string): boolean {
   if (words.length < 4) return false;  // must be 4+ words
   if (words.length > 10) return false; // reject sentence-length anchors
 
-  const first = words[0].toLowerCase();
-  const last = words[words.length - 1].toLowerCase();
+  const first = words[0]!.toLowerCase();
+  const last = words[words.length - 1]!.toLowerCase();
   if (ANCHOR_STOP_WORDS.has(first)) return false;
   if (ANCHOR_STOP_WORDS.has(last)) return false;
 

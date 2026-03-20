@@ -25,7 +25,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid variant ID" }, { status: 400 });
     }
 
-    const auth = await requireTeamMember();
+    const auth = await requireTeamMember(request);
     if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -49,9 +49,9 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
     return;
   }
   
-  const schedule = updateResult[0];
+  const schedule = updateResult[0]!;
   
-  const [run] = await db
+  const [runRow] = await db
     .insert(scheduleRuns)
     .values({
       scheduleId: schedule.id,
@@ -59,6 +59,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       articlesRequested: schedule.articlesPerRun,
     })
     .returning();
+  const run = runRow!;
   
   try {
     console.log(`📝 Generating title pool for schedule "${schedule.name}"`);
@@ -97,7 +98,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
     
     const selectedTitles = titlePoolResult.titles.slice(0, schedule.articlesPerRun);
     
-    const [batch] = await db
+    const [batchRow] = await db
       .insert(jobBatches)
       .values({
         userId: schedule.createdBy,
@@ -122,6 +123,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
         autoPublishConnectionIds: schedule.autoPublishConnectionIds,
       })
       .returning();
+    const batch = batchRow!;
     
     console.log(`📦 Created batch ${batch.id} with ${selectedTitles.length} titles`);
     

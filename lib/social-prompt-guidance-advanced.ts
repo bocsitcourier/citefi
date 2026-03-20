@@ -99,7 +99,7 @@ export function generateAdvancedSocialPrompt(params: {
   } = params;
 
   const platformKey = normalizePlatform(platform);
-  const guidance = PLATFORM_GUIDANCE[platformKey] || PLATFORM_GUIDANCE['x'];
+  const guidance = (PLATFORM_GUIDANCE[platformKey] || PLATFORM_GUIDANCE['x'])!;
 
   // Build local intelligence context
   const localContext = buildLocalContext(localIntel);
@@ -232,7 +232,7 @@ function buildAuthorityContext(authoritySignals?: AuthoritySignals): string {
   }
   
   if (authoritySignals.testimonialHighlights && authoritySignals.testimonialHighlights.length > 0) {
-    const testimonial = authoritySignals.testimonialHighlights[0];
+    const testimonial = authoritySignals.testimonialHighlights[0]!;
     parts.push(`- Featured Testimonial: "${testimonial.quote}" - ${testimonial.author}, ${testimonial.location}`);
   }
 
@@ -309,7 +309,7 @@ function getAnswerFirstGuidance(platform: string, contentType: string): string {
 - Focus on actionable results`,
   };
 
-  return answerFirstMap[platform] || answerFirstMap['x'];
+  return (answerFirstMap[platform] ?? answerFirstMap['x'])!;
 }
 
 /**
@@ -324,7 +324,7 @@ function getAnswerFirstTemplate(platform: string): string {
     pinterest: 'Transformation promise or outcome statement',
   };
 
-  return templates[platform] || templates['x'];
+  return (templates[platform] ?? templates['x'])!;
 }
 
 /**
@@ -371,12 +371,12 @@ function getAuthorityPlacementGuidance(authoritySignals?: AuthoritySignals, plat
   }
 
   if (authoritySignals.localExperts && authoritySignals.localExperts.length > 0) {
-    const expert = authoritySignals.localExperts[0];
+    const expert = authoritySignals.localExperts[0]!;
     guidance.push(`- Consider citing: "${expert.name}, ${expert.credentials}" for added authority`);
   }
 
   if (authoritySignals.localOrganizations && authoritySignals.localOrganizations.length > 0) {
-    guidance.push(`- Mention partnership: "${authoritySignals.localOrganizations[0].name}"`);
+    guidance.push(`- Mention partnership: "${authoritySignals.localOrganizations[0]!.name}"`);
   }
 
   return guidance.length > 0 ? guidance.join('\n') : '- Build credibility through specific examples';

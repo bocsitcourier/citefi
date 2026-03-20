@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [newIdea] = await db.insert(videoIdeas).values({
+    const [newIdeaRow] = await db.insert(videoIdeas).values({
       userId,
       teamId,
       ideaTitle: data.ideaTitle,
@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
       isLikeVideo: true,
       referenceVideoUrl: data.referenceVideoUrl,
     }).returning();
+    const newIdea = newIdeaRow!;
 
     console.log(`✅ Like Video idea created: ${newIdea.publicId} - "${data.ideaTitle}" (ref: ${data.referenceVideoUrl.slice(0, 60)}...)`);
 

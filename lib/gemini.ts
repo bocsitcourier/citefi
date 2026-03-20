@@ -40,6 +40,7 @@ geminiRateLimiter.on("failed", async (error, jobInfo) => {
     console.warn(`⚠️  Gemini rate limit hit, retrying in ${delay}ms (attempt ${jobInfo.retryCount + 1}/3)`);
     return delay;
   }
+  return undefined;
 });
 
 console.log(`🔧 Gemini rate limiter initialized: ${GEMINI_REQUESTS_PER_MINUTE} requests/minute, max ${MAX_CONCURRENT_REQUESTS} concurrent`);
@@ -152,10 +153,10 @@ export function parseMultipleCities(geographicFocus: string): string[] {
     .filter(Boolean);
   
   if (parts.length === 0) return [];
-  if (parts.length === 1) return [parts[0]];
+  if (parts.length === 1) return [parts[0]!];
   if (parts.length === 2) {
     // Single city, state pair - normalize state (after stripping punctuation)
-    const [city, state] = parts;
+    const [city, state] = parts as [string, string];
     if (isUSState(state)) {
       return [`${city}, ${normalizeState(state)}`];
     }
@@ -166,8 +167,8 @@ export function parseMultipleCities(geographicFocus: string): string[] {
   let i = 0;
 
   while (i < parts.length) {
-    const currentPart = parts[i];
-    const nextPart = i + 1 < parts.length ? parts[i + 1] : null;
+    const currentPart = parts[i]!;
+    const nextPart = i + 1 < parts.length ? parts[i + 1]! : null;
 
     // Check if next part is a US state (after punctuation has been stripped)
     const isNextPartState = nextPart && isUSState(nextPart);
@@ -1593,7 +1594,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   } else {
     try {
       const { articleCritique } = await import('./article-critique');
-      const topic = title.split(/[-:|]/)[0].trim();
+      const topic = (title.split(/[-:|]/)[0] ?? title).trim();
       
       console.log('🔍 Running article critique and fact-checking...');
       const critiqueResult = await articleCritique.critiqueArticle(
@@ -1691,6 +1692,7 @@ export interface AdvancedArticleResult {
   wordCount: number;
   geoAccuracyScore?: number;
   tokensUsed?: number;
+  humanizationMetrics?: Record<string, unknown>;
 }
 
 export async function generateArticleWithGemini(

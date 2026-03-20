@@ -60,6 +60,7 @@ interface GeminiSocialPostResult {
   wordCount: number;
   characterCount: number;
   factValidation?: FactValidationResult;
+  humanizationMetrics?: Record<string, unknown>;
 }
 
 export async function generateSocialPostWithGemini(
@@ -113,7 +114,7 @@ export async function generateSocialPostWithGemini(
 
     // Get platform-specific guidance
     const platformKey = normalizePlatform(platform);
-    const platformGuidance = PLATFORM_GUIDANCE[platformKey] || PLATFORM_GUIDANCE['x'];
+    const platformGuidance = (PLATFORM_GUIDANCE[platformKey] || PLATFORM_GUIDANCE['x'])!;
     const contentSource: 'article' | 'standalone' = title ? 'article' : 'standalone';
     const targetAudience = getTargetAudience(platform, industry);
     const structureGuidance = getPlatformStructureGuidance(platform, contentSource);

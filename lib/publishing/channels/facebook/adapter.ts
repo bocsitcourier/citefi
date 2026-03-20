@@ -18,7 +18,7 @@ interface FacebookPage {
 export class FacebookChannelAdapter implements ChannelAdapter {
   channel = 'facebook' as const;
 
-  async validate(connection: PublishingConnection): Promise<ValidationResult> {
+  async validate(_content: import('../../types').PublishableContent, connection: PublishingConnection): Promise<ValidationResult> {
     try {
       let creds = await getOAuthCredentials(connection.id);
       
@@ -84,7 +84,7 @@ export class FacebookChannelAdapter implements ChannelAdapter {
 
     return {
       text: parts.join('\n'),
-      mediaUrls: content.mediaUrls,
+      mediaUrls: content.mediaUrls ? Object.values(content.mediaUrls) : undefined,
       metadata: {
         link: content.url,
         pageId: connection.baseUrl, // We store page ID in baseUrl for social connections
@@ -114,13 +114,13 @@ export class FacebookChannelAdapter implements ChannelAdapter {
       };
 
       if (content.metadata?.link) {
-        body.link = content.metadata.link;
+        body.link = content.metadata.link as string;
       }
 
       if (content.mediaUrls && content.mediaUrls.length > 0) {
         endpoint = `https://graph.facebook.com/v18.0/${page.id}/photos`;
         body = {
-          url: content.mediaUrls[0],
+          url: content.mediaUrls[0]!,
           caption: content.text || '',
           access_token: page.access_token,
         };

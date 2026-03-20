@@ -107,7 +107,7 @@ export async function generateSocialImages(
 
   // Generate one image per platform with platform-specific aspect ratio
   for (const platform of platforms) {
-    const aspectConfig = ASPECT_RATIOS[platform] || ASPECT_RATIOS.x;
+    const aspectConfig = ASPECT_RATIOS[platform] ?? ASPECT_RATIOS['x'] ?? { ratio: '1:1', description: 'Square' };
 
     // Create image prompt optimized for social media
     const baseImagePrompt = `Create a professional, eye-catching social media image.

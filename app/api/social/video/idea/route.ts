@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     
     const data = validationResult.data;
     
-    const [newIdea] = await db.insert(videoIdeas).values({
+    const [newIdeaRow] = await db.insert(videoIdeas).values({
       userId,
       teamId,
       ideaTitle: data.ideaTitle,
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
       status: "DRAFT",
       progress: 0,
     }).returning();
+    const newIdea = newIdeaRow!;
     
     console.log(`✅ Video idea created: ${newIdea.publicId} - "${data.ideaTitle}"`);
     

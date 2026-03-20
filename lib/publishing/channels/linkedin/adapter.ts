@@ -12,7 +12,7 @@ import { getOAuthCredentials, isTokenExpired, refreshLinkedInToken } from '../so
 export class LinkedInChannelAdapter implements ChannelAdapter {
   channel = 'linkedin' as const;
 
-  async validate(connection: PublishingConnection): Promise<ValidationResult> {
+  async validate(_content: PublishableContent, connection: PublishingConnection): Promise<ValidationResult> {
     try {
       let creds = await getOAuthCredentials(connection.id);
       
@@ -70,7 +70,7 @@ export class LinkedInChannelAdapter implements ChannelAdapter {
 
     return {
       text: parts.join('\n'),
-      mediaUrls: content.mediaUrls,
+      mediaUrls: content.mediaUrls ? Object.values(content.mediaUrls) : undefined,
       metadata: {},
     };
   }
@@ -129,7 +129,7 @@ export class LinkedInChannelAdapter implements ChannelAdapter {
           const uploadUrl = registerData.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
           const asset = registerData.value.asset;
 
-          const imageResponse = await fetch(content.mediaUrls[0]);
+          const imageResponse = await fetch(content.mediaUrls[0]!);
           const imageBuffer = await imageResponse.arrayBuffer();
 
           await fetch(uploadUrl, {

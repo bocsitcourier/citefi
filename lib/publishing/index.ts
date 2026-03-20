@@ -80,7 +80,7 @@ export async function ensurePublishingSecretsReady(): Promise<void> {
   const engineUrl =
     process.env.NEXTAUTH_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0].trim()}` : '');
+    (process.env.REPLIT_DOMAINS ? `https://${(process.env.REPLIT_DOMAINS.split(',')[0] ?? '').trim()}` : '');
 
   if (engineUrl) {
     console.log(`✅ Engine URL for media: ${engineUrl}`);
@@ -135,7 +135,7 @@ export async function createConnection(
     encryptedKey = encryptApiKey(apiKey);
   }
   
-  const [connection] = await db.insert(publishingConnections).values({
+  const [connectionRow] = await db.insert(publishingConnections).values({
     teamId,
     name: data.name,
     channel: data.channel,
@@ -145,6 +145,7 @@ export async function createConnection(
     status: 'pending',
     capabilities: { articles: true, images: true, videos: true, podcasts: true },
   }).returning();
+  const connection = connectionRow!;
   
   if (apiKey && connection.id) {
     apiKeyCache.set(connection.id, apiKey);
@@ -270,7 +271,8 @@ export async function createPublishingJob(
       break;
   }
   
-  const [job] = await db.insert(publishingJobs).values(jobData).returning();
+  const [jobRow] = await db.insert(publishingJobs).values(jobData).returning();
+  const job = jobRow!;
 
   // Enqueue in pg-boss so the publishing worker picks it up
   try {
@@ -459,7 +461,6 @@ export async function processPublishingJob(jobId: number): Promise<{
         .set({
           status: 'sent',
           publishedUrl: result.publishedUrl,
-          platformPostId: result.platformPostId,
           updatedAt: new Date(),
         })
         .where(eq(publishingJobs.id, job.id));

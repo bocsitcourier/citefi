@@ -43,7 +43,7 @@ export async function getCompletedArticleRun(articleId: number): Promise<CachedA
     return null;
   }
 
-  const run = completedRuns[0];
+  const run = completedRuns[0]!;
   
   // Verify all cached outputs exist (we need all 3 stages)
   if (!run.cachedGeminiOutput || !run.cachedChatgptOutput || !run.cachedGpt4Output) {

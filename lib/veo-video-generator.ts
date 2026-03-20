@@ -171,7 +171,7 @@ export async function generateVeoClip(
       throw new Error("No video generated from Veo - response was empty");
     }
 
-    const videoFile = generatedVideos[0].video;
+    const videoFile = generatedVideos[0]!.video;
     if (!videoFile) {
       throw new Error("No video file in Veo response");
     }
@@ -301,13 +301,13 @@ export async function stitchVeoClips(
   
   if (sortedClips.length === 1) {
     // Single clip — normalize resolution
-    const normCmd = `${ffmpegPath} -y -i "${sortedClips[0].localPath}" -vf "${scaleCrop}" -c:v libx264 -preset fast -crf 23 -movflags +faststart "${stitchedPath}"`;
+    const normCmd = `${ffmpegPath} -y -i "${sortedClips[0]!.localPath}" -vf "${scaleCrop}" -c:v libx264 -preset fast -crf 23 -movflags +faststart "${stitchedPath}"`;
     execSync(normCmd, { stdio: "pipe", maxBuffer: 50 * 1024 * 1024 });
   } else if (sortedClips.length === 2) {
     // Two clips — normalize then crossfade
     const scaleParts = `[0:v]${scaleCrop}[s0];[1:v]${scaleCrop}[s1]`;
     const filterComplex = `${scaleParts};[s0][s1]xfade=transition=fade:duration=${CROSSFADE_DURATION}:offset=5.5[outv]`;
-    const ffmpegCmd = `${ffmpegPath} -y -i "${sortedClips[0].localPath}" -i "${sortedClips[1].localPath}" -filter_complex "${filterComplex}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart "${stitchedPath}"`;
+    const ffmpegCmd = `${ffmpegPath} -y -i "${sortedClips[0]!.localPath}" -i "${sortedClips[1]!.localPath}" -filter_complex "${filterComplex}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart "${stitchedPath}"`;
     
     console.log(`  🎬 Applying crossfade transition...`);
     execSync(ffmpegCmd, { stdio: "pipe", maxBuffer: 50 * 1024 * 1024 });

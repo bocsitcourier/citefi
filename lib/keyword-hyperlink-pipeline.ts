@@ -1,5 +1,6 @@
 import { callOpenAI } from "./openai-client";
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 import { isHighQualityAnchor } from "./seo-policy";
 
 // ---------------------------------------------------------------------------
@@ -107,8 +108,8 @@ export function extractPhrasesFromHtml(
         const lower = phrase.toLowerCase();
 
         // Skip phrases that start or end with stop words
-        if (STOP_WORDS.has(phraseWords[0].toLowerCase())) continue;
-        if (STOP_WORDS.has(phraseWords[phraseWords.length - 1].toLowerCase())) continue;
+        if (STOP_WORDS.has(phraseWords[0]!.toLowerCase())) continue;
+        if (STOP_WORDS.has(phraseWords[phraseWords.length - 1]!.toLowerCase())) continue;
 
         // Must contain at least one topic hint (skip filter when no hints provided)
         if (lowerHints.length > 0 && !lowerHints.some((h) => lower.includes(h))) continue;
@@ -477,13 +478,13 @@ export function applyHyperlinksDom(
     const safeUrl = rule.url.replace(/"/g, "%22");
 
     // Walk ALL text containers in document order — covers body, FAQ, conclusion
-    $(LINK_CONTAINERS).each((_, containerEl) => {
+    $(LINK_CONTAINERS).each((_, containerEl): false | void => {
       if (applied >= maxLinks) return false; // break .each()
 
-      const walkTextNodes = (node: cheerio.AnyNode): boolean => {
+      const walkTextNodes = (node: AnyNode): boolean => {
         if (applied >= maxLinks) return false;
 
-        const children: cheerio.AnyNode[] = (node as any).children || [];
+        const children: AnyNode[] = (node as any).children || [];
         for (let i = 0; i < children.length; i++) {
           const child = children[i];
 
@@ -504,7 +505,7 @@ export function applyHyperlinksDom(
           if ((child as any).type === "tag") {
             const tagName = ((child as any).name as string).toLowerCase();
             if (SKIP_TAGS.has(tagName)) continue;
-            if (walkTextNodes(child)) return true;
+            if (walkTextNodes(child!)) return true;
           }
         }
         return false;
