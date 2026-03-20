@@ -1,5 +1,6 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { validateContent, type ContentValidationResult } from "./content-validator";
+import { isHighQualityAnchor } from "../seo-policy";
 
 export interface BatchedReviewResult {
   hyperlinks: {
@@ -135,26 +136,31 @@ ${content}
 
 **PROVIDE THE FOLLOWING IN JSON FORMAT:**
 
-1. **HYPERLINKS** (25-30 total long-phrase keywords, 3-7 words each, ALL pointing to ${targetUrl}):
-   - **CRITICAL**: You MUST scan the ENTIRE article from first paragraph to last paragraph before selecting ANY keywords
-   - Read through ALL sections (beginning, middle, end) and note valuable phrases throughout
-   - **PRIMARY CITY RULE — MANDATORY**: The article title is "${title}". Identify the PRIMARY city/location from the title (e.g., if the title says "Near Wellesley MA", the primary city is "Wellesley MA"). ALL long-phrase keywords MUST include or be clearly about that PRIMARY city. Do NOT select phrases that mention neighboring cities, surrounding towns, or the broader metro area (e.g., "Greater Boston MA", "Newton MA", "Sudbury MA") — those are only contextual mentions in the article body and must NOT appear as keyword phrases.
-   - **PRIORITY SELECTION** - Prioritize phrases that directly relate to ${businessName || 'the business'}'s services and the PRIMARY city from the title:
-     * Service + primary city: "[service type] [primary city]"
-     * Location-specific phrases: "near [primary city]", "in [primary city]", "[primary city] [service]"
-     * Problem/solution phrases tied to the primary city
-   - **Distribution Strategy**: Aim to select keywords from different parts of the article:
-     * Top quarter: 6-8 phrases (if natural anchors exist)
-     * Second quarter: 6-8 phrases (if natural anchors exist)
-     * Third quarter: 6-8 phrases (if natural anchors exist)
-     * Bottom quarter: 6-8 phrases (if natural anchors exist)
+1. **HYPERLINKS** (15-25 total semantic anchor phrases, EXACTLY 4-7 words each, ALL pointing to ${targetUrl}):
+   - **CRITICAL**: Scan the ENTIRE article from first paragraph to last paragraph before selecting ANY phrases
+   - Read through ALL sections (beginning, middle, end) and note valuable anchor candidates throughout
+   - **ANCHOR QUALITY RULES — MANDATORY** (violations cause SEO penalties and will be auto-rejected):
+     * Each phrase MUST be EXACTLY 4-7 words — hard minimum and maximum
+     * NEVER use a bare city or state as anchor text — "Boston", "Boston MA", "Newton MA", "Wellesley MA" are BANNED
+     * NEVER use a city+state-only phrase even in context — always pair a location with a SERVICE or ACTION
+     * NEVER use phrases under 4 words — "home care", "senior care", "in-home care" are TOO SHORT
+     * Prefer SERVICE + CONTEXT patterns: "professional in-home memory care services", "compassionate senior caregiver support near Boston"
+     * Prefer BENEFIT + ACTION patterns: "24-hour private home care assistance", "post-hospital discharge recovery support"
+   - **PRIORITY SELECTION** — prioritize phrases that directly describe ${businessName || 'the business'}'s services and benefits:
+     * Service + outcome: "[service type] for [specific need]"
+     * Benefit + audience: "[benefit] for [audience/location context]"
+     * Professional + service: "professional/specialized/certified [service type]"
+   - **Distribution Strategy**: Select keywords from different parts of the article:
+     * Top quarter: 4-6 phrases (if natural anchors exist)
+     * Second quarter: 4-6 phrases (if natural anchors exist)
+     * Third quarter: 4-6 phrases (if natural anchors exist)
+     * Bottom/FAQ quarter: 3-7 phrases (FAQ answers are excellent anchor sources)
    - If a section lacks natural long phrases, select fewer from that section and more from phrase-rich sections
-   - Total must stay within 25-30 links across entire article
-   - DO NOT focus only on the introduction - deliberately scan middle and conclusion paragraphs
+   - DO NOT focus only on the introduction — deliberately scan middle, conclusion, and FAQ paragraphs
    - Each keyword must include "paragraphIndex" field (0-based position in article where phrase appears)
    - **AVOID** generic phrases that don't relate to the business services (e.g., "in recent years", "according to studies")
-   - **AVOID** phrases that only mention neighboring/surrounding cities — the keywords must reflect the PRIMARY city in the article title
-   - Select phrases that a user would search for when looking for ${businessName || 'this type of service'} in the primary city
+   - **AVOID** phrases that start or end with stop words (the, a, an, in, on, at, to, for, of, is, and, or, but)
+   - Select phrases that a user would search for when looking for ${businessName || 'this type of service'}
    - ALL links must be internal (type: "internal", url: "${targetUrl}")
 
 2. **SEO ANALYSIS** (Use this scoring guidance to calculate 0-100 score):
@@ -324,13 +330,32 @@ ${content}
     }).catch(() => {});
   }
 
+  // PLATINUM: Post-parse quality gate — reject any anchor that violates SEO policy.
+  // Bare city names ("Boston MA"), short phrases (<4 words), and stop-word-edged
+  // phrases are stripped here so they never reach hyperlinkedKeywordsJson.
+  const rawKeywords: Array<{ phrase: string; url: string; type: "internal" | "external"; anchorText: string; paragraphIndex?: number }> =
+    parsed.hyperlinks?.keywords || [];
+  let rejectedByPolicy = 0;
+  const filteredKeywords = rawKeywords.filter((k) => {
+    const anchor = (k.anchorText || k.phrase || "").trim();
+    if (!isHighQualityAnchor(anchor)) {
+      console.warn(`[BatchedReview] Rejected low-quality anchor "${anchor.slice(0, 60)}" — SEO policy`);
+      rejectedByPolicy++;
+      return false;
+    }
+    return true;
+  });
+  if (rejectedByPolicy > 0) {
+    console.log(`[BatchedReview] Hyperlink quality gate: ${filteredKeywords.length} accepted, ${rejectedByPolicy} rejected`);
+  }
+
   // Ensure all required fields exist with defaults
   const result: BatchedReviewResult = {
     hyperlinks: {
-      keywords: parsed.hyperlinks?.keywords || [],
-      totalLinks: parsed.hyperlinks?.totalLinks || 0,
-      internalCount: parsed.hyperlinks?.internalCount || 0,
-      externalCount: parsed.hyperlinks?.externalCount || 0,
+      keywords: filteredKeywords,
+      totalLinks: filteredKeywords.length,
+      internalCount: filteredKeywords.filter((k) => k.type === "internal").length,
+      externalCount: filteredKeywords.filter((k) => k.type === "external").length,
     },
     seo: {
       seoScore: parsed.seo?.seoScore || 70,

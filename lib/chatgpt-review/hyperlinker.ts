@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { isHighQualityAnchor } from "../seo-policy";
 
 export interface HyperlinkResult {
   keywords: Array<{
@@ -24,18 +25,25 @@ export async function generateHyperlinks(
   competitorUrls?: string[]
 ): Promise<HyperlinkResult> {
   const systemPrompt = `You are an SEO expert specializing in strategic hyperlink placement for local businesses.
-Your task is to identify 20-30 long-phrase keywords in the content that should ALL be hyperlinked to the client's website for maximum SEO value and traffic generation.
+Your task is to identify 15-20 high-quality semantic anchor phrases in the content that should ALL be hyperlinked to the client's website for maximum SEO value.
 
 Rules:
 - ALL links must point to ${targetUrl} (the client's website)
-- Use long-phrase keywords (3-7 words) not single words
+- Use EXACTLY 4-7 word phrases — this is a hard requirement (3 words or fewer are BANNED)
 - Identify naturally occurring phrases that would be valuable anchor text
-- CRITICAL: 60% of phrases MUST include service-related words like: services, solutions, help, care, support, assistance, delivery, courier, provider, professional, expert, specialist, company, business, team
-- CRITICAL: 40% of phrases MUST include location words: city names, neighborhoods, "local", "near me", "in [location]"
+- CRITICAL: NEVER use a bare city or state name as anchor text ("Boston", "Boston MA", "Newton MA" are BANNED)
+- CRITICAL: NEVER use location-only phrases — always pair a location with a service or action qualifier
+- PREFERRED: Semantic cluster phrases describing services, benefits, or professional qualities
+  ✅ "professional in-home memory care services"
+  ✅ "compassionate post-hospital discharge assistance"
+  ✅ "private caregiver support near Boston"
+  ❌ "Boston MA" — city + state only (BANNED)
+  ❌ "Newton MA" — bare city name (BANNED)
+  ❌ "local care" — too short at 2 words (BANNED)
 - Select phrases that match EXACTLY as they appear in the article (same capitalization, same word order)
 - Prioritize phrases from THROUGHOUT the article: intro, body paragraphs, AND FAQ section
 - Include at least 3-5 phrases from FAQ answers
-- Avoid generic phrases like "this article" or "click here"
+- Avoid phrases starting or ending with stop words (the, a, an, in, on, at, to, for, of, and, or, but)
 - Focus on phrases that potential customers would actually search for`;
 
   const userPrompt = `Core Topic: ${coreTopic}
@@ -45,19 +53,21 @@ ${competitorUrls?.length ? `Competitor URLs for reference: ${competitorUrls.join
 Content to analyze:
 ${content}
 
-Identify 20-30 long-phrase keywords (3-7 words each) that EXACTLY MATCH phrases in the content and would be valuable anchor text for hyperlinking to ${targetUrl}.
+Identify 15-20 semantic anchor phrases (EXACTLY 4-7 words each) that EXACTLY MATCH phrases in the content and would be valuable anchor text for hyperlinking to ${targetUrl}.
 
 DISTRIBUTION REQUIREMENTS:
-- 5-7 phrases from the INTRODUCTION (first 3 paragraphs)
-- 8-12 phrases from the BODY paragraphs 
-- 5-8 phrases from the FAQ SECTION (answers to questions)
+- 4-6 phrases from the INTRODUCTION (first 3 paragraphs)
+- 6-10 phrases from the BODY paragraphs 
+- 4-6 phrases from the FAQ SECTION (answers to questions)
 
 PHRASE REQUIREMENTS:
 - Each phrase MUST appear EXACTLY as written in the article (copy/paste from content)
-- 60% must include service words: services, solutions, help, care, support, delivery, courier, professional, expert, provider, specialist
-- 40% must include location words: city names, neighborhoods, "local", "in [city]"
-- Use 3-7 word phrases, NOT single words
+- EXACTLY 4-7 words — this is a hard requirement
+- NEVER use bare city or state names ("Boston", "Boston MA", "Newton MA" are BANNED)
+- NEVER use location-only phrases — always service + location or benefit + location
+- Prefer semantic clusters: "professional in-home memory care", "compassionate senior caregiver support"
 - Avoid: "this article", "click here", "learn more", generic phrases
+- Avoid phrases that start or end with: the, a, an, in, on, at, to, for, of, and, or, but
 
 Return a JSON object with a "keywords" array:
 {
@@ -92,13 +102,30 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
     const parsed = JSON.parse(responseText);
     
     // Defensive: coerce response into array (handles all OpenAI response formats)
-    const keywords = Array.isArray(parsed) 
+    const rawKeywords = Array.isArray(parsed) 
       ? parsed 
       : Array.isArray(parsed.keywords) 
         ? parsed.keywords
         : Array.isArray(parsed.links) 
         ? parsed.links 
         : [];
+
+    // PLATINUM: Post-parse quality gate — reject any anchor that violates SEO policy.
+    // Bare city names ("Boston MA"), short phrases (<4 words), and stop-word-edged
+    // phrases are stripped here so they never reach hyperlinkedKeywordsJson.
+    let rejectedCount = 0;
+    const keywords = rawKeywords.filter((k: any) => {
+      const anchor = ((k.anchorText || k.phrase) || "").trim();
+      if (!isHighQualityAnchor(anchor)) {
+        console.warn(`[Hyperlinker] Rejected low-quality anchor "${anchor.slice(0, 60)}" — SEO policy`);
+        rejectedCount++;
+        return false;
+      }
+      return true;
+    });
+    if (rejectedCount > 0) {
+      console.log(`[Hyperlinker] Quality gate: ${keywords.length} accepted, ${rejectedCount} rejected`);
+    }
 
     const internalCount = keywords.filter((k: any) => k.type === "internal").length;
     const externalCount = keywords.filter((k: any) => k.type === "external").length;

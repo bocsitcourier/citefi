@@ -162,6 +162,28 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
     },
   });
 
+  const forceReinjectMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest(`/api/batches/${batchId}/fix-hyperlinks?force=true`, {
+        method: "POST",
+      });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Hyperlinks re-injected",
+        description: `Stripped city-name anchors and re-injected quality links in ${data.summary?.fixed || 0} article(s)`,
+      });
+      refetch();
+    },
+    onError: (error) => {
+      toast({
+        title: "Force re-inject failed",
+        description: error instanceof Error ? error.message : "Failed to force re-inject hyperlinks",
+        variant: "destructive",
+      });
+    },
+  });
+
   // NEW: Enterprise Keyword Hyperlink Pipeline (Stage 1-3)
   const keywordHyperlinkMutation = useMutation({
     mutationFn: async () => {
@@ -545,16 +567,16 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
               <CardHeader>
                 <CardTitle className="text-blue-800 dark:text-blue-200 flex items-center gap-2">
                   <Link2 className="w-5 h-5" />
-                  Fix Hyperlinks & Hashtags (Legacy)
+                  Fix Hyperlinks & Hashtags
                 </CardTitle>
                 <CardDescription>
-                  Apply stored hyperlinks and hashtags to article HTML. Use this if articles already have stored hyperlinks but they're not showing in the HTML.
+                  Apply stored hyperlinks and hashtags to article HTML. Use "Fix" for articles with missing links, or "Force Re-inject" to strip bare city-name anchors and replace with 4-7 word semantic phrases.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-wrap gap-3">
                 <Button
                   onClick={() => fixHyperlinksMutation.mutate()}
-                  disabled={fixHyperlinksMutation.isPending}
+                  disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
                   variant="outline"
                   data-testid="button-fix-hyperlinks"
                 >
@@ -566,7 +588,25 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                   ) : (
                     <>
                       <Link2 className="w-4 h-4 mr-2" />
-                      Fix Hyperlinks for {completedArticles.length} Article(s)
+                      Fix Hyperlinks ({completedArticles.length})
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => forceReinjectMutation.mutate()}
+                  disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
+                  variant="outline"
+                  data-testid="button-force-reinject-hyperlinks"
+                >
+                  {forceReinjectMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Re-injecting...
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="w-4 h-4 mr-2" />
+                      Force Re-inject Semantic Links ({completedArticles.length})
                     </>
                   )}
                 </Button>

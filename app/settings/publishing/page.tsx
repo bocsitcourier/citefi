@@ -72,9 +72,10 @@ interface PublishingConnection {
 
 interface Article {
   id: number;
-  chosenTitle: string;
-  articleStatus: string;
+  title: string;
+  article_status: string;
   batchId: number;
+  location?: string | null;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -198,9 +199,12 @@ export default function PublishingDashboard() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (typeFilter !== "all") params.set("contentType", typeFilter);
     const qs = params.toString();
-    const res = await fetch(`/api/publishing/jobs${qs ? `?${qs}` : ""}`, { credentials: "include" });
-    const data = await res.json();
-    return data;
+    const token = localStorage.getItem("auth_token");
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`/api/publishing/jobs${qs ? `?${qs}` : ""}`, { headers });
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    return res.json();
   };
 
   const { data: jobsData, isLoading: loadingJobs, refetch: refetchJobs } = useQuery<{ success: boolean; data: PublishingJob[] }>({
@@ -224,7 +228,7 @@ export default function PublishingDashboard() {
 
   const jobs = jobsData?.data || [];
   const connections = connectionsData?.data || [];
-  const publishableArticles: Article[] = articlesData?.articles || articlesData?.data || [];
+  const publishableArticles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.data || articlesData?.articles || []);
 
   const hasActiveJobs = jobs.some((j) => j.status === "pending" || j.status === "processing" || j.status === "sent");
 
@@ -1118,7 +1122,7 @@ app.use('/api/v1', receiver);`}
                   <SelectContent>
                     {publishableArticles.map((art) => (
                       <SelectItem key={art.id} value={String(art.id)}>
-                        <span className="truncate max-w-xs" title={art.chosenTitle}>{art.chosenTitle}</span>
+                        <span className="truncate max-w-xs" title={art.title}>{art.title}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1141,8 +1145,8 @@ app.use('/api/v1', receiver);`}
                           checked={publishBatchIds.has(art.id)}
                           onCheckedChange={() => toggleBatchArticle(art.id)}
                         />
-                        <span className="text-sm truncate flex-1">{art.chosenTitle}</span>
-                        <Badge variant="outline" className="text-xs shrink-0">{art.articleStatus}</Badge>
+                        <span className="text-sm truncate flex-1">{art.title}</span>
+                        <Badge variant="outline" className="text-xs shrink-0">{art.article_status}</Badge>
                       </div>
                     ))
                   )}

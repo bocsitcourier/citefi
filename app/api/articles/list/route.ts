@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
         location: locales.city, // Get city name from locales table
         seo_score: articles.seoScore,
         article_status: articles.articleStatus,
+        batchId: articles.batchId,
       })
       .from(articles)
       .leftJoin(locales, eq(articles.localeId, locales.id))

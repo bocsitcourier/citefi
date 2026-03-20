@@ -206,13 +206,31 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     // Receivers commonly reject HTML with <script> tags as a security measure.
     // JSON-LD schema is sent separately via the jsonLd field, so stripping it here is safe.
     const rawBodyHtml = article.finalHtmlContent || '';
-    const bodyHtml = rawBodyHtml
+    const strippedBodyHtml = rawBodyHtml
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
       .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
       .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
       .replace(/<embed\b[^>]*\/?>/gi, '')
       .trim();
+
+    // CRITICAL: Absolutize all relative /api/public-objects/... paths in bodyHtml.
+    // Images are stored as relative paths (so the Replit dev domain can change without
+    // breaking the DB). But the receiver is an EXTERNAL site — it resolves relative paths
+    // against its own domain, not ours. Replace every relative src/href that points to
+    // our object-storage proxy with a full https:// URL the receiver can actually fetch.
+    const bodyHtml = strippedBodyHtml.replace(
+      /(src|href)="(\/api\/public-objects\/[^"]+)"/gi,
+      (_match, attr, path) => {
+        const absUrl = makeAbsoluteUrl(path);
+        return absUrl ? `${attr}="${absUrl}"` : `${attr}="${path}"`;
+      }
+    );
+
+    const absolutizedCount = (strippedBodyHtml.match(/\/api\/public-objects\//gi) || []).length;
+    if (absolutizedCount > 0) {
+      console.log(`[PUBLISH] absolutized ${absolutizedCount} relative image/asset path(s) in bodyHtml for article ${article.publicId}`);
+    }
 
     const rawTitle = article.chosenTitle || '';
     const rawMetaTitle = article.seoTitle || rawTitle;

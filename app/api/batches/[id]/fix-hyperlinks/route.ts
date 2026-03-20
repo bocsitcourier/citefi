@@ -25,6 +25,9 @@ export async function POST(
     const { userId, teamId } = await requireTeamMember(request);
     const { id } = await params;
     const batchId = parseInt(id);
+    // ?force=true strips existing hyperlinks and re-injects via quality-filtered pipeline.
+    // Use this to clean old articles that have bare city-name anchors.
+    const forceReinject = request.nextUrl.searchParams.get("force") === "true";
 
     if (isNaN(batchId)) {
       return NextResponse.json({ error: "Invalid batch ID" }, { status: 400 });
@@ -93,8 +96,26 @@ export async function POST(
           : [];
         const hasHashtagsInHtml = finalHtml.includes('class="hashtag-link"') || finalHtml.includes('class="hashtags"');
 
-        // Only skip if hyperlinks are in the VISIBLE body (not in schema)
-        if (hasHyperlinksInBody && hasHashtagsInHtml) {
+        // In force mode: strip existing bare-geo hyperlinks from the visible body so we
+        // can re-inject using the quality-filtered pipeline. Preserves anchor text.
+        if (forceReinject && hasHyperlinksInBody) {
+          finalHtml = finalHtml.replace(
+            /<a[^>]*class="text-primary hover:underline"[^>]*>([^<]*)<\/a>/gi,
+            '$1'
+          );
+          // Also strip any remaining content hyperlinks
+          finalHtml = finalHtml.replace(
+            /<a\s+href="[^"]*"[^>]*class="[^"]*text-primary[^"]*"[^>]*>([^<]*)<\/a>/gi,
+            '$1'
+          );
+          console.log(`🔄 fix-hyperlinks (force): stripped existing hyperlinks from article ${article.id}`);
+        }
+
+        // Recompute hasHyperlinksInBody after potential stripping
+        const hasHyperlinksInBodyNow = !forceReinject && hasHyperlinksInBody;
+
+        // Only skip if hyperlinks are in the VISIBLE body (not in schema) AND not in force mode
+        if (hasHyperlinksInBodyNow && hasHashtagsInHtml) {
           skippedCount++;
           results.push({
             articleId: article.id,
@@ -106,7 +127,7 @@ export async function POST(
 
         // Apply hyperlinks using the Global Slug Map engine — same path as generation pipeline.
         // Reads crawled sitePages for multi-URL internal linking; falls back to batch terms.
-        if (!hasHyperlinksInBody && targetUrl && targetUrl !== "#" && targetUrl.match(/^https?:\/\//i)) {
+        if (!hasHyperlinksInBodyNow && targetUrl && targetUrl !== "#" && targetUrl.match(/^https?:\/\//i)) {
           try {
             const batchParams = batch.generationParams as Record<string, any> | null;
             const fallbackTerms = buildFallbackTerms({
@@ -176,6 +197,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+      mode: forceReinject ? "force-reinject" : "normal",
       summary: {
         total: batchArticles.length,
         fixed: fixedCount,

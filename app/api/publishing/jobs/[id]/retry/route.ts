@@ -7,11 +7,12 @@ import { requireTeamMember } from '@/lib/api/auth';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { teamId } = await requireTeamMember(request);
-    const jobId = parseInt(params.id, 10);
+    const { id } = await params;
+    const jobId = parseInt(id, 10);
 
     if (isNaN(jobId)) {
       return NextResponse.json({ error: 'Invalid job ID' }, { status: 400 });
