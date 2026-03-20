@@ -30,9 +30,9 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
   await boss.work<VideoIdeaJobData>(
     queueName,
     { 
-      teamConcurrency: concurrency,
+      teamSize: concurrency,
       newJobCheckIntervalSeconds: 2,
-    },
+    } as any,
     async ([job]) => {
       if (!job || !job.data) {
         throw new Error("No job data received");
@@ -123,6 +123,7 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
         if (!isQuotaError) {
           throw error;
         }
+        return; // quota errors handled — no retry needed
       }
     }
   );

@@ -118,6 +118,7 @@ export async function registerWorkers() {
 
         for (let i = 0; i < selectedTitles.length; i++) {
           const title = selectedTitles[i];
+          if (!title) { skipped++; continue; }
 
           // Check whether an article with this exact title already exists in this batch.
           // This prevents creating duplicate articles when the user re-submits to retry
@@ -184,6 +185,10 @@ export async function registerWorkers() {
               articleStatus: "PENDING",
             })
             .returning();
+
+          if (!article) {
+            throw new Error(`Failed to insert article row for title: "${title.slice(0, 80)}"`);
+          }
 
           const runId = crypto.randomUUID();
           await addArticleJob({
@@ -454,7 +459,7 @@ export async function registerWorkers() {
             .where(eq(articles.slug, geminiResult.slug))
             .limit(1);
           
-          if (existingSlug.length > 0 && existingSlug[0].id !== articleId) {
+          if (existingSlug.length > 0 && existingSlug[0]?.id !== articleId) {
             uniqueSlug = `${geminiResult.slug}-${articleId}`;
             console.log(`⚠️ Slug collision detected - using unique slug: ${uniqueSlug}`);
           }
@@ -794,7 +799,11 @@ export async function registerWorkers() {
             .select()
             .from(articles)
             .where(eq(articles.id, articleId));
-          
+
+          if (!verifyArticle) {
+            throw new Error(`Article ${articleId} not found during post-enhancement verification`);
+          }
+
           const hasKeywords = Array.isArray(verifyArticle.keywordsJson) && verifyArticle.keywordsJson.length > 0;
           const hasHashtags = Array.isArray(verifyArticle.hashtagsJson) && verifyArticle.hashtagsJson.length > 0;
           const hasFaq = Array.isArray(verifyArticle.faqJson) && verifyArticle.faqJson.length > 0;
@@ -1157,7 +1166,7 @@ export async function registerWorkers() {
                 .where(eq(jobBatches.id, batchId));
               
               if (!businessName || businessName.trim().length === 0) {
-                businessName = batch?.businessName;
+                businessName = batch?.businessName ?? undefined;
               }
               targetUrl = batch?.targetUrl || '';
               
@@ -1244,21 +1253,29 @@ export async function registerWorkers() {
             const { isHighQualityAnchor, isBareGeoAnchor } = await import("./seo-policy");
             let hadBareGeo = false;
             let hadShortAnchor = false;
-            let hyperlinks = (rawHyperlinks as Array<{ anchorText?: string; phrase?: string; url?: string; type?: string }>).filter((link) => {
-              const anchor = (link.anchorText || link.phrase || "").trim();
-              if (!anchor) return false;
-              if (isBareGeoAnchor(anchor)) {
-                console.warn(`[ReformatGuard] Stripped bare-geo hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
-                hadBareGeo = true;
-                return false;
-              }
-              if (!isHighQualityAnchor(anchor)) {
-                console.warn(`[ReformatGuard] Stripped low-quality hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
-                hadShortAnchor = true;
-                return false;
-              }
-              return true;
-            });
+            let hyperlinks: Array<{ phrase: string; url: string; type: string; anchorText: string }> =
+              (rawHyperlinks as Array<{ anchorText?: string; phrase?: string; url?: string; type?: string }>)
+              .filter((link) => {
+                const anchor = (link.anchorText || link.phrase || "").trim();
+                if (!anchor) return false;
+                if (isBareGeoAnchor(anchor)) {
+                  console.warn(`[ReformatGuard] Stripped bare-geo hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                  hadBareGeo = true;
+                  return false;
+                }
+                if (!isHighQualityAnchor(anchor)) {
+                  console.warn(`[ReformatGuard] Stripped low-quality hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                  hadShortAnchor = true;
+                  return false;
+                }
+                return true;
+              })
+              .map((link) => ({
+                phrase: link.phrase || link.anchorText || "",
+                url: link.url || "",
+                type: link.type || "body",
+                anchorText: link.anchorText || link.phrase || "",
+              }));
 
             if (rawHyperlinks.length !== hyperlinks.length) {
               console.log(`[ReformatGuard] Article ${articleId}: ${rawHyperlinks.length - hyperlinks.length} invalid hyperlinks removed (${hyperlinks.length} remain)`);
@@ -1442,8 +1459,8 @@ export async function registerWorkers() {
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 
         batchSize: 1,       // One job per worker invocation
-        teamConcurrency: 15, // Allow 15 concurrent workers for parallel batch processing
-      },
+        teamSize: 15,       // Allow 15 concurrent workers for parallel batch processing
+      } as any,
       async (jobs) => {
         for (const job of jobs) {
           console.log(`🎬 Processing social video generation job ${job.id}`);
@@ -1635,7 +1652,7 @@ export async function registerWorkers() {
     console.log(`✅ Queue created/verified: ${SITE_CRAWL_QUEUE}`);
     await boss.work<SiteCrawlJobData>(
       SITE_CRAWL_QUEUE,
-      { batchSize: 1, teamConcurrency: 1 },
+      { batchSize: 1, teamSize: 1 } as any,
       async (jobs) => {
         for (const job of jobs) {
           console.log(`🕷️ Processing site crawl job ${job.id}: ${job.data.baseUrl}`);
@@ -1673,7 +1690,7 @@ export async function registerWorkers() {
     console.log(`✅ Queue created/verified: ${CLEANUP_QUEUE}`);
     await boss.work<CleanupJobData>(
       CLEANUP_QUEUE,
-      { batchSize: 1, teamConcurrency: 1 }, // Process one cleanup job at a time
+      { batchSize: 1, teamSize: 1 } as any, // Process one cleanup job at a time
       async (jobs) => {
         for (const job of jobs) {
           console.log(`🧹 Processing cleanup job ${job.id}: type=${job.data.jobType}, dryRun=${job.data.dryRun || false}`);
@@ -1715,7 +1732,7 @@ export async function registerWorkers() {
   try {
     await boss.work<PublishingJobData>(
       CONTENT_PUBLISHING_QUEUE,
-      { batchSize: 1, teamConcurrency: 5 },
+      { batchSize: 1, teamSize: 5 } as any,
       async (jobs) => {
         for (const job of jobs) {
           const { dbJobId } = job.data;
@@ -1828,6 +1845,10 @@ async function runCleanupJob(data: CleanupJobData) {
       dryRun: data.dryRun ? 1 : 0,
     })
     .returning();
+
+  if (!jobRecord) {
+    throw new Error(`Failed to create cleanup job record for type: ${data.jobType}`);
+  }
 
   try {
     // Get effective retention policy
@@ -1978,12 +1999,13 @@ async function cleanupMedia(data: CleanupJobData, retentionDays: number) {
 
     if (!data.dryRun) {
       // Delete from database (object storage cleanup TBD)
-      const deletedCount = await db
+      const deleteResult = await db
         .delete(articleAssets)
         .where(inArray(articleAssets.id, batch.map(b => b.id)));
       
       // Safety: If delete returns 0, break to prevent infinite loop
-      if (deletedCount === 0 || (Array.isArray(deletedCount) && deletedCount.length === 0)) {
+      const rowsDeleted = (deleteResult as any)?.rowCount ?? 0;
+      if (rowsDeleted === 0) {
         console.warn(`⚠️ Media cleanup: delete returned 0 rows for batch of ${batch.length}, breaking to prevent infinite loop`);
         break;
       }
@@ -2009,7 +2031,7 @@ async function cleanupLogs(data: CleanupJobData, retentionDays: number) {
   let consecutiveEmptyBatches = 0;
 
   while (itemsProcessed < MAX_PER_RUN) {
-    const conditions = [lt(activityLogs.timestamp, cutoffDate)];
+    const conditions = [lt(activityLogs.createdAt, cutoffDate)];
     
     if (data.teamId) {
       conditions.push(eq(activityLogs.teamId, data.teamId));
@@ -2031,12 +2053,13 @@ async function cleanupLogs(data: CleanupJobData, retentionDays: number) {
     itemsProcessed += batch.length;
 
     if (!data.dryRun) {
-      const deletedCount = await db
+      const deleteResult = await db
         .delete(activityLogs)
         .where(inArray(activityLogs.id, batch.map(b => b.id)));
       
       // Safety: If delete returns 0, break to prevent infinite loop
-      if (deletedCount === 0 || (Array.isArray(deletedCount) && deletedCount.length === 0)) {
+      const rowsDeleted = (deleteResult as any)?.rowCount ?? 0;
+      if (rowsDeleted === 0) {
         console.warn(`⚠️ Log cleanup: delete returned 0 rows for batch of ${batch.length}, breaking to prevent infinite loop`);
         break;
       }
@@ -2090,12 +2113,13 @@ async function cleanupOrphans(data: CleanupJobData, retentionDays: number) {
     itemsProcessed += batch.length;
 
     if (!data.dryRun) {
-      const deletedCount = await db
+      const deleteResult = await db
         .delete(articleAssets)
         .where(inArray(articleAssets.id, batch.map(b => b.id)));
       
       // Safety: If delete returns 0, break to prevent infinite loop
-      if (deletedCount === 0 || (Array.isArray(deletedCount) && deletedCount.length === 0)) {
+      const rowsDeleted = (deleteResult as any)?.rowCount ?? 0;
+      if (rowsDeleted === 0) {
         console.warn(`⚠️ Orphan cleanup: delete returned 0 rows for batch of ${batch.length}, breaking to prevent infinite loop`);
         break;
       }
@@ -2143,12 +2167,13 @@ async function cleanupSessions(data: CleanupJobData, retentionDays: number) {
     itemsProcessed += batch.length;
 
     if (!data.dryRun) {
-      const deletedCount = await db
+      const deleteResult = await db
         .delete(sessions)
         .where(inArray(sessions.id, batch.map(b => b.id)));
       
       // Safety: If delete returns 0, break to prevent infinite loop
-      if (deletedCount === 0 || (Array.isArray(deletedCount) && deletedCount.length === 0)) {
+      const rowsDeleted = (deleteResult as any)?.rowCount ?? 0;
+      if (rowsDeleted === 0) {
         console.warn(`⚠️ Session cleanup: delete returned 0 rows for batch of ${batch.length}, breaking to prevent infinite loop`);
         break;
       }

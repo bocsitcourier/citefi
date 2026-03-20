@@ -13,7 +13,14 @@ export async function GET(request: NextRequest) {
       success: true,
       agents: stats.agents,
     });
-  } catch (error) {
+  } catch (error: any) {
+    const status = error?.statusCode ?? 500;
+    if (status !== 500) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status }
+      );
+    }
     console.error("Failed to get learning agents:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to get learning agents" },

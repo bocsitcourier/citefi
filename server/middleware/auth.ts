@@ -102,7 +102,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       teamId: teamMembership?.teamId || null, // null for users not yet in a team
     };
 
-    next();
+    return next();
   } catch (error) {
     console.error("Auth middleware error:", error);
     return res.status(401).json({ error: "Unauthorized - Authentication failed" });
@@ -135,7 +135,7 @@ export function requireRole(requiredRole: string | string[]) {
       return res.status(403).json({ error: "Forbidden - Insufficient permissions" });
     }
 
-    next();
+    return next();
   };
 }
 

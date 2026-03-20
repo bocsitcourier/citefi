@@ -140,7 +140,11 @@ export async function GET(request: NextRequest) {
       count: assets.length,
     });
 
-  } catch (error) {
+  } catch (error: any) {
+    const status = error?.statusCode ?? 500;
+    if (status !== 500) {
+      return NextResponse.json({ error: error.message }, { status });
+    }
     console.error("❌ Media list error:", error);
     return NextResponse.json(
       { 
