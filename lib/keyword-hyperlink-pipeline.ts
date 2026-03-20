@@ -435,6 +435,18 @@ export function applyHyperlinksDom(
       isHighQualityAnchor(r.keyword)
   );
 
+  // Track policy-rejected keywords so callers get visibility into WHY they weren't linked.
+  // These appear in keywordsMissing alongside keywords not found in the HTML.
+  const policyRejectedKeywords = rules
+    .filter((r) => !validRules.includes(r))
+    .map((r) => r.keyword);
+
+  if (policyRejectedKeywords.length > 0) {
+    console.log(
+      `[DomInjector] Policy-rejected (${policyRejectedKeywords.length}): ${policyRejectedKeywords.map(k => `"${k}"`).join(", ")}`
+    );
+  }
+
   if (!html || validRules.length === 0) {
     return {
       correctedHtml: html,
@@ -507,9 +519,14 @@ export function applyHyperlinksDom(
   const keywordsFound = validRules
     .filter((r) => (appliedCounts.get(r.keyword) ?? 0) > 0)
     .map((r) => r.keyword);
-  const keywordsMissing = validRules
-    .filter((r) => (appliedCounts.get(r.keyword) ?? 0) === 0)
-    .map((r) => r.keyword);
+  // keywordsMissing = (passed policy but not found in HTML) + (rejected by policy)
+  // This gives callers full visibility: if "Boston" is missing, it was policy-rejected.
+  const keywordsMissing = [
+    ...validRules
+      .filter((r) => (appliedCounts.get(r.keyword) ?? 0) === 0)
+      .map((r) => r.keyword),
+    ...policyRejectedKeywords,
+  ];
 
   return {
     correctedHtml: $.html(),
