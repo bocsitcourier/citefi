@@ -1,0 +1,29 @@
+Here is the prioritized architectural plan to close the gaps in gemini.ts, gpt4-hyperlinker.ts, and your workers.🛠️ Phase 1: The Source of TruthFile: lib/seo-policy.tsDo not create a new file. Keep the "Brain" in one place. Add the GLOBAL_SEO_LAWS constant here so it can be imported by every AI-calling module.TypeScriptexport const GLOBAL_SEO_LAWS = `
+### CRITICAL SEO HYPERLINKING LAWS:
+1. MINIMUM ANCHOR LENGTH: All hyperlinks must wrap at least 4-7 words (e.g., "affordable home care in Boston" NOT "Boston").
+2. NO BARE GEO-ANCHORS: Never hyperlink a city or state name alone. Links must include service context (e.g., "dementia support services in Newton").
+3. SEMANTIC CLUSTERS: Create natural, long-phrase "hooks" in the text specifically designed for internal linking.
+4. FAQ COVERAGE: Ensure at least 2 long-phrase links exist within the FAQ section (dt/dd tags).
+`;
+
+// Add a validation helper for the Hyperlinker to use
+export function isValidAnchor(text: string): boolean {
+  const words = text.trim().split(/\s+/);
+  if (words.length < 4) return false;
+  // Simple regex to check if it's just "City, ST"
+  const isBareGeo = /^[a-zA-Z\s]+,?\s?[A-Z]{2}$/.test(text.trim());
+  return !isBareGeo;
+}
+🚀 Phase 2: Injecting the "Laws" into the Generators1. Gemini Article GenerationFile: lib/gemini.tsWhere: Inject into the System Prompt.Why: Gemini needs to "know" its job is to write text that contains these long phrases. If it doesn't write them, the hyperlinker has nothing to grab.TypeScript// Inside your generate function
+const systemInstruction = `
+  ${BASE_SYSTEM_PROMPT}
+  ${GLOBAL_SEO_LAWS}
+  TASK: Write the article body. Ensure you naturally weave in the 4-7 word semantic clusters described in the SEO Laws.
+`;
+2. GPT-4 Hyperlinker (The Suggester)File: lib/chatgpt-review/gpt4-hyperlinker.tsThe Change: Update the prompt to forbid short suggestions and add a Runtime Guard after the AI returns the JSON.TypeScript// Inside generateArticleBodyLinks
+const prompt = `... ${GLOBAL_SEO_LAWS} ... Return JSON of suggested keywords to link.`;
+
+// NEW: Runtime Guard
+const suggestions = JSON.parse(aiResponse);
+const filteredSuggestions = suggestions.filter(s => isValidAnchor(s.keyword));
+📈 Phase 3: The "Worker" and "Social" Guardrails3. The Reformat WorkerFile: worker.tsThe reformat worker is often where the FAQ blindness happens because it handles the final DOM assembly. Ensure it calls the walkAndLink function (using the Universal DOM Walker we discussed) after GPT-4 provides the suggestions.4. The Social WorkerFile: lib/social-worker.tsMinimal but impactful change: Add a single line to the social prompt.Prompt Addition: "When mentioning locations, always pair them with the primary service (e.g., 'Senior care in Boston' instead of just 'Boston'). Never use bare city names as hashtags."📊 Phase 4: Prioritized Action PlanPriorityTaskFile PathImpact1Define GLOBAL_SEO_LAWSlib/seo-policy.tsSource of truth for all modules.2Gemini Prompt Injectionlib/gemini.tsForces AI to write "linkable" long phrases.3GPT4 Suggestion Filtergpt4-hyperlinker.tsStops "lazy" link suggestions at the source.4Social Media Contextsocial-worker.tsPrevents "bot-like" local posts.5Style Ledger UIcomponents/StyleLedger.tsxPostpone. Build this once the logic is stable.Why the "Style Ledger" UI comes last:Focus on the logic gaps first. Building a dashboard for a broken engine just gives you a "pretty view of a disaster." Once your lib/seo-policy.ts is successfully filtering out 99% of bare city names, the UI becomes a tool for fine-tuning, which is exactly what a "Platinum" product needs.

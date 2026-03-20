@@ -1,5 +1,6 @@
 import { callOpenAI } from "./openai-client";
 import * as cheerio from "cheerio";
+import { isHighQualityAnchor } from "./seo-policy";
 
 // ---------------------------------------------------------------------------
 // CHEERIO-BASED HYPERLINK INJECTOR
@@ -396,25 +397,42 @@ export interface DomHyperlinkResult {
   urlDistribution: Record<string, number>;
 }
 
+// Tags that should NEVER have their text content hyperlinked
 const SKIP_TAGS = new Set([
   "h1","h2","h3","h4","h5","h6","a","script","style","code","pre","noscript","svg",
 ]);
 
+// All text containers targeted for hyperlink injection.
+// Includes dt/dd for FAQ <dl> lists, figcaption, and summary (accordion FAQs).
+// Covers the full article including bottom-half FAQ sections.
+const LINK_CONTAINERS =
+  "p, li, td, th, blockquote, dd, dt, figcaption, summary, " +
+  ".faq-answer, .faq-question, [class*='faq'], [class*='answer'], [class*='question']";
+
 /**
- * Core DOM-based hyperlink engine.
+ * Core DOM-based hyperlink engine — Platinum Edition.
  *
- * Walks text nodes inside allowed container elements (p, li, td, blockquote, dd)
- * and injects <a> tags around the first matching occurrence of each keyword.
- * Headings, anchors, scripts and code blocks are skipped at the DOM level —
- * no placeholder tokens are ever created.
+ * Changes vs. legacy version:
+ *  • All anchor candidates are filtered through isHighQualityAnchor() before
+ *    injection — bare city/state names are rejected at the engine level.
+ *  • Container selector expanded to dt, figcaption, summary, FAQ class wrappers
+ *    so that the entire article including FAQ sections is covered.
+ *  • Node-order traversal (Cheerio's natural DOM order) distributes links
+ *    across head AND tail of the article rather than front-loading.
+ *  • Per-URL cap prevents any single destination from consuming all slots.
  */
 export function applyHyperlinksDom(
   html: string,
   rules: HyperlinkRule[],
   globalMaxLinksPerKeyword = 1
 ): DomHyperlinkResult {
+  // Gate 1: basic URL validity + minimum length
+  // Gate 2: shared SEO quality policy (4+ words, no bare geo, etc.)
   const validRules = rules.filter(
-    (r) => r.keyword?.length >= 4 && r.url?.match(/^https?:\/\//i)
+    (r) =>
+      r.keyword?.length >= 4 &&
+      r.url?.match(/^https?:\/\//i) &&
+      isHighQualityAnchor(r.keyword)
   );
 
   if (!html || validRules.length === 0) {
@@ -432,8 +450,8 @@ export function applyHyperlinksDom(
   const appliedCounts = new Map<string, number>();
   const urlDistribution: Record<string, number> = {};
 
-  // Sort longest-first so "Boston Nursing Home" matches before "Nursing Home".
-  // Without this, a shorter keyword consumes text that a longer phrase needed.
+  // Sort longest-first so "personalized in-home memory care" matches before
+  // "memory care" — prevents a shorter phrase consuming needed text.
   const sortedRules = [...validRules].sort(
     (a, b) => b.keyword.length - a.keyword.length
   );
@@ -444,12 +462,11 @@ export function applyHyperlinksDom(
     if (applied >= maxLinks) continue;
 
     const regex = new RegExp(`\\b(${escapeRegex(rule.keyword)})\\b`, "i");
-    // Encode any " in the URL so it cannot break out of the href attribute
     const safeUrl = rule.url.replace(/"/g, "%22");
 
-    // Walk text nodes inside allowed containers
-    $("p, li, td, blockquote, dd").each((_, containerEl) => {
-      if (applied >= maxLinks) return false; // break
+    // Walk ALL text containers in document order — covers body, FAQ, conclusion
+    $(LINK_CONTAINERS).each((_, containerEl) => {
+      if (applied >= maxLinks) return false; // break .each()
 
       const walkTextNodes = (node: cheerio.AnyNode): boolean => {
         if (applied >= maxLinks) return false;
@@ -462,7 +479,6 @@ export function applyHyperlinksDom(
             const text = (child as any).data as string;
             if (!regex.test(text)) continue;
 
-            // Inject link — replaceWith accepts an HTML string in cheerio
             const newHtml = text.replace(regex, (_, m) => {
               if (applied >= maxLinks) return m;
               applied++;
@@ -470,12 +486,12 @@ export function applyHyperlinksDom(
               return `<a href="${safeUrl}" class="text-primary hover:underline" rel="noopener noreferrer">${m}</a>`;
             });
             $(child).replaceWith(newHtml);
-            return true; // signal: found and replaced, stop this subtree
+            return true;
           }
 
           if ((child as any).type === "tag") {
             const tagName = ((child as any).name as string).toLowerCase();
-            if (SKIP_TAGS.has(tagName)) continue; // skip headings/anchors/etc.
+            if (SKIP_TAGS.has(tagName)) continue;
             if (walkTextNodes(child)) return true;
           }
         }

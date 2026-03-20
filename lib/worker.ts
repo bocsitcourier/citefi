@@ -1235,11 +1235,32 @@ export async function registerWorkers() {
             const rawContent = (article.finalHtmlContent || "")
               .replace(/___HEADER_PROTECT_\d+___/g, "")
               .replace(/___EXISTING_LINK_\d+___/g, "");
-            let hyperlinks = Array.isArray(article.hyperlinkedKeywordsJson) 
+            const rawHyperlinks = Array.isArray(article.hyperlinkedKeywordsJson) 
               ? article.hyperlinkedKeywordsJson 
               : [];
 
-            // CRITICAL: If article has no hyperlinks (old articles), generate them now
+            // REFORMAT GUARDIAN: Validate any pre-stored hyperlinks against SEO policy.
+            // Old articles may have bare-geo or short anchors saved before the policy existed.
+            const { isHighQualityAnchor, isBareGeoAnchor } = await import("./seo-policy");
+            let hyperlinks = (rawHyperlinks as Array<{ anchorText?: string; phrase?: string; url?: string; type?: string }>).filter((link) => {
+              const anchor = (link.anchorText || link.phrase || "").trim();
+              if (!anchor) return false;
+              if (isBareGeoAnchor(anchor)) {
+                console.warn(`[ReformatGuard] Stripped bare-geo hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                return false;
+              }
+              if (!isHighQualityAnchor(anchor)) {
+                console.warn(`[ReformatGuard] Stripped low-quality hyperlink "${anchor.slice(0, 60)}" for article ${articleId}`);
+                return false;
+              }
+              return true;
+            });
+
+            if (rawHyperlinks.length !== hyperlinks.length) {
+              console.log(`[ReformatGuard] Article ${articleId}: ${rawHyperlinks.length - hyperlinks.length} invalid hyperlinks removed (${hyperlinks.length} remain)`);
+            }
+
+            // CRITICAL: If article has no valid hyperlinks after policy filter, generate them now
             if (!hyperlinks || hyperlinks.length === 0) {
               try {
                 console.log(`🔗 Generating hyperlinks for article ${articleId} (old article missing hyperlinks)`);
@@ -1250,13 +1271,14 @@ export async function registerWorkers() {
                   [],
                   reformatGeoFocus
                 );
+                // gpt4-hyperlinker already filters via isHighQualityAnchor internally
                 hyperlinks = linkResult.links.map(link => ({
                   phrase: link.anchorText,
                   url: link.destinationUrl,
                   type: "body",
                   anchorText: link.anchorText,
                 }));
-                console.log(`✅ Generated ${hyperlinks.length} hyperlinks for article ${articleId}`);
+                console.log(`✅ Generated ${hyperlinks.length} validated hyperlinks for article ${articleId}${linkResult.rejectedCount > 0 ? ` (${linkResult.rejectedCount} rejected by policy)` : ''}`);
               } catch (linkError) {
                 console.warn(`⚠️ Hyperlink generation failed for article ${articleId}:`, linkError);
                 // Continue without hyperlinks - don't block reformat

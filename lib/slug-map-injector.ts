@@ -22,6 +22,7 @@ import { db } from "./db";
 import { sitePages } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { applyHyperlinksDom, HyperlinkRule, extractPhrasesFromHtml } from "./keyword-hyperlink-pipeline";
+import { isHighQualityAnchor, isBareGeoAnchor } from "./seo-policy";
 import type { SitePage } from "../shared/schema";
 
 // ---------------------------------------------------------------------------
@@ -41,35 +42,12 @@ export interface InjectionResult {
 }
 
 // ---------------------------------------------------------------------------
-// STOP WORDS — single-word stopwords that should never stand alone as anchors
+// ANCHOR QUALITY — delegated to centralized SEO policy (lib/seo-policy.ts)
 // ---------------------------------------------------------------------------
-
-const STOP_WORDS = new Set([
-  "the","a","an","in","on","at","to","for","of","is","are","was","were",
-  "and","or","but","this","that","these","those","it","its","we","our",
-  "you","your","they","their","with","from","by","about","as","into",
-  "how","what","when","where","which","who","why","be","been","being",
-  "have","has","had","do","does","did","will","would","could","should",
-  "may","might","must","shall","can","not","no","so","if","then","than",
-  "also","more","most","any","all","each","both","few","many","some",
-  "very","just","only","even","new","such","other","same","here","there",
-  "learn","click","read","visit","contact","view","find","get","call",
-  "more","info","information","details","page","home","menu","search",
-]);
-
-function isUsableKeyword(phrase: string): boolean {
-  const words = phrase.trim().split(/\s+/);
-  if (words.length < 2) return false;
-  if (words.length > 8) return false; // reject overly long phrases (e.g. full geo-focus lists)
-  if (phrase.includes(",")) return false; // comma = multi-value list, never a good anchor
-  if (phrase.length < 8) return false;
-  const first = words[0];
-  const last = words[words.length - 1];
-  if (!first || !last) return false;
-  if (STOP_WORDS.has(first.toLowerCase())) return false;
-  if (STOP_WORDS.has(last.toLowerCase())) return false;
-  return true;
-}
+// isHighQualityAnchor: 4+ words, no bare geo, no stop-word edges, no commas
+// isBareGeoAnchor:     rejects "Boston", "Boston MA", "Weston, MA" etc.
+// Both are imported above. The old isUsableKeyword (2-word minimum) is gone —
+// it was the root cause of city-name-only hyperlinks appearing in articles.
 
 // ---------------------------------------------------------------------------
 // DOMAIN UTILITIES
@@ -138,13 +116,13 @@ export async function buildSlugMap(
     for (const page of pages) {
       const pageUrl = page.url;
 
-      if (page.title && isUsableKeyword(page.title)) {
+      if (page.title && isHighQualityAnchor(page.title)) {
         raw.push({ keyword: page.title.trim(), url: pageUrl });
       }
 
       const topics: string[] = Array.isArray(page.topics) ? (page.topics as string[]) : [];
       for (const topic of topics) {
-        if (topic && isUsableKeyword(topic)) {
+        if (topic && isHighQualityAnchor(topic)) {
           raw.push({ keyword: topic.trim(), url: pageUrl });
         }
       }
@@ -152,7 +130,7 @@ export async function buildSlugMap(
 
     // Supplement with fallback terms pointing to targetUrl
     for (const term of fallbackTerms) {
-      if (term && isUsableKeyword(term)) {
+      if (term && isHighQualityAnchor(term)) {
         raw.push({ keyword: term.trim(), url: targetUrl });
       }
     }
@@ -165,7 +143,7 @@ export async function buildSlugMap(
   // ── FALLBACK MODE ─────────────────────────────────────────────────────────
   // No crawl data — build candidates from batch context terms.
   for (const term of fallbackTerms) {
-    if (term && isUsableKeyword(term)) {
+    if (term && isHighQualityAnchor(term)) {
       raw.push({ keyword: term.trim(), url: targetUrl });
     }
   }
@@ -252,7 +230,7 @@ export async function injectLinksWithIntent(
     console.log(`[SlugMap] Fallback content-first extraction: ${extractedPhrases.length} phrases from article for "${articleTitle}"`);
 
     for (const phrase of extractedPhrases) {
-      if (isUsableKeyword(phrase)) {
+      if (isHighQualityAnchor(phrase)) {
         intentEntries.push({ keyword: phrase, url: targetUrl });
       }
     }
@@ -374,12 +352,16 @@ export function injectLinksFromSlugMap(
  * Builds the fallback term list from batch fields.
  * Call this before buildSlugMap() to construct the fallbackTerms argument.
  *
+ * PLATINUM RULES (permanent):
+ *  - Bare city/state names are NEVER added (e.g. "Boston", "Boston MA")
+ *  - Geo terms are ONLY used as qualifiers combined with a service/topic
+ *  - All terms must pass isHighQualityAnchor() — minimum 4 words
+ *
  * Sources (in priority order):
- *   1. coreTopic (often 3-6 words — perfect anchor text)
- *   2. geographicFocus (e.g. "Boston, MA")
- *   3. businessName
- *   4. Gemini-generated keywords (top 8, filtered to >=4 words)
- *   5. Service+geo combinations built from coreTopic × geographicFocus
+ *   1. coreTopic (often 3-6 words — perfect anchor text if >=4 words)
+ *   2. coreTopic + geo combinations (always 4+ words when geo is included)
+ *   3. businessName + geo combinations
+ *   4. Gemini-generated keywords (filtered to >=4 words, no bare geo)
  */
 export function buildFallbackTerms(opts: {
   coreTopic?: string | null;
@@ -390,42 +372,48 @@ export function buildFallbackTerms(opts: {
   const { coreTopic, geographicFocus, businessName, geminiKeywords = [] } = opts;
   const terms: string[] = [];
 
+  // coreTopic is usually already a multi-word phrase — add as-is if it passes policy
   if (coreTopic) terms.push(coreTopic.trim());
 
-  // Split multi-city geographic focus into individual city terms so each city
-  // gets its own link rather than the entire comma-separated list being wrapped
-  // in one giant anchor tag (e.g. "Boston MA, Cambridge MA, Newton MA" → 3 terms).
+  // Parse geo cities but NEVER add them as standalone terms.
+  // They are only used to qualify the coreTopic / businessName (always 4+ words).
   const geoTerms: string[] = [];
   if (geographicFocus) {
-    const cities = geographicFocus.split(",").map((c) => c.trim()).filter((c) => c.length > 2);
+    const cities = geographicFocus
+      .split(",")
+      .map((c) => c.trim())
+      .filter((c) => c.length > 2 && !isBareGeoAnchor(c));
     for (const city of cities) {
       geoTerms.push(city);
-      terms.push(city);
+      // NOTE: bare city string intentionally NOT pushed to terms — geo-only anchors are banned
     }
   }
 
-  if (businessName) terms.push(businessName.trim());
-
-  // Combine with the PRIMARY city only to avoid monster-length anchor text
+  // Build combined service+geo phrases (4-7 words, contextual, SEO-safe)
   const primaryGeo = geoTerms[0] ?? null;
   if (coreTopic && primaryGeo) {
     terms.push(`${coreTopic.trim()} in ${primaryGeo}`);
-    terms.push(`${coreTopic.trim()} ${primaryGeo}`);
+    terms.push(`${coreTopic.trim()} near ${primaryGeo}`);
   }
   if (businessName && primaryGeo) {
-    terms.push(`${businessName.trim()} ${primaryGeo}`);
+    terms.push(`${businessName.trim()} serving ${primaryGeo}`);
+  }
+  if (coreTopic && businessName) {
+    terms.push(`${coreTopic.trim()} by ${businessName.trim()}`);
   }
 
-  for (const kw of geminiKeywords.slice(0, 8)) {
-    if (kw && kw.trim().split(/\s+/).length >= 3) {
+  // Gemini keywords: only 4+ word phrases, bare geo filtered out by policy
+  for (const kw of geminiKeywords.slice(0, 12)) {
+    if (kw && kw.trim().split(/\s+/).length >= 4) {
       terms.push(kw.trim());
     }
   }
 
+  // Final dedupe + quality gate — isHighQualityAnchor enforces 4 words, no bare geo
   const seen = new Set<string>();
   return terms.filter((t) => {
     const key = t.toLowerCase();
-    if (seen.has(key) || !isUsableKeyword(t)) return false;
+    if (seen.has(key) || !isHighQualityAnchor(t)) return false;
     seen.add(key);
     return true;
   });

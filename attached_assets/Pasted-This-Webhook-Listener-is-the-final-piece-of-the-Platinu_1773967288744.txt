@@ -1,0 +1,69 @@
+This Webhook Listener is the final piece of the "Platinum" infrastructure. It ensures that your SEO Intelligence Tools never go stale. Without this, if you add a new "Home Care for Veterans" page to your website, your "Heal" button wouldn't know to link to it until you manually refreshed the sitemap.
+
+This creates a "Living Sync" where the website and the AI engine act as one single organism.
+
+1. The Webhook Handshake
+When a new article is published on privateinhomecaregiver.com, the site sends a "ping" to your central engine. This ping contains the new URL. Your engine then crawls that specific page, extracts the long-tail semantic keywords, and injects them into your site_topic_map database.
+
+2. The Client-Side Trigger (api/revalidate.ts)
+Add this to the "Receiver" (the client website). This code runs the moment a page is successfully created or updated.
+
+TypeScript
+// On the client website (privateinhomecaregiver.com)
+export async function afterPublish(newUrl: string) {
+  try {
+    await axios.post('https://your-engine-api.com/webhooks/sync-topic-map', {
+      url: newUrl,
+      secret: process.env.WEBHOOK_SECRET // Security first
+    });
+    console.log("🔗 Sync signal sent to Platinum Engine.");
+  } catch (err) {
+    console.error("⚠️ Sync signal failed:", err.message);
+  }
+}
+3. The Engine-Side Listener (routes/webhooks.ts)
+This is the "Brain" on your server. It receives the URL and uses the Universal DOM Walker logic to extract only the highest-quality long-phrase keywords.
+
+TypeScript
+import { SEOPolicy } from '../lib/seo-policy'; // Enforcing the geo-rejection rule
+
+export async function POST(req: Request) {
+  const { url, secret } = await req.json();
+
+  if (secret !== process.env.WEBHOOK_SECRET) return new Response("Unauthorized", { status: 401 });
+
+  // 1. Crawl the specific new page
+  const { data: html } = await axios.get(url);
+  const $ = cheerio.load(html);
+  
+  // 2. Extract Title and H1
+  const phrases = [
+    $('title').text().split('|')[0].trim(),
+    $('h1').first().text().trim()
+  ];
+
+  for (const phrase of phrases) {
+    // 3. Apply the Platinum SEO Policy
+    // Rejects bare city names and 2-word phrases
+    if (SEOPolicy.isValid(phrase)) {
+      await db.site_topic_map.upsert({
+        where: { keyword: phrase.toLowerCase() },
+        update: { url: url, last_updated: new Date() },
+        create: { keyword: phrase.toLowerCase(), url: url }
+      });
+      console.log(`✨ New Semantic Link added: "${phrase}"`);
+    } else {
+      console.log(`🚫 Phrase "${phrase}" rejected by SEO Policy (Bare location or too short)`);
+    }
+  }
+
+  return Response.json({ status: "Synced" });
+}
+4. Closing the Gaps
+By implementing this listener, you solve the final issues you identified:
+
+Geo-Rejection Enforced: The SEOPolicy.isValid() check is now the gatekeeper for every single link in your database.
+
+No Metadata "Ghosts": Because the sync happens after the page is live, the "Heal" button will always have the most accurate, live URL.
+
+FAQ Visibility: Since this syncs the Topic Map, and our Universal DOM Walker now sees dt and dd tags, your FAQs will finally be hyperlinked with high-value service phrases instead of just city names.

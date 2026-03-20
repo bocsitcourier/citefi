@@ -1,4 +1,6 @@
 import { callOpenAI } from "../openai-client";
+import { isHighQualityAnchor, isBareGeoAnchor } from "../seo-policy";
+import { GLOBAL_SEO_LAWS } from "../seo-ai-laws";
 
 /**
  * GPT-4 Intelligent Hyperlinking System for GEO Optimization
@@ -6,24 +8,30 @@ import { callOpenAI } from "../openai-client";
  * This module implements two-phase hyperlinking strategy:
  * 1. Main Article Body: 5-7 contextual links (excludes H2/H3 headers)
  * 2. FAQ Section: 1 high-quality link per FAQ answer
+ *
+ * PLATINUM UPGRADE: Both phases enforce isHighQualityAnchor() post-parse.
+ * Bare city/state anchors ("Boston", "Boston MA") are rejected before storage.
+ * The GLOBAL_SEO_LAWS block is injected into every system prompt so the AI
+ * never generates a geo-only anchor in the first place.
  */
 
 export interface ArticleBodyLink {
   anchorText: string;
   destinationUrl: string;
-  explanation: string; // Why this link supports topical authority
+  explanation: string;
 }
 
 export interface FAQLink {
   questionNumber: number;
   anchorText: string;
   destinationUrl: string;
-  revisedAnswer: string; // FAQ answer with link integrated
+  revisedAnswer: string;
 }
 
 export interface ArticleBodyLinkResult {
   links: ArticleBodyLink[];
   totalLinks: number;
+  rejectedCount: number;
   tokenUsage: {
     promptTokens: number;
     completionTokens: number;
@@ -33,13 +41,25 @@ export interface ArticleBodyLinkResult {
 
 export interface FAQLinkResult {
   links: FAQLink[];
-  revisedFaqHtml: string; // Complete FAQ section with links integrated
+  revisedFaqHtml: string;
   totalLinks: number;
+  rejectedCount: number;
   tokenUsage: {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
   };
+}
+
+/**
+ * Validates a single anchor text against the SEO quality policy.
+ * Returns the reason for rejection, or null if accepted.
+ */
+function validateAnchor(anchorText: string): string | null {
+  if (!anchorText || anchorText.trim().length === 0) return "empty";
+  if (isBareGeoAnchor(anchorText.trim())) return "bare_geo";
+  if (!isHighQualityAnchor(anchorText.trim())) return "too_short_or_invalid";
+  return null; // accepted
 }
 
 /**
@@ -49,7 +69,7 @@ export interface FAQLinkResult {
  * - Build topical authority and content clusters
  * - Exclude all H1, H2, H3 headers
  * - Focus on natural placement within paragraphs and lists
- * - Use semantically relevant anchor text
+ * - Use 4-7 word semantic anchor text (enforced post-parse by policy)
  */
 export async function generateArticleBodyLinks(
   articleHtml: string,
@@ -57,11 +77,9 @@ export async function generateArticleBodyLinks(
   clusterPageUrls: string[] = [],
   geographicFocus?: string
 ): Promise<ArticleBodyLinkResult> {
-  const systemPrompt = `You are a highly specialized SEO expert for internal linking strategies focused on Generative Engine Optimization (GEO). Your task is to analyze article content and identify optimal link placements that build topical authority and signal semantic relationships to AI models.`;
+  const systemPrompt = `You are a highly specialized SEO expert for internal linking strategies focused on Generative Engine Optimization (GEO). Your task is to analyze article content and identify optimal link placements that build topical authority and signal semantic relationships to AI models.
 
-  const clusterPagesText = clusterPageUrls.length > 0 
-    ? `Supporting Cluster Pages: ${clusterPageUrls.join(", ")}` 
-    : "No supporting cluster pages provided - focus on Entity Home only";
+${GLOBAL_SEO_LAWS}`;
 
   const userPrompt = `Act as a highly specialized SEO expert for internal linking strategies. Your task is to analyze the complete article draft provided below and insert contextually relevant internal links to reinforce our site's Topical Authority and connect this content to the central Entity Home.
 
@@ -76,11 +94,13 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
 - Focus on textual flow, adhering to best practices for non-spammy, contextual linking
 - Enhance user navigation and demonstrate topical coverage depth
 
-**Anchor Text Quality:**
-- Anchor text must be natural, descriptive, and semantically relevant to the destination page's content
+**Anchor Text Quality (ENFORCED — violations auto-rejected):**
+- Anchor text MUST be 4-7 words — this is a hard requirement
+- NEVER use a bare city or state as anchor text ("Boston", "Boston MA", "Weston" are BANNED)
+- NEVER use phrases under 4 words ("home care", "in-home care" are TOO SHORT)
+- ALWAYS use Semantic Clusters: "professional in-home memory care services" ✅
+- Pair location with a service: "private caregiver support near Boston" ✅ not "Boston" ❌
 - Avoid generic phrases like "click here" or forced exact match keywords
-- Use long-tail phrases (3-7 words) that would appear naturally in the content
-- Prioritize phrases that demonstrate expertise and authority
 
 **Output Requirements:**
 - Identify exactly 5-7 high-quality link placements
@@ -88,7 +108,7 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
 {
   "links": [
     {
-      "anchorText": "natural phrase found in article body (not in headers)",
+      "anchorText": "4-7 word semantic phrase found verbatim in article body (NOT in headers)",
       "destinationUrl": "target URL from provided list",
       "explanation": "brief reason why this link supports topical authority"
     }
@@ -98,10 +118,9 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
 **Article HTML to Analyze:**
 ${articleHtml}
 
-**IMPORTANT**: Scan the entire article from beginning to end. Select phrases that appear in PARAGRAPHS and LISTS only - never in H1, H2, or H3 tags. Return exactly 5-7 contextual links distributed throughout the article.`;
+**IMPORTANT**: Scan the entire article from beginning to end, including the FAQ section. Select phrases that appear in PARAGRAPHS, LISTS, and FAQ ANSWERS only — never in H1, H2, or H3 tags. Every anchor text MUST be 4-7 words. Return exactly 5-7 contextual links distributed throughout the article, including at least 2 from the FAQ section.`;
 
   try {
-    // GPT-4o supports JSON mode for intelligent link placement (extended timeout: 600s)
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
         model: "gpt-4o",
@@ -114,17 +133,34 @@ ${articleHtml}
         response_format: { type: "json_object" },
       }),
       `GPT-4o Article Body Hyperlinker`,
-      600000 // 10 minutes for GPT-4o intelligent analysis
+      600000
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(responseText);
     
-    const links: ArticleBodyLink[] = Array.isArray(parsed.links) ? parsed.links : [];
+    const rawLinks: ArticleBodyLink[] = Array.isArray(parsed.links) ? parsed.links : [];
+
+    // PLATINUM: Post-parse validation — reject any link that violates SEO policy
+    let rejectedCount = 0;
+    const validLinks = rawLinks.filter((link) => {
+      const reason = validateAnchor(link.anchorText);
+      if (reason) {
+        console.warn(`[GPT4Linker] Rejected body link "${link.anchorText.slice(0, 50)}" — reason: ${reason}`);
+        rejectedCount++;
+        return false;
+      }
+      return true;
+    });
+
+    if (rejectedCount > 0) {
+      console.log(`[GPT4Linker] Body: ${validLinks.length} accepted, ${rejectedCount} rejected by SEO policy`);
+    }
 
     return {
-      links,
-      totalLinks: links.length,
+      links: validLinks,
+      totalLinks: validLinks.length,
+      rejectedCount,
       tokenUsage: {
         promptTokens: completion.usage?.prompt_tokens || 0,
         completionTokens: completion.usage?.completion_tokens || 0,
@@ -143,7 +179,7 @@ ${articleHtml}
  * Uses GPT-4 to insert 1 high-quality link per FAQ answer that:
  * - Provides deeper context or supporting documentation
  * - Reinforces E-E-A-T signals (Trustworthiness and Expertise)
- * - Uses descriptive anchor text
+ * - Uses 4-7 word descriptive anchor text (enforced post-parse by policy)
  * - Returns the complete revised FAQ HTML ready for integration
  */
 export async function generateFAQLinks(
@@ -151,7 +187,9 @@ export async function generateFAQLinks(
   targetUrls: string[] = [],
   geographicFocus?: string
 ): Promise<FAQLinkResult> {
-  const systemPrompt = `You are a highly specialized SEO expert focused on FAQ optimization for Generative Engine Optimization (GEO). Your task is to enhance FAQ sections with strategic internal links that reinforce E-E-A-T signals and provide deeper authority.`;
+  const systemPrompt = `You are a highly specialized SEO expert focused on FAQ optimization for Generative Engine Optimization (GEO). Your task is to enhance FAQ sections with strategic internal links that reinforce E-E-A-T signals and provide deeper authority.
+
+${GLOBAL_SEO_LAWS}`;
 
   const targetUrlsText = targetUrls.length > 0 
     ? `Target URLs for linking:\n${targetUrls.map(url => `  • ${url}`).join('\n')}` 
@@ -169,10 +207,16 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
 - Links within answers act as citable references or "read more" opportunities
 - Enhances answer credibility and content depth
 
-**Anchor Text Quality:**
-- Anchor text must clearly describe the content of the target URL
-- Use relevant long-tail phrases or entity names
-- Improves contextual relevance and topical authority
+**Anchor Text Quality (ENFORCED — violations auto-rejected):**
+- Anchor text MUST be 4-7 words — HARD REQUIREMENT
+- NEVER use a bare city/state name as anchor text ("Boston", "Weston MA" are BANNED)
+- NEVER use short phrases under 4 words ("home care", "in-home care" are TOO SHORT)
+- ALWAYS use Semantic Clusters that pair service with context:
+  ✅ "professional memory care support services"
+  ✅ "compassionate post-hospital discharge assistance"
+  ✅ "private in-home caregiver support near Boston"
+  ❌ "Boston" — bare city name
+  ❌ "Boston MA" — city + state only
 
 **Output Requirements:**
 - Provide the revised FAQ section with new internal links fully integrated
@@ -181,7 +225,7 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
   "links": [
     {
       "questionNumber": 1,
-      "anchorText": "descriptive phrase used as link anchor",
+      "anchorText": "4-7 word semantic cluster used as link anchor",
       "destinationUrl": "target URL",
       "revisedAnswer": "complete FAQ answer with link integrated as HTML"
     }
@@ -192,10 +236,9 @@ ${geographicFocus ? `- Geographic Focus: ${geographicFocus}` : ''}
 **FAQ Section HTML to Analyze:**
 ${faqHtml}
 
-**IMPORTANT**: Insert exactly ONE high-quality link per FAQ answer. Return the complete revised FAQ HTML ready for seamless integration into the article.`;
+**IMPORTANT**: Insert exactly ONE high-quality 4-7 word link per FAQ answer. Return the complete revised FAQ HTML ready for seamless integration into the article.`;
 
   try {
-    // GPT-4o supports JSON mode for intelligent FAQ link placement (extended timeout: 600s)
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
         model: "gpt-4o",
@@ -208,19 +251,36 @@ ${faqHtml}
         response_format: { type: "json_object" },
       }),
       `GPT-4o FAQ Hyperlinker`,
-      600000 // 10 minutes for GPT-4o intelligent analysis
+      600000
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(responseText);
     
-    const links: FAQLink[] = Array.isArray(parsed.links) ? parsed.links : [];
-    const revisedFaqHtml = parsed.revisedFaqHtml || faqHtml; // Fallback to original if not provided
+    const rawLinks: FAQLink[] = Array.isArray(parsed.links) ? parsed.links : [];
+    const revisedFaqHtml = parsed.revisedFaqHtml || faqHtml;
+
+    // PLATINUM: Post-parse validation — reject FAQ links that violate SEO policy
+    let rejectedCount = 0;
+    const validLinks = rawLinks.filter((link) => {
+      const reason = validateAnchor(link.anchorText);
+      if (reason) {
+        console.warn(`[GPT4Linker] Rejected FAQ link "${link.anchorText.slice(0, 50)}" (Q${link.questionNumber}) — reason: ${reason}`);
+        rejectedCount++;
+        return false;
+      }
+      return true;
+    });
+
+    if (rejectedCount > 0) {
+      console.log(`[GPT4Linker] FAQ: ${validLinks.length} accepted, ${rejectedCount} rejected by SEO policy`);
+    }
 
     return {
-      links,
+      links: validLinks,
       revisedFaqHtml,
-      totalLinks: links.length,
+      totalLinks: validLinks.length,
+      rejectedCount,
       tokenUsage: {
         promptTokens: completion.usage?.prompt_tokens || 0,
         completionTokens: completion.usage?.completion_tokens || 0,

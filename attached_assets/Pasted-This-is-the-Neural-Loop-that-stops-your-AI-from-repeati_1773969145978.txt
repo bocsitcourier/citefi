@@ -1,0 +1,33 @@
+This is the "Neural Loop" that stops your AI from repeating the same SEO mistakes. By injecting the Learning Ledger into the Gemini System Prompt, you aren't just giving the AI rules; you're giving it "Memory."If the AI previously failed to link the FAQ or used a bare city name, the Guardian logs that failure, and this script ensures the next prompt starts with a specific warning about that exact error.🧠 The "Self-Correcting" Gemini Prompt (lib/gemini.ts)Replace your static prompt with this dynamic hydration logic. This forces Gemini to acknowledge its past "sins" before generating new content.TypeScriptimport { db } from './db';
+import { GLOBAL_SEO_LAWS } from './seo-policy';
+
+export async function generateHydratedPrompt(articleId: string) {
+  // 1. Fetch the 3 most recent 'High Priority' failures from the Ledger
+  const recentFailures = await db.ai_learning_ledger.findMany({
+    where: { status: 'FAILED', priority: 'HIGH' },
+    orderBy: { createdAt: 'desc' },
+    take: 3
+  });
+
+  // 2. Format the "Negative Constraints" (What NOT to do)
+  const failureContext = recentFailures.length > 0 
+    ? `### CRITICAL: FIX RECURRING ERRORS FROM PREVIOUS RUNS:\n${recentFailures.map(f => `- ${f.correction}`).join('\n')}`
+    : "";
+
+  // 3. Assemble the Master Platinum Prompt
+  return `
+    ${BASE_SYSTEM_PROMPT}
+
+    ${GLOBAL_SEO_LAWS}
+
+    ${failureContext}
+
+    INSTRUCTION: 
+    When writing the body and FAQs, you must proactively create "Semantic Hooks." 
+    Instead of writing "We offer care in Boston," write "Our specialized senior home care services in Boston provide families with peace of mind." 
+    This allows our hyperlinker to anchor to the full 7-word phrase.
+    
+    FAILURE TO ADHERE TO THESE ANCHOR TEXT LAWS WILL RESULT IN REJECTION.
+  `;
+}
+🛠️ Why this is the "App-Wide" FixFor Regeneration: If you click "Regenerate," the engine sees the "Failed" status of the previous attempt in the Ledger and automatically tightens the prompt.For Reformat: It ensures the reformatter doesn't "clean away" the long-phrase keywords the generator worked so hard to include.For Social Posts: By including the GLOBAL_SEO_LAWS in the social-worker.ts prompt, the AI will stop using #Boston and start using #BostonHomeCareSupport, keeping your brand's semantic signal consistent across the web.📊 The Results of "Hard Alignment"FeatureWithout Learning LedgerWith Platinum Learning LedgerAnchor Text"Boston", "Weston" (SEO Penalty)"Professional memory care in Boston" (SEO Win)FAQ Links0% (Invisible to AI)100% (Forced via dt/dd Law)Social ToneGeneric/Bot-likeSite-Aware & ContextualHyperlink Matches0-5 Matches (Fuzzy failure)15-20 Matches (Semantic success)

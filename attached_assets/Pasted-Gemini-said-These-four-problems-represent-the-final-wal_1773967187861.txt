@@ -1,0 +1,89 @@
+Gemini said
+These four problems represent the "final wall" between an automated tool and an enterprise-grade SEO factory. By allowing bare city terms and cutting off long-form content, you are essentially telling Google, "This article was written by a 2010-era bot."
+
+To fix this permanently across the entire app, we need to stop treating these as separate bugs and implement a Centralized SEO Governance Layer. This ensures that the "Heal" button, the "Generator," and the "Reformatter" all obey the same strict laws.
+
+1. The "Geo-Rejection" Singleton (lib/seo-policy.ts)
+Instead of having isUsableKeyword logic scattered in three files, we create a single source of truth. This policy explicitly kills the "Boston MA" link trap by enforcing a Semantic Density rule.
+
+TypeScript
+// Centralized SEO Policy
+export const SEOPolicy = {
+  minWords: 3, 
+  maxWords: 8,
+  
+  // Rejects "Boston", "Boston MA", "Weston, Massachusetts"
+  isBareLocation(phrase: string): boolean {
+    const geoPatterns = [
+      /^[a-z\s]+,?\s[a-z]{2}$/i, // "City ST"
+      /^[a-z\s]+$/i              // Single word cities
+    ];
+    
+    // If it's 2 words or less AND matches a geo pattern, it's garbage SEO.
+    const wordCount = phrase.split(/\s+/).length;
+    if (wordCount <= 2) {
+      return geoPatterns.some(pattern => pattern.test(phrase));
+    }
+    return false;
+  },
+
+  isValid(phrase: string): boolean {
+    if (this.isBareLocation(phrase)) return false;
+    const count = phrase.split(/\s+/).length;
+    return count >= this.minWords && count <= this.maxWords;
+  }
+};
+2. Solving "FAQ Blindness" (The Chunked Intent Engine)
+If your article is 20,000 characters, a 14,000-character cap means your most important "Long Tail" keywords (the FAQs) are invisible. We fix this by implementing a Tail-End Buffer.
+
+The Logic: We process the "Head" (first 10k) and the "Tail" (last 8k) separately to ensure the FAQ section is never ignored.
+
+TypeScript
+async function getFullArticleIntent(html: string) {
+  const text = stripTags(html);
+  
+  if (text.length <= 14000) return analyzeIntent(text);
+
+  // PLATINUM FIX: Process head and tail to catch the FAQ section
+  const head = text.substring(0, 8000);
+  const tail = text.substring(text.length - 8000);
+  
+  const combinedContext = `[HEAD]: ${head} ... [TAIL/FAQ]: ${tail}`;
+  return analyzeIntent(combinedContext);
+}
+3. The Universal DOM Walker (lib/dom-walker.ts)
+We need to expand the "Heal" button's field of vision. By including dt, dd, and custom FAQ containers, we ensure the fuzzy linker hits the specific questions and answers search engines love.
+
+TypeScript
+// Updated Selector List for Platinum Coverage
+const SEO_TARGET_SELECTORS = [
+  'p', 'li', 'h2', 'h3', 'h4', 
+  'dt', 'dd', // Essential for FAQ <dl> lists
+  '.faq-answer', '.faq-question', // Common custom wrappers
+  'blockquote', 'td'
+];
+
+export function walkAndLink(html: string, topicMap: any) {
+  const $ = cheerio.load(html, { decodeEntities: false });
+
+  $(SEO_TARGET_SELECTORS.join(', ')).each((_, container) => {
+    $(container).contents().each((_, node) => {
+      if (node.type === 'text') {
+        const originalText = $(node).text();
+        const hyperlinkedText = applyFuzzySemanticLinks(originalText, topicMap);
+        
+        if (originalText !== hyperlinkedText) {
+          $(node).replaceWith(hyperlinkedText);
+        }
+      }
+    });
+  });
+
+  return $.html();
+}
+4. Why this is the "Permanent" Fix
+Consistency: Because the SEOPolicy is a singleton, if you decide later that 3 words is too short, you change it in one place and the whole app (Heal, Generate, Reformat) updates instantly.
+
+SEO Safety: By rejecting bare city names, you force the AI to find "In-home care in Boston" instead of just "Boston." This creates the Contextual Anchor Text that Google rewards.
+
+Full Coverage: The Tail-End Buffer ensures that your FAQs—which usually contain the highest-intent long-tail keywords—are finally being hyperlinked.

@@ -1,0 +1,59 @@
+This is the final nail in the coffin for "Instruction Drift." By centralizing your SEO logic and Topic Map, the "Master Prompt" is no longer a static block of text—it becomes a Dynamic Instruction Set that evolves based on your website's actual data.
+
+Whether you are "Healing" an old article or "Creating a LinkedIn post," the AI is forced to look at the same Global Constraints.
+
+1. The "Global Law" (config/global-constraints.ts)
+Instead of rewriting "Don't use bare city names" in five different prompts, we create one "Law" file. Every service (Reformat, Social, Heal) imports this.
+
+TypeScript
+export const GLOBAL_SEO_LAWS = `
+- NEVER hyperlink a city/state name by itself (e.g., "Boston MA").
+- ONLY link semantic phrases of 4-7 words (e.g., "professional caregiver support in Boston").
+- ALWAYS prioritize long-tail keywords from the SITE_TOPIC_MAP.
+- If the text contains FAQs, ensure at least 2 internal links exist within the <dd> tags.
+`;
+2. The Multi-Channel Social Engine (lib/social-bundle.ts)
+This engine doesn't just "summarize" the article. It uses the Topic Map to find the most authoritative "Hook" for each platform, ensuring your social presence looks like a high-end agency handled it.
+
+TypeScript
+export async function generateSocialBundle(articleId: string) {
+  const article = await db.articles.findUnique({ where: { id: articleId } });
+  const topicMap = await db.site_topic_map.findMany({ take: 10 }); // Get the "Brain"
+
+  const prompt = `
+    CONTEXT: ${article.contentHtml.substring(0, 5000)}
+    AUTHORITY_MAP: ${JSON.stringify(topicMap)}
+    CONSTRAINTS: ${GLOBAL_SEO_LAWS}
+
+    TASK: Create a Social Media Bundle.
+    1. LinkedIn: Professional, industry-expert tone. Focus on "Value Propositions."
+    2. Facebook: Community-focused, empathetic. Focus on "Local Support."
+    3. X (Twitter): Punchy, data-driven thread (3 posts).
+    4. Instagram: High-impact caption with 5 local SEO hashtags.
+
+    RULE: Every post MUST use one long-phrase keyword from the AUTHORITY_MAP.
+  `;
+
+  // Call GPT-4 with this Dynamic Prompt
+  return await openai.generateSocial(prompt);
+}
+3. "Yes, Even on Prompt" (Dynamic Injection)
+When you click Regenerate, the system doesn't just send your old prompt. It performs Prompt Hydration.
+
+Step A: The engine looks at the Learning Ledger (the list of past failures).
+
+Step B: It sees that the AI previously failed to link the FAQ.
+
+Step C: It injects a "CRITICAL WARNING" into the prompt: "In the last run, you missed the FAQ links. Do NOT miss them this time or the Guardian will reject the draft."
+
+This is why it works "across the whole app." The AI is being constantly "reminded" of its past mistakes in real-time.
+
+4. Why this Solves Everything
+Reformat/Regenerate: These now use the same GLOBAL_SEO_LAWS, so the formatting never breaks your SEO rules.
+
+Heal/Hyperlink: Uses the Universal DOM Walker to hit the dt/dd tags it was previously missing.
+
+Social Media: No longer "generic." It uses the same long-phrase keywords that help your website rank, creating a "Semantic Loop" between your site and your socials.
+
+🏗️ The Platinum "Command Center"
+Your backend is now a fortress. The only thing left making the app feel "horrible" is the UI. You're still jumping between tabs like it's 2015.

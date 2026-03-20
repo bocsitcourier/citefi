@@ -22,13 +22,12 @@ import { GoogleGenAI } from "@google/genai";
 import { throttledGeminiRequest } from "./gemini";
 import type { SitePage } from "../shared/schema";
 import type { SlugMapEntry } from "./slug-map-injector";
+import { isHighQualityAnchor, getFullArticleContext } from "./seo-policy";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Max pages to send to AI in one call — keeps prompt size manageable
 const MAX_PAGES = 35;
-// Max article characters sent to AI — 2.0-flash has 1M ctx but we cap for speed
-const MAX_ARTICLE_CHARS = 14000;
 
 interface AnchorSuggestion {
   phrase: string;
@@ -46,6 +45,7 @@ function stripHtml(html: string): string {
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<\/p>/gi, " | ")
     .replace(/<\/li>/gi, " | ")
+    .replace(/<\/dd>/gi, " | ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .replace(/ \| +/g, " | ")
@@ -75,7 +75,11 @@ export async function buildIntentDrivenAnchors(
 ): Promise<SlugMapEntry[]> {
   if (!articleHtml || pages.length === 0) return [];
 
-  const articleText = stripHtml(articleHtml).slice(0, MAX_ARTICLE_CHARS);
+  // PLATINUM FIX: Use head+tail approach so FAQ sections at the END of long articles
+  // are never truncated out of the AI's view.
+  // getFullArticleContext() returns head (8K) + tail/FAQ (6K) for long articles.
+  const rawText = stripHtml(articleHtml);
+  const articleText = getFullArticleContext(articleHtml, 8000, 6000, 14000);
 
   // Build intent descriptions for each page — exclude low-signal pages
   const pageIntents = pages
@@ -94,14 +98,14 @@ export async function buildIntentDrivenAnchors(
     .map((p, i) => `${i + 1}. URL: ${p.url}\n   Intent: ${p.intent}`)
     .join("\n\n");
 
-  const prompt = `You are an expert SEO specialist choosing internal hyperlink anchor text.
+  const prompt = `You are a senior SEO specialist choosing internal hyperlink anchor text for a healthcare/services website.
 
 TASK: For each website page listed below, find ONE phrase from the article text that:
 1. EXISTS VERBATIM in the article — copy it character-for-character, exact case
 2. Naturally expresses the same topic or intent as that page
-3. Is 3–8 words long (never a single word or just a service name)
+3. Is EXACTLY 4–7 words long — this is a hard requirement
 4. Makes contextual sense as a hyperlink for a reader exploring that topic
-5. Is the most specific, descriptive phrase available — not generic filler
+5. Is the most specific, descriptive phrase available — a "Semantic Cluster" like "personalized in-home memory care support" or "professional post-hospital discharge assistance"
 
 ARTICLE TEXT:
 ${articleText}
@@ -109,15 +113,31 @@ ${articleText}
 WEBSITE PAGES (find anchor text for each relevant page):
 ${pageList}
 
-STRICT RULES:
+STRICT RULES (violations cause SEO penalties):
 - ONLY return phrases that appear VERBATIM in the article text above
-- Return 0 results for a page rather than invent a phrase
+- MINIMUM 4 words — single words, city names, or 2–3 word phrases are BANNED
+- NEVER return a bare location as anchor text (e.g. "Boston", "Boston MA", "Weston MA", "Massachusetts") — these are SEO penalties
+- NEVER return just a city name + state — always need a service or action qualifier
+- Return 0 results for a page rather than return a short or geo-only phrase
 - Never use the same phrase for two different pages
-- Prefer phrases with 4–7 words over shorter ones
-- Skip pages whose topic has no relevant passage in the article
-- Confidence: 1.0 = perfect contextual match, 0.5 = acceptable match, below 0.6 skip it
+- ALWAYS prefer phrases describing a service, action, or benefit combined with a location
+- Skip pages whose topic has no relevant 4–7 word passage in the article
+- Confidence: 1.0 = perfect contextual match, 0.6 = minimum acceptable, below 0.6 skip it
 
-Return a JSON array. Only include pages where you found a genuine match.`;
+GOOD anchor text examples:
+✅ "specialized memory care training for families"
+✅ "private in-home caregiver services near Boston"
+✅ "compassionate post-hospital discharge support"
+✅ "affordable 24-hour home care assistance"
+
+BAD anchor text examples (will be rejected):
+❌ "Boston" — bare city name
+❌ "Boston MA" — city + state only
+❌ "Weston" — bare city name
+❌ "home care" — too short (2 words)
+❌ "in-home care" — too short (2 words)
+
+Return a JSON array. Only include pages where you found a genuine 4–7 word match.`;
 
   try {
     const result = await throttledGeminiRequest(() =>
@@ -166,7 +186,9 @@ Return a JSON array. Only include pages where you found a genuine match.`;
       return [];
     }
 
-    const articleLower = articleText.toLowerCase();
+    // Use the FULL raw article text for verbatim verification — not the truncated
+    // context sent to AI — so that long articles are correctly verified end-to-end.
+    const fullArticleLower = rawText.toLowerCase();
     const usedPhrases = new Set<string>();
     const usedUrls = new Set<string>();
     const validated: SlugMapEntry[] = [];
@@ -179,18 +201,19 @@ Return a JSON array. Only include pages where you found a genuine match.`;
 
       const phraseLower = s.phrase.toLowerCase().trim();
 
-      // CRITICAL: Verify phrase exists verbatim in article (prevents hallucination)
-      if (!articleLower.includes(phraseLower)) {
+      // CRITICAL: Verify phrase exists verbatim in full article (prevents hallucination)
+      if (!fullArticleLower.includes(phraseLower)) {
         console.log(`[IntentEngine] Rejected hallucinated phrase: "${s.phrase.slice(0, 60)}"`);
         continue;
       }
 
-      // Enforce minimum phrase quality
-      const words = s.phrase.trim().split(/\s+/);
-      if (words.length < 2) continue;
-      if (s.phrase.trim().length < 6) continue;
+      // PLATINUM: Enforce shared SEO quality policy — 4+ words, no bare geo, no stop-word edges
+      if (!isHighQualityAnchor(s.phrase.trim())) {
+        console.log(`[IntentEngine] Rejected low-quality anchor (policy): "${s.phrase.slice(0, 60)}"`);
+        continue;
+      }
 
-      // Deduplicate
+      // Deduplicate by phrase and URL
       if (usedPhrases.has(phraseLower)) continue;
       if (usedUrls.has(s.url)) continue;
 

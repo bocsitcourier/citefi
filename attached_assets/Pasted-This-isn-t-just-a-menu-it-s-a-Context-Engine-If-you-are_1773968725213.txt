@@ -1,0 +1,92 @@
+This isn't just a menu; it's a Context Engine. If you are on an article, the sidebar knows to show you SEO Topic Map suggestions. If you are on the Social tab, it pulls from your Media Library.
+
+1. The Platinum Sidebar (components/SidebarNav.tsx)
+This React + Tailwind component creates a persistent, high-speed navigation experience. No more "Back" buttons or "Dead Ends."
+
+TypeScript
+import { LayoutDashboard, FileText, Share2, Database, Search, Settings, Link2 } from 'lucide-react';
+
+const navItems = [
+  { name: 'Dashboard', icon: LayoutDashboard, href: '/' },
+  { name: 'Content Library', icon: FileText, href: '/articles' },
+  { name: 'Topic Authority Map', icon: Database, href: '/seo-intelligence' },
+  { name: 'Social Media Hub', icon: Share2, href: '/social' },
+  { name: 'Global Linker', icon: Link2, href: '/linker' },
+];
+
+export function SidebarNav() {
+  return (
+    <div className="flex h-screen w-64 flex-col fixed left-0 top-0 border-r bg-slate-950 text-slate-300">
+      <div className="flex h-16 items-center px-6 border-b border-slate-800">
+        <span className="text-xl font-bold bg-gradient-to-r from-purple-400 to-blue-500 bg-clip-text text-transparent">
+          APEX PLATINUM
+        </span>
+      </div>
+      
+      <nav className="flex-1 space-y-1 px-3 py-4">
+        {navItems.map((item) => (
+          <a
+            key={item.name}
+            href={item.href}
+            className="group flex items-center px-3 py-2 text-sm font-medium rounded-md hover:bg-slate-800 hover:text-white transition-all"
+          >
+            <item.icon className="mr-3 h-5 w-5 text-slate-400 group-hover:text-purple-400" />
+            {item.name}
+          </a>
+        ))}
+      </nav>
+
+      <div className="p-4 border-t border-slate-800">
+        <div className="bg-slate-900 rounded-lg p-3 border border-purple-500/20">
+          <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">AI Engine Status</p>
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs text-white">Topic Map Synced</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+2. The "Breadcrumb" Context Header (components/WorkspaceHeader.tsx)
+This solves your "nothing connects" issue. No matter where you are, you can see exactly where you came from and what the status of the current task is.
+
+TypeScript
+export function WorkspaceHeader({ title, status }: { title: string, status?: string }) {
+  return (
+    <header className="h-16 border-b bg-white flex items-center justify-between px-8 ml-64 sticky top-0 z-40">
+      <div className="flex items-center gap-4">
+        <nav className="flex text-sm text-slate-500">
+          <span className="hover:text-black cursor-pointer">Articles</span>
+          <span className="mx-2">/</span>
+          <span className="text-black font-semibold">{title}</span>
+        </nav>
+        {status && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-700">
+            {status}
+          </span>
+        )}
+      </div>
+      
+      <div className="flex items-center gap-3">
+        <button className="text-slate-500 hover:text-black p-2"><Search size={20}/></button>
+        <button className="bg-black text-white px-4 py-2 rounded-md text-sm font-bold">Deploy to Site</button>
+      </div>
+    </header>
+  );
+}
+3. Why this works "Across the Whole App"
+Shared State: Because the Sidebar is persistent, the SEO Topic Map is always just one click away while you are editing an article.
+
+Universal Healing: When you are in the "Content Library," you can select 41 articles and trigger the Bulk Action Toolbar we built earlier.
+
+Cross-Channel Visibility: When you generate a Social Media Bundle, the Sidebar allows you to instantly flip to the "LinkedIn Preview" or "Instagram Caption" without losing your place in the original article.
+
+🚀 Final Deployment Checklist
+Step 1: Apply the SEOPolicy singleton to your generate, reformat, and social prompts.
+
+Step 2: Deploy the Fuzzy Semantic Linker to the "Heal" button to kill bare city names.
+
+Step 3: Mount the Sidebar Navigation as the new Root Layout.
+
+Step 4: Run the Topic Authority Map crawler on your live site.

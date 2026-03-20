@@ -1406,6 +1406,15 @@ MANDATE:
 - Hyperrealistic location-specific settings
 - Genuine moments, not posed promotional scenes
 
+**GLOBAL SEO LAWS (MANDATORY — ENFORCED AT PUBLICATION):**
+The following rules are enforced by our automated Guardian Agent after you generate content.
+Violations will cause the article to be automatically rejected and regenerated.
+
+1. ANCHOR TEXT / HYPERLINKS: All anchor text MUST be 4-7 words. NEVER hyperlink a bare city or state name alone (e.g., "Boston", "Boston MA", "Weston MA" are FORBIDDEN as anchor text). Always pair location with a service/topic: "professional in-home care near Boston" ✅ not "Boston" ❌.
+2. GEO CONTENT: NEVER list more than 2 city names in any single paragraph. Instead of listing cities, create "Semantic Clusters" — 4-7 word phrases that describe a SERVICE in that location.
+3. FAQ LINKS: The FAQ section MUST contain at least 2 internal hyperlinks. Every <dd> answer block is eligible for a long-phrase semantic link.
+4. CITY PADDING FORBIDDEN: Do NOT pad content by repeating city names to hit keyword density. Every city mention must accompany a service, benefit, or outcome.
+
 **CRITICAL FORMATTING REQUIREMENT:**
 Return the article text in MARKDOWN format with proper structure:
 - Use ## for H2 headers (main sections)

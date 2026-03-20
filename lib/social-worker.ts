@@ -1,4 +1,5 @@
 import type PgBoss from "pg-boss";
+import { isBareGeoAnchor } from "./seo-policy";
 import { db } from "./db";
 import {
   socialPosts,
@@ -35,17 +36,21 @@ function generateSEOKeywords(topic: string, title: string, location: string, ind
   const topicTerms = topic.split(/\s+/).filter(t => t.length > 3);
   const titleTerms = title.split(/\s+/).filter(t => t.length > 3);
   
-  // Location-based keywords
+  // Location-based keywords — never emit bare city/state names (SEO policy §6)
+  // Always pair location with a service/industry token for semantic context
   if (location) {
-    keywords.push(location);
-    keywords.push(`${location} ${industry}`);
-    keywords.push(`${topic} in ${location}`);
+    // POLICY: skip bare geo (e.g. "Boston", "Boston MA") — must have service context
+    if (!isBareGeoAnchor(location)) {
+      keywords.push(location);
+    }
+    if (industry) keywords.push(`${industry} in ${location}`);
+    if (topic) keywords.push(`${topic} in ${location}`);
   }
   
   // Industry keywords
   if (industry) {
     keywords.push(industry);
-    keywords.push(`${industry} ${topic}`);
+    if (topic) keywords.push(`${industry} ${topic}`);
   }
   
   // Topic keywords
@@ -60,8 +65,16 @@ function generateGeoTags(location: string, platforms: string[]): Array<{ platfor
   const geoTags: Array<{ platform: string; tag: string }> = [];
   
   if (!location) return geoTags;
+
+  // POLICY: bare city/state-only geo tags are forbidden (SEO policy §6).
+  // Generate NO geo-tag entries for bare location strings — they will be
+  // resolved by the upstream AI social post generator with full service context.
+  if (isBareGeoAnchor(location)) {
+    console.log(`[SocialWorker] Skipped bare geo-tag for "${location}" — requires service/topic context`);
+    return geoTags;
+  }
   
-  // Generate platform-specific geo-tags
+  // Location already contains service context (e.g. "home care Boston") — safe to tag
   platforms.forEach(platform => {
     switch (platform) {
       case "x":

@@ -4,7 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["ffmpeg", "jq", "unzip", "run"]
+packages = ["ffmpeg", "jq", "unzip", "run", "uwhoisd"]
 
 [deployment]
 deploymentTarget = "vm"
@@ -51,3 +51,6 @@ integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascrip
 [userenv.shared]
 API_KEY_ENCRYPTION_SECRET = "935772b1ebe93e7dcd18830cbeabff0af0ed73b2cd52d7e539d41e86f22a08b9"
 NODE_OPTIONS = "--max-old-space-size=4096"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-de84b703-ccbb-4b3d-a923-9a198c55f981"
