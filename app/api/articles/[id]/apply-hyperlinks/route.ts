@@ -6,7 +6,7 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "@/lib/slug-map-injector";
 import { auditArticle } from "@/lib/guardian-agent";
 import { applySurgicalFix } from "@/lib/surgical-fix";
-import { isHighQualityAnchor } from "@/lib/seo-policy";
+import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "@/lib/seo-policy";
 import * as cheerio from "cheerio";
 
 /**
@@ -20,7 +20,8 @@ function stripLowQualityLinks(html: string): { html: string; stripped: number } 
   const cleaned = html.replace(/<a\s[^>]*href[^>]*>([\s\S]*?)<\/a>/gi, (match, inner) => {
     // Derive plain text from inner HTML for quality check
     const anchorText = inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    if (!isHighQualityAnchor(anchorText)) {
+    // Use deterministic (3-word) gate so valid slug-map anchors are not stripped.
+    if (!isHighQualityAnchorDeterministic(anchorText)) {
       stripped++;
       return inner; // unwrap — keep text, remove the <a> wrapper
     }

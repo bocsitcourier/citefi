@@ -1,7 +1,7 @@
 import { callOpenAI } from "./openai-client";
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
-import { isHighQualityAnchor } from "./seo-policy";
+import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "./seo-policy";
 
 // ---------------------------------------------------------------------------
 // CHEERIO-BASED HYPERLINK INJECTOR
@@ -442,12 +442,13 @@ export function applyHyperlinksDom(
   globalMaxLinksPerKeyword = 1
 ): DomHyperlinkResult {
   // Gate 1: basic URL validity + minimum length
-  // Gate 2: shared SEO quality policy (4+ words, no bare geo, etc.)
+  // Gate 2: deterministic SEO quality policy (3+ words, no bare geo, no stop-word edges)
+  // The stricter 4-word AI gate (isHighQualityAnchor) is used only for Gemini/n-gram phrases.
   const validRules = rules.filter(
     (r) =>
-      r.keyword?.length >= 4 &&
+      r.keyword?.length >= 3 &&
       r.url?.match(/^https?:\/\//i) &&
-      isHighQualityAnchor(r.keyword)
+      isHighQualityAnchorDeterministic(r.keyword)
   );
 
   // Track policy-rejected keywords so callers get visibility into WHY they weren't linked.

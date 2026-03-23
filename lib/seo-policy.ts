@@ -73,22 +73,60 @@ export function isBareGeoAnchor(phrase: string): boolean {
 }
 
 /**
- * Returns true if the anchor phrase passes ALL quality gates:
- *   1. Minimum 4 words (not a bare location or vague phrase)
- *   2. Maximum 10 words (not a sentence fragment)
- *   3. Does not start or end with a stop word
- *   4. Contains no commas (comma = list, never good anchor text)
- *   5. Not a bare geographic anchor (city/state only)
+ * Deterministic anchor quality gate — for slug-map / literal keywords.
+ *
+ * Minimum 3 words so existing service phrases like "senior home care" or
+ * "caregiver support services" (which worked before the 4-word gate was added)
+ * are accepted. All other protections remain:
+ *   • No commas
+ *   • Stop-word edges rejected
+ *   • No bare geographic anchors
+ *
+ * Use this for slug-map entries, batch keywords, and DOM injection.
+ */
+export function isHighQualityAnchorDeterministic(phrase: string): boolean {
+  if (!phrase || typeof phrase !== "string") return false;
+
+  const trimmed = phrase.trim();
+  if (trimmed.includes(",")) return false;
+
+  const words = trimmed.split(/\s+/);
+  if (words.length < 3) return false;  // 3+ words (legacy slug-map minimum)
+  if (words.length > 10) return false;
+
+  const first = words[0]!.toLowerCase();
+  const last = words[words.length - 1]!.toLowerCase();
+  if (ANCHOR_STOP_WORDS.has(first)) return false;
+  if (ANCHOR_STOP_WORDS.has(last)) return false;
+
+  if (isBareGeoAnchor(trimmed)) return false;
+
+  return true;
+}
+
+/**
+ * Strict AI anchor quality gate — for AI-generated / extracted phrases.
+ *
+ * Minimum 4 words ensures semantic richness for phrases chosen by Gemini
+ * or extracted from article n-grams via extractPhrasesFromHtml().
+ *   1. Minimum 4 words
+ *   2. Maximum 10 words
+ *   3. Stop-word edges rejected
+ *   4. No commas
+ *   5. No bare geographic anchors
+ *
+ * Use this for buildIntentDrivenAnchors(), extractPhrasesFromHtml(),
+ * injectLinksTopUp(), and any AI-suggested anchor text.
  */
 export function isHighQualityAnchor(phrase: string): boolean {
   if (!phrase || typeof phrase !== "string") return false;
 
   const trimmed = phrase.trim();
-  if (trimmed.includes(",")) return false; // commas = list fragment
+  if (trimmed.includes(",")) return false;
 
   const words = trimmed.split(/\s+/);
-  if (words.length < 4) return false;  // must be 4+ words
-  if (words.length > 10) return false; // reject sentence-length anchors
+  if (words.length < 4) return false;  // AI phrases must be 4+ words
+  if (words.length > 10) return false;
 
   const first = words[0]!.toLowerCase();
   const last = words[words.length - 1]!.toLowerCase();
