@@ -22,7 +22,7 @@ import { db } from "./db";
 import { sitePages } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { applyHyperlinksDom, HyperlinkRule, extractPhrasesFromHtml } from "./keyword-hyperlink-pipeline";
-import { isHighQualityAnchor, isBareGeoAnchor } from "./seo-policy";
+import { isHighQualityAnchor, isHighQualityAnchorDeterministic, isBareGeoAnchor } from "./seo-policy";
 import type { SitePage } from "../shared/schema";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,8 @@ export interface InjectionResult {
 // ---------------------------------------------------------------------------
 // ANCHOR QUALITY — delegated to centralized SEO policy (lib/seo-policy.ts)
 // ---------------------------------------------------------------------------
-// isHighQualityAnchor: 4+ words, no bare geo, no stop-word edges, no commas
+// isHighQualityAnchorDeterministic: 3+ words, no bare geo, no stop-word edges, no commas (slug-map/literal paths)
+// isHighQualityAnchor: 4+ words (AI/n-gram/intent-engine paths only)
 // isBareGeoAnchor:     rejects "Boston", "Boston MA", "Weston, MA" etc.
 // Both are imported above. The old isUsableKeyword (2-word minimum) is gone —
 // it was the root cause of city-name-only hyperlinks appearing in articles.
@@ -116,13 +117,13 @@ export async function buildSlugMap(
     for (const page of pages) {
       const pageUrl = page.url;
 
-      if (page.title && isHighQualityAnchor(page.title)) {
+      if (page.title && isHighQualityAnchorDeterministic(page.title)) {
         raw.push({ keyword: page.title.trim(), url: pageUrl });
       }
 
       const topics: string[] = Array.isArray(page.topics) ? (page.topics as string[]) : [];
       for (const topic of topics) {
-        if (topic && isHighQualityAnchor(topic)) {
+        if (topic && isHighQualityAnchorDeterministic(topic)) {
           raw.push({ keyword: topic.trim(), url: pageUrl });
         }
       }
@@ -130,7 +131,7 @@ export async function buildSlugMap(
 
     // Supplement with fallback terms pointing to targetUrl
     for (const term of fallbackTerms) {
-      if (term && isHighQualityAnchor(term)) {
+      if (term && isHighQualityAnchorDeterministic(term)) {
         raw.push({ keyword: term.trim(), url: targetUrl });
       }
     }
@@ -143,7 +144,7 @@ export async function buildSlugMap(
   // ── FALLBACK MODE ─────────────────────────────────────────────────────────
   // No crawl data — build candidates from batch context terms.
   for (const term of fallbackTerms) {
-    if (term && isHighQualityAnchor(term)) {
+    if (term && isHighQualityAnchorDeterministic(term)) {
       raw.push({ keyword: term.trim(), url: targetUrl });
     }
   }
@@ -355,13 +356,13 @@ export function injectLinksFromSlugMap(
  * PLATINUM RULES (permanent):
  *  - Bare city/state names are NEVER added (e.g. "Boston", "Boston MA")
  *  - Geo terms are ONLY used as qualifiers combined with a service/topic
- *  - All terms must pass isHighQualityAnchor() — minimum 4 words
+ *  - All terms must pass isHighQualityAnchorDeterministic() — minimum 3 words
  *
  * Sources (in priority order):
- *   1. coreTopic (often 3-6 words — perfect anchor text if >=4 words)
+ *   1. coreTopic (often 3-6 words — passes at >=3 words)
  *   2. coreTopic + geo combinations (always 4+ words when geo is included)
  *   3. businessName + geo combinations
- *   4. Gemini-generated keywords (filtered to >=4 words, no bare geo)
+ *   4. Gemini-generated keywords (pre-filtered to >=4 words, then final gate at 3+)
  */
 export function buildFallbackTerms(opts: {
   coreTopic?: string | null;
@@ -409,11 +410,12 @@ export function buildFallbackTerms(opts: {
     }
   }
 
-  // Final dedupe + quality gate — isHighQualityAnchor enforces 4 words, no bare geo
+  // Final dedupe + quality gate — isHighQualityAnchorDeterministic: 3+ words, no bare geo
+  // (coreTopic can be 3 words; Gemini keywords were pre-filtered to 4+ above)
   const seen = new Set<string>();
   return terms.filter((t) => {
     const key = t.toLowerCase();
-    if (seen.has(key) || !isHighQualityAnchor(t)) return false;
+    if (seen.has(key) || !isHighQualityAnchorDeterministic(t)) return false;
     seen.add(key);
     return true;
   });
