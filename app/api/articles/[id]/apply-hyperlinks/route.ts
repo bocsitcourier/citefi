@@ -7,6 +7,7 @@ import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "@/lib/s
 import { auditArticle } from "@/lib/guardian-agent";
 import { applySurgicalFix } from "@/lib/surgical-fix";
 import { isHighQualityAnchor } from "@/lib/seo-policy";
+import * as cheerio from "cheerio";
 
 /**
  * Strip all <a href> hyperlinks whose anchor text fails the quality gate
@@ -26,6 +27,116 @@ function stripLowQualityLinks(html: string): { html: string; stripped: number } 
     return match; // keep as-is
   });
   return { html: cleaned, stripped };
+}
+
+// Stop-words whose presence at phrase edges kills SEO quality.
+const STOP_WORDS_EDGE = new Set([
+  "the","a","an","in","on","at","to","for","of","is","are","was","were",
+  "and","or","but","this","that","these","those","it","its","we","our",
+  "you","your","they","their","with","from","by","about","as","into",
+  "how","what","when","where","which","who","why","be","been","being",
+  "have","has","had","do","does","did","will","would","could","should",
+  "may","might","must","shall","can","not","no","so","if","then","than",
+  "also","more","most","any","all","each","both","few","many","some",
+  "very","just","only","even","new","such","other","same",
+]);
+
+/**
+ * Paragraph-level deterministic link top-up.
+ *
+ * Scans every <p> element for a 4-7 word phrase that contains at least one
+ * hint word and passes isHighQualityAnchor. Injects an <a> link pointing at
+ * targetUrl. Uses \s+ in the regex so it handles whitespace-collapsed phrases
+ * that span multiple spaces or newlines in the raw HTML.
+ *
+ * Called when the slug-map injector produced fewer than 3 links — acts as a
+ * reliable fallback that never times out and never calls an external API.
+ */
+function injectLinksTopUp(
+  html: string,
+  targetUrl: string,
+  hintTerms: string[],
+  needed: number
+): { html: string; injected: number } {
+  if (needed <= 0 || !html || !targetUrl) return { html, injected: 0 };
+
+  const hintWords = new Set<string>();
+  for (const term of hintTerms) {
+    for (const w of term.toLowerCase().split(/\s+/)) {
+      const clean = w.replace(/[^a-z]/g, "");
+      if (clean.length > 3 && !STOP_WORDS_EDGE.has(clean)) hintWords.add(clean);
+    }
+  }
+
+  const $ = cheerio.load(html, null, false);
+  const safeUrl = targetUrl.replace(/"/g, "%22");
+  const usedPhrases = new Set<string>();
+  let injected = 0;
+
+  $("p").each((_, el) => {
+    if (injected >= needed) return false; // stop once we have enough
+
+    const paragraphText = $(el).text().replace(/\s+/g, " ").trim();
+    if (paragraphText.length < 40) return;
+
+    // Find best 4-7 word phrase (longest first) containing a hint word
+    const words = paragraphText.split(" ").filter((w) => w.length > 0);
+    let chosenPhrase: string | null = null;
+
+    outer: for (let len = 7; len >= 4; len--) {
+      for (let i = 0; i <= words.length - len; i++) {
+        const phraseWords = words.slice(i, i + len);
+        const phrase = phraseWords.join(" ");
+        const phraseLower = phrase.toLowerCase();
+
+        if (usedPhrases.has(phraseLower)) continue;
+
+        // Edge stop-word check
+        const first = phraseWords[0]!.toLowerCase().replace(/[^a-z]/g, "");
+        const last = phraseWords[phraseWords.length - 1]!.toLowerCase().replace(/[^a-z]/g, "");
+        if (STOP_WORDS_EDGE.has(first) || STOP_WORDS_EDGE.has(last)) continue;
+
+        // Must contain at least one hint word (relevance signal)
+        if (
+          hintWords.size > 0 &&
+          !phraseWords.some((w) => hintWords.has(w.toLowerCase().replace(/[^a-z]/g, "")))
+        ) continue;
+
+        if (!isHighQualityAnchor(phrase)) continue;
+
+        chosenPhrase = phrase;
+        break outer;
+      }
+    }
+
+    if (!chosenPhrase) return;
+
+    const innerHtml = $(el).html() || "";
+    // Build regex that tolerates whitespace variation between words (including
+    // newlines or multiple spaces that survive from the original HTML).
+    const escapedWords = chosenPhrase
+      .split(" ")
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = escapedWords.join("\\s+");
+    const rx = new RegExp(`(?<![a-zA-Z])(${pattern})(?![a-zA-Z])`, "i");
+
+    const match = rx.exec(innerHtml);
+    if (!match) return;
+
+    const newHtml = innerHtml.replace(
+      rx,
+      (fullMatch) =>
+        `<a href="${safeUrl}" class="text-primary hover:underline" rel="noopener noreferrer">${fullMatch}</a>`
+    );
+
+    if (newHtml !== innerHtml) {
+      $(el).html(newHtml);
+      usedPhrases.add(chosenPhrase.toLowerCase());
+      injected++;
+    }
+  });
+
+  return { html: $.html(), injected };
 }
 
 /**
@@ -103,14 +214,15 @@ export async function POST(
       healedHtml = strippedHtml;
     }
 
-    if (targetUrl && targetUrl.match(/^https?:\/\//i)) {
-      const fallbackTerms = buildFallbackTerms({
-        coreTopic: batch?.coreTopic,
-        geographicFocus,
-        businessName: batch?.businessName,
-        geminiKeywords: Array.isArray(article.keywordsJson) ? (article.keywordsJson as string[]) : [],
-      });
+    // Build hint terms once — reused by both slug-map injection and the top-up.
+    const fallbackTerms = buildFallbackTerms({
+      coreTopic: batch?.coreTopic,
+      geographicFocus,
+      businessName: batch?.businessName,
+      geminiKeywords: Array.isArray(article.keywordsJson) ? (article.keywordsJson as string[]) : [],
+    });
 
+    if (targetUrl && targetUrl.match(/^https?:\/\//i)) {
       const { entries, pages } = await buildSlugMap(teamId, targetUrl, fallbackTerms);
       const anchorsBefore = (healedHtml.match(/<a /gi) || []).length;
 
@@ -132,6 +244,27 @@ export async function POST(
       // and may reorganise existing links even when net count is unchanged.
       healedHtml = injection.html;
       console.log(`🔗 Heal pass 1 (links): article ${articleId} — +${linksInjected} links via ${linkMode}`);
+
+      // ── PASS 1b: PARAGRAPH-LEVEL TOP-UP ──────────────────────────────────────
+      // If slug-map injection yielded fewer than 3 links, fall back to a
+      // deterministic paragraph-level scan that tolerates inline HTML element
+      // splits and whitespace variation (no external API calls — never times out).
+      const minLinks = 3;
+      if (linksInjected < minLinks) {
+        const needed = minLinks - linksInjected;
+        const { html: toppedUpHtml, injected: topUpCount } = injectLinksTopUp(
+          healedHtml,
+          targetUrl,
+          fallbackTerms,
+          needed + 2 // inject a few extras to give guardian a comfortable margin
+        );
+        if (topUpCount > 0) {
+          healedHtml = toppedUpHtml;
+          linksInjected += topUpCount;
+          linkMode = "topup";
+          console.log(`🔗 Heal pass 1b (top-up): article ${articleId} — +${topUpCount} paragraph-level links (total: ${linksInjected})`);
+        }
+      }
     } else {
       console.warn(`⚠️ Heal: no valid targetUrl for article ${articleId} — skipping link injection`);
     }
@@ -165,24 +298,67 @@ export async function POST(
       // ── PASS 3: SURGICAL FIX ────────────────────────────────────────────────
       const allIssues = [...missingElements, ...formattingIssues];
       if (!guardianPassed && allIssues.length > 0) {
-        console.log(`🔧 Heal pass 3 (surgical fix): fixing [${allIssues.join(", ")}] in article ${articleId}`);
+        // Separate link issues (deterministic) from structural issues (need GPT).
+        const structuralIssues = allIssues.filter((i) => !i.includes("MISSING_HYPERLINKS"));
+        const linkIssueOnly = allIssues.every((i) => i.includes("MISSING_HYPERLINKS"));
 
-        const fix = await applySurgicalFix({
-          html: healedHtml,
-          missingElements,
-          formattingIssues,
-          businessName: businessName || undefined,
-          persona: tone || "professional",
-          targetUrl: targetUrl || undefined,
-          keywords: Array.isArray(article.keywordsJson) ? (article.keywordsJson as string[]) : [],
-          geographicFocus: geographicFocus || undefined,
-        });
+        if (linkIssueOnly && targetUrl && targetUrl.match(/^https?:\/\//i)) {
+          // MISSING_HYPERLINKS is a deterministic problem — skip GPT timeout risk.
+          // Use the paragraph-level top-up to inject remaining links instantly.
+          console.log(`🔗 Heal pass 3 (link top-up bypass): deterministic top-up instead of GPT for article ${articleId}`);
+          const { html: topUpHtml, injected: topUpCount } = injectLinksTopUp(
+            healedHtml,
+            targetUrl,
+            fallbackTerms,
+            3 // ensure we reach the 3-link minimum
+          );
+          if (topUpCount > 0) {
+            healedHtml = topUpHtml;
+            linksInjected += topUpCount;
+            surgicalFixApplied = true;
+            surgicalFixes = [`MISSING_HYPERLINKS (+${topUpCount} deterministic)`];
+            console.log(`✅ Link top-up applied for article ${articleId}: +${topUpCount} links`);
+          }
+        } else {
+          // Structural issues (FAQ, images, formatting) — these require GPT-4.
+          const issuesForGpt = structuralIssues.length > 0 ? structuralIssues : allIssues;
+          console.log(`🔧 Heal pass 3 (surgical fix): fixing [${issuesForGpt.join(", ")}] in article ${articleId}`);
 
-        if (!fix.unchanged) {
-          healedHtml = fix.html;
-          surgicalFixApplied = true;
-          surgicalFixes = fix.appliedFixes;
-          console.log(`✅ Surgical fix applied for article ${articleId}: ${surgicalFixes.join(", ")}`);
+          const fix = await applySurgicalFix({
+            html: healedHtml,
+            missingElements: missingElements.filter((i) => !i.includes("MISSING_HYPERLINKS") || !linkIssueOnly),
+            formattingIssues,
+            businessName: businessName || undefined,
+            persona: tone || "professional",
+            targetUrl: targetUrl || undefined,
+            keywords: Array.isArray(article.keywordsJson) ? (article.keywordsJson as string[]) : [],
+            geographicFocus: geographicFocus || undefined,
+          });
+
+          if (!fix.unchanged) {
+            healedHtml = fix.html;
+            surgicalFixApplied = true;
+            surgicalFixes = fix.appliedFixes;
+            console.log(`✅ Surgical fix applied for article ${articleId}: ${surgicalFixes.join(", ")}`);
+
+            // After GPT structural fix, also run a link top-up if links still missing.
+            if (
+              missingElements.some((i) => i.includes("MISSING_HYPERLINKS")) &&
+              targetUrl && targetUrl.match(/^https?:\/\//i)
+            ) {
+              const { html: finalHtml, injected: finalTopUp } = injectLinksTopUp(
+                healedHtml,
+                targetUrl,
+                fallbackTerms,
+                3
+              );
+              if (finalTopUp > 0) {
+                healedHtml = finalHtml;
+                linksInjected += finalTopUp;
+                surgicalFixes.push(`MISSING_HYPERLINKS (+${finalTopUp} deterministic)`);
+              }
+            }
+          }
         }
       }
     } catch (guardianErr) {

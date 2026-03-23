@@ -488,7 +488,15 @@ export function applyHyperlinksDom(
     let applied = appliedCounts.get(rule.keyword) ?? 0;
     if (applied >= maxLinks) continue;
 
-    const regex = new RegExp(`\\b(${escapeRegex(rule.keyword)})\\b`, "i");
+    // Use \s+ between words so phrases extracted from whitespace-collapsed text
+    // still match text nodes that contain tabs, newlines, or multiple spaces.
+    // Two separate regex objects: testRx is non-global (no lastIndex state pollution
+    // across text node iterations); replaceRx is global so .replace() gets all slots.
+    const escapedKeyword = escapeRegex(rule.keyword).replace(/ /g, "\\s+");
+    const testRx = new RegExp(`(?<![a-zA-Z])(${escapedKeyword})(?![a-zA-Z])`, "i");
+    const replaceRx = new RegExp(`(?<![a-zA-Z])(${escapedKeyword})(?![a-zA-Z])`, "gi");
+    // Alias so the rest of the loop body still references "regex" for the test check:
+    const regex = testRx;
     const safeUrl = rule.url.replace(/"/g, "%22");
 
     // Walk ALL text containers in document order — covers body, FAQ, conclusion
@@ -506,11 +514,11 @@ export function applyHyperlinksDom(
             const text = (child as any).data as string;
             if (!regex.test(text)) continue;
 
-            const newHtml = text.replace(regex, (_, m) => {
-              if (applied >= maxLinks) return m;
+            const newHtml = text.replace(replaceRx, (_, m) => {
+              if (applied >= maxLinks) return _;
               applied++;
               urlDistribution[rule.url] = (urlDistribution[rule.url] ?? 0) + 1;
-              return `<a href="${safeUrl}" class="text-primary hover:underline" rel="noopener noreferrer">${m}</a>`;
+              return `<a href="${safeUrl}" class="text-primary hover:underline" rel="noopener noreferrer">${_}</a>`;
             });
             $(child).replaceWith(newHtml);
             return true;

@@ -1203,9 +1203,11 @@ export async function registerWorkers() {
 
   try {
     console.log(`🔄 Registering reformat worker for queue: "${REFORMAT_QUEUE}"`);
-    // NOTE: article-reformat queue uses legacy named partition "job_article_reformat".
-    // createQueue() would conflict — queue entry inserted directly in pgboss.queue instead.
-    
+    // Ensure the queue row exists in pgboss.queue BEFORE subscribing.
+    // Without this, pg-boss may not route jobs to the worker subscription.
+    // (All other queues follow this same pattern.)
+    try { await boss.createQueue(REFORMAT_QUEUE); } catch (_) { /* already exists — ok */ }
+
     await boss.work<ReformatJobData>(
       REFORMAT_QUEUE,
       { batchSize: 1 },
