@@ -86,9 +86,18 @@ export function extractPhrasesFromHtml(
     "include","including","ensure","offer","require","allows","enables",
   ]);
 
-  const lowerHints = topicHints
-    .filter((h) => h && h.length > 2)
-    .map((h) => h.toLowerCase());
+  // Build a set of individual significant words from all hint phrases.
+  // Whole-phrase matching (e.g. "caregiver support in Wellesley MA") almost never
+  // appears verbatim inside a 4-7 word window — individual word matching is far
+  // more reliable and still keeps results topically relevant.
+  const hintWords = new Set<string>();
+  for (const hint of topicHints) {
+    for (const w of hint.toLowerCase().split(/\s+/)) {
+      if (w.length > 3 && !STOP_WORDS.has(w)) {
+        hintWords.add(w);
+      }
+    }
+  }
 
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -111,8 +120,13 @@ export function extractPhrasesFromHtml(
         if (STOP_WORDS.has(phraseWords[0]!.toLowerCase())) continue;
         if (STOP_WORDS.has(phraseWords[phraseWords.length - 1]!.toLowerCase())) continue;
 
-        // Must contain at least one topic hint (skip filter when no hints provided)
-        if (lowerHints.length > 0 && !lowerHints.some((h) => lower.includes(h))) continue;
+        // Must contain at least one significant hint word.
+        // When no hints are provided, accept all topical phrases.
+        if (hintWords.size > 0) {
+          const phraseWordSet = phraseWords.map((w) => w.toLowerCase().replace(/[^a-z]/g, ""));
+          const hasHintWord = phraseWordSet.some((w) => hintWords.has(w));
+          if (!hasHintWord) continue;
+        }
 
         // Verify the phrase literally exists in the stripped text
         if (!plain.toLowerCase().includes(lower)) continue;

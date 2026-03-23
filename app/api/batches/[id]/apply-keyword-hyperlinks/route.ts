@@ -277,9 +277,10 @@ export async function POST(
 
   } catch (error) {
     console.error("Apply keyword hyperlinks error:", error);
+    const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to apply keyword hyperlinks" },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

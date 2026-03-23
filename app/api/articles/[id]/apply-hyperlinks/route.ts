@@ -6,6 +6,27 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "@/lib/slug-map-injector";
 import { auditArticle } from "@/lib/guardian-agent";
 import { applySurgicalFix } from "@/lib/surgical-fix";
+import { isHighQualityAnchor } from "@/lib/seo-policy";
+
+/**
+ * Strip all <a href> hyperlinks whose anchor text fails the quality gate
+ * (bare geo anchors, single/double words, stop-word edges, etc.)
+ * Returns the cleaned HTML and the count of links removed.
+ */
+function stripLowQualityLinks(html: string): { html: string; stripped: number } {
+  let stripped = 0;
+  // Match opening tag, inner content (may include nested tags), closing tag
+  const cleaned = html.replace(/<a\s[^>]*href[^>]*>([\s\S]*?)<\/a>/gi, (match, inner) => {
+    // Derive plain text from inner HTML for quality check
+    const anchorText = inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    if (!isHighQualityAnchor(anchorText)) {
+      stripped++;
+      return inner; // unwrap — keep text, remove the <a> wrapper
+    }
+    return match; // keep as-is
+  });
+  return { html: cleaned, stripped };
+}
 
 /**
  * POST /api/articles/[id]/apply-hyperlinks
@@ -74,6 +95,14 @@ export async function POST(
     let linkMode = "skipped";
     let linkedKeywords: string[] = [];
 
+    // PRE-STRIP: remove existing low-quality hyperlinks (bare geo, <4 words, etc.)
+    // so the injection pass gets a clean slate to inject proper 4-7 word anchors.
+    const { html: strippedHtml, stripped: strippedCount } = stripLowQualityLinks(healedHtml);
+    if (strippedCount > 0) {
+      console.log(`🧹 Heal pre-strip: removed ${strippedCount} low-quality link(s) from article ${articleId}`);
+      healedHtml = strippedHtml;
+    }
+
     if (targetUrl && targetUrl.match(/^https?:\/\//i)) {
       const fallbackTerms = buildFallbackTerms({
         coreTopic: batch?.coreTopic,
@@ -99,9 +128,9 @@ export async function POST(
       linkMode = injection.mode;
       linkedKeywords = injection.linkedKeywords;
 
-      if (injection.linksInjected > 0 || linksInjected > 0) {
-        healedHtml = injection.html;
-      }
+      // Always update healedHtml — the injection pass also applies the pre-strip
+      // and may reorganise existing links even when net count is unchanged.
+      healedHtml = injection.html;
       console.log(`🔗 Heal pass 1 (links): article ${articleId} — +${linksInjected} links via ${linkMode}`);
     } else {
       console.warn(`⚠️ Heal: no valid targetUrl for article ${articleId} — skipping link injection`);
@@ -168,7 +197,8 @@ export async function POST(
 
     // Build human-readable summary
     const parts: string[] = [];
-    if (linksInjected > 0) parts.push(`${linksInjected} hyperlinks added`);
+    if (strippedCount > 0) parts.push(`${strippedCount} low-quality link(s) removed`);
+    if (linksInjected > 0) parts.push(`${linksInjected} quality hyperlinks added`);
     if (surgicalFixApplied) parts.push(`structural fixes: ${surgicalFixes.join(", ")}`);
     if (parts.length === 0 && guardianPassed) parts.push("article already meets quality standards");
     if (parts.length === 0) parts.push("no improvements could be applied");
@@ -198,12 +228,13 @@ export async function POST(
 
   } catch (error) {
     console.error("❌ Heal error:", error);
+    const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(
       {
         error: "Failed to heal article",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

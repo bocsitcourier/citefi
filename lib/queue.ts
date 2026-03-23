@@ -196,14 +196,13 @@ export async function addBatchGenerationJob(data: BatchJobData) {
 
 export async function addArticleJob(data: ArticleJobData) {
   try {
-    // CRITICAL: Validate businessName is present to prevent AI hallucination
+    // Warn when businessName is absent (legacy batch) — don't throw.
+    // Brand-lock features are skipped inside the worker when businessName is empty.
     if (!data.businessName || data.businessName.trim().length === 0) {
-      const error = new Error(
-        `CRITICAL: Cannot queue article ${data.articleId} without businessName. ` +
-        `This prevents AI from hallucinating company names in text and images.`
+      console.warn(
+        `⚠️ Queueing article ${data.articleId} without businessName — ` +
+        `brand-lock in AI prompts / image generation will be skipped.`
       );
-      console.error(`❌ ${error.message}`);
-      throw error;
     }
     
     // Generate run ID if not provided (for duplicate detection and cache lookup)
@@ -284,12 +283,29 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
 export async function addReformatJob(data: ReformatJobData) {
   try {
     const boss = await getPgBoss();
+
+    // Ensure the queue row exists in pgboss.queue before calling send().
+    // boss.send() returns null (not an error) when the queue is absent, which
+    // silently swallows the job. createQueue is idempotent — safe to call every time.
+    try {
+      await boss.createQueue(REFORMAT_QUEUE);
+    } catch {
+      // Queue already exists — ignore the constraint error
+    }
+
     const jobId = await boss.send(REFORMAT_QUEUE, data, {
       retryLimit: 3,
       retryDelay: 10,
       retryBackoff: true,
       expireInSeconds: 1800, // 30 minutes (was 5 min - too short for OpenAI calls)
     });
+
+    if (!jobId) {
+      throw new Error(
+        `pg-boss returned null for article ${data.articleId} — queue "${REFORMAT_QUEUE}" may not be ready. ` +
+        `Try again in a few seconds after the worker process registers its handlers.`
+      );
+    }
     
     console.log(`🔄 Reformat job queued: ${jobId} for article ${data.articleId}`);
     return jobId;

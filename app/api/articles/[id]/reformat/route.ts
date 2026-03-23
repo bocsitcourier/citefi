@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { addReformatJob } from "@/lib/queue";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -21,11 +21,11 @@ export async function POST(
       );
     }
 
-    // Get article (no auth needed - get teamId from article itself)
+    // Verify the article belongs to the authenticated team (IDOR fix)
     const [article] = await db
       .select()
       .from(articles)
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     if (!article) {
       return NextResponse.json(
@@ -56,12 +56,13 @@ export async function POST(
 
   } catch (error) {
     console.error("❌ Reformat queue error:", error);
+    const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(
       { 
         error: "Failed to queue reformat",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

@@ -23,8 +23,10 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-    const { customInstructions } = body;
+    // request.json() throws when the request body is empty (e.g. bare button POST).
+    // Fall back to an empty object so customInstructions is simply undefined.
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const { customInstructions } = body as { customInstructions?: string };
 
     // CRITICAL: Verify article belongs to user's team
     const [article] = await db
@@ -56,15 +58,13 @@ export async function POST(
       );
     }
 
-    // CRITICAL: Validate businessName before regeneration
-    // Prevents generating content with generic "company" placeholders
+    // Warn when businessName is missing — don't hard-block regeneration for legacy batches.
+    // The worker and image-generation job will skip brand-lock if businessName is absent.
     if (!batch.businessName || batch.businessName.trim().length === 0) {
-      return NextResponse.json(
-        { 
-          error: "Business name required",
-          message: "This batch was created without a business name. Article regeneration requires a valid business name to prevent AI hallucination of company names in text and images. Please update the batch business name first or create a new batch with a business name."
-        },
-        { status: 400 }
+      console.warn(
+        `⚠️ Regenerating article ${articleId} without businessName — ` +
+        `batch ${article.batchId} was created before businessName was required. ` +
+        `Brand-lock in AI prompts and image generation will be skipped.`
       );
     }
 

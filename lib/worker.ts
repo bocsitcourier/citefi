@@ -1314,13 +1314,25 @@ export async function registerWorkers() {
               }
             }
 
+            // Extract existing image URLs from the article HTML before reformatting.
+            // Without this, the GPT-4 prompt says "No images provided — skip image placement"
+            // and GPT-4 actively strips every <figure>/<img> tag from the article, losing
+            // all images that were injected during the original generation pipeline.
+            const existingImageUrls = [...rawContent.matchAll(/<img[^>]+src="([^"]+)"/gi)]
+              .map((m) => m[1])
+              .filter((u): u is string => Boolean(u));
+
+            if (existingImageUrls.length > 0) {
+              console.log(`🖼️ Reformat preserving ${existingImageUrls.length} existing image(s) for article ${articleId}`);
+            }
+
             // Re-run GPT-4 formatting with brand normalization + full SEO/GEO context
             const gptResult = await enhanceArticleWithGPT(
               rawContent,
               article.seoTitle || "",
               article.metaDescription || "",
               Array.isArray(article.keywordsJson) ? article.keywordsJson : [],
-              [], // Images handled separately
+              existingImageUrls, // Pass existing images so GPT-4 re-injects rather than strips them
               undefined, // No semantic cluster
               hyperlinks,
               Array.isArray(article.hashtagsJson) ? article.hashtagsJson : [],
