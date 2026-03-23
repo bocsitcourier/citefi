@@ -179,13 +179,30 @@ Return ONLY the final HTML (no markdown, no explanations, no code blocks). Start
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
-      max_tokens: 4000,
+      // 16 000 tokens: enough for a 2 000-word article formatted as full HTML
+      // with FAQ, hashtags, and JSON-LD — well within gpt-4o-mini's 16 384 limit.
+      // The old 4 000-token cap caused articles to be cut off mid-sentence and
+      // the FAQ section (which GPT-4 writes last) to be silently omitted.
+      max_tokens: 16000,
     }),
     `Finalize Content: ${articleText.substring(0, 50)}...`,
     timeoutMs // Pass timeout to callOpenAI wrapper (controls request timeout)
   );
 
-  let finalHtml = completion.choices[0]?.message?.content || "";
+  const choice = completion.choices[0];
+  const finishReason = choice?.finish_reason;
+
+  // Detect truncation: if GPT-4 stopped because it ran out of output tokens,
+  // throw so the caller can retry rather than silently saving a cut-off article.
+  if (finishReason === "length") {
+    throw new Error(
+      `GPT-4 article HTML was truncated (finish_reason=length). ` +
+      `Article may be too long for the model. ` +
+      `Consider reducing wordCountMax or enabling DISABLE_ARTICLE_CRITIQUE.`
+    );
+  }
+
+  let finalHtml = choice?.message?.content || "";
 
   if (!finalHtml || finalHtml.length < 100) {
     throw new Error("GPT-4 failed to generate valid HTML content");

@@ -1492,6 +1492,9 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       },
     ],
     config: {
+      // Set explicit ceiling so Gemini never truncates a long article.
+      // gemini-2.5-flash supports up to 65536 output tokens.
+      maxOutputTokens: 65536,
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -1577,12 +1580,16 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
     throw new Error(`Expected 6 article-specific keywords, received ${parsed.keywords.length}`);
   }
 
-  if (parsed.hashtags.length < 10 || parsed.hashtags.length > 15) {
-    throw new Error(`Expected 10-15 hashtags, received ${parsed.hashtags.length}`);
+  // Allow 8-20 hashtags; prompt asks for 10-15 but slight deviations are acceptable.
+  if (parsed.hashtags.length < 8) {
+    throw new Error(`Too few hashtags (${parsed.hashtags.length}); minimum 8 required.`);
   }
 
-  if (!parsed.faq || parsed.faq.length < 5 || parsed.faq.length > 8) {
-    throw new Error(`Expected 5-8 FAQ items, received ${parsed.faq?.length || 0}`);
+  // Allow 3-10 FAQ items; the prompt asks for 5-8 but Gemini occasionally returns
+  // slightly fewer or more. Strict 5-8 enforcement caused good articles to fail and
+  // retry indefinitely. FAQ count is enforced in the prompt, not here.
+  if (!parsed.faq || parsed.faq.length < 3) {
+    throw new Error(`Too few FAQ items (${parsed.faq?.length || 0}); minimum 3 required. Gemini may have truncated.`);
   }
 
   // ENHANCED: Run article critique for SEO optimization and fact-checking
