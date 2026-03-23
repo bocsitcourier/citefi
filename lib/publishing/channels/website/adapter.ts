@@ -72,15 +72,31 @@ function makeAbsoluteUrl(url: string): string | undefined {
   let engineBase = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
 
   // Auto-detect from Replit's injected domain list when no explicit URL is configured.
-  // REPLIT_DOMAINS is a comma-separated list; the first entry is the primary domain.
+  // REPLIT_DOMAINS is comma-separated. In development the list contains ephemeral
+  // *.riker.replit.dev addresses that are NOT reachable from the public internet.
+  // In production (deployed) the list contains stable *.replit.app addresses.
+  // Prefer stable domains (*.replit.app, custom domains) over ephemeral dev ones.
   if (!engineBase && process.env.REPLIT_DOMAINS) {
-    const firstDomain = process.env.REPLIT_DOMAINS.split(',')[0]!.trim();
-    if (firstDomain) {
-      engineBase = `https://${firstDomain}`;
+    const allDomains = process.env.REPLIT_DOMAINS.split(',').map((d) => d.trim()).filter(Boolean);
+
+    // Pick the first stable (non-dev) domain. Ephemeral dev domains contain
+    // ".riker.replit.dev" or ".expo.riker.replit.dev".
+    const stableDomain = allDomains.find((d) => !d.includes('.riker.replit.dev'));
+    const chosenDomain = stableDomain || allDomains[0];
+
+    if (chosenDomain) {
+      engineBase = `https://${chosenDomain}`;
     }
   }
 
-  return engineBase ? `${engineBase}${url}` : url;
+  if (engineBase) {
+    return `${engineBase}${url}`;
+  }
+
+  // No base URL could be determined — return the relative path unchanged.
+  // The caller will log a warning; configure NEXTAUTH_URL to fix this.
+  console.warn(`[makeAbsoluteUrl] No engine base URL found (NEXTAUTH_URL/NEXT_PUBLIC_APP_URL/REPLIT_DOMAINS not set). Returning relative URL: ${url}`);
+  return url;
 }
 
 export class WebsiteChannelAdapter implements ChannelAdapter {
