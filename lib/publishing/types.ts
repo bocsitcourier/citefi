@@ -40,6 +40,8 @@ export interface PublishableContent {
   caption?: string;
   imageUrl?: string;
   videoUrl?: string;
+  /** Business / brand name from the originating batch — used as the article author on the receiver. */
+  businessName?: string;
 }
 
 export interface FormattedContent {

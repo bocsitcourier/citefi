@@ -427,8 +427,20 @@ export async function processPublishingJob(jobId: number): Promise<{
     if (article) {
       const assets = await db.select().from(articleAssets)
         .where(and(eq(articleAssets.articleId, article.id), isNull(articleAssets.deletedAt)));
+      
+      // Look up business name from the batch — used as the author on the receiver site.
+      let businessName: string | undefined;
+      if (article.batchId) {
+        const { jobBatches } = await import('../../shared/schema');
+        const [batch] = await db.select({ businessName: jobBatches.businessName })
+          .from(jobBatches)
+          .where(eq(jobBatches.id, article.batchId))
+          .limit(1);
+        businessName = batch?.businessName ?? undefined;
+      }
+
       const contentType = job.contentType === 'podcast' ? 'podcast' : 'article';
-      content = { type: contentType, article, articleAssets: assets };
+      content = { type: contentType, article, articleAssets: assets, businessName };
     }
   }
 

@@ -113,7 +113,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
 
   async format(content: PublishableContent, connection: PublishingConnection): Promise<FormattedContent> {
     if (content.type === 'article' && content.article) {
-      return this.formatArticle(content.article, content.articleAssets || []);
+      return this.formatArticle(content.article, content.articleAssets || [], content.businessName);
     }
     if (content.type === 'podcast' && content.article) {
       return this.formatPodcast(content.article);
@@ -124,7 +124,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     throw new Error(`Cannot format content: type="${content.type}" — ensure article/videoIdea is populated`);
   }
 
-  private formatArticle(article: Article, articleAssets: ArticleAsset[]): FormattedContent {
+  private formatArticle(article: Article, articleAssets: ArticleAsset[], businessName?: string): FormattedContent {
     const mediaToUpload: MediaUpload[] = [];
 
     // Hero image — keyed as 'hero' so page-writer can look it up for the hero section.
@@ -257,7 +257,9 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       status: ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED', 'PUBLISHED'].includes(article.articleStatus || '') ? 'published' : 'draft',
       
       author: {
-        name: 'ApexContent Engine',
+        // Use the actual business name from the batch; fall back to a generic label
+        // only when no business name is configured on the batch.
+        name: businessName || 'Content Team',
       },
       
       ...(jsonLd ? { jsonLd } : {}),
