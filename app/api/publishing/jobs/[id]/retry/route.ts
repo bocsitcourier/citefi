@@ -28,8 +28,8 @@ export async function POST(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    if (job.status === 'delivered') {
-      return NextResponse.json({ error: 'Job already delivered — no retry needed' }, { status: 400 });
+    if (job.status === 'sent') {
+      return NextResponse.json({ error: 'Job already sent — no retry needed' }, { status: 400 });
     }
 
     // Reset the job for re-queuing

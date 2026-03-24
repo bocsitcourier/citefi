@@ -41,6 +41,8 @@ function detectMediaType(url: string): { mimeType: string; extension: string } {
 // Sanitizes metadata string fields for receiver compatibility.
 // Receivers may enforce strict character sets on SEO fields like title/metaTitle.
 // Replaces: | → " - ", & → " and ", curly quotes → ASCII, en/em dash → " - ".
+// Also strips square brackets (e.g. "[2026]") and collapses parenthetical year
+// suffixes (e.g. "(2026)") to plain text — old receivers reject these characters.
 function sanitizeMetaField(value: string): string {
   return value
     .replace(/\u2018|\u2019|\u201A|\u201B/g, "'")   // curly single quotes → '
@@ -48,6 +50,8 @@ function sanitizeMetaField(value: string): string {
     .replace(/\u2013|\u2014/g, ' - ')               // en/em dash → " - "
     .replace(/\s*\|\s*/g, ' - ')                    // pipe → " - "
     .replace(/\s*&\s*/g, ' and ')                   // & → " and "
+    .replace(/\[([^\]]*)\]/g, '$1')                 // [text] → text (strip brackets)
+    .replace(/\((\d{4})\)/g, '$1')                  // (YYYY) → YYYY (strip year parens)
     .replace(/\s+/g, ' ')                           // collapse whitespace
     .trim();
 }

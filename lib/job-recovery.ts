@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { articles, jobBatches, socialPosts, videoIdeas, errorLogs } from "@/shared/schema";
-import { eq, isNull, or, sql } from "drizzle-orm";
+import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
+import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
 import { getPgBoss } from "./queue";
 
 const STUCK_JOB_TIMEOUT_MINUTES = 30;
@@ -90,6 +90,148 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     }
   } catch (e) {
     console.warn("  ⚠️ Could not recover articles:", e);
+  }
+
+  // 2b. Recover FAILED articles with transient errors in RUNNING batches
+  // -------------------------------------------------------------------------
+  // Transient errors are retryable: network failures, DB connection drops,
+  // Gemini/GPT timeouts.  Permanent errors (brand-safety, schema validation)
+  // are intentionally excluded so they don't loop forever.
+  // -------------------------------------------------------------------------
+  try {
+    const TRANSIENT_PATTERNS = [
+      "fetch failed",
+      "error connecting to database",
+      "econnrefused",
+      "econnreset",
+      "etimedout",
+      "exceeded hard timeout",
+      "socket hang up",
+      "network error",
+      "eai_again",
+    ];
+
+    const failedWithBatch = await db
+      .select({
+        id: articles.id,
+        batchId: articles.batchId,
+        chosenTitle: articles.chosenTitle,
+        errorMessage: articles.errorMessage,
+        batchTargetUrl: jobBatches.targetUrl,
+        batchGenerationParams: jobBatches.generationParams,
+        batchBusinessName: jobBatches.businessName,
+        batchCompanyLogoUrl: jobBatches.companyLogoUrl,
+        batchPersonaId: jobBatches.personaId,
+        batchTeamId: jobBatches.teamId,
+      })
+      .from(articles)
+      .innerJoin(jobBatches, eq(articles.batchId, jobBatches.id))
+      .where(and(
+        eq(articles.articleStatus, "FAILED"),
+        eq(jobBatches.status, "RUNNING")
+      ));
+
+    const transientFailed = failedWithBatch.filter((a) => {
+      const err = (a.errorMessage || "").toLowerCase();
+      return TRANSIENT_PATTERNS.some((p) => err.includes(p));
+    });
+
+    if (transientFailed.length > 0) {
+      const { addArticleJob } = await import("./queue");
+      for (const a of transientFailed) {
+        const params = (a.batchGenerationParams || {}) as Record<string, unknown>;
+
+        await db.update(articles)
+          .set({
+            articleStatus: "PENDING",
+            errorMessage: `Auto-recovered from transient failure: ${(a.errorMessage || "").slice(0, 80)}`,
+          })
+          .where(eq(articles.id, a.id));
+
+        await addArticleJob({
+          articleId: a.id,
+          batchId: a.batchId,
+          runId: crypto.randomUUID(),
+          title: a.chosenTitle || `Article ${a.id}`,
+          targetUrl: a.batchTargetUrl || "",
+          tone: params.tone as string | undefined,
+          wordCountMin: params.wordCountMin as number | undefined,
+          wordCountMax: params.wordCountMax as number | undefined,
+          geographicFocus: params.geographicFocus as string | undefined,
+          businessName: a.batchBusinessName || undefined,
+          companyLogoUrl: a.batchCompanyLogoUrl || undefined,
+          teamId: a.batchTeamId || undefined,
+          personaId: a.batchPersonaId || undefined,
+        });
+
+        console.log(`  🔄 Re-queued transient-failed article #${a.id}: "${(a.chosenTitle || "").slice(0, 60)}" — was: ${(a.errorMessage || "").slice(0, 70)}`);
+        stats.articlesRecovered++;
+      }
+    }
+  } catch (e) {
+    console.warn("  ⚠️ Could not recover transient-failed articles:", e);
+  }
+
+  // 2c. Recover failed publishing jobs with transient errors
+  // -------------------------------------------------------------------------
+  // Re-queues publishing_jobs that failed due to network flaps, DB drops, or
+  // transient 5xx responses.  Permanent failures ("Invalid request parameters",
+  // "incompatible receiver") are intentionally excluded.
+  // Only retried if below max_attempts ceiling to prevent infinite loops.
+  // -------------------------------------------------------------------------
+  try {
+    const PUBLISH_TRANSIENT_PATTERNS = [
+      "fetch failed",
+      "econnrefused",
+      "econnreset",
+      "etimedout",
+      "socket hang up",
+      "network error",
+      "eai_again",
+      "service unavailable",
+      "503",
+      "502",
+      "504",
+    ];
+
+    const MAX_PUBLISH_RETRY_ATTEMPTS = 5;
+
+    const failedPublishJobs = await db
+      .select({
+        id: publishingJobs.id,
+        teamId: publishingJobs.teamId,
+        articleId: publishingJobs.articleId,
+        lastError: publishingJobs.lastError,
+        attempts: publishingJobs.attempts,
+        maxAttempts: publishingJobs.maxAttempts,
+      })
+      .from(publishingJobs)
+      .where(eq(publishingJobs.status, "failed"));
+
+    const transientPublishFailed = failedPublishJobs.filter((j) => {
+      const err = (j.lastError || "").toLowerCase();
+      const isTransient = PUBLISH_TRANSIENT_PATTERNS.some((p) => err.includes(p));
+      const belowCeiling = (j.attempts || 0) < MAX_PUBLISH_RETRY_ATTEMPTS;
+      return isTransient && belowCeiling;
+    });
+
+    if (transientPublishFailed.length > 0) {
+      const { addPublishingJob } = await import("./queue");
+      for (const j of transientPublishFailed) {
+        await db
+          .update(publishingJobs)
+          .set({ status: "pending" })
+          .where(eq(publishingJobs.id, j.id));
+
+        await addPublishingJob({ dbJobId: j.id, teamId: j.teamId! });
+        console.log(`  🔄 Re-queued transient-failed publishing job #${j.id} (article #${j.articleId}) — was: ${(j.lastError || "").slice(0, 70)}`);
+      }
+      console.log(`  ✅ Recovered ${transientPublishFailed.length} transient-failed publishing job(s)`);
+    } else {
+      console.log("  ✓ No transient-failed publishing jobs to recover");
+    }
+  } catch (e) {
+    console.warn("  ⚠️ Could not recover transient-failed publishing jobs:", e);
   }
 
   // 3. Recover stuck social posts

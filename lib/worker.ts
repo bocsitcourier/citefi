@@ -30,7 +30,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
-import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks } from "./keyword-hyperlink-pipeline";
+import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
 import { getGuardianFailureWarnings } from "./learning-integration";
 import { auditArticle } from "./guardian-agent";
@@ -782,6 +782,17 @@ export async function registerWorkers() {
             console.log(`🔗 HYPERLINK AUDIT: Article ${articleId} — ${newAnchorsApplied} real <a> tag(s) injected (was ${anchorsBefore}, now ${anchorsAfter})`);
           }
 
+          // Strip any short-anchor (<3 words) body links that GPT-4 may have added
+          // against instructions (e.g. "delivery solutions", "urgent logistics").
+          // This runs AFTER slug-map injection so all links are in final state.
+          {
+            const { cleanHtml, stripped } = stripShortBodyAnchorLinks(finalHtmlWithLinks);
+            if (stripped > 0) {
+              finalHtmlWithLinks = cleanHtml;
+              console.log(`🔗 SHORT-ANCHOR CLEANUP: Article ${articleId} — removed ${stripped} short-anchor body link(s)`);
+            }
+          }
+
           // Mark as GPT4_ENHANCED before final completion - NOW WITH HYPERLINKS APPLIED
           await db
             .update(articles)
@@ -1360,6 +1371,15 @@ export async function registerWorkers() {
                 if (injection.linksInjected > 0) finalReformatHtml = injection.html;
               } catch (hlError) {
                 console.warn(`⚠️ Slug map hyperlink step failed for reformat ${articleId}:`, hlError instanceof Error ? hlError.message : hlError);
+              }
+            }
+
+            // Strip any short-anchor (<3 words) body links that GPT-4 may have added
+            {
+              const { cleanHtml: reformatCleaned, stripped: reformatStripped } = stripShortBodyAnchorLinks(finalReformatHtml);
+              if (reformatStripped > 0) {
+                finalReformatHtml = reformatCleaned;
+                console.log(`🔗 SHORT-ANCHOR CLEANUP (reformat): Article ${articleId} — removed ${reformatStripped} short-anchor body link(s)`);
               }
             }
 

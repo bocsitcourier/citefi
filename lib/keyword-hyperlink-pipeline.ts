@@ -779,3 +779,58 @@ export function applyMultiUrlHyperlinks(
     urlDistribution: result.urlDistribution,
   };
 }
+
+// ---------------------------------------------------------------------------
+// SHORT-ANCHOR LINK STRIPPER
+// ---------------------------------------------------------------------------
+// GPT-4 occasionally adds short-anchor (<3 words) body links despite being
+// instructed not to. This post-processing step removes them from the HTML
+// while preserving:
+//   • Hashtag links  (anchor text starts with #)
+//   • Image caption links  (links inside <figure> or <figcaption>)
+//   • Links that use class="hashtag-link" (programmatic hashtag section)
+// Any link NOT matching those exceptions with <3 word anchor text is unwrapped
+// (the anchor text is kept; only the <a> wrapper is removed).
+// ---------------------------------------------------------------------------
+export function stripShortBodyAnchorLinks(html: string): {
+  cleanHtml: string;
+  stripped: number;
+} {
+  const $ = cheerio.load(html, null, false);
+  let stripped = 0;
+
+  $("a").each((_i, el) => {
+    const $el = $(el);
+    // Preserve hashtag links (class or text)
+    if (
+      $el.hasClass("hashtag-link") ||
+      $el.attr("class")?.includes("hashtag")
+    ) {
+      return;
+    }
+
+    const anchorText = $el.text().trim();
+
+    // Preserve bare hashtag anchors  (#Word)
+    if (anchorText.startsWith("#")) return;
+
+    // Preserve links inside figure / figcaption (image captions)
+    if ($el.closest("figure").length > 0 || $el.closest("figcaption").length > 0) {
+      return;
+    }
+
+    // Count words (split on whitespace)
+    const wordCount = anchorText.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 3) {
+      // Unwrap: replace <a>text</a> with text
+      $el.replaceWith(anchorText);
+      stripped++;
+    }
+  });
+
+  if (stripped > 0) {
+    console.log(`[ShortAnchorSanitizer] Stripped ${stripped} short-anchor (<3 words) link(s) from HTML`);
+  }
+
+  return { cleanHtml: $.html(), stripped };
+}
