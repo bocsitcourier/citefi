@@ -122,7 +122,8 @@ export async function POST(
         and(
           eq(articles.batchId, batchId),
           inArray(articles.articleStatus, completedStatuses),
-          sql`(${articles.heroImageUrl} IS NULL OR ${articles.heroImageUrl} = '')`
+          // Also catch articles where image generation failed and the SVG fallback placeholder was stored
+          sql`(${articles.heroImageUrl} IS NULL OR ${articles.heroImageUrl} = '' OR ${articles.heroImageUrl} LIKE 'data:image/svg+xml%')`
         )
       );
 

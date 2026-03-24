@@ -218,8 +218,9 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       }
     }
 
-    // Strip script/style/iframe tags from bodyHtml before sending to receiver.
-    // Receivers commonly reject HTML with <script> tags as a security measure.
+    // Strip script/style/iframe tags AND inline event handlers from bodyHtml before
+    // sending to receiver. Receivers reject HTML containing on* attributes (onerror,
+    // onload, etc.) as an XSS/security violation, returning "Invalid request content".
     // JSON-LD schema is sent separately via the jsonLd field, so stripping it here is safe.
     const rawBodyHtml = article.finalHtmlContent || '';
     const strippedBodyHtml = rawBodyHtml
@@ -228,6 +229,10 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
       .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
       .replace(/<embed\b[^>]*\/?>/gi, '')
+      // Strip ALL inline event handler attributes (onerror, onload, onclick, etc.)
+      // These cause receivers to reject with "Invalid request content".
+      .replace(/\s+on[a-zA-Z]+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, '')
       .trim();
 
     // CRITICAL: Absolutize all relative /api/public-objects/... paths in bodyHtml.
@@ -491,8 +496,9 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
         };
       }
 
-      // Detailed diagnostics when receiver rejects with "Invalid request parameters"
-      if (response.status === 400 && typeof result.error === 'string' && result.error.toLowerCase().includes('invalid request parameters')) {
+      // Detailed diagnostics for any 400 rejection (covers "Invalid request content",
+      // "Invalid request parameters", and any other receiver validation failures).
+      if (response.status === 400) {
         const p = payload as Record<string, unknown>;
         console.log(`[PUBLISH-400] slug="${p.slug}" id="${p.id}" title="${String(p.title).slice(0,80)}" metaTitle="${String(p.metaTitle || '').slice(0,80)}" status="${p.status}"`);
         console.log(`[PUBLISH-400] keywords=${JSON.stringify(p.keywords).slice(0,300)}`);

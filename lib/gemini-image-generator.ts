@@ -70,7 +70,7 @@ export async function generateImagesForArticle(
         try {
           console.log(`  📸 Image ${i + 1}/${enhancedPrompts.length}: Generating with Gemini${attempt > 1 ? ` (retry ${attempt}/${MAX_RETRIES})` : ''}...`);
           
-          // Generate image using Gemini 2.5 Flash Image with 60s timeout AND rate limiting
+          // Generate image using Gemini 2.5 Flash Image with 120s timeout AND rate limiting
           const response = await throttledGeminiRequest(() => withTimeout(
             genAI.models.generateContent({
               model: "gemini-2.5-flash-image",
@@ -79,7 +79,7 @@ export async function generateImagesForArticle(
                 responseModalities: ["Image"],
               },
             }),
-            60000 // 60 second timeout
+            120000 // 120 second timeout (Imagen can be slow under load)
           ));
 
           // Extract image from response
@@ -273,7 +273,7 @@ export async function generateImagesForArticle(
             // Format display URL (remove protocol, keep clean)
             const displayUrl = companyUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
             const imageHtml = `\n<figure class="article-image my-6">
-  <img src="${image.url}" alt="${altText}" class="w-full rounded-lg shadow-md" loading="lazy" />
+  <img src="${image.url}" alt="${altText}" class="w-full rounded-lg shadow-md" loading="lazy" onerror="this.style.display='none';this.parentElement.style.display='none'" />
   <div class="text-sm text-primary mt-2"><a href="${companyUrl}" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">${displayUrl}</a></div>
 </figure>\n`;
             parts.push(imageHtml);

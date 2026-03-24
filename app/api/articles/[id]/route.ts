@@ -11,7 +11,8 @@ import {
   socialPostJobs,
   socialPostLogs,
   errorLogs,
-  articleVersions 
+  articleVersions,
+  publishingJobs,
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -92,6 +93,10 @@ export async function DELETE(
     await db.delete(articleAssets).where(eq(articleAssets.articleId, articleId));
     await db.delete(jobEvents).where(eq(jobEvents.articleId, articleId));
     await db.delete(errorLogs).where(eq(errorLogs.articleId, articleId));
+    // 6. Delete publishing jobs (FK reference to articles — must go before article delete)
+    //    Child rows referencing publishingJobs.id have onDelete:'cascade' so they
+    //    are removed automatically when the publishing_jobs row is deleted.
+    await db.delete(publishingJobs).where(eq(publishingJobs.articleId, articleId));
     
     // Finally delete the article itself
     await db.delete(articles).where(eq(articles.id, articleId));

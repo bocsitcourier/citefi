@@ -124,7 +124,7 @@ REQUIREMENTS:
    - Spread images evenly through the main content (approximately every 20-30% of body text)
    - **CRITICAL**: DO NOT place any images in the FAQ section - FAQ should be text-only
    - Images should only appear BEFORE the FAQ section begins
-   - Use this EXACT format (NO figcaption): <figure><img src="IMAGE_URL" alt="Simple descriptive alt text" class="article-image" /></figure>
+   - Use this EXACT format (NO figcaption): <figure><img src="IMAGE_URL" alt="Simple descriptive alt text" class="article-image" onerror="this.style.display='none';this.parentElement.style.display='none'" /></figure>
    - DO NOT add figcaption or any caption/description text under images
    - Alt text should be brief and descriptive (5-10 words maximum)
    ` : '- No images provided - skip image placement'}

@@ -917,7 +917,7 @@ ${localRegulations.length > 0 ? `**Local Regulations** (CITE FOR AUTHORITY):
 ${localRegulations.map(r => `- ${r.title} (${r.category}): ${r.description}${r.effectiveDate ? ` [Effective: ${r.effectiveDate}]` : ''}${r.sourceUrl ? ` [Source: ${r.sourceUrl}]` : ''}`).join('\n')}` : ''}
 
 ${authorityEntities.length > 0 ? `**Authority Entities** (CITE FOR E-E-A-T):
-${authorityEntities.map(e => `- ${e.name} (${e.type}, credibility: ${e.credibilityScore}/100): ${e.description}${e.citationUrl ? ` [${e.citationUrl}]` : ''}${e.freshnessYear ? ` [${e.freshnessYear}]` : ''}`).join('\n')}` : ''}
+${authorityEntities.map(e => `- ${e.name} (${e.type}): ${e.description}${e.citationUrl ? ` [${e.citationUrl}]` : ''}${e.freshnessYear ? ` [${e.freshnessYear}]` : ''}`).join('\n')}` : ''}
 
 ${keyStatistics.length > 0 ? `**Key Statistics** (USE IN FIRST 2-3 PARAGRAPHS):
 ${keyStatistics.map(s => `- ${s.claim}: ${s.value} (Source: ${s.source}, ${s.year})`).join('\n')}` : ''}
@@ -1102,7 +1102,7 @@ LAYER 1: LILY RAY'S ANSWER-FIRST STRUCTURE (AEO Optimization)
    **Formula:** [Direct Answer] + [Key Facts] + [Evidence/Statistics] + [Local Context for ${geographicFocus}] + [Practical Implication]
    
    **Example Structure (8-12 sentences, 150-200 words):**
-   "${title} involves [direct answer in 2-3 sentences]. ${geographicFocus} residents/businesses face [specific local challenge]. According to [authority entity with credibility score], [key statistic with source and year]. The primary considerations include [3-4 key factors]. For ${geographicFocus} specifically, [local regulation or neighborhood-specific context]. [Additional supporting evidence]. [Final implication or practical takeaway]."
+   "${title} involves [direct answer in 2-3 sentences]. ${geographicFocus} residents/businesses face [specific local challenge]. According to [authority entity name], [key statistic with source and year]. The primary considerations include [3-4 key factors]. For ${geographicFocus} specifically, [local regulation or neighborhood-specific context]. [Additional supporting evidence]. [Final implication or practical takeaway]."
 
 2. **E-E-A-T SIGNALS THROUGHOUT CONTENT:**
    
@@ -1254,12 +1254,12 @@ LAYER 3: KEVIN INDIG'S CITATION OPTIMIZATION (Schema-Ready)
 
 4. **FRONT-LOAD EVIDENCE (First 2-3 Paragraphs):**
    - Paragraph 1 (Answer-first): Include primary statistic
-   - Paragraph 2: Cite authority entity with credibility note
+   - Paragraph 2: Cite authority entity by name only (no internal scores)
    - Paragraph 3: Reference local regulation or neighborhood data
    - Use format: "[Claim] + [Evidence with source] + [Implication]"
    
    **Example:**
-   "[Statistic claim]: [value]. [Authority entity] (credibility: [score]/100) reports [evidence]. For ${geographicFocus} residents, this means [implication]."
+   "[Statistic claim]: [value]. [Authority entity] reports [evidence]. For ${geographicFocus} residents, this means [implication]."
 
 5. **COMPRESS PARAGRAPHS FOR EXTRACTABILITY:**
    - Each paragraph = [Claim] + [Evidence] + [Implication]
