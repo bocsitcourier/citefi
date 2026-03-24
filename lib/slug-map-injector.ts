@@ -21,7 +21,7 @@
 import { db } from "./db";
 import { sitePages } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { applyHyperlinksDom, HyperlinkRule, extractPhrasesFromHtml } from "./keyword-hyperlink-pipeline";
+import { applyHyperlinksDom, HyperlinkRule, extractPhrasesFromHtml, extractBoldPhrasesFromHtml } from "./keyword-hyperlink-pipeline";
 import { isHighQualityAnchor, isHighQualityAnchorDeterministic, isBareGeoAnchor } from "./seo-policy";
 import type { SitePage } from "../shared/schema";
 
@@ -234,6 +234,27 @@ export async function injectLinksWithIntent(
       if (isHighQualityAnchor(phrase)) {
         intentEntries.push({ keyword: phrase, url: targetUrl });
       }
+    }
+
+    // ── BOLD-PHRASE PASS: link <strong>/<b> service phrases that n-gram missed ──
+    // N-gram extraction fills 12 slots with longest (7-word) phrases first, so
+    // 3-4 word bold phrases like "medical courier Boston" or "express delivery
+    // Burlington" are never reached.  We scan <strong>/<b> elements directly and
+    // add any phrase that passes the 3-word deterministic gate, deduped against
+    // n-gram candidates already collected above.
+    const boldPhrases = extractBoldPhrasesFromHtml(html);
+    const existingPhraseKeys = new Set(intentEntries.map((e) => e.keyword.toLowerCase()));
+    let boldAdded = 0;
+    for (const phrase of boldPhrases) {
+      const key = phrase.toLowerCase();
+      if (existingPhraseKeys.has(key)) continue;
+      if (!isHighQualityAnchorDeterministic(phrase)) continue;
+      intentEntries.push({ keyword: phrase, url: targetUrl });
+      existingPhraseKeys.add(key);
+      boldAdded++;
+    }
+    if (boldAdded > 0) {
+      console.log(`[SlugMap] Bold-phrase pass: added ${boldAdded} additional candidate(s) from <strong>/<b> elements`);
     }
   }
 

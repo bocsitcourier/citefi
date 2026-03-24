@@ -781,6 +781,60 @@ export function applyMultiUrlHyperlinks(
 }
 
 // ---------------------------------------------------------------------------
+// BOLD-PHRASE EXTRACTOR
+// ---------------------------------------------------------------------------
+// Extracts text content from <strong> / <b> elements that could be valuable
+// hyperlink anchors. GPT-4 often bolds 3-4 word service phrases that the
+// standard n-gram extractor misses because:
+//   1. N-gram extraction fills its slots (default 12) with longer 7-word phrases
+//      before reaching 3-4 word ones.
+//   2. The n-gram gate (isHighQualityAnchor) requires 4+ words; 3-word bold
+//      phrases are always excluded.
+//
+// This extractor uses the DETERMINISTIC 3-word gate so short service phrases
+// like "medical courier Boston" and "express delivery Burlington" are included.
+// Called from injectLinksWithIntent (fallback mode) AFTER the n-gram pass so
+// it only supplements — it never replaces or conflicts with existing entries.
+// ---------------------------------------------------------------------------
+export function extractBoldPhrasesFromHtml(html: string): string[] {
+  const $ = cheerio.load(html, null, false);
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  $("strong, b").each((_i, el) => {
+    const text = $(el).text().trim();
+    if (!text || text.length < 4) return;
+
+    // Skip if it's wrapping an existing <a> (already linked)
+    if ($(el).find("a").length > 0) return;
+    // Skip if parent is an <a> (already linked)
+    if ($(el).closest("a").length > 0) return;
+    // Skip bold inside headings — those are structural, not anchor candidates
+    if ($(el).closest("h1,h2,h3,h4,h5,h6").length > 0) return;
+
+    // Skip phrases that end with punctuation (section labels, not service phrases)
+    // e.g. "Assess Your Current Delivery Volume and Frequency:"
+    if (/[:\!\?]$/.test(text)) return;
+
+    // Skip phrases containing parentheses (abbreviations, citations)
+    // e.g. "Define Your Service Level Agreements (SLAs) for Couriers"
+    if (/[()]/.test(text)) return;
+
+    // Skip pure numeric / currency phrases (e.g. "$500 billion" — useful for emphasis
+    // but not SEO anchor text)
+    if (/^\$?\d/.test(text)) return;
+
+    const lower = text.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      results.push(text);
+    }
+  });
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // SHORT-ANCHOR LINK STRIPPER
 // ---------------------------------------------------------------------------
 // GPT-4 occasionally adds short-anchor (<3 words) body links despite being
