@@ -3,6 +3,22 @@ import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
+import { jsonrepair } from "jsonrepair";
+
+function safeParseJSON<T>(text: string, label: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch (firstErr) {
+    try {
+      const repaired = jsonrepair(text);
+      const parsed = JSON.parse(repaired) as T;
+      console.warn(`⚠️ [${label}] JSON was malformed — repaired successfully`);
+      return parsed;
+    } catch {
+      throw firstErr;
+    }
+  }
+}
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Veo script generation");
@@ -140,7 +156,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,
-        maxOutputTokens: 3000,
+        maxOutputTokens: 8192,
       },
     });
 
@@ -164,7 +180,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
       console.log(`✅ Brand name case corrected to: "${companyName}"`);
     }
 
-    const script: VeoVideoScript = JSON.parse(cleanedText);
+    const script: VeoVideoScript = safeParseJSON<VeoVideoScript>(cleanedText, "VeoScript");
 
     if (companyName) {
       console.log(`🔒 Validating brand spelling: "${companyName}"`);

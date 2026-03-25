@@ -5,6 +5,22 @@ import { createBrandLockPromptSegment } from "./branding";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizePodcastScript } from "./deterministic-humanizer";
+import { jsonrepair } from "jsonrepair";
+
+function safeParseJSON<T>(text: string, label: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch (firstErr) {
+    try {
+      const repaired = jsonrepair(text);
+      const parsed = JSON.parse(repaired) as T;
+      console.warn(`⚠️ [${label}] JSON was malformed — repaired successfully`);
+      return parsed;
+    } catch {
+      throw firstErr;
+    }
+  }
+}
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -152,7 +168,7 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
       throw new Error("Failed to extract JSON from Gemini response");
     }
     
-    const script: PodcastScript = JSON.parse(jsonMatch[0]);
+    const script: PodcastScript = safeParseJSON<PodcastScript>(jsonMatch[0], "PodcastScript");
     
     if (!script.segments || script.segments.length === 0) {
       throw new Error("Generated script has no segments");
