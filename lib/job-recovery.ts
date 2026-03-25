@@ -5,6 +5,33 @@ import { getPgBoss } from "./queue";
 
 const STUCK_JOB_TIMEOUT_MINUTES = 30;
 
+// ---------------------------------------------------------------------------
+// DB RETRY HELPER
+// ---------------------------------------------------------------------------
+// Neon's HTTP driver drops connections intermittently ("fetch failed").
+// Rather than letting the entire recovery scan fail, each section already has
+// its own try/catch.  This helper adds per-call retry so individual DB
+// operations survive a transient blip without needing the caller to change.
+// ---------------------------------------------------------------------------
+async function withDbRetry<T>(fn: () => Promise<T>, label: string, retries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+      const isTransient = msg.includes("fetch failed") || msg.includes("error connecting") ||
+        msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("eai_again");
+      if (!isTransient || attempt === retries) break;
+      const delay = attempt * 2000; // 2s, 4s
+      console.warn(`  ⚠️ [${label}] DB call failed (attempt ${attempt}/${retries}), retrying in ${delay / 1000}s…`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 interface RecoveryStats {
   articlesRecovered: number;
   socialPostsRecovered: number;
@@ -26,14 +53,17 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
   // 1. Recover stuck video ideas (CRITICAL - these are expensive!)
   try {
-    const stuckVideos = await db.select({ id: videoIdeas.id, status: videoIdeas.status })
-      .from(videoIdeas)
-      .where(or(
-        eq(videoIdeas.status, "EXPANDING"),
-        eq(videoIdeas.status, "SCRIPTING"),
-        eq(videoIdeas.status, "GENERATING"),
-        eq(videoIdeas.status, "STITCHING")
-      ));
+    const stuckVideos = await withDbRetry(
+      () => db.select({ id: videoIdeas.id, status: videoIdeas.status })
+        .from(videoIdeas)
+        .where(or(
+          eq(videoIdeas.status, "EXPANDING"),
+          eq(videoIdeas.status, "SCRIPTING"),
+          eq(videoIdeas.status, "GENERATING"),
+          eq(videoIdeas.status, "STITCHING")
+        )),
+      "stuck-video-ideas"
+    );
     
     for (const video of stuckVideos) {
       await db.update(videoIdeas)
@@ -196,8 +226,8 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
     const MAX_PUBLISH_RETRY_ATTEMPTS = 5;
 
-    const failedPublishJobs = await db
-      .select({
+    const failedPublishJobs = await withDbRetry(
+      () => db.select({
         id: publishingJobs.id,
         teamId: publishingJobs.teamId,
         articleId: publishingJobs.articleId,
@@ -206,7 +236,9 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
         maxAttempts: publishingJobs.maxAttempts,
       })
       .from(publishingJobs)
-      .where(eq(publishingJobs.status, "failed"));
+      .where(eq(publishingJobs.status, "failed")),
+      "failed-publish-jobs"
+    );
 
     const transientPublishFailed = failedPublishJobs.filter((j) => {
       const err = (j.lastError || "").toLowerCase();
@@ -264,10 +296,12 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   // Strategy: re-enqueue automatically if within max generation time, only fail if truly timed out.
   // This prevents server restarts from permanently failing in-progress videos.
   try {
-    const stuckVideoPosts = await db
-      .select({ id: socialPosts.id, videoType: socialPosts.videoType, updatedAt: socialPosts.updatedAt })
-      .from(socialPosts)
-      .where(eq(socialPosts.videoStatus, "GENERATING"));
+    const stuckVideoPosts = await withDbRetry(
+      () => db.select({ id: socialPosts.id, videoType: socialPosts.videoType, updatedAt: socialPosts.updatedAt })
+        .from(socialPosts)
+        .where(eq(socialPosts.videoStatus, "GENERATING")),
+      "stuck-social-videos"
+    );
 
     const boss = await getPgBoss();
     let requeued = 0;

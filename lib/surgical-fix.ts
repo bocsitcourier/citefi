@@ -102,6 +102,12 @@ CRITICAL: Preserve all existing text exactly. You are an editor inserting missin
 EXISTING HTML:
 ${html}`;
 
+  // Estimate required output tokens: the patched article must be at least as large
+  // as the input HTML.  Using 16 k avoids the silent truncation that triggers the
+  // 70 %-length guard and reverts the fix on long articles (> ~3 k words).
+  const estimatedInputTokens = Math.ceil(html.length / 3.5); // ~3.5 chars/token for HTML
+  const maxOutputTokens = Math.min(Math.max(estimatedInputTokens + 2000, 8000), 16000);
+
   try {
     const response = await openaiClient.chat.completions.create({
       model: "gpt-4o",
@@ -110,7 +116,7 @@ ${html}`;
         { role: "user", content: userPrompt },
       ],
       temperature: 0.15,
-      max_tokens: 8000,
+      max_tokens: maxOutputTokens,
     });
 
     const fixedHtml = response.choices[0]?.message?.content || html;

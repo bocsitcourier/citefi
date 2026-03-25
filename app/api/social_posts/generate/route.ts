@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { socialPosts, articles } from "@/shared/schema";
+import { socialPosts, articles, jobBatches } from "@/shared/schema";
 import { addSocialPostJob } from "@/lib/queue";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
     let title = validatedData.standaloneTitle || "";
     let topic = validatedData.topic || "";
     let location = validatedData.location || "";
+    // companyName: prefer explicitly provided value, else auto-populate from batch below
+    let resolvedCompanyName = validatedData.companyName || "";
+    let resolvedCompanyLogoUrl = validatedData.companyLogoUrl || "";
 
     // If article ID provided, fetch article details
     if (validatedData.articleId) {
@@ -67,6 +70,22 @@ export async function POST(request: NextRequest) {
       // Keep user-submitted location, otherwise fallback to defaults
       // DON'T overwrite user's location input!
       location = validatedData.location || location || "";
+
+      // Auto-populate companyName / logo from the article's batch when the caller
+      // didn't provide them. This is the most common case — the user creates a
+      // social post from an article and expects the business name to carry over.
+      if (!resolvedCompanyName && article.batchId) {
+        try {
+          const [batch] = await db
+            .select({ businessName: jobBatches.businessName, companyLogoUrl: jobBatches.companyLogoUrl })
+            .from(jobBatches)
+            .where(eq(jobBatches.id, article.batchId));
+          if (batch?.businessName) resolvedCompanyName = batch.businessName;
+          if (!resolvedCompanyLogoUrl && batch?.companyLogoUrl) resolvedCompanyLogoUrl = batch.companyLogoUrl;
+        } catch {
+          // Non-critical — continue without batch data
+        }
+      }
     } else {
       // Standalone post
       title = validatedData.standaloneTitle || "";
@@ -80,7 +99,9 @@ export async function POST(request: NextRequest) {
     const safeTopic = (topic || "").substring(0, 250);
     const safeTitle = (title || "").substring(0, 250);
     const safeLocation = (location || "Global").substring(0, 250);
-    const safeCompanyName = (validatedData.companyName || "").substring(0, 250);
+    // resolvedCompanyName already prefers explicit user input, falls back to batch businessName
+    const safeCompanyName = (resolvedCompanyName || "").substring(0, 250);
+    const safeCompanyLogoUrl = (resolvedCompanyLogoUrl || "").substring(0, 500);
     
     const [socialPostRow] = await db.insert(socialPosts).values({
       userId,
@@ -97,7 +118,7 @@ export async function POST(request: NextRequest) {
       landingPageUrl: validatedData.landingPageUrl || null,
       userEmail: validatedData.userEmail || null,
       companyName: safeCompanyName || null,
-      companyLogoUrl: validatedData.companyLogoUrl || null,
+      companyLogoUrl: safeCompanyLogoUrl || null,
       status: "PENDING",
     }).returning();
     const socialPost = socialPostRow!;

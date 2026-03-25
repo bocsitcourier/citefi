@@ -759,7 +759,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                       {article.wordCount && <span>{article.wordCount} words</span>}
                       {article.slug && <span className="font-mono">{article.slug}</span>}
                     </div>
-                    {article.articleStatus === "FAILED" && article.errorMessage && (
+                    {["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus) && article.errorMessage && (
                       <p className="mt-1 text-xs text-destructive flex items-start gap-1">
                         <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
                         <span>{article.errorMessage}</span>
@@ -767,9 +767,17 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge variant={["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus) ? "default" : article.articleStatus === "FAILED" ? "destructive" : "secondary"}>
-                      {article.articleStatus === "FAILED" && <AlertCircle className="w-3 h-3 mr-1" />}
-                      {article.articleStatus}
+                    <Badge variant={
+                      ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus)
+                        ? "default"
+                        : ["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus)
+                        ? "destructive"
+                        : article.articleStatus === "REFORMATTING"
+                        ? "secondary"
+                        : "secondary"
+                    }>
+                      {["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus) && <AlertCircle className="w-3 h-3 mr-1" />}
+                      {article.articleStatus === "REFORMATTING" ? "Reformatting…" : article.articleStatus}
                     </Badge>
                     {["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus) && article.wordCount && (
                       <Link href={`/content/${article.id}`}>
@@ -779,7 +787,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                         </Button>
                       </Link>
                     )}
-                    {article.articleStatus === "FAILED" && (
+                    {["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus) && (
                       <Button
                         variant="outline"
                         size="sm"

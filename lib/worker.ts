@@ -1239,6 +1239,13 @@ export async function registerWorkers() {
               continue;
             }
 
+            // Mark as REFORMATTING immediately so the UI shows progress
+            await db
+              .update(articles)
+              .set({ articleStatus: "REFORMATTING" })
+              .where(eq(articles.id, articleId))
+              .catch(() => {}); // non-blocking — don't let a status update kill the job
+
             // Get the batch to retrieve targetUrl and businessName
             const [batch] = await db
               .select()
@@ -1432,6 +1439,15 @@ export async function registerWorkers() {
 
           } catch (error) {
             console.error(`❌ Reformat failed for article ${articleId}:`, error);
+            // Mark the article so the UI shows a visible failure state — don't silently do nothing
+            await db
+              .update(articles)
+              .set({
+                articleStatus: "REFORMAT_FAILED",
+                errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+              })
+              .where(eq(articles.id, articleId))
+              .catch(() => {}); // non-blocking — prevent cascading DB errors
             // Don't throw - let user retry if needed
           }
         }
