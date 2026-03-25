@@ -3,4 +3,15 @@ dist
 .DS_Store
 server/public
 vite.config.ts.*
-*.tar.gz.next/
+*.tar.gz
+
+# Next.js build output — never commit these
+.next/
+.vercel/
+
+# Temp video/audio files
+/tmp/
+
+# Local env files
+.env.local
+.env*.local

@@ -9,6 +9,7 @@ console.log('🔧 Starting pg-boss workers in dedicated process...\n');
 const workerProcess = spawn('tsx', ['server/worker-process.ts'], {
   stdio: 'inherit',
   shell: true,
+  env: { ...process.env, WORKER_PROCESS: 'true' },
 });
 
 workerProcess.on('error', (error) => {

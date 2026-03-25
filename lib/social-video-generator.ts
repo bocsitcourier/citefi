@@ -271,6 +271,25 @@ export async function generateSocialVideo(
       .where(eq(socialPosts.id, socialPostId));
 
     // Step 7: Update database with final video
+    // Check if user cancelled while we were generating — don't overwrite their cancellation
+    const [currentStatus] = await db
+      .select({ videoStatus: socialPosts.videoStatus })
+      .from(socialPosts)
+      .where(eq(socialPosts.id, socialPostId))
+      .limit(1);
+
+    if (currentStatus?.videoStatus === "FAILED") {
+      console.log(`🛑 Social post ${socialPostId} was cancelled by user — skipping READY update`);
+      await cleanupTempFiles(socialPostId);
+      return {
+        videoUrl: video.videoUrl,
+        duration: video.duration,
+        resolution: video.resolution,
+        fileSize: video.fileSize,
+        scriptSummary: { title: script.title, scenes: script.scenes.length, hashtags: script.hashtags },
+      };
+    }
+
     console.log(`\n💾 Saving video to database...`);
     await db
       .update(socialPosts)

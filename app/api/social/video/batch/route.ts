@@ -127,8 +127,8 @@ export async function POST(request: NextRequest) {
           "social-video-generation",
           { socialPostId: post.id, platform },
           {
-            retryLimit: 2,
-            retryDelay: 30,
+            retryLimit: 0, // No retries - each attempt costs money
+            retryDelay: 0,
             expireInSeconds: 900, // 15 minutes max
             startAfter: startDelaySeconds, // Stagger start times
           }

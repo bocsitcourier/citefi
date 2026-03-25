@@ -75,8 +75,8 @@ export async function POST(
       "video-idea-generation",
       { videoIdeaId: ideaId },
       {
-        retryLimit: 1,
-        retryDelay: 60,
+        retryLimit: 0, // No retries - each attempt costs money
+        retryDelay: 0,
         expireInSeconds: 5400,
       }
     );

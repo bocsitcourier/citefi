@@ -98,8 +98,8 @@ export async function POST(request: NextRequest) {
       "social-video-generation",
       { socialPostId, platform, videoType },
       {
-        retryLimit: isVeo ? 1 : 2, // Fewer retries for expensive Veo jobs
-        retryDelay: 30, // 30 seconds between retries
+        retryLimit: 0, // No retries - each attempt costs money
+        retryDelay: 0,
         expireInSeconds,
       }
     );

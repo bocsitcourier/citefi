@@ -412,6 +412,28 @@ export default function SocialPostDetailPage() {
     },
   });
 
+  const cancelVideoMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("/api/social/video/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ socialPostId: parseInt(postId) }),
+      });
+      return response;
+    },
+    onSuccess: () => {
+      toast({ title: "Video generation stopped" });
+      queryClient.invalidateQueries({ queryKey: [`/api/social_posts/${postId}`] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not stop generation",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Poll for video generation status (tighter polling when generating)
   useEffect(() => {
     if (!post || !post.videoStatus) return;
@@ -874,19 +896,29 @@ export default function SocialPostDetailPage() {
                   <p className="text-xs text-muted-foreground mt-4">
                     This process takes 2-3 minutes. The page updates automatically.
                   </p>
-                  
-                  {/* Force-retry button for stuck GENERATING videos */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-4"
-                    onClick={() => generateVideoMutation.mutate({ force: true })}
-                    disabled={generateVideoMutation.isPending}
-                    data-testid="button-cancel-retry-video"
-                  >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Stuck? Click to Retry
-                  </Button>
+
+                  <div className="flex items-center justify-center gap-3 mt-4">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => cancelVideoMutation.mutate()}
+                      disabled={cancelVideoMutation.isPending}
+                      data-testid="button-stop-video"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      {cancelVideoMutation.isPending ? "Stopping..." : "Stop Generating"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => generateVideoMutation.mutate({ force: true })}
+                      disabled={generateVideoMutation.isPending}
+                      data-testid="button-retry-video"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Stuck? Retry
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
