@@ -33,6 +33,7 @@ import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
 import { getGuardianFailureWarnings } from "./learning-integration";
+import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
 import { ContentType } from "@/shared/schema";
@@ -249,6 +250,20 @@ export async function registerWorkers() {
             .where(eq(jobBatches.id, batchId));
         } catch (dbError) {
           console.error(`❌ Failed to update batch status:`, dbError);
+        }
+
+        // Notify the team so the batch failure appears in the in-app bell
+        if (teamId) {
+          void createNotification({
+            teamId,
+            type: "error",
+            category: "batch",
+            title: "Batch Generation Failed",
+            message: `A batch of ${selectedTitles?.length ?? 0} articles failed to start: ${errorMessage.slice(0, 200)}`,
+            entityId: batchId,
+            entityType: "batch",
+            actionUrl: `/batches/${batchId}`,
+          }).catch(() => {});
         }
 
         throw error;
@@ -1097,6 +1112,20 @@ export async function registerWorkers() {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
+        // Notify the team via the in-app bell so the failure is visible without checking logs
+        if (articleTeamId) {
+          void createNotification({
+            teamId: articleTeamId,
+            type: "error",
+            category: "article",
+            title: "Article Generation Failed",
+            message: `"${(title || "Article").slice(0, 80)}" failed: ${errorMessage.slice(0, 200)}`,
+            entityId: articleId,
+            entityType: "article",
+            actionUrl: `/content/${articleId}`,
+          }).catch(() => {});
+        }
+
         // Check batch completion even on failure
         await checkBatchCompletion(batchId);
 
@@ -1439,15 +1468,30 @@ export async function registerWorkers() {
 
           } catch (error) {
             console.error(`❌ Reformat failed for article ${articleId}:`, error);
+            const reformatErrMsg = error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
             // Mark the article so the UI shows a visible failure state — don't silently do nothing
             await db
               .update(articles)
               .set({
                 articleStatus: "REFORMAT_FAILED",
-                errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+                errorMessage: reformatErrMsg,
               })
               .where(eq(articles.id, articleId))
               .catch(() => {}); // non-blocking — prevent cascading DB errors
+            // Notify the team via the in-app bell
+            const reformatTeamId = batch?.teamId;
+            if (reformatTeamId) {
+              void createNotification({
+                teamId: reformatTeamId,
+                type: "error",
+                category: "article",
+                title: "Article Reformat Failed",
+                message: `Article #${articleId} "${(article?.chosenTitle || "").slice(0, 80)}" failed to reformat: ${reformatErrMsg.slice(0, 150)}`,
+                entityId: articleId,
+                entityType: "article",
+                actionUrl: `/content/${articleId}`,
+              }).catch(() => {});
+            }
             // Don't throw - let user retry if needed
           }
         }

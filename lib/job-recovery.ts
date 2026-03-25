@@ -2,6 +2,7 @@ import { db } from "./db";
 import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
 import { getPgBoss } from "./queue";
+import { createNotification } from "./notification-service";
 
 const STUCK_JOB_TIMEOUT_MINUTES = 30;
 
@@ -297,7 +298,7 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   // This prevents server restarts from permanently failing in-progress videos.
   try {
     const stuckVideoPosts = await withDbRetry(
-      () => db.select({ id: socialPosts.id, videoType: socialPosts.videoType, updatedAt: socialPosts.updatedAt })
+      () => db.select({ id: socialPosts.id, videoType: socialPosts.videoType, updatedAt: socialPosts.updatedAt, teamId: socialPosts.teamId })
         .from(socialPosts)
         .where(eq(socialPosts.videoStatus, "GENERATING")),
       "stuck-social-videos"
@@ -353,6 +354,20 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
               severity: "error",
             });
           } catch (_) { /* non-fatal */ }
+
+          // Notify the team via the in-app bell
+          if (post.teamId) {
+            void createNotification({
+              teamId: post.teamId,
+              type: "error",
+              category: "video",
+              title: "Video Generation Timed Out",
+              message: `A ${post.videoType === "veo" ? "Veo AI" : "slideshow"} video timed out after ${elapsedMinutes.toFixed(0)} minutes. Open Social Media to click Regenerate Video.`,
+              entityId: post.id,
+              entityType: "social_post",
+              actionUrl: `/social/dashboard`,
+            }).catch(() => {});
+          }
 
           console.log(`  ❌ Timed out Social Post #${post.id} after ${elapsedMinutes.toFixed(0)}min → FAILED`);
           failed++;
