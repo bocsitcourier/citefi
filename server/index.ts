@@ -7,11 +7,13 @@ import { spawn } from 'child_process';
 console.log('🚀 Starting ApexContent Engine (Next.js)...\n');
 
 // Start pg-boss workers in separate process with active event loop
+let workerProcess: ReturnType<typeof spawn> | null = null;
+
 if (process.env.DISABLE_WORKERS === 'true') {
   console.log('⏸️  Workers disabled (DISABLE_WORKERS=true) — UI-only dev mode\n');
 } else {
   console.log('🔧 Starting pg-boss workers in dedicated process...\n');
-  const workerProcess = spawn('tsx', ['server/worker-process.ts'], {
+  workerProcess = spawn('tsx', ['server/worker-process.ts'], {
     stdio: 'inherit',
     shell: true,
     env: { ...process.env, WORKER_PROCESS: 'true' },
@@ -112,11 +114,11 @@ warmupPages().catch(() => {});
 
 // Handle shutdown gracefully
 process.on('SIGINT', () => {
-  workerProcess.kill('SIGINT');
+  workerProcess?.kill('SIGINT');
   nextDev.kill('SIGINT');
 });
 
 process.on('SIGTERM', () => {
-  workerProcess.kill('SIGTERM');
+  workerProcess?.kill('SIGTERM');
   nextDev.kill('SIGTERM');
 });
