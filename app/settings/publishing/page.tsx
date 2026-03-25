@@ -1049,7 +1049,15 @@ app.use('/api/v1', receiver);`}
       </Tabs>
 
       {/* ── Publish Now Modal ─────────────────────────────────────────────── */}
-      <Dialog open={showPublishModal} onOpenChange={setShowPublishModal}>
+      <Dialog open={showPublishModal} onOpenChange={(open) => {
+        if (!open) {
+          setPublishBatchIds(new Set());
+          setPublishConnectionId("");
+          setPublishMode("single");
+          setPublishArticleId("");
+        }
+        setShowPublishModal(open);
+      }}>
         <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Publish Content</DialogTitle>
@@ -1142,6 +1150,7 @@ app.use('/api/v1', receiver);`}
                       >
                         <Checkbox
                           checked={publishBatchIds.has(art.id)}
+                          onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => toggleBatchArticle(art.id)}
                         />
                         <span className="text-sm truncate flex-1">{art.title}</span>
