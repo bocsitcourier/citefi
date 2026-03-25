@@ -267,6 +267,59 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     console.warn("  ⚠️ Could not recover transient-failed publishing jobs:", e);
   }
 
+  // 2d. Recover STALE-PENDING publishing jobs
+  // -------------------------------------------------------------------------
+  // When a job fails and shouldRetry=true, the DB is set to status='pending'
+  // but the pg-boss job is already consumed. Without being re-enqueued the job
+  // sits in 'pending' forever. Re-queue any pending publishing job whose last
+  // attempt was >5 minutes ago (meaning pg-boss dropped it without a retry).
+  // Also exclude jobs that already have a RECEIVER_REJECTED permanent error —
+  // those should stay failed and not loop.
+  // -------------------------------------------------------------------------
+  try {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const stalePendingJobs = await withDbRetry(
+      () => db.select({
+        id: publishingJobs.id,
+        teamId: publishingJobs.teamId,
+        articleId: publishingJobs.articleId,
+        attempts: publishingJobs.attempts,
+        maxAttempts: publishingJobs.maxAttempts,
+        lastError: publishingJobs.lastError,
+      })
+      .from(publishingJobs)
+      .where(
+        and(
+          eq(publishingJobs.status, "pending"),
+          lt(publishingJobs.updatedAt, fiveMinutesAgo),
+        )
+      ),
+      "stale-pending-publish-jobs"
+    );
+
+    const eligibleStale = stalePendingJobs.filter((j) => {
+      // Re-queue any stale-pending job that's below max attempts.
+      // "Invalid request parameters" errors may have been caused by the old relative-URL
+      // bug (now fixed) — the new payload uses absolute URLs so a fresh attempt is safe.
+      // Jobs that get a 400 with the new payload will come back as 'failed' with
+      // RECEIVER_REJECTED and won't be stuck in 'pending' again.
+      return (j.attempts || 0) < (j.maxAttempts || 3);
+    });
+
+    if (eligibleStale.length > 0) {
+      const { addPublishingJob } = await import("./queue");
+      for (const j of eligibleStale) {
+        await addPublishingJob({ dbJobId: j.id, teamId: j.teamId! });
+        console.log(`  🔄 Re-queued stale-pending publishing job #${j.id} (article #${j.articleId}, attempts=${j.attempts})`);
+      }
+      console.log(`  ✅ Recovered ${eligibleStale.length} stale-pending publishing job(s)`);
+    } else {
+      console.log("  ✓ No stale-pending publishing jobs to recover");
+    }
+  } catch (e) {
+    console.warn("  ⚠️ Could not recover stale-pending publishing jobs:", e);
+  }
+
   // 3. Recover stuck social posts
   try {
     const stuckPosts = await db.select({ id: socialPosts.id, status: socialPosts.status })

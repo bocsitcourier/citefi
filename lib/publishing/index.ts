@@ -473,6 +473,7 @@ export async function processPublishingJob(jobId: number): Promise<{
         .set({
           status: 'sent',
           publishedUrl: result.publishedUrl,
+          lastError: null,   // Clear any stale error from a prior failed attempt
           updatedAt: new Date(),
         })
         .where(eq(publishingJobs.id, job.id));
@@ -480,7 +481,10 @@ export async function processPublishingJob(jobId: number): Promise<{
       return { success: true };
     } else {
       const newAttempts = job.attempts + 1;
-      const shouldRetry = newAttempts < job.maxAttempts && result.errorCode !== 'AUTHENTICATION_ERROR';
+      // RECEIVER_REJECTED (HTTP 400) = permanent receiver validation failure — retrying
+      // the same payload will always get the same 400. Mark as failed immediately.
+      const permanentErrorCodes = ['AUTHENTICATION_ERROR', 'RECEIVER_REJECTED'];
+      const shouldRetry = newAttempts < job.maxAttempts && !permanentErrorCodes.includes(result.errorCode || '');
 
       if (!shouldRetry) {
         await logError({

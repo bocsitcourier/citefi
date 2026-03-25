@@ -1837,10 +1837,16 @@ export async function registerWorkers() {
             if (result.success) {
               console.log(`✅ Publishing job ${dbJobId} completed successfully`);
             } else {
-              console.error(`❌ Publishing job ${dbJobId} failed: ${result.error}`);
-              if (result.errorCode !== 'AUTHENTICATION_ERROR') {
+              console.error(`❌ Publishing job ${dbJobId} failed: ${result.error} [${result.errorCode}]`);
+              // Permanent failures must NOT throw — throwing triggers pg-boss retry,
+              // which would re-send the same rejected payload and get the same 400/auth error.
+              // RECEIVER_REJECTED = HTTP 400 from receiver (payload validation failure)
+              // AUTHENTICATION_ERROR = bad API key (retrying won't help)
+              const permanentErrorCodes = ['AUTHENTICATION_ERROR', 'RECEIVER_REJECTED'];
+              if (!permanentErrorCodes.includes(result.errorCode || '')) {
                 throw new Error(result.error || 'Publishing failed'); // triggers pg-boss retry
               }
+              console.log(`[PUBLISH] Permanent failure (${result.errorCode}) — not retrying job ${dbJobId}`);
             }
           } catch (error) {
             console.error(`❌ Publishing worker error for job ${dbJobId}:`, error);
