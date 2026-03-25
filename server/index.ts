@@ -7,20 +7,24 @@ import { spawn } from 'child_process';
 console.log('🚀 Starting ApexContent Engine (Next.js)...\n');
 
 // Start pg-boss workers in separate process with active event loop
-console.log('🔧 Starting pg-boss workers in dedicated process...\n');
-const workerProcess = spawn('tsx', ['server/worker-process.ts'], {
-  stdio: 'inherit',
-  shell: true,
-  env: { ...process.env, WORKER_PROCESS: 'true' },
-});
+if (process.env.DISABLE_WORKERS === 'true') {
+  console.log('⏸️  Workers disabled (DISABLE_WORKERS=true) — UI-only dev mode\n');
+} else {
+  console.log('🔧 Starting pg-boss workers in dedicated process...\n');
+  const workerProcess = spawn('tsx', ['server/worker-process.ts'], {
+    stdio: 'inherit',
+    shell: true,
+    env: { ...process.env, WORKER_PROCESS: 'true' },
+  });
 
-workerProcess.on('error', (error) => {
-  console.error('❌ Failed to start worker process:', error);
-});
+  workerProcess.on('error', (error) => {
+    console.error('❌ Failed to start worker process:', error);
+  });
 
-workerProcess.on('close', (code) => {
-  console.log(`⚠️  Worker process exited with code ${code}`);
-});
+  workerProcess.on('close', (code) => {
+    console.log(`⚠️  Worker process exited with code ${code}`);
+  });
+}
 
 const nextDev = spawn('npx', ['next', 'dev', '--turbopack'], {
   stdio: 'inherit',
