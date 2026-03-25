@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import type { Scene, Emotion, SSMLSegment } from '@/types/video-schema';
 import { GoogleGenAI } from '@google/genai';
 import { throttledGeminiRequest } from './gemini';

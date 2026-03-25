@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { throttledGeminiRequest } from "./gemini";
 import { createBrandLockPromptSegment } from "./branding";
@@ -136,7 +137,7 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
   try {
     const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: GEMINI_FLASH_MODEL,
       contents: [
         {
           role: "user",

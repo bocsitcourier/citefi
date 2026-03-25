@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
@@ -135,7 +136,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
 
   try {
     const response = await genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,

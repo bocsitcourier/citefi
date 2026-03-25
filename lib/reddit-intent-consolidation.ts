@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 /**
  * Phase 1: Intent Consolidation & Outline Generation
  * 
@@ -152,7 +153,7 @@ Return a valid JSON object with this structure:
 Generate the JSON outline now:`;
 
     const result = await genAI.models.generateContent({
-      model: "gemini-2.0-flash-exp",
+      model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.3,

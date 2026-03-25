@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { 
   VideoStyle, 
@@ -271,7 +272,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
   try {
     const genAI = getGeminiClient();
     const response = await genAI.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.7,

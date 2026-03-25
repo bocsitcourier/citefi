@@ -4,9 +4,11 @@
  * Models are configured to automatically use the latest stable versions.
  * 
  * GEMINI MODELS:
- * - Google's auto-updated aliases (e.g., "gemini-2.0-flash") automatically point
+ * - Google's auto-updated aliases (e.g., "gemini-2.5-flash") automatically point
  *   to the latest stable version within that generation.
  * - When Google releases updates, your app automatically uses them.
+ * - NOTE: gemini-2.0-flash and gemini-2.0-flash-lite are deprecated and will be
+ *   discontinued June 1, 2026. All workloads now use gemini-2.5-flash.
  * 
  * OPENAI MODELS:
  * - "chatgpt-4o-latest" automatically updates to the latest ChatGPT version
@@ -14,7 +16,7 @@
  * - Note: chatgpt-4o-latest costs 2x more but stays current automatically
  * 
  * To pin to a specific version (disable auto-updates), use dated versions:
- * - Gemini: "gemini-2.0-flash-001" (specific snapshot)
+ * - Gemini: "gemini-2.5-flash-001" (specific snapshot)
  * - OpenAI: "gpt-4o-2024-11-20" (specific snapshot)
  */
 

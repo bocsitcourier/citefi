@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { 
   createBrandValidationPrompt, 
@@ -193,7 +194,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
 
   // Generate content with Gemini (shared by both prompt systems)
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [
       {
         role: "user",

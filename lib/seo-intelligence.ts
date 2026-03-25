@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { openaiClient, callOpenAI } from "./openai-client";
 
@@ -202,7 +203,7 @@ Return ONLY valid JSON matching this structure:
 }`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [
       {
         role: "user",
@@ -441,7 +442,7 @@ Return ONLY valid JSON:
 }`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [
       {
         role: "user",

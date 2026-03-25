@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { db } from "./db";
 import { batchSeoCache, jobBatches } from "../shared/schema";
 import { eq } from "drizzle-orm";
@@ -423,7 +424,7 @@ Return ONLY valid JSON in this exact structure:
   try {
     const response = await throttledGeminiRequest(() =>
       genAI.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: GEMINI_FLASH_MODEL,
         contents: [
           {
             role: "user",

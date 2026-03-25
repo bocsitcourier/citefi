@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 /**
  * INTENT-DRIVEN HYPERLINK ENGINE
  * ================================
@@ -142,7 +143,7 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
   try {
     const result = await throttledGeminiRequest(() =>
       genAI.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",

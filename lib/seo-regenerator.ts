@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
 
@@ -32,7 +33,7 @@ ${safeContent}
 Return ONLY the new SEO title, nothing else.`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
@@ -66,7 +67,7 @@ ${safeContent}
 Return ONLY the new meta description, nothing else.`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
@@ -94,7 +95,7 @@ TITLE: ${title}
 Return ONLY the new slug (e.g., "best-seo-tips-2025"), nothing else.`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
@@ -138,7 +139,7 @@ Return ONLY 5 keywords as a JSON array, nothing else.
 Example format: ["home care Wellesley MA", "post-rehab caregivers Wellesley", "trusted home health near Wellesley MA", "senior care services Wellesley MA", "rehabilitation support Wellesley MA"]`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
@@ -180,7 +181,7 @@ Return ONLY hashtags as a JSON array, nothing else.
 Example format: ["#SEO", "#ContentMarketing", "#DigitalMarketing", "#SEOTips", "#MarketingStrategy"]`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   
@@ -221,7 +222,7 @@ Return ONLY a JSON array of FAQ objects with "question" and "answer" fields, not
 Example format: [{"question": "What is SEO?", "answer": "SEO stands for Search Engine Optimization and helps websites rank higher in search results."}]`;
 
   const result = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
   

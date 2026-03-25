@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { addImageGenerationJob } from "@/lib/queue";
+import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
 
 interface ImagePromptGenerationResult {
   imagePrompts: string[];
@@ -49,7 +50,7 @@ Return ONLY valid JSON in this format:
 }`;
 
   const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       responseMimeType: "application/json",

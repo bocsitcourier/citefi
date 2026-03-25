@@ -1,3 +1,4 @@
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 /**
  * ============================================================================
  * REFLEXIVE ARTICLE GENERATION MODULE

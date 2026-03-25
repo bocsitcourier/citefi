@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import Bottleneck from "bottleneck";
+import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { createBrandLockPromptSegment } from "./branding";
 import { smartResearch, SmartResearchResult } from "./smart-topic-research";
 import { getContentOptimizationContext, ContentOptimizationContext } from "./persona-content-integration";
@@ -462,7 +463,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
 
   console.log(`🤖 Calling Gemini API for ${numTitles} titles...`);
   const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-    model: "gemini-2.0-flash",  // Stable production model with 2000 RPM Tier 1 quota
+    model: GEMINI_FLASH_MODEL,
     contents: [
       {
         role: "user",
