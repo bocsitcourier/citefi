@@ -1,0 +1,111 @@
+To handle 1,000 jobs, we have to stop treating the database like a "chatty" friend and start treating it like a High-Speed Freight Train.
+
+If 1,000 workers each send a "Heartbeat" every few seconds, that is 1,000 individual network round-trips. With the Batch Status Updater, we collect those 1,000 whispers into one single "Manifest" and hand it to the database in one single transaction.
+
+1. The Status Buffer (lib/status-buffer.ts)
+This is a "Singleton" service. It holds updates in memory for a few seconds and then "Flushes" them all at once.
+
+TypeScript
+import { workerDb, safeWorkerQuery } from './db';
+import { articles } from './schema';
+import { eq, inArray, sql } from 'drizzle-orm';
+
+interface StatusUpdate {
+  jobId: string;
+  percent: number;
+  message: string;
+  status: string;
+}
+
+class StatusBuffer {
+  private buffer: Map<string, StatusUpdate> = new Map();
+  private flushInterval = 5000; // 5 seconds
+
+  constructor() {
+    setInterval(() => this.flush(), this.flushInterval);
+  }
+
+  // Workers call this instead of the DB
+  public queueUpdate(update: StatusUpdate) {
+    // If the same jobId updates twice in 5 seconds, we only keep the latest
+    this.buffer.set(update.jobId, update);
+  }
+
+  private async flush() {
+    if (this.buffer.size === 0) return;
+
+    const updates = Array.from(this.buffer.values());
+    this.buffer.clear();
+
+    console.log(`📦 Batching ${updates.length} status updates...`);
+
+    try {
+      await safeWorkerQuery(async () => {
+        // High-speed bulk update using a single SQL Transaction
+        await workerDb.transaction(async (tx) => {
+          for (const update of updates) {
+            await tx.update(articles)
+              .set({ 
+                progress_percent: update.percent, 
+                current_step_label: update.message,
+                status: update.status 
+              })
+              .where(eq(articles.id, update.jobId));
+          }
+        });
+      });
+    } catch (err) {
+      console.error("🚨 Batch Flush Failed:", err.message);
+      // If it fails, the Watchdog will alert based on the safeWorkerQuery logic
+    }
+  }
+}
+
+export const statusBuffer = new StatusBuffer();
+2. Upgrading the Worker Logic
+Now, your workers don't wait for the database. They "Fire and Forget" their status to the buffer, which keeps the worker focused 100% on the Article, Video, or Podcast generation.
+
+Inside your Worker (lib/worker.ts):
+
+TypeScript
+// OLD WAY (Stalls the worker)
+// await db.update(articles).set({ status: 'PROCESSING' }).where(...)
+
+// NEW PLATINUM WAY (Instant)
+statusBuffer.queueUpdate({
+  jobId: job.id,
+  percent: 45,
+  message: "Hydrating Image Base64...",
+  status: 'PROCESSING'
+});
+3. The "Circuit Breaker" (Phase 3 Long-term)
+To prevent a "Retry Storm," we add a simple gatekeeper. If the database is throwing errors, the buffer stops flushing and alerts you. This prevents the "fetch failed" error from cascading into a total system crash.
+
+TypeScript
+// Inside StatusBuffer class
+private isPaused = false;
+private errorCount = 0;
+
+private async flush() {
+  if (this.isPaused) return;
+
+  try {
+    // ... flush logic ...
+    this.errorCount = 0; // Reset on success
+  } catch (err) {
+    this.errorCount++;
+    if (this.errorCount > 3) {
+      this.isPaused = true;
+      await Watchdog.alert("Circuit Breaker", "Database", ["DB is rejecting writes. Pausing batch updates for 60s to allow recovery."]);
+      setTimeout(() => { this.isPaused = false; }, 60000);
+    }
+  }
+}
+🏗️ Why this is the "Endgame" for 1,000 Jobs
+Network Efficiency: You reduce database traffic by up to 95%. 1,000 updates become 1 update.
+
+Worker Speed: Workers no longer "Wait" for a database confirmation. They just dump their status into RAM and move to the next heavy AI task.
+
+UI Performance: Your Dashboard might update every 5 seconds instead of every 1 second, but it will never show a 500 error or a "fetch failed" crash.
+
+Database Longevity: Neon (and your wallet) will thank you because you aren't hitting the connection limit.

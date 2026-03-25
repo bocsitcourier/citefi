@@ -62,7 +62,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: "Publishing", href: "/settings/publishing", icon: Send },
       { title: "Site Maps", href: "/site-map", icon: Map },
       { title: "Schedules", href: "/settings/schedules", icon: CalendarClock },
-      { title: "Settings", href: "/settings", icon: KeyRound },
+      { title: "Account & Security", href: "/settings", icon: KeyRound },
     ],
   },
   {

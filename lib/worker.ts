@@ -279,7 +279,7 @@ export async function registerWorkers() {
   // CONFIGURABLE CONCURRENT PROCESSING
   // Workers match Gemini API rate limit for optimal resource usage
   // 10 workers to prevent overwhelming Gemini 30 RPM rate limit and causing 429 cascades
-  const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "10");
+  const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "20");
   
   for (let workerNum = 1; workerNum <= CONCURRENT_WORKERS; workerNum++) {
     boss.work<ArticleJobData>(
@@ -1171,7 +1171,7 @@ export async function registerWorkers() {
   
   // LIGHTNING-FAST: 10 concurrent image generation workers
   // Each job generates 5 images in parallel (10 concurrent DALL-E calls per job)
-  const IMAGE_WORKERS = 10;
+  const IMAGE_WORKERS = 6;
   
   try {
     console.log(`🖼️ Registering ${IMAGE_WORKERS} image generation workers for queue: "${IMAGE_GENERATION_QUEUE}"`);
@@ -1553,7 +1553,7 @@ export async function registerWorkers() {
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 
         batchSize: 1,       // One job per worker invocation
-        teamSize: 15,       // Allow 15 concurrent workers for parallel batch processing
+        teamSize: 8,        // Allow 8 concurrent workers for parallel batch processing
       } as any,
       async (jobs) => {
         for (const job of jobs) {
@@ -1711,7 +1711,7 @@ export async function registerWorkers() {
       }
     );
 
-    console.log(`✅ Social video generation worker registered (15 concurrent workers, 10min timeout)`);
+    console.log(`✅ Social video generation worker registered (8 concurrent workers, 10min timeout)`);
   } catch (error) {
     console.error(`❌ CRITICAL: Failed to register social video worker:`, error);
     throw error;
@@ -1826,7 +1826,7 @@ export async function registerWorkers() {
   try {
     await boss.work<PublishingJobData>(
       CONTENT_PUBLISHING_QUEUE,
-      { batchSize: 1, teamSize: 5 } as any,
+      { batchSize: 1, teamSize: 4 } as any,
       async (jobs) => {
         for (const job of jobs) {
           const { dbJobId } = job.data;
@@ -1855,7 +1855,7 @@ export async function registerWorkers() {
         }
       }
     );
-    console.log("✅ Content publishing worker registered (5 concurrent workers)");
+    console.log("✅ Content publishing worker registered (4 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register content publishing worker:", error);
     throw error;

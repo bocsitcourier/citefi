@@ -38,12 +38,7 @@ export default function AccountSettingsPage() {
 
   const changePasswordMutation = useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
-      const res = await apiRequest("/api/auth/change-password", { method: "POST", body: JSON.stringify(data) });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || "Failed to change password");
-      }
-      return res.json();
+      return apiRequest("/api/auth/change-password", { method: "POST", body: JSON.stringify(data) });
     },
     onSuccess: () => {
       toast({ title: "Password changed", description: "Your password has been updated successfully." });
@@ -57,16 +52,11 @@ export default function AccountSettingsPage() {
   });
 
   const generateTotpMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("/api/auth/setup-totp", {
+    mutationFn: async (): Promise<TotpSetupData> => {
+      return apiRequest("/api/auth/setup-totp", {
         method: "POST",
         body: JSON.stringify({ action: "generate" }),
       });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || "Failed to generate authenticator code");
-      }
-      return res.json() as Promise<TotpSetupData>;
     },
     onSuccess: (data) => {
       setTotpSetupData(data);
@@ -79,16 +69,11 @@ export default function AccountSettingsPage() {
   });
 
   const verifyTotpMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("/api/auth/setup-totp", {
+    mutationFn: async (): Promise<{ backupCodes: string[] }> => {
+      return apiRequest("/api/auth/setup-totp", {
         method: "POST",
         body: JSON.stringify({ action: "verify", secret: totpSetupData?.secret, verificationCode }),
       });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || "Invalid code");
-      }
-      return res.json() as Promise<{ backupCodes: string[] }>;
     },
     onSuccess: (data) => {
       setBackupCodes(data.backupCodes);
@@ -104,12 +89,7 @@ export default function AccountSettingsPage() {
 
   const disableTotpMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("/api/auth/disable-totp", { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || "Failed to disable 2FA");
-      }
-      return res.json();
+      return apiRequest("/api/auth/disable-totp", { method: "POST" });
     },
     onSuccess: () => {
       setTotpStep("idle");
