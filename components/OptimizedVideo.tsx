@@ -97,7 +97,9 @@ export function OptimizedVideo({
 }: OptimizedVideoProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(muted);
-  const [isLoading, setIsLoading] = useState(true);
+  // Don't show loading spinner when preload="none" — video won't load until user clicks play,
+  // and the spinner would block the native controls making it impossible to start playback.
+  const [isLoading, setIsLoading] = useState(preload !== "none");
   const [hasError, setHasError] = useState(false);
   const [shouldLoad, setShouldLoad] = useState(!lazy);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -196,7 +198,15 @@ export function OptimizedVideo({
     }
   };
 
+  const handleLoadStart = () => {
+    setIsLoading(true);
+  };
+
   const handleLoadedData = () => {
+    setIsLoading(false);
+  };
+
+  const handleCanPlay = () => {
     setIsLoading(false);
   };
 
@@ -245,7 +255,9 @@ export function OptimizedVideo({
               loop={loop}
               controls={controls}
               preload={preload}
+              onLoadStart={handleLoadStart}
               onLoadedData={handleLoadedData}
+              onCanPlay={handleCanPlay}
               onError={handleError}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
