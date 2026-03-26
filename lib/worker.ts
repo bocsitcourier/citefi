@@ -1731,7 +1731,7 @@ export async function registerWorkers() {
                     })
                     .where(eq(socialPosts.id, socialPostId));
 
-                  const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
+                  const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
                   result = await withTimeout(
                     generateSocialVideo({ socialPostId, platform: platform || "tiktok" }),
                     VIDEO_TIMEOUT_MS,
@@ -1745,8 +1745,8 @@ export async function registerWorkers() {
               // Default: Fast slideshow video (2-3 minutes)
               console.log(`🎬 Using fast slideshow video generation`);
 
-              // Slideshow takes 10 minutes max
-              const VIDEO_TIMEOUT_MS = 10 * 60 * 1000;
+              // Slideshow takes 15 minutes max (script + images + audio + 3x FFmpeg passes)
+              const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
 
               result = await withTimeout(
                 generateSocialVideo({
