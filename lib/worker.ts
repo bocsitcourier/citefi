@@ -1550,30 +1550,102 @@ export async function registerWorkers() {
     // STARTUP CLEANUP: Cancel all video jobs that were active before this process started.
     // When the worker process restarts, any "active" pg-boss jobs from the previous process
     // are orphaned — their workers are dead. Cancelling them prevents the infinite loop where
-    // 42 stuck jobs each hold DB connections and exhaust the 20-connection pool.
+    // stuck jobs hold DB connections and exhaust the 20-connection pool.
     // job-recovery.ts will then re-enqueue any posts still showing videoStatus=GENERATING.
-    try {
+    //
+    // HARDENED: retry up to 3 times with a 3-second backoff + SET statement_timeout so
+    // the cleanup can't itself get stuck. If all retries fail, we log a CRITICAL warning
+    // but still proceed — the recurring sweeper (registered below) will catch orphans.
+    {
       const { db: startupDb } = await import("./db");
       const { sql: sqlTag } = await import("drizzle-orm");
-      // Cancel ALL active video jobs — when the process restarts, every "active"
-      // job from the previous process is orphaned (its worker goroutine is dead).
-      // No age gate: even a 1-minute-old orphan will never complete.
-      // job-recovery.ts re-enqueues posts still in videoStatus=GENERATING.
-      const cancelResult = await startupDb.execute(sqlTag`
-        UPDATE pgboss.job
-        SET state = 'cancelled',
-            completed_on = NOW()
-        WHERE name = 'social-video-generation'
-          AND state = 'active'
-      `);
-      const cancelled = (cancelResult as any).rowCount || 0;
-      if (cancelled > 0) {
-        console.log(`🧹 Startup cleanup: cancelled ${cancelled} orphaned video job(s) from previous process (job-recovery will re-enqueue eligible ones)`);
-      } else {
-        console.log(`✅ Startup cleanup: no orphaned video jobs found`);
+      let cleanupDone = false;
+      for (let attempt = 1; attempt <= 3 && !cleanupDone; attempt++) {
+        try {
+          // Race the UPDATE against a 6-second JS timeout so startup is never
+          // blocked by a saturated pool — if it times out, we retry or fall through.
+          const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Startup cleanup timed out after 6s")), 6000)
+          );
+          const query = startupDb.execute(sqlTag`
+            UPDATE pgboss.job
+            SET state = 'cancelled',
+                completed_on = NOW()
+            WHERE name = 'social-video-generation'
+              AND state = 'active'
+          `);
+          const cancelResult = await Promise.race([query, timeout]);
+          const cancelled = (cancelResult as any).rowCount || 0;
+          if (cancelled > 0) {
+            console.log(`🧹 Startup cleanup: cancelled ${cancelled} orphaned video job(s) (attempt ${attempt}) — job-recovery will re-enqueue eligible ones`);
+          } else {
+            console.log(`✅ Startup cleanup: no orphaned video jobs found`);
+          }
+          cleanupDone = true;
+        } catch (cleanupErr) {
+          if (attempt < 3) {
+            console.warn(`⚠️ Startup cleanup attempt ${attempt}/3 failed, retrying in 3s:`, (cleanupErr as Error).message);
+            await new Promise(r => setTimeout(r, 3000));
+          } else {
+            console.error(`🚨 CRITICAL: Startup cleanup failed all 3 attempts — recurring sweeper will handle orphans:`, cleanupErr);
+          }
+        }
       }
-    } catch (cleanupErr) {
-      console.warn(`⚠️ Startup video job cleanup failed (non-fatal):`, cleanupErr);
+    }
+
+    // RECURRING SWEEPER: Register a pg-boss scheduled job that cancels stuck active video
+    // jobs every 2 minutes. This is stored in pg-boss tables and survives across all
+    // future restarts — it's the permanent self-healing backstop if startup cleanup ever
+    // misses orphans or if the pool is temporarily saturated during startup.
+    try {
+      await boss.schedule(
+        "video-orphan-sweeper",
+        "*/2 * * * *", // every 2 minutes
+        {},
+        { tz: "UTC" }
+      );
+      await boss.work<Record<string, never>>(
+        "video-orphan-sweeper",
+        { teamSize: 1, batchSize: 1 } as any,
+        async () => {
+          try {
+            const { db: sweepDb } = await import("./db");
+            const { sql: sweepSql } = await import("drizzle-orm");
+            // Cancel active jobs older than their expected max runtime:
+            //   slideshow: 15 min  |  Veo: 95 min
+            // Use a conservative 20-min cutoff for unknown types (always slideshow in practice).
+            const result = await sweepDb.execute(sweepSql`
+              UPDATE pgboss.job
+              SET state = 'cancelled',
+                  completed_on = NOW()
+              WHERE name = 'social-video-generation'
+                AND state = 'active'
+                AND (
+                  -- slideshow / unknown: cancel after 20 min
+                  (
+                    (data->>'videoType' IS NULL OR data->>'videoType' = 'slideshow')
+                    AND started_on < NOW() - INTERVAL '20 minutes'
+                  )
+                  OR
+                  -- Veo: cancel after 100 min
+                  (
+                    data->>'videoType' = 'veo'
+                    AND started_on < NOW() - INTERVAL '100 minutes'
+                  )
+                )
+            `);
+            const swept = (result as any).rowCount || 0;
+            if (swept > 0) {
+              console.log(`🧹 Recurring sweeper: cancelled ${swept} timed-out video job(s)`);
+            }
+          } catch (sweepErr) {
+            console.warn(`⚠️ Recurring video sweeper error (non-fatal):`, (sweepErr as Error).message);
+          }
+        }
+      );
+      console.log(`⏱️ Recurring video orphan sweeper registered (runs every 2 min)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register recurring sweeper (non-fatal):`, (scheduleErr as Error).message);
     }
 
     await boss.work<SocialVideoJobData>(

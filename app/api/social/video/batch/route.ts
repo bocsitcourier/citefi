@@ -123,13 +123,16 @@ export async function POST(request: NextRequest) {
       const startDelaySeconds = chunkIndex * (CHUNK_DELAY_MS / 1000);
       
       for (const post of chunk) {
+        const videoType = post.videoType || "slideshow";
+        const isVeo = videoType === "veo";
+        const expireInSeconds = isVeo ? 5400 : 900; // 90 min Veo, 15 min slideshow
         const jobId = await queue.send(
           "social-video-generation",
-          { socialPostId: post.id, platform },
+          { socialPostId: post.id, platform, videoType },
           {
             retryLimit: 0, // No retries - each attempt costs money
             retryDelay: 0,
-            expireInSeconds: 900, // 15 minutes max
+            expireInSeconds,
             startAfter: startDelaySeconds, // Stagger start times
           }
         );
