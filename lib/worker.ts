@@ -1555,13 +1555,16 @@ export async function registerWorkers() {
     try {
       const { db: startupDb } = await import("./db");
       const { sql: sqlTag } = await import("drizzle-orm");
+      // Cancel ALL active video jobs — when the process restarts, every "active"
+      // job from the previous process is orphaned (its worker goroutine is dead).
+      // No age gate: even a 1-minute-old orphan will never complete.
+      // job-recovery.ts re-enqueues posts still in videoStatus=GENERATING.
       const cancelResult = await startupDb.execute(sqlTag`
         UPDATE pgboss.job
         SET state = 'cancelled',
             completed_on = NOW()
         WHERE name = 'social-video-generation'
           AND state = 'active'
-          AND started_on < NOW() - INTERVAL '15 minutes'
       `);
       const cancelled = (cancelResult as any).rowCount || 0;
       if (cancelled > 0) {

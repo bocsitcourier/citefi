@@ -128,18 +128,39 @@ Visual Elements:
       return null;
     };
 
+    // Retry Gemini image API calls for transient network failures (e.g. "fetch failed").
+    // Content policy / safety refusals are NOT retried here — they're handled by the
+    // fallback-prompt logic below.
+    const callGeminiWithRetry = async (prompt: string, attempt = 1): Promise<any> => {
+      try {
+        return await genAI.models.generateContent({
+          model: "gemini-2.5-flash-image",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseModalities: ["Image"],
+            imageConfig: { aspectRatio },
+          },
+        });
+      } catch (err: any) {
+        const isTransient =
+          err?.message?.includes("fetch failed") ||
+          err?.message?.includes("ECONNRESET") ||
+          err?.message?.includes("ETIMEDOUT") ||
+          err?.message?.includes("socket hang up") ||
+          err?.code === "ECONNRESET";
+        if (isTransient && attempt < 4) {
+          const delayMs = attempt * 5000; // 5s, 10s, 15s
+          console.warn(`  ⚠️ Scene ${scene.sceneNumber}: Gemini fetch failed (attempt ${attempt}/3), retrying in ${delayMs / 1000}s...`);
+          await new Promise((r) => setTimeout(r, delayMs));
+          return callGeminiWithRetry(prompt, attempt + 1);
+        }
+        throw err;
+      }
+    };
+
     // CRITICAL FIX: Pass aspectRatio to Gemini API to prevent square/1:1 default
     // Without this, Gemini generates square images which causes black bars when resized
-    let response = await genAI.models.generateContent({
-      model: "gemini-2.5-flash-image",
-      contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
-      config: {
-        responseModalities: ["Image"],
-        imageConfig: {
-          aspectRatio: aspectRatio, // "9:16" for vertical, "16:9" for horizontal
-        },
-      },
-    });
+    let response = await callGeminiWithRetry(imagePrompt);
 
     // Extract image from response
     let imageData = extractImageData(response);
@@ -177,16 +198,7 @@ Visual Elements:
            
            Generate a visually appealing professional image.`;
 
-      response = await genAI.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: [{ role: "user", parts: [{ text: fallbackPrompt }] }],
-        config: {
-          responseModalities: ["Image"],
-          imageConfig: {
-            aspectRatio: aspectRatio,
-          },
-        },
-      });
+      response = await callGeminiWithRetry(fallbackPrompt);
 
       imageData = extractImageData(response);
     }

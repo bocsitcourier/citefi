@@ -11,9 +11,11 @@ if (!process.env.DATABASE_URL) {
 }
 
 // ─── Semaphore ────────────────────────────────────────────────────────────────
-// Hard cap: at most 25 DB operations can run simultaneously across all workers
-// in this process. Excess callers queue locally instead of hammering Neon.
-const DB_CONCURRENCY = 25;
+// Hard cap: at most 15 DB operations can run simultaneously across all workers
+// in this process. Must be < pool max (20) so the pool is never exhausted by
+// one burst of concurrent workers, leaving headroom for pg-boss housekeeping.
+// Excess callers queue locally instead of hammering Neon.
+const DB_CONCURRENCY = 15;
 const dbGuard = pLimit(DB_CONCURRENCY);
 
 export async function safeQuery<T>(fn: () => Promise<T>): Promise<T> {
@@ -44,7 +46,7 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
     process.on("beforeExit", () => pool.end().catch(() => {}));
 
     console.log(
-      `🔌 DB: using pooled pg client (max 20 conns, semaphore ${DB_CONCURRENCY})`
+      `🔌 DB: using pooled pg client (max 20 conns, semaphore ${DB_CONCURRENCY} — leaves 5 for pg-boss housekeeping)`
     );
 
     return drizzlePooled(pool, { schema }) as unknown as NeonHttpDatabase<
