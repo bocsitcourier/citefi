@@ -418,14 +418,18 @@ export async function composeVideo(
     ];
     
     if (videoFilters.length > 0) {
+      // Video filter forces re-encode — use ultrafast so this stays fast
       ffmpegArgs.push('-vf', videoFilters.join(','));
+      ffmpegArgs.push('-c:v', 'libx264');
+      ffmpegArgs.push('-preset', 'ultrafast'); // CRITICAL: prevents slow default 'medium' re-encode
+      ffmpegArgs.push('-pix_fmt', 'yuv420p');
       ffmpegArgs.push('-threads', '2');
     } else {
-      ffmpegArgs.push('-c:v', 'copy'); // No video re-encode needed
+      ffmpegArgs.push('-c:v', 'copy'); // No crop — stream copy, fast
     }
     
     ffmpegArgs.push(
-      '-c:a', 'aac',       // Re-encode audio (needed when video filters applied)
+      '-c:a', 'aac',       // Re-encode audio to AAC for clean MP4 mux
       '-b:a', '192k',
       '-shortest',          // CRITICAL: trim to video length — prevents 95s audio extending 60s video
       '-map', '0:v:0',      // Map video from slideshow
