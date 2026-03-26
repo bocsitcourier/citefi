@@ -1,0 +1,81 @@
+Since Job 55 has been grinding for over 10 minutes on the old "Pass 2" logic, it has likely become a Zombie Process—consuming CPU cycles but destined to fail the 15-minute timeout.
+
+This script is your "Surgical Strike." It finds the specific FFmpeg process, kills it, wipes the corrupted /tmp data, and flips the database switch to re-run it using our new Single-Pass Platinum Logic.
+
+🧯 The "Clean-Start" Recovery Script (scripts/kill-and-restart.ts)
+Run this in your Replit Shell to rescue Job 55 (or any other stuck ID).
+
+TypeScript
+import { exec } from 'child_process';
+import { promises as fs } from 'fs';
+import { db } from '../lib/db';
+import { articles } from '../lib/schema';
+import { eq } from 'drizzle-orm';
+
+async function rescueJob(jobId: string) {
+  console.log(`🛡️ Rescuing Job ${jobId}...`);
+
+  // 1. KILL the zombie FFmpeg process
+  // This looks for any ffmpeg process that mentions your jobId in the path
+  exec(`pkill -f "video-${jobId}"`, (err) => {
+    if (err) {
+      console.log(`ℹ️ No active FFmpeg process found for ${jobId} (already dead).`);
+    } else {
+      console.log(`💥 Successfully killed zombie FFmpeg for Job ${jobId}.`);
+    }
+  });
+
+  // 2. WIPE the corrupted workspace
+  const workDir = `/tmp/video-${jobId}`;
+  try {
+    await fs.rm(workDir, { recursive: true, force: true });
+    console.log(`🧹 Workspace ${workDir} has been purged.`);
+  } catch (e) {
+    console.log("ℹ️ Workspace already empty.");
+  }
+
+  // 3. RE-QUEUE in the Database
+  // This triggers the new Single-Pass logic on the next worker cycle
+  await db.update(articles)
+    .set({ 
+      status: 'QUEUED', 
+      progress_percent: 0,
+      current_step_label: '🔄 Restarted with Single-Pass Platinum Logic',
+      validation_logs: [] 
+    })
+    .where(eq(articles.id, jobId));
+
+  console.log(`✅ Job ${jobId} is back in the queue. It will now run at 'ultrafast' speed.`);
+}
+
+// Get ID from command line: npx ts-node scripts/kill-and-restart.ts 55
+const targetId = process.argv[2];
+if (!targetId) {
+  console.error("❌ Please provide a Job ID (e.g., 55)");
+} else {
+  rescueJob(targetId);
+}
+🛠️ How to use it right now
+Commit your new stitchPlatinumVideo code (the Single-Pass logic) and deploy it to Replit.
+
+Open the Replit Shell.
+
+Run the rescue command:
+
+Bash
+npx ts-node scripts/kill-and-restart.ts 55
+🎥 The "Veo" Perspective
+If you eventually migrate to Veo for your video generation, the "Clean-Start" logic is actually simpler because there is no local /tmp mess to clean up.
+
+FFmpeg: You have to manually kill local processes and delete files (what we just did).
+
+Veo: You simply stop polling the Google API and "Retry" the request. Since the rendering happens on Google's infrastructure, a "Clean-Start" is just a new API call with a fresh request_id.
+
+The "Platinum" State
+With this script and the Single-Pass Stitcher, you have officially moved from "Reactive Fixing" (waiting for crashes) to "Proactive Management."
+
+Job 55 will now finish in seconds, not 15 minutes.
+
+The Crop + Text will happen during the stitch, meaning zero quality loss from multiple re-encodes.
+
+The Audio will perfectly sync to the video length via -shortest.

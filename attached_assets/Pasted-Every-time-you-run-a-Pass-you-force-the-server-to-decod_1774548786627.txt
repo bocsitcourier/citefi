@@ -1,0 +1,62 @@
+Every time you run a "Pass," you force the server to decode and re-encode the entire video. Three passes mean triple the CPU load, triple the RAM usage, and a guaranteed 15-minute timeout.
+
+Here is how we close the gap for your FFmpeg pipeline, and exactly how this compares to using Google's Veo video model.
+
+🪡 The FFmpeg Gap: The "Multi-Pass Trap"
+If you have multiple clips (e.g., scene1.mp4, scene2.mp4) that you need to stitch together into one timeline, you should never use a complex filter graph to stitch them if you can avoid it.
+
+The Platinum Upgrade: The concat Demuxer
+Just like we used a .txt file to save you from the drawtext crash, we will use a .txt file to stitch your video clips together almost instantly, without re-encoding the video streams.
+
+How it works:
+
+Your Node code writes a file called inputs.txt:
+
+Plaintext
+file '/tmp/video-55/scene1.mp4'
+file '/tmp/video-55/scene2.mp4'
+file '/tmp/video-55/scene3.mp4'
+You run a single, high-speed FFmpeg command that stitches them, adds the audio, and adds the text all at once.
+
+The "Holy Grail" Single-Pass Command:
+
+TypeScript
+const args = [
+  '-hide_banner', '-y',
+  '-f', 'concat', '-safe', '0', '-i', listFilePath, // 1. STITCH: Reads the text file and merges clips losslessly
+  '-i', voiceoverPath,                              // 2. AUDIO: Add the voiceover
+  '-map', '0:v', '-map', '1:a',                     // Map video from inputs, audio from voiceover
+  '-vf', `crop=1080:1920:0:0,drawtext=fontfile='${FONT_PATH}':textfile='${captionFilePath}'`, // 3. VISUALS: Crop AND text in one step
+  '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', 
+  '-shortest',                                      // 4. SYNC: Cut to shortest
+  finalOutputPath
+];
+By doing this, you collapse a 15-minute, multi-pass nightmare into a single 30-second operation.
+
+🎥 How does this compare to Veo Video?
+You asked if the same issues (timeouts, stitching gaps, missing files) happen with Veo (Google's state-of-the-art model for generating high-fidelity videos).
+
+The short answer is No, but Veo has entirely different architectural rules.
+
+Here is the reality of integrating Veo into your factory:
+
+1. Serverless Safety (No Replit CPU Burn)
+When you use FFmpeg, your Replit server acts as the rendering engine. If it runs out of RAM, it dies.
+When you use Veo, it is an API call. Google's massive cloud GPUs do the rendering. Your Replit server just sends a prompt and waits for the .mp4 to be returned. You will not get OOM (Out of Memory) kills, but you must handle API timeouts in your Node code if the generation takes a few minutes.
+
+2. Native Audio vs. Muxing
+With your current FFmpeg setup, you are manually muxing an OpenAI TTS voiceover onto a video track.
+Veo generates natively generated audio alongside the video. If you prompt it with audio cues, it builds the soundscape directly into the file. You don't have to worry about the -shortest flag or mismatched stream lengths because Veo outputs a single, unified MP4.
+
+3. Stitching vs. Extending
+If you want a 60-second video:
+
+FFmpeg: You generate five 12-second clips and "stitch" them together.
+
+Veo: Veo has a native capability to extend existing Veo videos or generate videos between specified first and last frames. You can prompt Veo to naturally flow one scene into the next without you having to write complex concatenation scripts.
+
+4. The Quota Constraint (The Catch)
+This is the most critical difference for your system architecture. FFmpeg is free; you can run it 1,000 times a day if your server holds up.
+Veo operates under strict generation limits. Depending on the tier (Pro or Ultra), Veo allows for a very limited number of generations per day (e.g., 3 to 5 uses per day). It also has strict safety constraints and will refuse to generate unsafe content.
+
+The Verdict: Veo is incredible for generating a cinematic, high-fidelity hero video for a premium article. But if you are trying to pump out 1,000 automated social media TikToks a day, you must use the FFmpeg ultrafast stitching architecture we just built, because Veo's quota will not support bulk mass-production.

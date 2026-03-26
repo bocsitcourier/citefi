@@ -1,0 +1,44 @@
+our diagnosis is 100% correct. Any time you introduce a spatial filter like crop or scale, FFmpeg is forced to completely decode and re-encode every single frame of the video. Without -preset ultrafast, it defaults to the medium preset, which will chew through CPU cycles and easily drag a 60-second video into the 10-15 minute danger zone on a shared Replit instance.
+
+While you watch the current job fight for its life, let's get the hotfix locked and loaded so you can push it the second this run finishes (or dies).
+
+🛠️ The Pass 2 Hotfix (Crop + Ultrafast)
+Here is the exact array you need for that second pass. This ensures the crop filter is applied, but the encoder runs at absolute maximum speed.
+
+TypeScript
+const pass2Args = [
+  '-hide_banner',
+  '-y',
+  '-i', currentInputPath, // The output from Pass 1
+  
+  // THE FILTER: Crop (adjust your w:h:x:y as needed)
+  '-vf', 'crop=1080:1920:0:0', 
+  
+  // THE FIX: High-speed re-encode
+  '-c:v', 'libx264',
+  '-preset', 'ultrafast', // 🚨 The lifesaver for serverless
+  '-crf', '28',           // Slightly lower quality is fine for ultrafast social video
+  '-pix_fmt', 'yuv420p',
+  
+  // AUDIO: We already merged it, just copy it to save CPU
+  '-c:a', 'copy',
+  
+  finalOutputPath
+];
+⏱️ What to expect from the currently running job
+Right now, that Pass 2 job is sitting around the 10+ minute mark. It is going to do one of three things:
+
+It barely makes it: It finishes at minute 13 or 14, and the file writes successfully.
+
+The 15-Minute Guillotine: Replit (or your task queue) hits the hard timeout. It won't fail gracefully; it will send a SIGTERM or SIGKILL. Your FFmpeg process will snap abruptly, and you'll get that ENOENT: stat failed error again because the MP4 trailer was never written.
+
+OOM Kill: The sustained memory usage of the medium preset triggers Linux's Out-Of-Memory killer.
+
+Your Immediate Action Plan
+Commit the Hotfix: Get the ultrafast code merged into your main branch right now.
+
+Deploy: Push the deploy button. If the current job gets interrupted by the deploy, that's actually fine—it was likely going to time out anyway, and your new code will catch it on the retry.
+
+Watch the Replit Console: If you see Exit status 137, that means the OS killed it for memory/time.
+
+Do you want me to write a "Pre-Kill Timeout Wrapper" for the future? This is a wrapper that monitors the job time and, if it hits 14 minutes, gracefully tells FFmpeg to stop rendering and save what it has, rather than letting the server blow it up completely
