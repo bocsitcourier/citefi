@@ -370,17 +370,23 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
         const elapsedMinutes = elapsedMs / 60_000;
 
         if (elapsedMinutes < maxMinutes) {
-          // Still within expected window — server likely just restarted. Re-enqueue automatically.
-          // CRITICAL: Cancel any existing active pg-boss jobs for this post FIRST to prevent
-          // race conditions where two workers simultaneously write to the same /tmp/video-X/ dir.
-          await db.execute(sql`
-            UPDATE pgboss.job
-            SET state = 'cancelled',
-                completed_on = NOW()
+          // CRITICAL: If there is already an active pg-boss job for this post, it is still
+          // running (e.g. FFmpeg mid-encode). Do NOT cancel it — just skip.
+          // Only re-enqueue when there is NO active job (i.e. the previous process died).
+          const activeCheck = await db.execute(sql`
+            SELECT COUNT(*) as cnt
+            FROM pgboss.job
             WHERE name = 'social-video-generation'
               AND state = 'active'
               AND (data->>'socialPostId')::int = ${post.id}
           `);
+          const activeCount = Number((activeCheck as any).rows?.[0]?.cnt ?? 0);
+          if (activeCount > 0) {
+            console.log(`  ⏳ Social Post #${post.id} already has an active job running — skipping re-queue`);
+            continue;
+          }
+
+          // No active job — server likely just restarted. Re-enqueue automatically.
 
           const platform = "tiktok";
           const expireInSeconds = isVeo ? 5400 : 900;
