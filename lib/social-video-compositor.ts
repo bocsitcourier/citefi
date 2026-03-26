@@ -447,62 +447,73 @@ export async function composeVideo(
     console.log(`  📝 Adding captions + logo + final encoding (OPTIMIZED: 1 pass)...`);
     const outputPath = outputVideoPath;
 
-    // Build drawtext filters for captions with readable background boxes
-    // Use normalized timing based on scene durations
+    // FONT: bundled font first, fall back to system DejaVu
+    const BUNDLED_FONT = path.join(process.cwd(), 'assets', 'fonts', 'DejaVuSans-Bold.ttf');
+    const SYSTEM_FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+    let fontPath = BUNDLED_FONT;
+    try {
+      await fs.stat(BUNDLED_FONT);
+      console.log(`  🔤 Using bundled font: ${BUNDLED_FONT}`);
+    } catch {
+      console.warn(`  ⚠️ Bundled font missing, falling back to system font`);
+      fontPath = SYSTEM_FONT;
+    }
+
+    // PLATINUM FIX: Write each caption to a temp .txt file and use textfile= in drawtext.
+    // This completely bypasses FFmpeg filter-graph escaping issues for apostrophes,
+    // colons, commas, percent signs — any character the AI might generate.
+
+    // Pre-compute scene timings sequentially (needed before parallel file writes)
     let currentTime = 0;
-    const captionFilters = scenes
-      .map((scene, idx) => {
-        const duration = normalizedDurations[idx] || 12;
-        const startTime = currentTime;
-        const endTime = currentTime + duration;
-        currentTime = endTime;
-        
-        // CRITICAL: Escape ALL FFmpeg special characters in caption text
-        // Order matters: escape backslashes first, then other special chars
-        let caption = scene.caption;
-        caption = caption.replace(/\\/g, '\\\\'); // Backslashes (must be first)
-        caption = caption.replace(/:/g, '\\:');   // Colons (FFmpeg parameter separator)
-        caption = caption.replace(/,/g, '\\,');   // Commas (FFmpeg filter separator - CRITICAL)
-        caption = caption.replace(/%/g, '\\%');   // Percent signs (FFmpeg escape sequences)
-        caption = caption.replace(/'/g, "'\\''"); // Single quotes (shell escape)
-        
-        // ENHANCED: Larger text with higher contrast box for maximum readability
-        // Scene 5 (branded CTA) gets extra large, bold treatment
+    const sceneTimings = scenes.map((_, idx) => {
+      const duration = normalizedDurations[idx] || 12;
+      const startTime = currentTime;
+      const endTime = currentTime + duration;
+      currentTime = endTime;
+      return { startTime, endTime, duration };
+    });
+
+    // Write caption files in parallel, then build drawtext filters
+    const captionFilters = await Promise.all(
+      scenes.map(async (scene, idx) => {
+        const { startTime, endTime } = sceneTimings[idx]!;
+
+        // Write raw caption text to file — no escaping needed
+        const captionFile = path.join(tempDir, `caption-${idx}.txt`);
+        await fs.writeFile(captionFile, scene.caption, 'utf8');
+
+        // Scene 5 (branded CTA) gets extra large treatment
         const fontSize = idx === 4 ? 72 : 64;
-        return `drawtext=text='${caption}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.85:boxborderw=25:x=(w-text_w)/2:y=(h-text_h)*0.86:enable='between(t,${startTime},${endTime})'`;
+
+        // expansion=none: treat text as literal — prevents % sequences being interpreted
+        return `drawtext=textfile='${captionFile}':fontfile='${fontPath}':expansion=none:fontsize=${fontSize}:fontcolor=white:borderw=3:bordercolor=black:box=1:boxcolor=black@0.85:boxborderw=25:x=(w-text_w)/2:y=(h-text_h)*0.86:enable='between(t,${startTime},${endTime})'`;
       })
-      .join(",");
+    );
 
     // CRITICAL: Add URL text overlay for Scene 5 (prevents AI hallucination)
     // URL is positioned below the caption, only visible during Scene 5 (46-60s)
-    // PERMANENT FIX: Show only domain without path (e.g., www.example.com not www.example.com/services)
     let urlFilter = '';
     if (landingPageUrl) {
-      const scene5Start = normalizedDurations.slice(0, 4).reduce((sum, d) => sum + d, 0); // Sum of first 4 scenes
-      const scene5End = scene5Start + normalizedDurations[4]!; // Add Scene 5 duration
-      
-      // Extract domain only from URL (strip protocol, path, and query params)
+      const scene5Start = normalizedDurations.slice(0, 4).reduce((sum, d) => sum + d, 0);
+      const scene5End = scene5Start + normalizedDurations[4]!;
+
+      // Extract domain only from URL (strip protocol, path, query params)
       let displayUrl = landingPageUrl;
       try {
         const urlObj = new URL(landingPageUrl.startsWith('http') ? landingPageUrl : `https://${landingPageUrl}`);
-        displayUrl = urlObj.hostname; // Gets just the domain (e.g., www.privateinhomecaregiver.com)
+        displayUrl = urlObj.hostname;
       } catch {
-        // Fallback: simple regex extraction if URL parsing fails
         displayUrl = landingPageUrl.replace(/^https?:\/\//, '').split('/')[0]!;
       }
-      
-      // Escape special characters for FFmpeg
-      let cleanUrl = displayUrl;
-      cleanUrl = cleanUrl.replace(/\\/g, '\\\\'); // Backslashes (must be first)
-      cleanUrl = cleanUrl.replace(/:/g, '\\:');   // Colons
-      cleanUrl = cleanUrl.replace(/,/g, '\\,');   // Commas (FFmpeg filter separator)
-      cleanUrl = cleanUrl.replace(/%/g, '\\%');   // Percent signs
-      cleanUrl = cleanUrl.replace(/'/g, "'\\''"); // Single quotes
+
+      // Write URL domain to a text file — no escaping needed
+      const urlFile = path.join(tempDir, 'url-overlay.txt');
+      await fs.writeFile(urlFile, displayUrl, 'utf8');
       console.log(`  🔗 Adding URL overlay for Scene 5 (${scene5Start}s-${scene5End}s): ${displayUrl}`);
-      urlFilter = `,drawtext=text='${cleanUrl}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=56:fontcolor=white:borderw=2:bordercolor=black:box=1:boxcolor=black@0.85:boxborderw=18:x=(w-text_w)/2:y=(h-text_h)*0.94:enable='between(t,${scene5Start},${scene5End})'`;
+      urlFilter = `,drawtext=textfile='${urlFile}':fontfile='${fontPath}':expansion=none:fontsize=56:fontcolor=white:borderw=2:bordercolor=black:box=1:boxcolor=black@0.85:boxborderw=18:x=(w-text_w)/2:y=(h-text_h)*0.94:enable='between(t,${scene5Start},${scene5End})'`;
     }
 
-    const allTextFilters = captionFilters + urlFilter;
+    const allTextFilters = captionFilters.join(",") + urlFilter;
 
     if (companyLogoPath) {
       // CRITICAL: Logo positioned at BOTTOM RIGHT with padding

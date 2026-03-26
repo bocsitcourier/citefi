@@ -132,8 +132,12 @@ ${location && city ? `- MUST include location-based hashtags (${city}) in the ev
   let result: EnhanceSocialPostResult;
   try {
     const parsed = JSON.parse(responseText);
+    // Strip any AI-generated preamble artifacts that occasionally leak into caption fields
+    // e.g. "Here is your post:", "Post:", "Social Post:", etc.
+    const rawCaption: string = parsed.caption || caption;
+    const cleanCaption = rawCaption.replace(/^(here is(?: your)?(?: (?:the|a|an))?(?: social)?(?: post|caption|update)?[:—\-]*\s*|post[:—\-]\s*|social post[:—\-]\s*)/i, '').trim();
     result = {
-      caption: parsed.caption || caption,
+      caption: cleanCaption || caption,
       hashtags: parsed.hashtags || [],
       emojis: parsed.emojis || [],
       hyperlinks: parsed.hyperlinks || [],
