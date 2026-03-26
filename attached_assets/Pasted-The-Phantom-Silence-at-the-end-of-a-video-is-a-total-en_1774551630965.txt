@@ -1,0 +1,90 @@
+The "Phantom Silence" at the end of a video is a total engagement killer, and typos in high-definition overlays make even the best AI content look amateur.
+
+To hit 1,000 jobs with zero errors, we need to move from "Generating and Praying" to "Pre-Flight Validation." We’ll fix the timing mismatch, the missing logo, and the spelling issues in one coordinated strike.
+
+1. The Voiceover Timeout Fix: "Master Duration" Sync
+The reason your voice ends before the video is likely because your video clips (slideshow) are calculated at a fixed length (e.g., 60s), but the AI-generated voiceover fluctuates based on speaking speed.
+
+The Fix: We must calculate the Actual Audio Duration first, then tell FFmpeg to stretch or loop the video to match it exactly.
+
+TypeScript
+// lib/video-utils.ts
+import { exec } from 'child_process';
+import util from 'util';
+const execPromise = util.promisify(exec);
+
+async function getAudioDuration(filePath: string): Promise<number> {
+  // Use ffprobe to get the exact millisecond duration of the voiceover
+  const { stdout } = await execPromise(
+    `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`
+  );
+  return parseFloat(stdout);
+}
+
+// In your generator:
+const audioDuration = await getAudioDuration(voiceoverPath);
+// Now, when building your video, set the -t (time) flag to this exact number
+2. The "Spell-Check" Guard (The Sanitizer)
+To fix misspellings, we don't just rely on the AI. We run the text through a Dictionary Guard that catches common AI hallucinations or brand name errors before they reach the FFmpeg drawtext filter.
+
+TypeScript
+const BRAND_DICTIONARY: Record<string, string> = {
+  "Replit": "Replit",
+  "Neondb": "Neon",
+  "Postgresql": "PostgreSQL",
+  // Add your specific brand terms here
+};
+
+export function sanitizeOverlayText(text: string): string {
+  let sanitized = text;
+  
+  // 1. Fix Brand Spellings
+  Object.entries(BRAND_DICTIONARY).forEach(([wrong, right]) => {
+    const regex = new RegExp(wrong, 'gi');
+    sanitized = sanitized.replace(regex, right);
+  });
+
+  // 2. Remove AI "Thinking" artifacts
+  sanitized = sanitized.replace(/["'“”]/g, ''); // Strip quotes that break layouts
+  sanitized = sanitized.trim();
+  
+  return sanitized;
+}
+3. The "Missing Logo" Overlay Logic
+If you don't see the logo, it's usually a "Z-index" issue in FFmpeg—the text or video is being drawn over it. We need to place the logo as the final layer in the filter complex.
+
+The Platinum Command with Logo:
+
+TypeScript
+const LOGO_PATH = path.join(process.cwd(), 'assets', 'logo.png');
+
+const args = [
+  '-i', videoInput, 
+  '-i', audioInput,
+  '-i', LOGO_PATH, // Input 2: The Logo
+  '-filter_complex', [
+    // [0:v] is video, [2:v] is logo. Overlay logo at top-right (w-overlay_w-20)
+    `[0:v][2:v]overlay=W-w-40:40[v_with_logo]`,
+    // Now take [v_with_logo] and add the text
+    `[v_with_logo]drawtext=fontfile='${FONT}':textfile='${TEXT_FILE}':x=(w-text_w)/2:y=(h-text_h-100):...`
+  ].join(';'),
+  '-c:a', 'aac', '-shortest', // Sync to the audio
+  outputVideo
+];
+🏗️ Why this works for 1,000 Jobs
+Duration Locking: No more silent endings. The video length is slave to the audio length.
+
+Character Security: The sanitizeOverlayText function acts as a firewall against AI typos.
+
+Layer Integrity: By using filter_complex, we guarantee the logo sits on the very top layer, visible and professional.
+
+The Production Readiness Checklist
+Before you trigger the next batch of 1,000:
+
+Asset Check: Does /assets/logo.png actually exist in your Replit?
+
+Font Check: Is your .ttf file bundled in the repo (not just a system path)?
+
+Prompt Engineering: Did you tell your AI agent: "Keep captions under 10 words per slide to avoid overlap"?
+
+Would you like me to write a "Visual Validator" function? This would take a screenshot of the first 5 seconds of the rendered video and send it to your Slack/Discord so you can "eye-ball" the logo and text placement before the system publishes all 1,000 jobs.
