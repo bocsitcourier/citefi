@@ -15,8 +15,10 @@ async function execFFmpeg(args: string[]): Promise<void> {
   const binaryPath: string = ffmpegPath;
 
   return new Promise((resolve, reject) => {
-    console.log(`  🎬 Executing FFmpeg: ${binaryPath} ${args.slice(0, 5).join(' ')}...`);
-    const ffmpeg = spawn(binaryPath, args);
+    // -hide_banner suppresses the version/build header so error output is immediately readable
+    const fullArgs = ['-hide_banner', ...args];
+    console.log(`  🎬 Executing FFmpeg: ${binaryPath} ${fullArgs.slice(0, 6).join(' ')}...`);
+    const ffmpeg = spawn(binaryPath, fullArgs);
     
     let stderr = '';
     let stdout = '';
