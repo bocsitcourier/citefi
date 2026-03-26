@@ -33,9 +33,15 @@ async function execFFmpeg(args: string[]): Promise<void> {
       if (code === 0) {
         resolve();
       } else {
+        // Skip FFmpeg version/build header (~1800 chars) to surface the actual error.
+        // The real error always starts with "Error", "No such file", "Invalid", etc.
+        const errorIdx = stderr.search(/\b(Error|No such file|Invalid|Conversion failed|Unable|Cannot|failed|moov atom)/i);
+        const errorSnippet = errorIdx !== -1
+          ? stderr.slice(errorIdx, errorIdx + 2000)
+          : stderr.slice(-2000);
         console.error(`❌ FFmpeg failed with exit code ${code}`);
-        console.error(`❌ FFmpeg stderr: ${stderr.slice(-500)}`);
-        reject(new Error(`FFmpeg failed with code ${code}. Last 500 chars of stderr: ${stderr.slice(-500)}`));
+        console.error(`❌ FFmpeg error: ${errorSnippet}`);
+        reject(new Error(`FFmpeg failed with code ${code}: ${errorSnippet}`));
       }
     });
     

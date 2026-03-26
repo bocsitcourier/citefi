@@ -371,7 +371,17 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
         if (elapsedMinutes < maxMinutes) {
           // Still within expected window — server likely just restarted. Re-enqueue automatically.
-          // Default platform to tiktok (most common); the worker reads videoType from DB anyway.
+          // CRITICAL: Cancel any existing active pg-boss jobs for this post FIRST to prevent
+          // race conditions where two workers simultaneously write to the same /tmp/video-X/ dir.
+          await db.execute(sql`
+            UPDATE pgboss.job
+            SET state = 'cancelled',
+                completed_on = NOW()
+            WHERE name = 'social-video-generation'
+              AND state = 'active'
+              AND (data->>'socialPostId')::int = ${post.id}
+          `);
+
           const platform = "tiktok";
           const expireInSeconds = isVeo ? 5400 : 900;
 

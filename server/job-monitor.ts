@@ -101,23 +101,23 @@ async function resetStuckActiveJobs() {
       console.log(`   Workers will automatically resume processing these jobs`);
     }
     
-    // PERMANENT FIX: Also monitor social-video-generation jobs (10 min timeout for videos)
-    // Video jobs can hang on FFmpeg composition - reset if stuck > 10 minutes
+    // VIDEO JOBS: Do NOT reset to 'created' — that causes a race condition where two
+    // workers process the same job simultaneously and fight over the same /tmp/video-X/ files.
+    // Instead, CANCEL jobs stuck beyond 105 minutes (90-min Veo + 15-min buffer).
+    // job-recovery.ts handles re-queuing with proper cancellation of active jobs first.
     const videoResult = await db.execute(sql`
       UPDATE pgboss.job
-      SET state = 'created',
-          started_on = NULL,
-          completed_on = NULL
+      SET state = 'cancelled',
+          completed_on = NOW()
       WHERE name = 'social-video-generation'
         AND state = 'active'
-        AND started_on < NOW() - INTERVAL '10 minutes'
+        AND started_on < NOW() - INTERVAL '105 minutes'
     `);
-    
+
     const videoResetCount = (videoResult as any).rowCount || 0;
-    
+
     if (videoResetCount > 0) {
-      console.log(`🔧 AUTO-RECOVERY: Reset ${videoResetCount} stuck social-video-generation jobs to 'created' state`);
-      console.log(`   Video workers will automatically resume processing these jobs`);
+      console.log(`🔧 AUTO-RECOVERY: Cancelled ${videoResetCount} video jobs stuck > 105 minutes (will be re-queued by job-recovery)`);
     }
     
     // PERMANENT FIX: Also monitor image-generation jobs (3 min timeout for images)

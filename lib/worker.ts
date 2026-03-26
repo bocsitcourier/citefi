@@ -1547,13 +1547,37 @@ export async function registerWorkers() {
     await boss.createQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
     console.log(`✅ Queue partition created/verified`);
 
-    // PERMANENT FIX: Increase concurrency for batch video processing (15 workers)
-    // Each video takes 2-5 minutes, 15 workers allows parallel batch processing
+    // STARTUP CLEANUP: Cancel all video jobs that were active before this process started.
+    // When the worker process restarts, any "active" pg-boss jobs from the previous process
+    // are orphaned — their workers are dead. Cancelling them prevents the infinite loop where
+    // 42 stuck jobs each hold DB connections and exhaust the 20-connection pool.
+    // job-recovery.ts will then re-enqueue any posts still showing videoStatus=GENERATING.
+    try {
+      const { db: startupDb } = await import("./db");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const cancelResult = await startupDb.execute(sqlTag`
+        UPDATE pgboss.job
+        SET state = 'cancelled',
+            completed_on = NOW()
+        WHERE name = 'social-video-generation'
+          AND state = 'active'
+          AND started_on < NOW() - INTERVAL '15 minutes'
+      `);
+      const cancelled = (cancelResult as any).rowCount || 0;
+      if (cancelled > 0) {
+        console.log(`🧹 Startup cleanup: cancelled ${cancelled} orphaned video job(s) from previous process (job-recovery will re-enqueue eligible ones)`);
+      } else {
+        console.log(`✅ Startup cleanup: no orphaned video jobs found`);
+      }
+    } catch (cleanupErr) {
+      console.warn(`⚠️ Startup video job cleanup failed (non-fatal):`, cleanupErr);
+    }
+
     await boss.work<SocialVideoJobData>(
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 
         batchSize: 1,       // One job per worker invocation
-        teamSize: 8,        // Allow 8 concurrent workers for parallel batch processing
+        teamSize: 3,        // Max 3 concurrent (3×5 DB conns ≈ 15, safely under 20-conn pool)
       } as any,
       async (jobs) => {
         for (const job of jobs) {

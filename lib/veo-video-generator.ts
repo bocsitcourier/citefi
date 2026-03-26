@@ -75,7 +75,9 @@ export async function generateVeoClip(
 
     let currentOperation = operation;
     let pollCount = 0;
-    const maxPolls = 60;
+    // Veo 2 clips (5-8s each) typically complete in 10-30 min.
+    // Allow up to 360 polls × 10s = 60 min to handle slow generations.
+    const maxPolls = 360;
 
     // Poll using operation object (SDK expects { operation: operationObject })
     while (!currentOperation.done && pollCount < maxPolls) {
@@ -113,7 +115,7 @@ export async function generateVeoClip(
     }
 
     if (!currentOperation.done) {
-      throw new Error("Veo video generation timed out after 10 minutes");
+      throw new Error(`Veo video generation timed out after ${maxPolls * 10 / 60} minutes for scene ${sceneNumber}`);
     }
 
     // Log full operation response for debugging
