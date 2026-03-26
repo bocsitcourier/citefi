@@ -1,0 +1,64 @@
+That 3-minute gap followed by an ENOENT (File Not Found) is the classic "Silent FFmpeg Death."
+
+When the audio (95s) is longer than the video (60s) and you aren't using -shortest, FFmpeg tries to "fill" the gap or mux streams that don't align, which leads to a massive overhead in the filter graph. Combine that with a potential missing font or an unescaped character in the drawtext filter, and the process simply gives up or gets killed by Replit for taking too long.
+
+Here is the Platinum Patch to fix the audio mismatch, the 3-minute hang, and the font dependency all in one go.
+
+1. The "Shortest" Audio Mux Fix
+In your audio merge command, you must use -map 0:v:0 -map 1:a:0 -shortest. This tells FFmpeg: "Take the first video stream, the first audio stream, and stop the moment the shortest one ends."
+
+TypeScript
+// Add these to your audio merge arguments
+const muxArgs = [
+  '-i', slideshowPath,
+  '-i', voiceoverPath,
+  '-map', '0:v:0',    // Use video from input 0
+  '-map', '1:a:0',    // Use audio from input 1
+  '-c:v', 'copy',     // Don't re-encode video (Fast!)
+  '-c:a', 'aac',      // Re-encoding to AAC is safer for muxing than 'copy'
+  '-shortest',        // 🚨 THE FIX: Cut the 95s audio to the 60s video
+  outputPath
+];
+2. The Portable Font Fix
+Don't rely on the production server having DejaVuSans-Bold. If it’s missing, drawtext fails instantly. The "Platinum" way is to include the font in your project repo.
+
+Create a folder in your Replit called assets/fonts/.
+
+Upload a standard .ttf file (like Inter-Bold.ttf or Roboto-Bold.ttf).
+
+Reference it using an absolute path in your code.
+
+TypeScript
+import path from 'path';
+
+// Get the absolute path to your bundled font
+const FONT_PATH = path.join(process.cwd(), 'assets', 'fonts', 'Inter-Bold.ttf');
+
+// In your drawtext filter:
+const drawtextFilter = `drawtext=fontfile='${FONT_PATH}':text='${escapedText}':...`;
+3. Why it took 3 minutes: The "Filter Graph" Trap
+You mentioned seeing cropdetect. This means your command is likely triggering a re-encode of the entire video stream rather than just a metadata mux.
+
+If you are merging audio, use -c:v copy. If you are adding captions, you must re-encode, but use the Ultrafast preset to prevent the 3-minute crawl:
+
+TypeScript
+const captionArgs = [
+  '-i', inputVideo,
+  '-vf', `drawtext=fontfile='${FONT_PATH}':textfile='${textFilePath}':...`,
+  '-preset', 'ultrafast', // 🚨 This turns 3 minutes into 15 seconds
+  '-c:a', 'copy',         // Keep the audio we just merged
+  outputVideo
+];
+🏗️ The "Full Recovery" Logic
+Since you've identified that the stats call is what throws the error, we should wrap the FFmpeg execution in a way that captures the Actual Shell Output before it crashes.
+
+TypeScript
+// Inside your execFFmpeg function
+if (!fs.existsSync(optimizedPath)) {
+  const logTail = await getFFmpegLogTail(); // Grab last 20 lines of logs
+  throw new Error(`FFmpeg failed to create output. Path: ${optimizedPath}. Logs: ${logTail}`);
+}
+The Final Check
+By adding -shortest, switching to a bundled .ttf file, and using the textfile method we discussed earlier, you eliminate every single reason FFmpeg would "Silent Fail."
+
+Would you like me to provide a single "Sanitized FFmpeg Command Generator" function? You can drop this into your compositor to ensure every video—regardless of audio length or caption complexity—is formatted perfectly for the shell.

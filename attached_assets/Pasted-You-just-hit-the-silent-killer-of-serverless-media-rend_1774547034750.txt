@@ -1,0 +1,116 @@
+You just hit the silent killer of serverless media rendering: The Replit Resource Trap.
+
+When FFmpeg runs for ~3 minutes and then you get ENOENT: no such file, it almost never means your code is wrong. It means the Operating System assassinated FFmpeg mid-render, and your Node wrapper was too "polite" to catch the gunshot.
+
+Here is exactly what is happening:
+
+OOM (Out of Memory) Kill: Video rendering spikes RAM. If Replit hits its memory limit, Linux sends a SIGKILL (Code 137). FFmpeg dies instantly without writing the final MP4.
+
+Disk Space Exhaustion: The /tmp directory on Replit is extremely small (often a RAM disk). When FFmpeg writes the temporary frames, it fills the drive, silently fails, and the output is never saved.
+
+The Blind Wrapper: Your current execFFmpeg function is likely using child_process.exec. exec buffers output in memory (which causes more OOMs) and often swallows the real stderr if the process is killed abruptly.
+
+Here is the Platinum FFmpeg Wrapper. We will rip out the blindfold, stream the actual errors, and tie it directly into the Watchdog.
+
+1. The "Loud" FFmpeg Wrapper (lib/ffmpeg-utils.ts)
+We must switch from exec to spawn. This prevents memory buffer overflows and captures the exact error line from FFmpeg (whether it's a font issue, a disk issue, or a RAM issue).
+
+TypeScript
+import { spawn } from 'child_process';
+import { Watchdog } from './watchdog';
+
+export function execFFmpeg(commandArgs: string[], context: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // 1. Use SPAWN to stream data, not EXEC which buffers and crashes
+    const ffmpeg = spawn('ffmpeg', commandArgs);
+    let lastErrors = '';
+
+    // FFmpeg writes EVERYTHING (even normal progress) to stderr
+    ffmpeg.stderr.on('data', (data) => {
+      const output = data.toString();
+      // Keep only the last 1000 characters to prevent memory leaks
+      lastErrors = (lastErrors + output).slice(-1000); 
+    });
+
+    ffmpeg.on('close', async (code) => {
+      if (code === 0) {
+        resolve(); // Success!
+      } else {
+        // 2. Translate the OS exit codes
+        let reason = `FFmpeg exited with code ${code}`;
+        if (code === 137) reason = "OOM_KILLED: The server ran out of RAM.";
+        if (code === 255) reason = "SIGSTOP: The process was halted manually.";
+        if (lastErrors.includes('No space left on device')) reason = "DISK_FULL: The /tmp directory is full.";
+
+        const finalErrorMessage = `${reason}\nLast Logs: ${lastErrors.slice(-300)}`;
+        
+        // 3. WAKE UP THE WATCHDOG INSTANTLY
+        await Watchdog.alert("Video Compositor", context, [finalErrorMessage]);
+        
+        reject(new Error(finalErrorMessage));
+      }
+    });
+
+    // Catch failed spawns (e.g., FFmpeg isn't installed)
+    ffmpeg.on('error', (err) => {
+      reject(new Error(`Failed to start FFmpeg process: ${err.message}`));
+    });
+  });
+}
+2. Fixing the Replit /tmp Trap
+If you are rendering social videos (even 30 seconds long), leaving artifacts in /tmp will crash your entire Replit container after 3 or 4 videos.
+
+You must enforce an Aggressive Cleanup Protocol inside social-video-compositor.ts. Wrap your entire composition logic in a try/finally block so that even if FFmpeg crashes, the heavy raw files are deleted.
+
+TypeScript
+import { promises as fs } from 'fs';
+import path from 'path';
+
+export async function createSocialVideo(jobId: string) {
+  const workDir = `/tmp/video-${jobId}`;
+  
+  try {
+    // 1. Ensure clean workspace
+    await fs.mkdir(workDir, { recursive: true });
+    
+    // ... download assets, prepare FFmpeg args ...
+    
+    // 2. Run the new loud wrapper
+    // Pass args as an array, e.g., ['-i', 'input.mp4', '-vf', 'drawtext=...', 'output.mp4']
+    await execFFmpeg(args, `Job ID: ${jobId}`); 
+    
+    // 3. Verify output (it will definitely exist now if the promise resolved)
+    const stat = await fs.stat(path.join(workDir, `output-${jobId}.mp4`));
+    
+    // ... upload to cloud / save to DB ...
+
+  } catch (error) {
+    // The error is already sent to Slack by the wrapper, just bubble it up
+    throw error;
+  } finally {
+    // 🚨 THE PLATINUM RULE: ALWAYS BURN THE WORKSPACE 🚨
+    try {
+      await fs.rm(workDir, { recursive: true, force: true });
+      console.log(`🧹 Cleaned up heavy video files for Job ${jobId}`);
+    } catch (cleanupErr) {
+      console.error(`Failed to clean workspace ${workDir}:`, cleanupErr);
+    }
+  }
+}
+3. The Resource Limits (Preventing the 3-Minute Hang)
+If a social video is taking 3 minutes to render on Replit, it is hogging the CPU and starving your Article Workers. You need to tell FFmpeg to render faster at the expense of slight file size increases.
+
+Add these flags to your FFmpeg arguments array:
+
+'-preset', 'ultrafast' (Forces FFmpeg to render quickly, saving CPU time).
+
+'-threads', '2' (Prevents FFmpeg from consuming all cores on your server).
+
+Why this fixes your issue completely:
+Instead of staring at ENOENT: stat failed, the very next time this crashes, your Watchdog will send you a Slack message saying:
+
+🚨 AI System Alert: Video Compositor Failed
+Target: Job ID: 55
+Agent Diagnosis:
+DISK_FULL: The /tmp directory is full.
+Last Logs: Error writing trailer of /tmp/video-55/output-55.mp4: No space left on device.

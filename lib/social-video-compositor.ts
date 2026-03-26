@@ -7,49 +7,54 @@ import ffmpegPath from "ffmpeg-static";
 import ffprobePath from "@ffprobe-installer/ffprobe";
 
 // Safe FFmpeg execution using bundled static binary
-async function execFFmpeg(args: string[]): Promise<void> {
+async function execFFmpeg(args: string[], passLabel?: string): Promise<void> {
   if (!ffmpegPath) {
     throw new Error("FFmpeg binary not found. Please ensure ffmpeg-static is installed.");
   }
 
   const binaryPath: string = ffmpegPath;
+  const label = passLabel || 'FFmpeg';
 
   return new Promise((resolve, reject) => {
-    // -hide_banner suppresses the version/build header so error output is immediately readable
     const fullArgs = ['-hide_banner', ...args];
-    console.log(`  🎬 Executing FFmpeg: ${binaryPath} ${fullArgs.slice(0, 6).join(' ')}...`);
+    console.log(`  🎬 Executing FFmpeg [${label}]: ${binaryPath} ${fullArgs.slice(0, 6).join(' ')}...`);
     const ffmpeg = spawn(binaryPath, fullArgs);
     
-    let stderr = '';
-    let stdout = '';
-    
-    ffmpeg.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString();
-    });
-    
+    // Keep last 3000 chars of stderr to diagnose errors without OOM from buffering
+    let stderrBuf = '';
     ffmpeg.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString();
+      stderrBuf = (stderrBuf + data.toString()).slice(-3000);
     });
     
-    ffmpeg.on('close', (code: number | null) => {
+    ffmpeg.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
       if (code === 0) {
         resolve();
-      } else {
-        // Skip FFmpeg version/build header (~1800 chars) to surface the actual error.
-        // The real error always starts with "Error", "No such file", "Invalid", etc.
-        const errorIdx = stderr.search(/\b(Error|No such file|Invalid|Conversion failed|Unable|Cannot|failed|moov atom)/i);
-        const errorSnippet = errorIdx !== -1
-          ? stderr.slice(errorIdx, errorIdx + 2000)
-          : stderr.slice(-2000);
-        console.error(`❌ FFmpeg failed with exit code ${code}`);
-        console.error(`❌ FFmpeg error: ${errorSnippet}`);
-        reject(new Error(`FFmpeg failed with code ${code}: ${errorSnippet}`));
+        return;
       }
+
+      // Classify failure reason for actionable error messages
+      let reason: string;
+      if (signal === 'SIGKILL' || code === 137 || code === 9) {
+        reason = `OOM_KILLED [${label}]: The server ran out of RAM and killed FFmpeg (code=${code}, signal=${signal}).`;
+        console.error(`💀 ${reason}`);
+      } else if (stderrBuf.includes('No space left on device') || stderrBuf.includes('ENOSPC')) {
+        reason = `DISK_FULL [${label}]: /tmp ran out of space while FFmpeg was writing (code=${code}).`;
+        console.error(`💾 ${reason}`);
+      } else {
+        // Surface the real error past FFmpeg's version header
+        const errorIdx = stderrBuf.search(/\b(Error|No such file|Invalid|Conversion failed|Unable|Cannot|failed|moov atom)/i);
+        const snippet = errorIdx !== -1 ? stderrBuf.slice(errorIdx, errorIdx + 1500) : stderrBuf.slice(-1500);
+        reason = `FFmpeg [${label}] failed with code=${code} signal=${signal}: ${snippet}`;
+        console.error(`❌ FFmpeg [${label}] failed — code=${code} signal=${signal}`);
+        console.error(`❌ Stderr: ${snippet}`);
+      }
+
+      reject(new Error(reason));
     });
     
     ffmpeg.on('error', (err: Error) => {
-      console.error(`❌ FFmpeg process error:`, err);
-      reject(new Error(`FFmpeg process error: ${err.message}. This usually means the FFmpeg binary is missing or cannot be executed.`));
+      console.error(`❌ FFmpeg process error [${label}]:`, err);
+      reject(new Error(`FFmpeg process error [${label}]: ${err.message}`));
     });
   });
 }
@@ -203,12 +208,26 @@ export async function composeVideo(
   const resolution = (PLATFORM_RESOLUTIONS[platform] ?? PLATFORM_RESOLUTIONS['default'])!;
   const { width, height } = resolution;
 
+  const fs = await import("fs/promises");
+  const path = await import("path");
+  const tempDir = `/tmp/video-${socialPostId}`;
+
   try {
-    const fs = await import("fs/promises");
-    const path = await import("path");
+    // Preflight: check /tmp free space — need at least 500MB for a 60s 1080p encode
+    try {
+      const { execSync } = await import("child_process");
+      const dfOut = execSync(`df -m /tmp 2>/dev/null | tail -1`).toString().trim();
+      const available = parseInt(dfOut.split(/\s+/)[3] ?? '0', 10);
+      console.log(`  💾 /tmp free space: ${available}MB`);
+      if (available < 500) {
+        throw new Error(`DISK_FULL: /tmp has only ${available}MB free — need ≥500MB for video composition`);
+      }
+    } catch (dfErr: unknown) {
+      if (dfErr instanceof Error && dfErr.message.startsWith('DISK_FULL')) throw dfErr;
+      console.warn(`  ⚠️ Could not check disk space: ${dfErr}`);
+    }
 
     // Prepare temp directory
-    const tempDir = `/tmp/video-${socialPostId}`;
     await fs.mkdir(tempDir, { recursive: true });
 
     // Sort images by scene number
@@ -320,9 +339,17 @@ export async function composeVideo(
       '-c:v', 'libx264',
       '-pix_fmt', 'yuv420p',
       '-preset', 'ultrafast',
+      '-threads', '2',
       '-an', // No audio in this step
       slideshowOnlyPath
-    ]);
+    ], 'pass1-slideshow');
+
+    // Verify pass 1 output exists before continuing
+    try {
+      await fs.stat(slideshowOnlyPath);
+    } catch {
+      throw new Error(`Pass 1 output missing after FFmpeg exited: ${slideshowOnlyPath}`);
+    }
     console.log(`  ✅ Slideshow created with full-screen scaling (no black bars)`);
 
     // Step 2: CROPDETECT to find any remaining black bars
@@ -392,19 +419,29 @@ export async function composeVideo(
     
     if (videoFilters.length > 0) {
       ffmpegArgs.push('-vf', videoFilters.join(','));
+      ffmpegArgs.push('-threads', '2');
     } else {
       ffmpegArgs.push('-c:v', 'copy'); // No video re-encode needed
     }
     
     ffmpegArgs.push(
-      '-c:a', 'copy', // CRITICAL: Copy audio to prevent cutoffs
-      '-map', '0:v:0', // Map video from slideshow
-      '-map', '1:a:0', // Map audio from TTS
+      '-c:a', 'aac',       // Re-encode audio (needed when video filters applied)
+      '-b:a', '192k',
+      '-shortest',          // CRITICAL: trim to video length — prevents 95s audio extending 60s video
+      '-map', '0:v:0',      // Map video from slideshow
+      '-map', '1:a:0',      // Map audio from TTS
       slideshowWithAudioPath
     );
     
-    await execFFmpeg(ffmpegArgs);
-    console.log(`  ✅ Slideshow + audio combined (audio preserved with copy codec)`);
+    await execFFmpeg(ffmpegArgs, 'pass2-audio-merge');
+
+    // Verify pass 2 output exists before running the expensive caption pass
+    try {
+      const p2stat = await fs.stat(slideshowWithAudioPath);
+      console.log(`  ✅ Slideshow + audio combined (${(p2stat.size / 1024 / 1024).toFixed(1)}MB)`);
+    } catch {
+      throw new Error(`Pass 2 output missing after FFmpeg exited: ${slideshowWithAudioPath}`);
+    }
 
     // OPTIMIZATION: Combine captions + logo + final optimization in one pass
     console.log(`  📝 Adding captions + logo + final encoding (OPTIMIZED: 1 pass)...`);
@@ -481,12 +518,13 @@ export async function composeVideo(
         '-metadata', `title=${companyName} - Social Video`,
         '-metadata', 'description=Generated by ApexContent Engine',
         '-c:v', 'libx264',
-        '-preset', 'medium', // Use medium for final output quality
+        '-preset', 'ultrafast', // ultrafast: ~10x faster than medium, negligible quality diff for social
         '-crf', '23',
+        '-threads', '2',
         '-c:a', 'copy',
         '-movflags', '+faststart',
         outputPath
-      ]);
+      ], 'pass3-captions-logo');
       console.log(`  ✅ Logo (max 600x300px, bottom right corner) + captions + URL overlay applied`);
     } else {
       // Just captions + URL + final optimization
@@ -497,12 +535,13 @@ export async function composeVideo(
         '-metadata', `title=${companyName} - Social Video`,
         '-metadata', 'description=Generated by ApexContent Engine',
         '-c:v', 'libx264',
-        '-preset', 'medium', // Use medium for final output quality
+        '-preset', 'ultrafast', // ultrafast: ~10x faster than medium, negligible quality diff for social
         '-crf', '23',
+        '-threads', '2',
         '-c:a', 'copy',
         '-movflags', '+faststart',
         outputPath
-      ]);
+      ], 'pass3-captions');
       console.log(`  ✅ Captions + URL overlay + optimization done in 1 pass`);
     }
 
@@ -583,13 +622,6 @@ export async function composeVideo(
 
     console.log(`✅ Video uploaded to permanent storage`);
 
-    // Clean up temp files (keep local path for immediate access)
-    try {
-      await fs.rm(path.join(tempDir, "slideshow-audio.mp4"));
-    } catch (cleanupError) {
-      console.warn("⚠️ Cleanup warning:", cleanupError);
-    }
-
     return {
       videoUrl,
       localPath: optimizedPath,
@@ -600,6 +632,15 @@ export async function composeVideo(
   } catch (error) {
     console.error("❌ Video composition failed:", error);
     throw new Error(`FFmpeg composition failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    // PLATINUM RULE: Always clean up /tmp workspace — even on failure.
+    // Leaving raw video files in /tmp will exhaust disk space and crash future generations.
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      console.log(`🧹 Cleaned up temp workspace: ${tempDir}`);
+    } catch (cleanupErr) {
+      console.warn(`⚠️ Could not clean up ${tempDir}:`, cleanupErr);
+    }
   }
 }
 
