@@ -107,6 +107,8 @@ export async function POST(request: NextRequest) {
       wordCountMax, 
       geographicFocus, 
       audience,
+      // Persist serpFeatureTarget so batch records are self-describing for audits/re-runs
+      ...(serpFeatureTarget ? { serpFeatureTarget } : {}),
     };
 
     await db

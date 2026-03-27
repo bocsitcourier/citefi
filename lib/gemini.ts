@@ -842,7 +842,8 @@ export async function generateArticleContent(
   teamId?: number, // Psychographic targeting: team ID for persona lookup
   personaId?: number, // Psychographic targeting: persona ID for content adaptation
   enableFactValidation?: boolean, // Anti-Hallucination: enable fact-based validation
-  articleId?: number // Article ID for fact claims audit trail
+  articleId?: number, // Article ID for fact claims audit trail
+  serpFeatureTarget?: string // SERP feature optimization: Featured Snippet | PAA | List | Q&A
 ): Promise<ArticleGenerationResult> {
   // Dynamic year for freshness signals
   const currentYear = new Date().getFullYear();
@@ -1017,6 +1018,34 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
   const audienceContext = audience ? `\nTarget Audience: ${audience}` : "";
   const toneContext = tone ? `\nTone: ${tone} - Write the entire article in this tone` : "";
   const customContext = customInstructions ? `\n\n**CUSTOM REGENERATION INSTRUCTIONS:**\n${customInstructions}\n\nPlease apply these specific changes while maintaining all other quality standards and requirements below.` : "";
+
+  // SERP FEATURE TARGET: Shape article structure for a specific Google SERP feature
+  const serpFeatureContext = (() => {
+    switch (serpFeatureTarget) {
+      case "Featured Snippet":
+        return `\n\n**SERP OPTIMIZATION: FEATURED SNIPPET**
+- Open the article with a direct, self-contained 40–60 word answer paragraph immediately below the first H2, written in plain declarative sentences so Google can extract it verbatim.
+- Include one concise definition or explanation block in the opening section before expanding into full detail.
+- Avoid burying the lead — the core answer must appear above any context-setting or history.`;
+      case "PAA":
+        return `\n\n**SERP OPTIMIZATION: PEOPLE ALSO ASK (PAA)**
+- Include a dedicated "People Also Ask" section with 4–6 question-formatted H3 headings that mirror real searcher phrasing.
+- Each H3 must be answered in 40–80 words — factual, concise, non-repetitive.
+- Question phrasing must start with Who / What / Why / How / When / Where to match PAA extraction patterns.`;
+      case "List":
+        return `\n\n**SERP OPTIMIZATION: LIST SNIPPET**
+- Structure the primary content as a clearly numbered or bulleted list with short, parallel-structure items.
+- Each list item should be 1–2 sentences, scannable, and begin with an action verb or key noun.
+- Include a brief intro sentence before the list so Google can pair the list with context.`;
+      case "Q&A":
+        return `\n\n**SERP OPTIMIZATION: Q&A / FAQ SCHEMA**
+- Include a dedicated FAQ section with 5–8 question-and-answer pairs formatted as H3 question + paragraph answer.
+- Answers must be concise (30–80 words), factual, and non-redundant with each other.
+- Phrasing must be suitable for FAQ schema markup extraction (direct questions, direct answers).`;
+      default:
+        return "";
+    }
+  })();
   const brandLockContext = createBrandLockPromptSegment(businessName);
   
   // PSYCHOGRAPHIC TARGETING: Fetch persona + learning optimization context
@@ -1061,7 +1090,7 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
 
 Article Title: ${title}
 Target URL for Internal Linking: ${targetUrl}
-Word Count Range: ${wordCountMin}-${wordCountMax} words${geographicContext}${audienceContext}${toneContext}${customContext}
+Word Count Range: ${wordCountMin}-${wordCountMax} words${geographicContext}${audienceContext}${toneContext}${customContext}${serpFeatureContext}
 ${brandLockContext}${batchSeoContext}${personaContext}${guardianWarningsContext}
 
 **CRITICAL CONTENT FOCUS - THIS IS EDUCATIONAL CONTENT, NOT AN ADVERTISEMENT:**
@@ -1733,7 +1762,10 @@ export async function generateArticleWithGemini(
     companyLogoUrl,
     batchId,
     teamId,
-    personaId
+    personaId,
+    undefined, // enableFactValidation
+    undefined, // articleId
+    serpFeatureTarget
   );
 
   let geoAccuracyScore: number | undefined;
