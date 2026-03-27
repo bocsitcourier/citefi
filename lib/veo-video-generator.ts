@@ -357,7 +357,9 @@ export async function stitchVeoClips(
     console.log(`  🏷️ Adding logo overlay...`);
     const withLogoPath = path.join(tempDir, "final.mp4");
     
-    const logoCmd = `${ffmpegPath} -y -i "${finalPath}" -i "${logoPath}" -filter_complex "[1:v]scale=400:-1[logo];[0:v][logo]overlay=W-w-20:H-h-20" -c:a copy -movflags +faststart "${withLogoPath}"`;
+    // scale=200:-1 → 200px wide, auto height. format=auto handles PNG alpha.
+    // Top-right (W-w-20:20) keeps logo above caption text area.
+    const logoCmd = `${ffmpegPath} -y -i "${finalPath}" -i "${logoPath}" -filter_complex "[1:v]scale=200:-1[logo];[0:v][logo]overlay=W-w-20:20:format=auto" -c:a copy -movflags +faststart "${withLogoPath}"`;
     execSync(logoCmd, { stdio: "pipe" });
     finalPath = withLogoPath;
   }

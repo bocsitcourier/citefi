@@ -169,6 +169,47 @@ async function syncAudioVideoDurations(
   }
 }
 
+// ─── CAPTION SANITIZER ──────────────────────────────────────────────────────
+// Runs before writing caption text to .txt files — catches AI artifacts that
+// make overlays look unprofessional without breaking the textfile= pipeline.
+const BRAND_CORRECTIONS: Record<string, string> = {
+  "Replit": "Replit",
+  "Postgresql": "PostgreSQL",
+  "Neondb": "Neon",
+  "Openai": "OpenAI",
+  "Chatgpt": "ChatGPT",
+  "Llm": "LLM",
+  "Api": "API",
+  "Saas": "SaaS",
+  "Ai": "AI",
+};
+
+export function sanitizeCaptionText(text: string): string {
+  let s = text.trim();
+
+  // Remove AI "thinking" prefix patterns (e.g. "Scene 3:", "Caption:", "Narration:")
+  s = s.replace(/^(scene\s*\d+\s*:|caption\s*:|narration\s*:|text\s*:)\s*/i, '');
+
+  // Strip surrounding quotes (single, double, curly)
+  s = s.replace(/^["'""\u201C\u201D]+|["'""\u201C\u201D]+$/g, '');
+
+  // Fix known brand name casings
+  Object.entries(BRAND_CORRECTIONS).forEach(([wrong, right]) => {
+    const re = new RegExp(`\\b${wrong}\\b`, 'gi');
+    s = s.replace(re, right);
+  });
+
+  // Collapse multiple spaces/newlines into single space
+  s = s.replace(/\s+/g, ' ').trim();
+
+  // Enforce max length — very long captions overflow the frame
+  if (s.length > 120) {
+    s = s.slice(0, 117) + '...';
+  }
+
+  return s;
+}
+
 export interface VideoCompositorRequest {
   socialPostId: number;
   images: VideoImageResult[]; // 4 images (one per scene)
@@ -268,27 +309,30 @@ export async function composeVideo(
       console.warn(`⚠️ Expected 5 scenes, got ${totalScenes} scenes and ${sortedImages.length} images.`);
     }
 
-    // Normalize durations to ensure total is EXACTLY 60 seconds
+    // ── MASTER DURATION: probe the actual audio file, then lock video to it ──
+    // TTS estimated durations are unreliable (±20%). Probing the file is the
+    // only way to guarantee voice and video end at exactly the same moment.
+    const actualAudioDuration = await getMediaDuration(audio.localPath);
+    const targetTotalDuration = actualAudioDuration > 5 ? actualAudioDuration : 60;
+    console.log(`  🎙️ Audio duration: ${targetTotalDuration.toFixed(2)}s (TTS estimate was: ${audio.duration}s)`);
+
+    // Normalize scene durations to match ACTUAL audio duration (not hardcoded 60s)
     const totalDuration = sceneDurations.reduce((sum, d) => sum + d, 0);
     let normalizedDurations: number[];
     
     if (totalDuration > 0) {
-      // Calculate precise floating point values
-      const preciseValues = sceneDurations.map(d => (d / totalDuration) * 60);
-      // Round each value
+      const preciseValues = sceneDurations.map(d => (d / totalDuration) * targetTotalDuration);
       normalizedDurations = preciseValues.map(v => Math.round(v));
-      // Calculate rounding error
       const currentTotal = normalizedDurations.reduce((a, b) => a + b, 0);
-      const delta = 60 - currentTotal;
-      // Distribute rounding error to the last scene (branded CTA)
+      const delta = Math.round(targetTotalDuration) - currentTotal;
       if (delta !== 0) {
         normalizedDurations[normalizedDurations.length - 1]! += delta;
       }
     } else {
-      normalizedDurations = [10, 12, 12, 12, 14]; // Fallback
+      normalizedDurations = [10, 12, 12, 12, Math.round(targetTotalDuration) - 46]; // Fallback
     }
     
-    console.log(`  ⏱️ Scene durations: ${normalizedDurations.join('s, ')}s (total: ${normalizedDurations.reduce((a,b)=>a+b,0)}s exactly)`);
+    console.log(`  ⏱️ Scene durations: ${normalizedDurations.join('s, ')}s (total: ${normalizedDurations.reduce((a,b)=>a+b,0)}s = audio)`);
 
     // Create a concat file for FFmpeg with dynamic timing per scene
     // IMPORTANT: Last image must be specified twice - once with duration, once without
@@ -346,7 +390,11 @@ export async function composeVideo(
 
     await Promise.all(scenes.map(async (scene, idx) => {
       const captionFile = path.join(tempDir, `caption-${idx}.txt`);
-      await fs.writeFile(captionFile, scene.caption, 'utf8');
+      const sanitized = sanitizeCaptionText(scene.caption);
+      if (sanitized !== scene.caption.trim()) {
+        console.log(`  ✏️ Caption ${idx + 1} sanitized: "${scene.caption.trim().slice(0, 40)}" → "${sanitized.slice(0, 40)}"`);
+      }
+      await fs.writeFile(captionFile, sanitized, 'utf8');
     }));
 
     // Non-overlapping time windows (gte*lt avoids double-caption at scene boundaries)
@@ -397,11 +445,15 @@ export async function composeVideo(
     ];
 
     if (companyLogoPath) {
+      console.log(`  🏷️ Logo overlay: ${companyLogoPath}`);
       // [0]=concat video  [1]=audio  [2]=logo
+      // scale=200:-1 → 200px wide, auto height, preserves aspect ratio
+      // format=auto on overlay handles PNG alpha transparency correctly
+      // Placed top-right (W-w-20:20) so it's above caption text (bottom 14%)
       const filterComplex = [
         `[0:v]${scaleFilter},${geoCropFilter},fps=30[base]`,
-        `[2:v]scale=w='min(600,iw)':h='min(300,ih)':force_original_aspect_ratio=decrease[logo]`,
-        `[base][logo]overlay=W-w-30:H-h-30[withlogo]`,
+        `[2:v]scale=200:-1[logo]`,
+        `[base][logo]overlay=W-w-20:20:format=auto[withlogo]`,
         `[withlogo]${allCaptionDrawtext}[final]`,
       ].join(';');
 
