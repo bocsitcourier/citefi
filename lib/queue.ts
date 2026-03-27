@@ -130,8 +130,20 @@ export async function getPgBoss(): Promise<PgBoss> {
     return pgBossInstance;
   }
 
+  // Prefer the pooled endpoint so pg-boss doesn't compete with the app
+  // pool for the same limited direct-connection budget on Neon.
+  const bossConnectionString =
+    process.env.DATABASE_POOLED_URL ?? process.env.DATABASE_URL;
+  if (!process.env.DATABASE_POOLED_URL) {
+    console.warn(
+      "⚠️  DATABASE_POOLED_URL not set — pg-boss is sharing the direct " +
+      "Neon connection budget with the app pool. Set the pooled URL to " +
+      "prevent job-polling timeouts."
+    );
+  }
+
   pgBossInstance = new PgBoss({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: bossConnectionString,
     retryLimit: 3,
     retryDelay: 5,
     retryBackoff: true,
