@@ -1,6 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPgBoss } from "@/lib/queue";
 import { requireTeamMember } from "@/lib/api/auth";
+import { db } from "@/lib/db";
+import { socialPosts } from "@/shared/schema";
+import { and, eq } from "drizzle-orm";
+
+const CONN_ERROR_PATTERNS = ["connection terminated", "connection refused", "ECONNRESET", "ECONNREFUSED", "fetch failed"];
+function isConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return CONN_ERROR_PATTERNS.some((p) => msg.toLowerCase().includes(p.toLowerCase()));
+}
+
+/** Queue send with up to 2 retries + jitter on transient connection failures. */
+async function resilientSend(
+  queueName: string,
+  data: object,
+  opts: object,
+  socialPostId: number
+): Promise<string> {
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const boss = await getPgBoss();
+      const jobId = await boss.send(queueName, data, opts);
+      if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
+      return jobId;
+    } catch (err) {
+      lastErr = err;
+      if (isConnectionError(err) && attempt < MAX_ATTEMPTS) {
+        const jitter = Math.floor(Math.random() * 500) + 500 * attempt;
+        console.warn(`⚠️ send() attempt ${attempt} failed (connection), retrying in ${jitter}ms…`);
+        await new Promise((r) => setTimeout(r, jitter));
+        continue;
+      }
+      break;
+    }
+  }
+  throw lastErr;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,50 +47,34 @@ export async function POST(request: NextRequest) {
     const { socialPostId, platform = "tiktok", videoType = "slideshow", force = false } = body;
 
     if (!socialPostId) {
-      return NextResponse.json(
-        { error: "socialPostId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "socialPostId is required" }, { status: 400 });
     }
 
-    // Validate videoType
     if (videoType !== "slideshow" && videoType !== "veo") {
-      return NextResponse.json(
-        { error: "videoType must be 'slideshow' or 'veo'" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "videoType must be 'slideshow' or 'veo'" }, { status: 400 });
     }
 
-    // Validate that the social post has a company name
-    const { db } = await import("@/lib/db");
-    const { socialPosts } = await import("@/shared/schema");
-    const { eq } = await import("drizzle-orm");
-    
+    // Fetch post — scoped to this team to prevent cross-team access
     const [post] = await db
       .select()
       .from(socialPosts)
-      .where(eq(socialPosts.id, socialPostId))
+      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)))
       .limit(1);
 
     if (!post) {
-      return NextResponse.json(
-        { error: "Social post not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Social post not found" }, { status: 404 });
     }
 
     if (!post.companyName) {
       return NextResponse.json(
-        { 
+        {
           error: "Company name is required for video generation",
-          message: "Please edit this post to add your company name before generating a video."
+          message: "Please edit this post to add your company name before generating a video.",
         },
         { status: 400 }
       );
     }
 
-    // Prevent duplicate queue — unless the caller explicitly forces a retry
-    // (used by the "Stuck? Retry" button for stuck GENERATING jobs).
     if (post.videoStatus === "GENERATING" && !force) {
       console.log(`⚠️ Video already generating for social post ${socialPostId}, skipping duplicate queue`);
       return NextResponse.json({
@@ -73,60 +95,35 @@ export async function POST(request: NextRequest) {
     const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
     console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
 
-    // CRITICAL: Update status IMMEDIATELY before queuing to fix double-click issue
+    // Mark GENERATING immediately (prevents double-clicks)
     await db
       .update(socialPosts)
-      .set({
-        videoType,
-        videoStatus: "GENERATING",
-        videoProgress: 0,
-        videoStage: "queued",
-        updatedAt: new Date(),
-      })
-      .where(eq(socialPosts.id, socialPostId));
+      .set({ videoType, videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
+      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
 
     console.log(`✅ Video status set to GENERATING (progress: 0%, stage: queued)`);
 
-    // Queue the video generation job
-    const queue = await getPgBoss();
-    console.log(`📋 pg-boss instance obtained, attempting to send job...`);
-    
-    // Increase timeout for Veo videos (60-80 min) vs slideshow (2-3 min)
-    const expireInSeconds = isVeo ? 5400 : 900; // 90 min for Veo, 15 min for slideshow
-    
-    let jobId: string | null = null;
+    // Queue with retries — rolls back to FAILED on any unrecoverable error
+    const expireInSeconds = isVeo ? 5400 : 900;
+    let jobId: string;
     try {
-      jobId = await queue.send(
+      jobId = await resilientSend(
         "social-video-generation",
         { socialPostId, platform, videoType },
-        {
-          retryLimit: 0, // No retries - each attempt costs money
-          retryDelay: 0,
-          expireInSeconds,
-        }
+        { retryLimit: 0, retryDelay: 0, expireInSeconds },
+        socialPostId
       );
     } catch (sendError) {
-      console.error(`❌ pg-boss.send() threw an error for post ${socialPostId}:`, sendError);
+      const errMsg = sendError instanceof Error ? sendError.message : String(sendError);
+      console.error(`❌ pg-boss.send() failed for post ${socialPostId}:`, errMsg);
       await db
         .update(socialPosts)
-        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null,
-               errorMessage: `Failed to queue video job: ${sendError instanceof Error ? sendError.message : String(sendError)}` })
-        .where(eq(socialPosts.id, socialPostId));
-      throw sendError; // re-throw so outer catch returns 500 with real message
-    }
-
-    if (!jobId) {
-      console.error(`❌ CRITICAL: pg-boss.send() returned NULL for post ${socialPostId}`);
-      await db
-        .update(socialPosts)
-        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null,
-               errorMessage: "Failed to queue job — pg-boss returned null" })
-        .where(eq(socialPosts.id, socialPostId));
-      throw new Error("Video job queue rejected the request (pg-boss returned null). Check queue health.");
+        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })
+        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
+      throw sendError;
     }
 
     console.log(`✅ Video generation job queued successfully: ${jobId}`);
-
     return NextResponse.json({
       success: true,
       jobId,

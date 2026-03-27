@@ -1,0 +1,104 @@
+The 500 error in your video route is almost certainly the pg-boss "Cold Start" bug. When the API route wakes up, it tries to send() a job, but the underlying node-postgres connection in the pg-boss singleton hasn't finished its handshake with the newly-resumed Neon compute.
+
+1. The "Hybrid" Database Hub (lib/db.ts)
+We keep the pooled db for the heavy lifting (video rendering) and introduce statelessDb for the "scouts" (cron/recovery).
+
+TypeScript
+import { neon } from '@neondatabase/serverless';
+import { drizzle as drizzleHttp } from 'drizzle-orm/neon-http';
+import { Pool } from 'pg';
+import { drizzle as drizzlePool } from 'drizzle-orm/node-postgres';
+import * as schema from './schema';
+
+const connectionString = process.env.DATABASE_URL!;
+
+// 1. STATELESS CLIENT (HTTP): For Crons & Recovery
+// Immune to timeouts because every request is a fresh HTTP call.
+export const statelessDb = drizzleHttp(neon(connectionString), { schema });
+
+// 2. STATEFUL CLIENT (Pool): For Video Workers
+// Only used when WORKER_PROCESS=true
+const pool = new Pool({
+  connectionString,
+  max: 10, // Lowered to give pg-boss more head-room
+  idleTimeoutMillis: 30000, 
+  connectionTimeoutMillis: 5000,
+});
+
+pool.on('error', (err) => console.error('Unexpected pool error', err));
+
+export const db = process.env.WORKER_PROCESS === 'true' 
+  ? drizzlePool(pool, { schema }) 
+  : statelessDb; // Default to HTTP for API routes
+2. Update the "Scouts" (scheduled-content-worker.ts & job-recovery.ts)
+Switch your imports. These files should never touch the pooled db.
+
+TypeScript
+// Inside lib/scheduled-content-worker.ts
+import { statelessDb } from './db'; 
+
+async function checkDueSchedules() {
+  // This will now use HTTP and never encounter a "Connection terminated" error
+  const due = await statelessDb.select().from(contentSchedules)...
+}
+3. Fixing the Video 500 & pg-boss Rollback
+The 500 error happens because getPgBoss().send() is a "black box" that doesn't handle Neon's 3-second wake-up delay. We need to patch the route to Fail Gracefully and revert the DB status if the queue injection fails.
+
+app/api/social/video/generate/route.ts
+
+TypeScript
+try {
+  // 1. Use statelessDb for the initial record update
+  await statelessDb.update(articles)
+    .set({ videoStatus: 'GENERATING' })
+    .where(eq(articles.id, id));
+
+  // 2. Resilient pg-boss send
+  const boss = await getPgBoss(); // Ensure this handles internal DB retries
+  const jobId = await boss.send('generate-video', { id });
+
+  if (!jobId) throw new Error("Queue rejected the job");
+
+  return Response.json({ success: true });
+
+} catch (error) {
+  console.error("Video Route Crash:", error.message);
+
+  // 🚨 THE ROLLBACK: Don't leave the job in 'GENERATING'
+  await statelessDb.update(articles)
+    .set({ 
+      videoStatus: 'FAILED',
+      validation_logs: [ `Queue Error: ${error.message}` ] 
+    })
+    .where(eq(articles.id, id));
+
+  return Response.json({ 
+    error: `Video generation failed: ${error.message}` 
+  }, { status: 500 });
+}
+4. Hardening pg-boss (lib/queue.ts)
+If the direct connection used by pg-boss dies, the singleton needs to be purged so it can re-establish on the next request.
+
+TypeScript
+let bossInstance: PgBoss | null = null;
+
+export async function getPgBoss() {
+  if (bossInstance) return bossInstance;
+
+  bossInstance = new PgBoss(process.env.DATABASE_URL!);
+  
+  bossInstance.on('error', (error) => {
+    console.error('pg-boss internal error:', error);
+    // 💣 Poison the instance so it gets recreated
+    bossInstance = null; 
+  });
+
+  await bossInstance.start();
+  return bossInstance;
+}
+🏆 Results of this Deployment:
+Scheduled Worker: Will never time out. It uses HTTP, so it doesn't care if Neon was "asleep" 60 seconds ago.
+
+Job Recovery: Becomes bulletproof. It can now actually recover jobs because its own database connection is stateless.
+
+Video 500s: If the database is restarting, the route will now catch the error, roll the article status back to FAILED so you can retry it, and tell you exactly why (e.g., "Connection Timeout").

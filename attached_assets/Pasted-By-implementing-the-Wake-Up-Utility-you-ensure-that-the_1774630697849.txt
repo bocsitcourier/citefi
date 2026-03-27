@@ -1,0 +1,69 @@
+By implementing the Wake-Up Utility, you ensure that the stateful pg-boss never tries to walk through a door that Neon hasn't opened yet.
+
+1. The "Wake-Up" Ping (lib/db-utils.ts)
+Because neonHttpDb is stateless and lightning-fast, we use it to "poke" the database compute. If Neon is suspended, this HTTP call will trigger the resume process. We wait for it to finish before we let the rest of the code run.
+
+TypeScript
+import { statelessDb } from './db';
+import { sql } from 'drizzle-orm';
+
+/**
+ * Force Neon to wake up from suspension before 
+ * starting stateful operations (like pg-boss).
+ */
+export async function wakeUpDatabase() {
+  console.log("🔔 Waking up Neon Compute...");
+  try {
+    // A simple, cheap query to trigger the resume
+    await statelessDb.execute(sql`SELECT 1`);
+    console.log("✅ Neon is awake and responding.");
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to wake up DB:", error.message);
+    return false;
+  }
+}
+2. Protecting the Video Generation Route
+We now place the "Wake-Up" at the very top of the route. This prevents the 500 Unknown Error because getPgBoss().send() will only execute once the database is confirmed to be online.
+
+app/api/social/video/generate/route.ts
+
+TypeScript
+export async function POST(req: Request) {
+  const { id } = await req.json();
+
+  // 1. THE GUARD: Wake up the DB first
+  const isAwake = await wakeUpDatabase();
+  if (!isAwake) {
+    return Response.json({ error: "Database is currently unavailable. Please retry in 5s." }, { status: 503 });
+  }
+
+  try {
+    // 2. Use the Stateless DB for the status flip (Safe from timeouts)
+    await statelessDb.update(articles)
+      .set({ videoStatus: 'GENERATING' })
+      .where(eq(articles.id, id));
+
+    // 3. Queue the job (Now safe because DB is warm)
+    const boss = await getPgBoss();
+    await boss.send('generate-video', { id });
+
+    return Response.json({ success: true });
+
+  } catch (error) {
+    // ... Rollback logic from previous step ...
+  }
+}
+3. Visualizing the Hybrid Flow
+By splitting the traffic, you've created a "Double-Lane" highway.
+
+Lane 1 (Stateless HTTP): Used for Crons, Recovery, and Status Updates. It’s "fire and forget"—no persistent sockets to break.
+
+Lane 2 (Stateful Pool): Used only by the actual Video Workers. Since these workers are busy and "loud," they keep the connection active, preventing Neon from suspending while they are mid-render.
+
+🏆 The Final Deployment Checklist
+Check Secrets: Ensure DATABASE_URL and DATABASE_POOLED_URL are both set in Replit.
+
+Verify Imports: Make sure scheduled-content-worker.ts is using statelessDb.
+
+Deploy: Push the changes.

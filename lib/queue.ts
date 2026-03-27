@@ -123,18 +123,47 @@ export interface SiteCrawlJobData {
 // PG-BOSS CLIENT (SINGLETON)
 // ============================================================================
 
+// ── pg-boss singleton with init-promise guard ─────────────────────────────
+// pgBossInitPromise ensures concurrent getPgBoss() calls all await the SAME
+// startup instead of racing to create multiple instances.
+// On fatal connection errors we stop the old instance, clear both fields, and
+// allow the next caller to recreate — guarded by a recycling flag so only one
+// concurrent recycle can happen at a time.
 let pgBossInstance: PgBoss | null = null;
+let pgBossInitPromise: Promise<PgBoss> | null = null;
+let pgBossRecycling = false;
 
-export async function getPgBoss(): Promise<PgBoss> {
-  if (pgBossInstance) {
-    return pgBossInstance;
+const FATAL_PG_ERRORS = new Set([
+  "CONNECTION_TERMINATED",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "connection terminated",
+  "connection refused",
+  "Connection terminated",
+]);
+
+function isFatalPgError(err: Error): boolean {
+  const msg = err.message ?? "";
+  const code = (err as any).code ?? "";
+  return FATAL_PG_ERRORS.has(code) || [...FATAL_PG_ERRORS].some((s) => msg.includes(s));
+}
+
+async function createPgBoss(): Promise<PgBoss> {
+  // Wake up Neon compute before opening the direct TCP connection.
+  // A stateless HTTP ping is enough to resume a suspended compute unit.
+  try {
+    const { neonHttpDb } = await import("./db");
+    const { sql } = await import("drizzle-orm");
+    await neonHttpDb.execute(sql`SELECT 1`);
+    console.log("🔔 Neon compute confirmed awake — starting pg-boss");
+  } catch (wakeErr) {
+    console.warn("⚠️ DB wake-up ping failed (proceeding anyway):", (wakeErr as Error).message);
   }
 
   // pg-boss MUST use the direct (non-pooled) DATABASE_URL.
   // It relies on PostgreSQL session-level features (advisory locks,
   // listen/notify) that break through transaction poolers like PgBouncer.
-  // The app worker pool uses DATABASE_POOLED_URL separately.
-  pgBossInstance = new PgBoss({
+  const boss = new PgBoss({
     connectionString: process.env.DATABASE_URL,
     retryLimit: 3,
     retryDelay: 5,
@@ -142,25 +171,48 @@ export async function getPgBoss(): Promise<PgBoss> {
     expireInHours: 12,
     retentionDays: 7,
     deleteAfterDays: 14,
-    // CRITICAL: Job timeouts - article generation takes 25-40 mins
-    expireInSeconds: 3600, // 60 minutes per job (allows for multi-stage AI processing)
-    maintenanceIntervalMinutes: 5, // Check for stuck jobs every 5 minutes
-    // Monitoring settings
+    expireInSeconds: 3600,          // 60 min per job (multi-stage AI processing)
+    maintenanceIntervalMinutes: 5,
     monitorStateIntervalMinutes: 5,
   });
 
-  pgBossInstance.on('error', (error) => {
-    console.error('❌ pg-boss error:', error);
+  boss.on("error", async (error: Error) => {
+    console.error("❌ pg-boss error:", error.message);
+    if (isFatalPgError(error) && !pgBossRecycling) {
+      pgBossRecycling = true;
+      console.warn("🔄 Fatal pg-boss connection error — recycling instance…");
+      try {
+        await boss.stop();
+      } catch (_) { /* ignore stop errors */ }
+      pgBossInstance = null;
+      pgBossInitPromise = null;
+      pgBossRecycling = false;
+      console.log("✅ pg-boss instance cleared — next call will reinitialise");
+    }
   });
 
-  await pgBossInstance.start();
+  await boss.start();
   console.log("✅ pg-boss queue initialized (PostgreSQL-backed)");
-
-  // Queue partitions are created manually in PostgreSQL for pg-boss 10+
-  // See: pgboss.job_image_generation, pgboss.job_social_post_generation, etc.
   console.log("✅ Queue partitions configured (managed manually in PostgreSQL)");
+  return boss;
+}
 
-  return pgBossInstance;
+export async function getPgBoss(): Promise<PgBoss> {
+  // Fast path — already running
+  if (pgBossInstance) return pgBossInstance;
+
+  // Coalesce concurrent initialisations into a single promise
+  if (!pgBossInitPromise) {
+    pgBossInitPromise = createPgBoss().then((boss) => {
+      pgBossInstance = boss;
+      return boss;
+    }).catch((err) => {
+      pgBossInitPromise = null; // allow retry on next call
+      throw err;
+    });
+  }
+
+  return pgBossInitPromise;
 }
 
 // ============================================================================
