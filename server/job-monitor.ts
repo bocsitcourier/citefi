@@ -1,4 +1,5 @@
 import { getPgBoss } from "../lib/queue";
+import { neonHttpDb } from "../lib/db";
 
 /**
  * Job Monitor - Automatic Stuck Job Detection & Recovery
@@ -74,24 +75,26 @@ async function checkStuckJobs() {
  * Reset jobs stuck in "active" state after app crashes
  * 
  * When the app crashes, pg-boss jobs in "active" state stay active.
- * This function detects jobs active for > 5 minutes and resets them
- * so workers can resume processing immediately (instead of waiting 60 minutes for expiration).
+ * This function detects jobs active for > 15 minutes and resets them
+ * so workers can resume processing (threshold exceeds Gemini's 10-min hard timeout).
  */
 async function resetStuckActiveJobs() {
   try {
-    const { db } = await import("../lib/db");
+    // Use neonHttpDb (stateless HTTP) so this periodic check is immune to
+    // Neon compute suspension killing idle pool connections between monitor cycles.
     const { sql } = await import("drizzle-orm");
     
-    // Reset article-generation jobs stuck in "active" state for > 5 minutes
-    // This handles crash recovery without waiting for pg-boss 60-minute expiration
-    const articleResult = await db.execute(sql`
+    // Reset article-generation jobs stuck in "active" state for > 15 minutes.
+    // IMPORTANT: threshold must exceed the Gemini hard timeout (10 min) so we
+    // don't reset jobs that are legitimately still running.
+    const articleResult = await neonHttpDb.execute(sql`
       UPDATE pgboss.job
       SET state = 'created',
           started_on = NULL,
           completed_on = NULL
       WHERE name = 'article-generation'
         AND state = 'active'
-        AND started_on < NOW() - INTERVAL '5 minutes'
+        AND started_on < NOW() - INTERVAL '15 minutes'
     `);
     
     const articleResetCount = (articleResult as any).rowCount || 0;
@@ -105,7 +108,7 @@ async function resetStuckActiveJobs() {
     // workers process the same job simultaneously and fight over the same /tmp/video-X/ files.
     // Instead, CANCEL jobs stuck beyond 105 minutes (90-min Veo + 15-min buffer).
     // job-recovery.ts handles re-queuing with proper cancellation of active jobs first.
-    const videoResult = await db.execute(sql`
+    const videoResult = await neonHttpDb.execute(sql`
       UPDATE pgboss.job
       SET state = 'cancelled',
           completed_on = NOW()
@@ -121,7 +124,7 @@ async function resetStuckActiveJobs() {
     }
     
     // PERMANENT FIX: Also monitor image-generation jobs (3 min timeout for images)
-    const imageResult = await db.execute(sql`
+    const imageResult = await neonHttpDb.execute(sql`
       UPDATE pgboss.job
       SET state = 'created',
           started_on = NULL,
@@ -148,18 +151,19 @@ async function resetStuckActiveJobs() {
  */
 async function reconcileStuckBatches() {
   try {
-    const { db } = await import("../lib/db");
+    // Use neonHttpDb (stateless HTTP) — periodic reads must not rely on a pool
+    // connection that may have gone idle between 5-minute monitor cycles.
     const { jobBatches, articles } = await import("@/shared/schema");
     const { eq, inArray } = await import("drizzle-orm");
     
     // Find batches that are not in final state
-    const incompleteBatches = await db
+    const incompleteBatches = await neonHttpDb
       .select()
       .from(jobBatches)
       .where(inArray(jobBatches.status, ["RUNNING", "PARTIAL_COMPLETE", "PENDING"]));
     
     for (const batch of incompleteBatches) {
-      const batchArticles = await db
+      const batchArticles = await neonHttpDb
         .select()
         .from(articles)
         .where(eq(articles.batchId, batch.id));
@@ -187,7 +191,7 @@ async function reconcileStuckBatches() {
         
         // Only update if status changed
         if (batch.status !== finalStatus) {
-          await db
+          await neonHttpDb
             .update(jobBatches)
             .set({ 
               status: finalStatus,

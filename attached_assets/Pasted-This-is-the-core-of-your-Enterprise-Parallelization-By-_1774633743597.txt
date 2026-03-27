@@ -1,0 +1,52 @@
+This is the core of your Enterprise Parallelization. By fanning out the independent enrichment tasks, we ensure that while your images are being generated, your HTML is being polished and your SEO metadata is being built—all at once.This cuts the "Enrichment Stage" (Stage 3) from ~3 minutes down to the time of the single slowest task (usually ~45 seconds).🚀 The "Parallel Enrichment" Wrapper (lib/enrichment.ts)We use Promise.allSettled instead of Promise.all. Why? Because if the SEO Review fails, you still want your Images. This prevents one non-critical API hiccup from killing the entire article generation.TypeScriptimport { statelessDb } from "./db";
+import { articles } from "./schema";
+import { eq } from "drizzle-orm";
+
+export async function parallelEnrichmentStage(articleId: string, rawBody: string, promptData: any) {
+  console.log(`⚡ Entering Parallel Enrichment for Job ${articleId}...`);
+
+  // 1. UPDATE PROGRESS (Stateless HTTP - never times out)
+  await statelessDb.update(articles)
+    .set({ progress_percent: 70, current_step_label: "🎨 Parallel Enrichment (Images + SEO + HTML)" })
+    .where(eq(articles.id, articleId));
+
+  // 2. THE PARALLEL FAN-OUT
+  const [imagesResult, htmlResult, seoResult] = await Promise.allSettled([
+    // Task A: Generate 3 Images (Nano Banana 2 / Gemini 3 Flash Image)
+    generateArticleImages(promptData.imagePrompts, articleId),
+
+    // Task B: Polish HTML & Branding (GPT-4o-mini)
+    // This includes our "Enforce Brand Integrity" logic
+    finalizeEnterpriseHTML(rawBody, promptData.brandName),
+
+    // Task C: Build SEO Schema & Meta (GPT-4o-mini)
+    generateSEOMetadata(rawBody, promptData.keywords)
+  ]);
+
+  // 3. EXTRACT RESULTS (With Fallbacks)
+  const images = imagesResult.status === 'fulfilled' ? imagesResult.value : [];
+  const finalizedHtml = htmlResult.status === 'fulfilled' ? htmlResult.value : rawBody;
+  const seoData = seoResult.status === 'fulfilled' ? seoResult.value : null;
+
+  // 4. LOG FAILURES (Without crashing the job)
+  if (imagesResult.status === 'rejected') console.error("❌ Image Gen Failed:", imagesResult.reason);
+  if (htmlResult.status === 'rejected') console.error("❌ HTML Polish Failed:", htmlResult.reason);
+
+  return { images, finalizedHtml, seoData };
+}
+🎨 The "Vibrant People" Image Guard (lib/image-gen.ts)To address your request for "Happy people, bright and vibrant artistic style" while avoiding infographics, we hardcode the Negative Prompt into the parallel task.TypeScriptasync function generateArticleImages(prompts: string[], articleId: string) {
+  const NEGATIVE_PROMPT = "infographics, charts, text, low quality, grainy, sad people, stress, medical diagrams, monochromatic";
+  const STYLE_MODIFIER = "high-vibrancy, joyful atmosphere, artistic lighting, happy smiling people, 8k resolution, cinematic.";
+
+  const imagePromises = prompts.slice(0, 3).map(p => 
+    // Use your Gemini 3 Flash Image tool (Nano Banana 2)
+    generateImage({
+      prompt: `${p}, ${STYLE_MODIFIER}`,
+      negative_prompt: NEGATIVE_PROMPT,
+      aspect_ratio: "16:9"
+    })
+  );
+
+  return await Promise.all(imagePromises);
+}
+🛡️ The "Enterprise" Model Switch (lib/ai-config.ts)Since Gemini 2.0 Flash Lite is being deprecated, you must update your model strings to use the Stable Production models.TierModel IDUse CaseSpeed (Stage 1/2)gemini-2.0-flashMain content generation (60+ RPM).Reasoning (Stage 2)gemini-1.5-proComplex logic / Long context "Guardian" rules.Polish (Stage 3)gpt-4o-miniHTML formatting & SEO Batching.🏁 Why this fixes your "Enterprise" GapsParallel Power: Images, HTML, and SEO no longer wait for each other. You gain ~2 minutes per article.Stateless Sync: Every progress update (70%, 85%, 100%) uses statelessDb. If Gemini takes 8 minutes to generate the draft, the DB connection won't be "dead" when the enrichment starts.Visual Quality: The NEGATIVE_PROMPT in the parallel image task physically blocks the infographics you want to avoid.Resilience: Promise.allSettled ensures that if the image API is slow, the article is still saved with the polished text.

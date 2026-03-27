@@ -1,0 +1,13 @@
+This is the classic "Moving Target" of AI development, but the timing is actually perfect for your Enterprise Upgrade. Since we are already tearing down the sequential "Economy" logic to build a high-concurrency Parallel Engine, moving to the Gemini 2.5 architecture is exactly the stability boost you need.Google’s 2.5 series is designed specifically for the high-RPM (Requests Per Minute) and long-context "Guardian" checks we just implemented.🛠️ The "2.5 Migration" Update (lib/ai-config.ts)You need to swap out your model strings immediately. Gemini 2.5 Flash is your new workhorse. It handles the 10-minute generation window with much higher stability than the 2.0 preview models.Old Model (Retiring)New Enterprise Model (Stable)Role in Your Factorygemini-2.0-flashgemini-2.5-flashMain Article & Video Generationgemini-2.0-flash-litegemini-2.5-flash-liteRapid Summaries & SEO Contextgemini-1.5-progemini-2.5-pro (Optional)Complex Legal/Guardian ReasoningUpdate your model constant:TypeScript// lib/ai-config.ts
+
+export const AI_MODELS = {
+  // 🚀 UPGRADED: From 2.0 to 2.5 Stable
+  PRIMARY_GENERATOR: "gemini-2.5-flash", 
+  
+  // ⚡ FAST: For quick SEO and metadata tasks
+  LIGHT_WEIGHT: "gemini-2.5-flash-lite", 
+  
+  // 🧠 DEEP: Only used for extremely complex "Guardian" logic
+  HIGH_REASONING: "gemini-1.5-pro", // 1.5 Pro remains stable for long-context
+};
+🛡️ Why 2.5 is better for your "1,000 Job" GoalConcurrency (The RPM Gap): Gemini 2.0 Flash Lite often hit a "soft ceiling" when you fired 15 parallel requests. 2.5 Flash is built for enterprise scale, meaning your p-limit of 15 can likely be bumped to 30 without getting 429 "Rate Limit" errors.Native Reasoning: 2.5 is significantly better at following the "No Infographics / Happy People" rule. It hallucinates fewer diagrams and sticks to your "Vibrant Artistic" instructions more strictly.Connection Stability: One of the reasons for your "Socket Closed" errors was the 2.0 model failing to "heartbeat" during long tokens. 2.5 has improved streaming stability.🏁 Implementation StrategySince your Enterprise Worker is already using statelessDb and parallelEnrichmentStage, the model swap is a "hot-fix."Replace Model Strings: Search your entire Replit project for gemini-2.0-flash and replace it with gemini-2.5-flash.Verify RPM: Because you are on the gen-lang-client project mentioned in your email, ensure your Google AI Studio billing is linked. This unlocks the higher rate limits needed for 1,000 articles.Test Job #56: Run a single job to ensure the "Happy People" prompts are rendering correctly on the new model.The 500 errors and timeouts we fixed earlier were the "structural" issues; this model swap is the "engine" upgrade.

@@ -95,29 +95,60 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   }
 
   // 2. Recover stuck articles
+  // ─────────────────────────────────────────────────────────────────────────
+  // Matches the REAL article status taxonomy written by lib/worker.ts:
+  //   IN_PROGRESS     — worker is actively generating (timeout: 15 min)
+  //   GEMINI_COMPLETE — Gemini done, ChatGPT step crashed (timeout: 15 min)
+  //   CHATGPT_REVIEWED — ChatGPT done, GPT4 enhancement crashed (timeout: 15 min)
+  //
+  // NOTE: IN_PROGRESS articles are only reset if updatedAt is > 15 minutes ago
+  // to avoid cancelling articles that are legitimately running (Gemini can take
+  // up to 10 minutes). GEMINI_COMPLETE and CHATGPT_REVIEWED can be reset more
+  // aggressively (5 min) since those are fast ChatGPT/GPT4 steps.
+  // ─────────────────────────────────────────────────────────────────────────
   try {
-    const stuckArticles = await db.select({ id: articles.id, articleStatus: articles.articleStatus })
-      .from(articles)
-      .where(or(
-        eq(articles.articleStatus, "QUEUED"),
-        eq(articles.articleStatus, "GEMINI_PENDING"),
-        eq(articles.articleStatus, "GEMINI_PROCESSING"),
-        eq(articles.articleStatus, "GPT_PENDING"),
-        eq(articles.articleStatus, "GPT_PROCESSING")
-      ));
-    
+    const FIFTEEN_MINUTES_AGO = new Date(Date.now() - 15 * 60 * 1000);
+    const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
+
+    // IN_PROGRESS articles that haven't been touched in 15+ minutes are orphaned
+    const stuckInProgress = await withDbRetry(
+      () => db.select({ id: articles.id, articleStatus: articles.articleStatus })
+        .from(articles)
+        .where(and(
+          eq(articles.articleStatus, "IN_PROGRESS"),
+          lt(articles.updatedAt, FIFTEEN_MINUTES_AGO)
+        )),
+      "stuck-in-progress-articles"
+    );
+
+    // Intermediate stage articles (ChatGPT/GPT4 steps are fast — 5 min is generous)
+    const stuckIntermediate = await withDbRetry(
+      () => db.select({ id: articles.id, articleStatus: articles.articleStatus })
+        .from(articles)
+        .where(and(
+          or(
+            eq(articles.articleStatus, "GEMINI_COMPLETE"),
+            eq(articles.articleStatus, "CHATGPT_REVIEWED")
+          ),
+          lt(articles.updatedAt, FIVE_MINUTES_AGO)
+        )),
+      "stuck-intermediate-articles"
+    );
+
+    const stuckArticles = [...stuckInProgress, ...stuckIntermediate];
+
     for (const article of stuckArticles) {
       await db.update(articles)
         .set({ 
           articleStatus: "PENDING",
-          errorMessage: `Auto-recovered from ${article.articleStatus} state`
+          errorMessage: `Auto-recovered from ${article.articleStatus} state (orphaned after worker crash)`
         })
         .where(eq(articles.id, article.id));
     }
     
     stats.articlesRecovered = stuckArticles.length;
     if (stuckArticles.length > 0) {
-      console.log(`  ✅ Recovered ${stuckArticles.length} stuck articles`);
+      console.log(`  ✅ Recovered ${stuckArticles.length} stuck articles (${stuckInProgress.length} IN_PROGRESS, ${stuckIntermediate.length} intermediate)`);
     }
   } catch (e) {
     console.warn("  ⚠️ Could not recover articles:", e);
