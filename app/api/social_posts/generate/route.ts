@@ -123,20 +123,34 @@ export async function POST(request: NextRequest) {
     }).returning();
     const socialPost = socialPostRow!;
 
-    // Queue job for AI generation
-    const jobId = await addSocialPostJob({
-      socialPostId: socialPost.id,
-      userId,
-      prompt,
-      platforms: validatedData.platforms.map(p => p.toLowerCase()),
-      tone: validatedData.tone,
-      mood: validatedData.mood,
-      industry: validatedData.industry,
-      includeImage: validatedData.generateImages,
-      generateVideos: validatedData.generateVideos, // Queue video generation if checkbox checked
-      userEmail: validatedData.userEmail || "contact@example.com",
-      articleId: validatedData.articleId ? parseInt(validatedData.articleId) : undefined,
-    });
+    // Queue job for AI generation — rolls back to FAILED on any queue error
+    let jobId: string | null;
+    try {
+      jobId = await addSocialPostJob({
+        socialPostId: socialPost.id,
+        userId,
+        prompt,
+        platforms: validatedData.platforms.map(p => p.toLowerCase()),
+        tone: validatedData.tone,
+        mood: validatedData.mood,
+        industry: validatedData.industry,
+        includeImage: validatedData.generateImages,
+        generateVideos: validatedData.generateVideos,
+        userEmail: validatedData.userEmail || "contact@example.com",
+        articleId: validatedData.articleId ? parseInt(validatedData.articleId) : undefined,
+      });
+    } catch (queueErr) {
+      const errMsg = queueErr instanceof Error ? queueErr.message : String(queueErr);
+      console.error(`❌ Failed to queue social post ${socialPost.id}:`, errMsg);
+      await db
+        .update(socialPosts)
+        .set({ status: "FAILED" })
+        .where(eq(socialPosts.id, socialPost.id));
+      return NextResponse.json(
+        { error: "Failed to queue social post generation", message: errMsg },
+        { status: 500 }
+      );
+    }
 
     console.log(`✅ Social post ${socialPost.id} queued with job ${jobId}`);
 

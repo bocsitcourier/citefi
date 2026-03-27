@@ -281,21 +281,41 @@ export async function addArticleJob(data: ArticleJobData) {
   }
 }
 
+const CONN_ERR_PATTERNS = ["connection terminated", "connection refused", "econnreset", "econnrefused", "fetch failed", "connection timeout"];
+function isConnErr(err: unknown) {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return CONN_ERR_PATTERNS.some((p) => msg.includes(p));
+}
+
 export async function addSocialPostJob(data: SocialPostJobData) {
-  try {
-    const boss = await getPgBoss();
-    const jobId = await boss.send(SOCIAL_POST_GENERATION_QUEUE, data, {
-      retryLimit: 3,
-      retryDelay: 5,
-      retryBackoff: true,
-    });
-    
-    console.log(`🎭 Social post job queued: ${jobId} for social post ${data.socialPostId}`);
-    return jobId;
-  } catch (error) {
-    console.error(`❌ Failed to queue social post ${data.socialPostId}:`, error);
-    throw error;
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const boss = await getPgBoss();
+      const jobId = await boss.send(SOCIAL_POST_GENERATION_QUEUE, data, {
+        retryLimit: 3,
+        retryDelay: 5,
+        retryBackoff: true,
+      });
+      if (!jobId) {
+        throw new Error(`pg-boss returned null job ID for social post ${data.socialPostId} — queue may be unhealthy`);
+      }
+      console.log(`🎭 Social post job queued: ${jobId} for social post ${data.socialPostId}`);
+      return jobId;
+    } catch (error) {
+      lastErr = error;
+      if (isConnErr(error) && attempt < MAX_ATTEMPTS) {
+        const jitter = Math.floor(Math.random() * 500) + 500 * attempt;
+        console.warn(`⚠️ addSocialPostJob attempt ${attempt} failed (connection), retrying in ${jitter}ms…`);
+        await new Promise((r) => setTimeout(r, jitter));
+        continue;
+      }
+      break;
+    }
   }
+  console.error(`❌ Failed to queue social post ${data.socialPostId}:`, lastErr);
+  throw lastErr;
 }
 
 export async function addImageGenerationJob(data: ImageGenerationJobData) {
