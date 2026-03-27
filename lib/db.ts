@@ -44,6 +44,15 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
       keepAliveInitialDelayMillis: 10_000,
     });
 
+    // Catch dead connections so Node doesn't deadlock when Neon restarts.
+    // The pg library automatically discards the severed client; the pool
+    // creates a fresh one on the next query.
+    pool.on("error", (err) => {
+      console.error(
+        `🔥 DB pool error (dead connection discarded): ${err.message} [code: ${(err as any).code ?? "?"}]`
+      );
+    });
+
     // Drain the pool cleanly when the worker process exits
     process.on("beforeExit", () => pool.end().catch(() => {}));
 

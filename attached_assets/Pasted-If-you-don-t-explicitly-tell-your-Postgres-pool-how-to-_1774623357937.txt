@@ -1,0 +1,99 @@
+If you don't explicitly tell your Postgres pool how to handle this, the pool holds onto those "dead" connections. When your workers try to use them, they just hang forever in a silent deadlock.
+
+To fix this, we need to make your database connection Self-Healing. We do this by adding an aggressive error catcher to the pool and a retry wrapper that waits for the database to wake up.
+
+1. The "Self-Healing" Pool (lib/db.ts)
+You need to attach an event listener to your Postgres Pool. Without this exact pool.on('error') block, a database restart will permanently freeze your Replit app.
+
+TypeScript
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+
+// 1. Create the Pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_POOLED_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000, // Don't wait forever if DB is down
+});
+
+// 🚨 THE FIX: Catch dead connections and throw them away
+pool.on('error', (err, client) => {
+  console.error('🔥 DB Pool Error: Connection severed (likely DB restart).', err.message);
+  // The 'pg' library will automatically discard this dead client
+  // and create a fresh one on the next query.
+});
+
+export const db = drizzle(pool);
+2. The pg-boss Reconnection Guard
+If pg-boss (your queue) loses its connection, it can sometimes stop polling. You need to wrap your worker initialization in a way that catches connection drops and restarts the queue if necessary.
+
+In your worker startup file (where you start pg-boss):
+
+TypeScript
+import Boss from 'pg-boss';
+
+const boss = new Boss({
+  connectionString: process.env.DATABASE_URL, // pg-boss needs the DIRECT url
+  // Tell pg-boss to retry aggressively if the DB goes offline
+  retryLimit: 10,
+  retryBackoff: true,
+});
+
+boss.on('error', async (error) => {
+  console.error('🚨 pg-boss encountered a database error:', error.message);
+  
+  // If the DB completely restarts, pg-boss might need a kick
+  if (error.message.includes('Connection terminated unexpectedly')) {
+    console.log('🔄 Attempting to reconnect pg-boss...');
+    try {
+      await boss.stop();
+      setTimeout(async () => {
+        await boss.start();
+        console.log('✅ pg-boss reconnected successfully.');
+      }, 5000); // Wait 5 seconds for Neon to finish restarting
+    } catch (e) {
+      console.error('Fatal queue error during reconnect:', e);
+    }
+  }
+});
+
+export async function startQueue() {
+  await boss.start();
+  // ... register your workers ...
+}
+3. The "Patient" Query Wrapper
+For your standard database queries (like updating progress), we need to wrap them so that if the database is in the middle of a 3-second restart, the query simply waits and tries again instead of throwing a fatal error.
+
+TypeScript
+// lib/db-utils.ts
+export async function resilientQuery<T>(operation: () => Promise<T>, retries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const isConnectionError = error.message.includes('terminat') || error.message.includes('timeout') || error.message.includes('socket');
+      
+      if (isConnectionError && attempt < retries) {
+        console.warn(`⏳ DB is asleep/restarting. Waiting 3s... (Attempt ${attempt}/${retries})`);
+        await new Promise(res => setTimeout(res, 3000));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Unreachable");
+}
+How to use it in your workers:
+
+TypeScript
+// Instead of: await db.update(articles).set(...)
+await resilientQuery(async () => {
+  await db.update(articles).set({ status: 'PROCESSING' }).where(...);
+});
+🏆 Why this makes your factory bulletproof
+The pool.on('error') prevents Node.js from deadlocking when Neon restarts.
+
+The boss.on('error') ensures your job queue pauses and re-attaches instead of abandoning the jobs.
+
+The resilientQuery wrapper gives Neon the 3 to 5 seconds it needs to wake up from a "cold start" before it fails your video or article job.
