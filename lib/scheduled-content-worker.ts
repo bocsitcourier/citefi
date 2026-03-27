@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { neonHttpDb as db } from "./db";
 import { contentSchedules, scheduleRuns, jobBatches } from "@/shared/schema";
 import { eq, and, lte, isNull, sql } from "drizzle-orm";
 import { generateTitlePool } from "./gemini";

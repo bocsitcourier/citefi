@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { neonHttpDb as db } from "./db";
 import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
 import { getPgBoss } from "./queue";

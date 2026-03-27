@@ -70,3 +70,10 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
 }
 
 export const db = buildDb();
+
+// ─── Stateless HTTP client ─────────────────────────────────────────────────
+// Use this for periodic, stateless queries (scheduled workers, job recovery).
+// The Neon HTTP driver creates a fresh HTTPS request per query — it is immune
+// to Neon compute suspension killing idle pooled sockets.  Do NOT use this
+// for long-running transactions or video-generation workers (use `db`).
+export const neonHttpDb = drizzle(neon(process.env.DATABASE_URL!), { schema });

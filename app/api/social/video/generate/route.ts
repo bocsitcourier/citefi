@@ -94,30 +94,35 @@ export async function POST(request: NextRequest) {
     // Increase timeout for Veo videos (60-80 min) vs slideshow (2-3 min)
     const expireInSeconds = isVeo ? 5400 : 900; // 90 min for Veo, 15 min for slideshow
     
-    const jobId = await queue.send(
-      "social-video-generation",
-      { socialPostId, platform, videoType },
-      {
-        retryLimit: 0, // No retries - each attempt costs money
-        retryDelay: 0,
-        expireInSeconds,
-      }
-    );
-
-    if (!jobId) {
-      console.error(`❌ CRITICAL: pg-boss.send() returned NULL! Job was NOT queued.`);
-      // Rollback status if job queueing failed
+    let jobId: string | null = null;
+    try {
+      jobId = await queue.send(
+        "social-video-generation",
+        { socialPostId, platform, videoType },
+        {
+          retryLimit: 0, // No retries - each attempt costs money
+          retryDelay: 0,
+          expireInSeconds,
+        }
+      );
+    } catch (sendError) {
+      console.error(`❌ pg-boss.send() threw an error for post ${socialPostId}:`, sendError);
       await db
         .update(socialPosts)
-        .set({
-          videoStatus: "FAILED",
-          videoProgress: 0,
-          videoStage: null,
-          errorMessage: "Failed to queue job - pg-boss returned null",
-        })
+        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null,
+               errorMessage: `Failed to queue video job: ${sendError instanceof Error ? sendError.message : String(sendError)}` })
         .where(eq(socialPosts.id, socialPostId));
-      
-      throw new Error("Failed to queue video generation job - pg-boss returned null. The job queue may not be accepting jobs.");
+      throw sendError; // re-throw so outer catch returns 500 with real message
+    }
+
+    if (!jobId) {
+      console.error(`❌ CRITICAL: pg-boss.send() returned NULL for post ${socialPostId}`);
+      await db
+        .update(socialPosts)
+        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null,
+               errorMessage: "Failed to queue job — pg-boss returned null" })
+        .where(eq(socialPosts.id, socialPostId));
+      throw new Error("Video job queue rejected the request (pg-boss returned null). Check queue health.");
     }
 
     console.log(`✅ Video generation job queued successfully: ${jobId}`);
