@@ -38,9 +38,9 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
     const pool = new Pool({
       connectionString,
       max: 20,                           // hard cap: 20 physical connections
-      idleTimeoutMillis: 300_000,        // 5 min — outlasts 60s scheduler cycles
+      idleTimeoutMillis: 900_000,        // 15 min — outlasts Gemini's 10-min hard timeout
       connectionTimeoutMillis: 10_000,   // fail fast rather than queue forever
-      keepAlive: true,                   // prevent Neon from killing idle conns
+      keepAlive: true,                   // TCP keepalive: prevent OS-level socket closure
       keepAliveInitialDelayMillis: 10_000,
     });
 
