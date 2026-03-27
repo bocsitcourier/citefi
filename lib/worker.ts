@@ -32,7 +32,6 @@ import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
-import { getGuardianFailureWarnings } from "./learning-integration";
 import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
@@ -385,20 +384,11 @@ export async function registerWorkers() {
             payloadJson: { title, wordCountMin, wordCountMax, tone, serpFeatureTarget }
           });
 
-          // PRE-GENERATION: Inject Guardian failure warnings into the prompt so the
-          // AI learns from recurring past mistakes (Memory Ledger → In-Context Learning).
-          let effectiveCustomInstructions = customInstructions || "";
-          if (articleTeamId) {
-            try {
-              const guardianWarnings = await getGuardianFailureWarnings(articleTeamId, "article");
-              if (guardianWarnings) {
-                effectiveCustomInstructions = effectiveCustomInstructions + guardianWarnings;
-                console.log(`🧠 Guardian failure warnings injected for team ${articleTeamId}`);
-              }
-            } catch (warnError) {
-              console.warn("⚠️ Could not inject Guardian warnings:", warnError);
-            }
-          }
+          // Guardian failure warnings are fetched and injected directly inside
+          // generateArticleContent() (lib/gemini.ts) as a dedicated prompt section.
+          // Do NOT fetch them here — that would cause a duplicate DB query and
+          // double-inject the same warnings into the same prompt.
+          const effectiveCustomInstructions = customInstructions || "";
 
           // STAGE 1: Generate content with Gemini
           console.log(`🤖 Stage 1: Gemini generating article ${articleId}${businessName ? ` for ${businessName}` : ''}${customInstructions ? ' (with custom instructions)' : ''}...`);

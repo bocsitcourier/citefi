@@ -13,9 +13,11 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Gemini 2.0 Flash: 10 RPM (requests per minute) limit - ACTUAL quota from Google
 // Using Bottleneck for proper time-based rate limiting with retry on 429
-const GEMINI_REQUESTS_PER_MINUTE = parseInt(process.env.GEMINI_RATE_LIMIT || "10");
+// Default: 60 RPM (1 req/sec) — safe for Gemini paid tier (supports 1,500+ RPM on Flash).
+// Set GEMINI_RATE_LIMIT env var to match your actual quota:
+//   Free tier: 15  |  Pay-as-you-go / Tier 1: 60+  |  Tier 2+: 300+
+const GEMINI_REQUESTS_PER_MINUTE = parseInt(process.env.GEMINI_RATE_LIMIT || "60");
 
 // Dynamic concurrent limit based on rate limit tier
 // Tier 1 (2000 RPM) needs higher concurrency than free tier (10 RPM)
@@ -1048,41 +1050,40 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
   })();
   const brandLockContext = createBrandLockPromptSegment(businessName);
   
-  // PSYCHOGRAPHIC TARGETING: Fetch persona + learning optimization context
+  // PARALLEL PREP: Fetch psychographic context + guardian warnings concurrently.
+  // Neither depends on the other, so running them in parallel cuts ~100ms per article
+  // (previously two sequential DB round-trips; now one combined wait).
   let personaContext = "";
   let optimizationContext: ContentOptimizationContext | null = null;
+  let guardianWarningsContext = "";
+
   if (teamId) {
-    try {
-      optimizationContext = await getContentOptimizationContext(teamId, "article", {
+    const [psychoResult, guardianResult] = await Promise.allSettled([
+      // PSYCHOGRAPHIC TARGETING: Persona + learned content patterns
+      getContentOptimizationContext(teamId, "article", {
         personaId,
         industry: undefined,
         audience,
-      });
-      
+      }),
+      // NEURAL LOOP: Top recurring Guardian failures from ai_learning_ledger
+      import("./learning-integration").then(m => m.getGuardianFailureWarnings(teamId, "article")),
+    ]);
+
+    if (psychoResult.status === "fulfilled") {
+      optimizationContext = psychoResult.value;
       if (optimizationContext.combinedSystemPrompt || optimizationContext.combinedUserPrompt) {
         console.log(`🧠 [PSYCHOGRAPHIC] Applying persona targeting + learned patterns for article generation`);
         personaContext = `\n\n**PSYCHOGRAPHIC TARGETING & LEARNED PATTERNS:**${optimizationContext.combinedSystemPrompt}${optimizationContext.combinedUserPrompt}`;
       }
-    } catch (error) {
-      console.warn(`⚠️ Failed to fetch psychographic context:`, error);
+    } else {
+      console.warn(`⚠️ Failed to fetch psychographic context:`, psychoResult.reason);
     }
-  }
 
-  // NEURAL LOOP: Inject Guardian failure warnings so the AI learns from past mistakes.
-  // Fetches the top recurring failures from the ai_learning_ledger for this team and
-  // injects them as hard "negative constraints" at the top of the prompt. If the AI
-  // previously used a bare city anchor or missed FAQ links, the next generation opens
-  // with a specific warning about that exact error type.
-  let guardianWarningsContext = "";
-  if (teamId) {
-    try {
-      const { getGuardianFailureWarnings } = await import("./learning-integration");
-      guardianWarningsContext = await getGuardianFailureWarnings(teamId, "article");
-      if (guardianWarningsContext) {
-        console.log(`🧠 [NEURAL LOOP] Injecting ${guardianWarningsContext.split("\n").filter(l => l.startsWith("  -")).length} Guardian failure warning(s) into Gemini prompt`);
-      }
-    } catch (error) {
-      console.warn(`⚠️ Failed to fetch Guardian failure warnings:`, error);
+    if (guardianResult.status === "fulfilled" && guardianResult.value) {
+      guardianWarningsContext = guardianResult.value;
+      console.log(`🧠 [NEURAL LOOP] Injecting ${guardianWarningsContext.split("\n").filter(l => l.startsWith("  -")).length} Guardian failure warning(s) into Gemini prompt`);
+    } else if (guardianResult.status === "rejected") {
+      console.warn(`⚠️ Failed to fetch Guardian failure warnings:`, guardianResult.reason);
     }
   }
 
