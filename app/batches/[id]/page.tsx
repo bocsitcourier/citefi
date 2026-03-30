@@ -5,7 +5,7 @@ import { use, Suspense, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, ExternalLink, Sparkles, Home, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle } from "lucide-react";
+import { Loader2, FileText, ExternalLink, Sparkles, Home, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle, Square } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -113,6 +113,23 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
       toast({
         title: "Delete failed",
         description: error instanceof Error ? error.message : "Failed to delete batch",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const cancelBatchMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest(`/api/batches/${batchId}/cancel`, { method: "POST" });
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Generation stopped", description: data.message || "Batch cancelled." });
+      queryClient.invalidateQueries({ queryKey: [`/api/batches/${batchId}`] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Could not stop generation",
+        description: error instanceof Error ? error.message : "Failed to cancel batch",
         variant: "destructive",
       });
     },
@@ -351,6 +368,38 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                   Select Titles to Generate
                 </Button>
               </Link>
+            )}
+            {batch.status === "RUNNING" && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-stop-generation" disabled={cancelBatchMutation.isPending}>
+                    {cancelBatchMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Square className="w-4 h-4 mr-2" />
+                    )}
+                    Stop Generation
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Stop article generation?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will cancel all pending articles in this batch. Articles already in progress may still complete. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="button-cancel-stop">Keep Running</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => cancelBatchMutation.mutate()}
+                      className="bg-destructive hover:bg-destructive/90"
+                      data-testid="button-confirm-stop"
+                    >
+                      Stop Generation
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
             <AlertDialog>
               <AlertDialogTrigger asChild>

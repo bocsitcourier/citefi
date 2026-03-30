@@ -293,6 +293,20 @@ export async function registerWorkers() {
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId } = job.data;
 
       try {
+        // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
+        // This is the primary mechanism for stopping generation mid-batch.
+        if (batchId) {
+          const [batchRow] = await db
+            .select({ status: jobBatches.status })
+            .from(jobBatches)
+            .where(eq(jobBatches.id, batchId))
+            .limit(1);
+          if (batchRow?.status === 'CANCELLED') {
+            console.log(`🛑 Skipping article ${articleId}: batch ${batchId} was cancelled`);
+            return;
+          }
+        }
+
         // STEP 1: Check article_runs for existing run records (duplicate detection & cache lookup)
         const { articleRuns } = await import("@/shared/schema");
         const [existingRun] = await db
@@ -1495,20 +1509,6 @@ export async function registerWorkers() {
               })
               .where(eq(articles.id, articleId))
               .catch(() => {}); // non-blocking — prevent cascading DB errors
-            // Notify the team via the in-app bell
-            const reformatTeamId = batch?.teamId;
-            if (reformatTeamId) {
-              void createNotification({
-                teamId: reformatTeamId,
-                type: "error",
-                category: "article",
-                title: "Article Reformat Failed",
-                message: `Article #${articleId} "${(article?.chosenTitle || "").slice(0, 80)}" failed to reformat: ${reformatErrMsg.slice(0, 150)}`,
-                entityId: articleId,
-                entityType: "article",
-                actionUrl: `/content/${articleId}`,
-              }).catch(() => {});
-            }
             // Don't throw - let user retry if needed
           }
         }
