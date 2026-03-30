@@ -35,10 +35,10 @@ export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4o-mini";
 export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "chatgpt-4o-latest";
 
 // Veo Video Generation - Using Veo 2 for cost-efficient cinematic AI videos
-// veo-2-generate-001: High-quality clips, no native audio (we use OpenAI TTS instead)
+// veo-2.0-generate-001: High-quality clips, no native audio (we use OpenAI TTS instead)
 // veo-3.1-generate-preview: Premium model with native audio — billed separately, not used
 // Override via VEO_VIDEO_MODEL env var to switch models without a redeploy
-export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2-generate-001";
+export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2.0-generate-001";
 
 // TTS Configuration
 // gpt-4o-mini-tts: Supports emotional steering via instructions parameter

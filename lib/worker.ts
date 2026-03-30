@@ -1736,9 +1736,15 @@ export async function registerWorkers() {
               } catch (veoError) {
                 const veoMsg = veoError instanceof Error ? veoError.message : String(veoError);
                 const isQuotaError = veoMsg.includes("RESOURCE_EXHAUSTED") || veoMsg.includes("429") || veoMsg.includes("quota");
+                // Treat model-not-found / API-version errors as non-retryable infrastructure errors
+                // that should immediately fall back to slideshow rather than burning retries.
+                const isModelError = veoMsg.includes("NOT_FOUND") || veoMsg.includes("not found") || veoMsg.includes("not supported for predictLongRunning") || veoMsg.includes("is not found for API version");
 
-                if (isQuotaError) {
-                  console.warn(`⚠️ Veo quota exceeded for post ${socialPostId} — automatically falling back to slideshow`);
+                if (isQuotaError || isModelError) {
+                  const reason = isModelError
+                    ? "Veo model unavailable — switched to Fast Slideshow automatically"
+                    : "Veo quota exceeded — switched to Fast Slideshow automatically";
+                  console.warn(`⚠️ Veo non-retryable error for post ${socialPostId} (${isModelError ? "model/API" : "quota"}) — falling back to slideshow`);
                   // Update videoType so the UI reflects the fallback
                   await db
                     .update(socialPosts)
@@ -1746,7 +1752,7 @@ export async function registerWorkers() {
                       videoType: "slideshow",
                       videoStage: "queued",
                       videoProgress: 0,
-                      errorMessage: "Veo quota exceeded — switched to Fast Slideshow automatically",
+                      errorMessage: reason,
                       updatedAt: new Date(),
                     })
                     .where(eq(socialPosts.id, socialPostId));

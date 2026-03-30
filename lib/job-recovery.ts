@@ -395,8 +395,9 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     if (stuckVideoPosts.length > 0) {
       for (const post of stuckVideoPosts) {
         const isVeo = post.videoType === "veo";
-        // Max expected generation time: Veo = 95 min, Slideshow = 12 min
-        const maxMinutes = isVeo ? 95 : 12;
+        // Max expected generation time: Veo = 95 min, Slideshow = 20 min
+        // (slideshow raised from 12→20 min: script + 5 images + TTS + 3x FFmpeg passes can hit 15+ min under load)
+        const maxMinutes = isVeo ? 95 : 20;
         const elapsedMs = Date.now() - new Date(post.updatedAt).getTime();
         const elapsedMinutes = elapsedMs / 60_000;
 
