@@ -112,6 +112,15 @@ export async function registerWorkers() {
         // Statuses that mean "already queued — don't duplicate"
         const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
 
+        // PREFETCH: Load all existing articles for this batch in ONE query.
+        // Avoids N individual per-title queries inside the loop, which previously
+        // exhausted the 20-connection pool when 20 article workers were already active.
+        const existingArticles = await db
+          .select({ id: articles.id, articleStatus: articles.articleStatus, chosenTitle: articles.chosenTitle })
+          .from(articles)
+          .where(eq(articles.batchId, batchId));
+        const existingByTitle = new Map(existingArticles.map(a => [a.chosenTitle, a]));
+
         let spawned = 0;
         let skipped = 0;
         let retried = 0;
@@ -120,14 +129,8 @@ export async function registerWorkers() {
           const title = selectedTitles[i];
           if (!title) { skipped++; continue; }
 
-          // Check whether an article with this exact title already exists in this batch.
-          // This prevents creating duplicate articles when the user re-submits to retry
-          // failed articles — completed articles must NEVER be re-run.
-          const [existing] = await db
-            .select({ id: articles.id, articleStatus: articles.articleStatus })
-            .from(articles)
-            .where(and(eq(articles.batchId, batchId), eq(articles.chosenTitle, title)))
-            .limit(1);
+          // In-memory lookup — no DB query per iteration.
+          const existing = existingByTitle.get(title);
 
           if (existing) {
             if (TERMINAL_OK_STATUSES.includes(existing.articleStatus || "")) {
