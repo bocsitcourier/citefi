@@ -519,6 +519,22 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
         };
       }
 
+      // Duplicate slug (500): receiver already has this article. Retrying the same
+      // slug will always fail — treat as permanent just like a 400 rejection.
+      if (response.status === 500) {
+        const details = (result.details as string) || (result.error as string) || '';
+        if (details.toLowerCase().includes('duplicate key') || details.toLowerCase().includes('unique constraint')) {
+          const p = payload as Record<string, unknown>;
+          console.log(`[PUBLISH] Duplicate slug detected for "${p.slug}" — article already exists on receiver. Marking permanent (no retry).`);
+          return {
+            success: false,
+            error: `Article already exists on receiver (duplicate slug: "${p.slug}")`,
+            errorCode: 'RECEIVER_REJECTED',
+            rawResponse: result,
+          };
+        }
+      }
+
       // Detailed diagnostics for any 400 rejection (covers "Invalid request content",
       // "Invalid request parameters", and any other receiver validation failures).
       if (response.status === 400) {

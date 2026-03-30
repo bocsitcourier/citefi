@@ -306,10 +306,18 @@ export async function registerWorkers() {
         
         // STEP 2: Handle existing runs based on status
         if (existingRun) {
-          if (existingRun.status === 'completed' && existingRun.cachedGeminiOutput) {
-            console.log(`♻️ CACHE HIT: Article ${articleId} run ${runId.slice(0,8)} already completed - reusing cached outputs`);
-            // TODO: Short-circuit and mark article as complete using cached data
-            // For now, log and continue normally (allows retries to proceed)
+          if (existingRun.status === 'completed') {
+            // This run already finished. Check if the article itself is in a terminal state.
+            // If so, there is nothing to do — return early to avoid double-generation.
+            const [runArticle] = await db.select({ articleStatus: articles.articleStatus })
+              .from(articles).where(eq(articles.id, articleId)).limit(1);
+            const terminalStatuses = ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED'];
+            if (runArticle && terminalStatuses.includes(runArticle.articleStatus || '')) {
+              console.log(`⏭️ SKIPPING: Article ${articleId} run ${runId.slice(0,8)} already completed and article is ${runArticle.articleStatus} — no regeneration needed`);
+              return;
+            }
+            // Run completed but article isn't in terminal state — continue to regenerate
+            console.log(`♻️ CACHE HIT: Article ${articleId} run ${runId.slice(0,8)} completed but article is ${runArticle?.articleStatus} — continuing`);
           } else if (existingRun.status === 'running') {
             // Update heartbeat timestamp to show this worker is actively processing
             // This allows legitimate pg-boss retries to resume work instead of getting stuck
@@ -342,6 +350,15 @@ export async function registerWorkers() {
           .select()
           .from(articles)
           .where(eq(articles.id, articleId));
+
+        // IDEMPOTENCY GUARD: Never regenerate an article that already completed the full
+        // pipeline. The job monitor may reset stuck pg-boss jobs — if the article already
+        // reached COMPLETE/GPT4_ENHANCED the reset job should be a no-op, not a re-run.
+        const finalStatuses = ['COMPLETE', 'GPT4_ENHANCED'];
+        if (finalStatuses.includes(currentArticle?.articleStatus || '')) {
+          console.log(`⏭️ SKIPPING: Article ${articleId} is already ${currentArticle!.articleStatus} — job reset but no regeneration needed`);
+          return;
+        }
         
         let geminiResult: any;
         let skipGeminiUpdate = false;
