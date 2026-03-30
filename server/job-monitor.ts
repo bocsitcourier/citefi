@@ -139,6 +139,25 @@ async function resetStuckActiveJobs() {
     if (imageResetCount > 0) {
       console.log(`🔧 AUTO-RECOVERY: Reset ${imageResetCount} stuck image-generation jobs to 'created' state`);
     }
+
+    // CONTENT-PUBLISHING JOBS: Reset jobs stuck > 10 minutes.
+    // Publishing to external CMS (WordPress etc.) should complete in well under
+    // 10 minutes. Jobs stuck longer are hanging on a dead network connection.
+    const publishingResult = await neonHttpDb.execute(sql`
+      UPDATE pgboss.job
+      SET state = 'created',
+          started_on = NULL,
+          completed_on = NULL
+      WHERE name = 'content-publishing'
+        AND state = 'active'
+        AND started_on < NOW() - INTERVAL '10 minutes'
+    `);
+    
+    const publishingResetCount = (publishingResult as any).rowCount || 0;
+
+    if (publishingResetCount > 0) {
+      console.log(`🔧 AUTO-RECOVERY: Reset ${publishingResetCount} stuck content-publishing jobs to 'created' state`);
+    }
     
   } catch (error) {
     console.error("❌ Failed to reset stuck jobs:", error);

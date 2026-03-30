@@ -658,7 +658,10 @@ Output JSON:
           { role: "user", content: userPrompt },
         ],
         temperature: 0.3,
-        max_tokens: 8000,
+        // Articles are 35,000–40,000+ chars of HTML. The full correctedHtml
+        // must fit in the JSON response. gpt-4o max output is 16,384 tokens
+        // (~65,000 chars). Previously 8,000 tokens was truncating every article.
+        max_tokens: 16000,
         response_format: { type: "json_object" },
       }),
       `GPT-4o Keyword Validation Pass`,
