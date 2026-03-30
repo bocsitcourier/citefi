@@ -390,6 +390,16 @@ export async function registerWorkers() {
           // double-inject the same warnings into the same prompt.
           const effectiveCustomInstructions = customInstructions || "";
 
+          // THUNDERING HERD PREVENTION: When a large batch starts, all 20 workers
+          // grab jobs within milliseconds of each other and simultaneously hammer
+          // Gemini. A small random delay (0–5s) staggers the initial burst so the
+          // API isn't saturated all at once. The existing rate limiter manages
+          // sustained throughput — this jitter only absorbs the startup spike.
+          // Applied here (after IN_PROGRESS status is set) so the UI updates
+          // immediately and the delay is invisible to the user.
+          const jitterMs = Math.floor(Math.random() * 5000);
+          await new Promise((resolve) => setTimeout(resolve, jitterMs));
+
           // STAGE 1: Generate content with Gemini
           console.log(`🤖 Stage 1: Gemini generating article ${articleId}${businessName ? ` for ${businessName}` : ''}${customInstructions ? ' (with custom instructions)' : ''}...`);
           

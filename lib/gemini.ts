@@ -1635,14 +1635,26 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       const topic = (title.split(/[-:|]/)[0] ?? title).trim();
       
       console.log('🔍 Running article critique and fact-checking...');
-      const critiqueResult = await articleCritique.critiqueArticle(
-        parsed.articleText,
-        title,
-        topic,
-        geographicFocus || 'United States',
-        businessName || 'the company',
-        wordCountMax
+
+      // Hard cap: critique has been measured at 22s–355s with no timeout.
+      // If it exceeds 45s the catch block below handles it identically to any
+      // other critique error — the article proceeds with its original content.
+      const CRITIQUE_TIMEOUT_MS = 45_000;
+      const critiqueTimeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Article critique exceeded 45s timeout')), CRITIQUE_TIMEOUT_MS)
       );
+
+      const critiqueResult = await Promise.race([
+        articleCritique.critiqueArticle(
+          parsed.articleText,
+          title,
+          topic,
+          geographicFocus || 'United States',
+          businessName || 'the company',
+          wordCountMax
+        ),
+        critiqueTimeoutPromise,
+      ]);
       
       if (critiqueResult.refinedContent && critiqueResult.qualityScore > 50) {
         parsed.articleText = critiqueResult.refinedContent;
