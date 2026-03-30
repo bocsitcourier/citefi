@@ -1,0 +1,92 @@
+Failure 1: Veo AI Model Not Found (404)
+The Root Cause:
+Google's Gemini API is extremely strict with model naming conventions. The error is a simple string mismatch. Your code is calling veo-2-generate-001, but the correct model identifier in the Gemini API is veo-2.0-generate-001.
+
+The Fallback Path:
+Because the Veo API threw an unhandled 404, the worker likely crashed before it could cleanly trigger the fallback to standard slideshow generation. Even if it did catch the error, the fallback immediately hit Failure 2 (the DB pool timeout), which is why no videos were generated at all.
+
+The Fix (lib/ai-config.ts or lib/veo-social-video-generator.ts):
+Find your model configuration string and update the 2 to 2.0:
+
+TypeScript
+// ❌ Incorrect
+// const VEO_MODEL_ID = "models/veo-2-generate-001"; 
+
+// ✅ Correct Enterprise Model ID
+const VEO_MODEL_ID = "models/veo-2.0-generate-001"; 
+Ensure your Veo generation function wraps the API call in a try/catch that explicitly routes to your slideshow fallback if it encounters a quota limit or error:
+
+TypeScript
+// lib/veo-social-video-generator.ts (Around line 254)
+try {
+  // Call Veo 2.0
+  const veoResult = await generateWithVeo(VEO_MODEL_ID, prompt);
+  return veoResult;
+} catch (error) {
+  console.warn(`⚠️ Veo generation failed: ${error.message}. Falling back to standard slideshow.`);
+  // Call your existing standard slideshow generator
+  return await generateSocialVideo(postId); 
+}
+Failure 2: DB Connection Pool Timeout
+The Root Cause:
+You correctly identified the pattern. Inside lib/social-video-generator.ts (around line 110), your worker is doing something like this:
+
+Opening a database transaction or acquiring a pooled connection.
+
+Awaiting Image Generation (10-30s).
+
+Awaiting TTS Generation (10-20s).
+
+Awaiting FFmpeg composition (2-10 minutes).
+
+Finally updating the DB and releasing the connection.
+
+If you have 8 video workers doing this, they are holding 8 of your 20 total Neon DB connections hostage for minutes at a time. The remaining 12 connections are instantly eaten by your 20 article workers. The 9th video worker (or any queued article worker) sits waiting for a connection until it hits the connectionTimeout limit and crashes.
+
+Why videos exceed the 12-minute timeout:
+They aren't actually taking 12 minutes to render. They are spending 8-10 minutes stuck in the pg-boss queue waiting for a database connection to free up, and by the time they get one, FFmpeg pushes them past the 12-minute hard worker limit.
+
+The Fix (lib/social-video-generator.ts):
+You must decouple the stateful database queries from the stateless heavy compute. Fetch what you need, let go of the database, do the heavy lifting, and only reconnect to save the final result.
+
+TypeScript
+export async function generateSocialVideo(postId: string) {
+  // 1. FAST FETCH: Get all necessary data and release the connection immediately.
+  // Do NOT wrap the rest of this function in a db.transaction()
+  const postData = await db.query.socialPosts.findFirst({
+    where: eq(socialPosts.id, postId)
+  });
+
+  if (!postData) throw new Error("Post not found");
+
+  try {
+    // 2. HEAVY LIFTING: No DB connections are held here. 
+    // The pool is completely free for other workers.
+    console.log(`🎬 Starting heavy processing for Post ${postId}...`);
+    
+    const [images, audio] = await Promise.all([
+      generateImages(postData.prompts),
+      generateTTS(postData.script)
+    ]);
+
+    // FFmpeg can now take 5 minutes without locking a DB connection
+    const videoUrl = await runFFmpegCompositor(images, audio);
+
+    // 3. FAST SAVE: Re-acquire a brief connection to save the final state
+    await db.update(socialPosts)
+      .set({ videoUrl, status: 'COMPLETED' })
+      .where(eq(socialPosts.id, postId));
+
+    console.log(`✅ Video generated successfully for Post ${postId}`);
+    return videoUrl;
+
+  } catch (error) {
+    // 4. FAST FAIL: Update status without locking
+    await db.update(socialPosts)
+      .set({ status: 'FAILED', error: error.message })
+      .where(eq(socialPosts.id, postId));
+    throw error;
+  }
+}
+Summary of Impact
+By changing the Veo string to veo-2.0-generate-001, you restore your primary high-fidelity video generation. By dropping the database connection during the FFmpeg/TTS generation, your 8 video workers will consume zero idle pool connections, completely eliminating the starvation issue and easily staying under the 12-minute timeout limit.
