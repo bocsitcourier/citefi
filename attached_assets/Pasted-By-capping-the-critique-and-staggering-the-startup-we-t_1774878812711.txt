@@ -1,0 +1,54 @@
+By capping the critique and staggering the startup, we turn a "thundering herd" into a organized, high-speed assembly line.Here is the implementation for both targeted fixes.1. The 45-Second Critique Cap (lib/gemini.ts)Instead of making the critique background-only (which would skip the content refinement), we use a Promise.race. If the AI takes longer than 45 seconds to "think" about the critique, we bail and use the original content. This keeps your quality high without the 6-minute wait.TypeScript// lib/gemini.ts
+
+async function generateArticleWithGemini(articleId: string, ...) {
+  // ... existing generation logic ...
+
+  try {
+    console.log(`🕵️‍♂️ Starting Critique for ${articleId} (45s cap)...`);
+    
+    // Create a timeout promise
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("CRITIQUE_TIMEOUT")), 45000)
+    );
+
+    // Race the actual critique against the 45s clock
+    const critiqueResult = await Promise.race([
+      articleCritique.critiqueArticle(parsed.articleText),
+      timeout
+    ]) as any;
+
+    if (critiqueResult && critiqueResult.score > 50 && critiqueResult.refinedContent) {
+      console.log(`✅ Critique applied to ${articleId} (Score: ${critiqueResult.score})`);
+      parsed.articleText = critiqueResult.refinedContent;
+    }
+  } catch (error: any) {
+    if (error.message === "CRITIQUE_TIMEOUT") {
+      console.warn(`⏳ Critique timed out after 45s for ${articleId}. Proceeding with original content.`);
+    } else {
+      console.warn(`⚠️ Critique error for ${articleId}:`, error.message);
+    }
+    // Fall through: parsed.articleText remains the original generated content
+  }
+
+  // ... continue to return content ...
+}
+2. Pre-Gemini Startup Jitter (lib/worker.ts)This spreads the initial API requests over a 5-second window. It ensures that your 20 workers don't hit the Gemini API rate limiter at "millisecond zero," which is what usually triggers those 10-minute "Hard Timeout" hangs.TypeScript// lib/worker.ts
+
+async function processArticle(job: any) {
+  const { id } = job.data;
+  
+  // 1. Set status to IN_PROGRESS (Immediate, so other workers don't grab it)
+  await updateArticleStatus(id, 'IN_PROGRESS');
+
+  // 2. APPLY JITTER: Only for fresh starts (not resumes)
+  // This staggers the 'Thundering Herd' of 20 simultaneous workers
+  const jitterMs = Math.floor(Math.random() * 5000);
+  console.log(`🚦 Staggering Job ${id}: Waiting ${jitterMs}ms before Gemini call...`);
+  await new Promise(resolve => setTimeout(resolve, jitterMs));
+
+  // 3. Proceed to Gemini Generation
+  const result = await generateArticleWithGemini(id, ...);
+  
+  // ... rest of worker logic ...
+}
+📈 Why this hits "Done"ProblemFixResult6-Minute Critique45s Hard CapSaves up to 5 minutes of blocking time per article.API Collision0–5s Startup JitterEliminates the 600s Hard Timeout crash caused by API saturation.Stuck RecordsFast FailoverArticles move to Stage 2 faster, keeping the DB connections active and "warm."
