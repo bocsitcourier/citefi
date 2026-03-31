@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, articleAssets, jobBatches, errorLogs } from "@/shared/schema";
-import { eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -64,7 +64,7 @@ export async function GET(
     const [article] = await db
       .select()
       .from(articles)
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     if (!article) {
       return NextResponse.json(

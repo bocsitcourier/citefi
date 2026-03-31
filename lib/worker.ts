@@ -306,6 +306,16 @@ export async function registerWorkers() {
             .limit(1);
           if (batchRow?.status === 'CANCELLED') {
             console.log(`🛑 Skipping article ${articleId}: batch ${batchId} was cancelled`);
+            // Mark the article as FAILED so it leaves IN_PROGRESS and the UI reflects cancellation.
+            await db
+              .update(articles)
+              .set({ articleStatus: 'FAILED', updatedAt: new Date() })
+              .where(
+                and(
+                  eq(articles.id, articleId),
+                  eq(articles.articleStatus, 'IN_PROGRESS')
+                )
+              );
             return;
           }
         }
