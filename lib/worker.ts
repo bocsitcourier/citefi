@@ -1196,6 +1196,22 @@ export async function registerWorkers() {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
+        // Record failure in learning ledger so the AI learning center can surface it
+        if (articleTeamId) {
+          const lowerMsg = errorMessage.toLowerCase();
+          let failureCode = "GENERATION_ERROR";
+          if (lowerMsg.includes("timeout") || lowerMsg.includes("timed out")) {
+            failureCode = "GENERATION_TIMEOUT";
+          } else if (lowerMsg.includes("rate limit") || lowerMsg.includes("429")) {
+            failureCode = "API_RATE_LIMIT";
+          } else if (lowerMsg.includes("json") || lowerMsg.includes("parse") || lowerMsg.includes("unexpected token")) {
+            failureCode = "JSON_PARSE_ERROR";
+          } else if (lowerMsg.includes("token") && (lowerMsg.includes("limit") || lowerMsg.includes("exceed"))) {
+            failureCode = "TOKEN_LIMIT_EXCEEDED";
+          }
+          learningService.recordGuardianFailures(articleTeamId, "article", [failureCode]).catch(() => {});
+        }
+
         // Notify the team via the in-app bell so the failure is visible without checking logs
         if (articleTeamId) {
           void createNotification({
