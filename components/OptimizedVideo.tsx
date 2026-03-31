@@ -270,7 +270,7 @@ export function OptimizedVideo({
               Your browser does not support the video tag.
             </video>
 
-            {isLoading && (
+            {isLoading && !controls && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                 <Loader2 className="w-12 h-12 text-white animate-spin" />
               </div>

@@ -988,7 +988,7 @@ export default function SocialPostDetailPage() {
                     title={post.companyName ? `${post.companyName} Social Video` : 'Social Video'}
                     description={(post as any).caption || undefined}
                     duration={post.videoDuration ? `PT${post.videoDuration}S` : undefined}
-                    preload="none"
+                    preload="metadata"
                     lazy={false}
                     controls
                     className="w-full h-full"
