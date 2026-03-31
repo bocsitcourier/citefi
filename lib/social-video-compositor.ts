@@ -453,6 +453,7 @@ export async function composeVideo(
       '-threads', '2',
       '-c:a', 'aac',
       '-b:a', '192k',
+      '-t', Math.ceil(targetTotalDuration).toString(), // Hard container stop — belt-and-suspenders alongside audio pre-trim
       '-shortest',
       '-movflags', '+faststart',
       '-metadata', `title=${companyName} - Social Video`,

@@ -1698,6 +1698,12 @@ export async function registerWorkers() {
             console.warn(`⚠️ Disk check failed (continuing anyway):`, diskCheckError);
           }
 
+          // API Jitter: stagger video worker starts (0–6s) to prevent
+          // 8 concurrent workers hammering Gemini + OpenAI simultaneously.
+          const videoJitterMs = Math.floor(Math.random() * 6000);
+          console.log(`⏳ Video worker jitter: ${videoJitterMs}ms`);
+          await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
+
           try {
             const { generateSocialVideo } = await import("./social-video-generator");
             const { cleanupTempFiles } = await import("./social-video-compositor");

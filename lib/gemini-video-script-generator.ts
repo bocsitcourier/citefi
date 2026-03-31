@@ -452,6 +452,12 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
     }
     console.log(`🔧 [DH] Video script humanized: ${script.scenes.length} scenes processed`);
 
+    // SCRIPT ENFORCER: Guarantee word budget before TTS receives the script.
+    // This is the upstream fix that prevents over-long audio at the source.
+    // The compositor's 65s hard trim is the downstream safety net.
+    const { enforceScriptLength } = await import("./utils/video-guards");
+    enforceScriptLength(script as any);
+
     if (request.enableFactValidation && request.teamId) {
       try {
         console.log(`🔍 [Anti-Hallucination] Starting fact validation for video script...`);

@@ -1,0 +1,164 @@
+We’ve been applying "band-aids" to isolated bugs in the video pipeline (the Veo 404, the DB timeout, the audio overrun). To make this system truly Enterprise-ready and capable of handling your 1,000-job queue, we need to stitch these fixes together into a cohesive, gapless Video Orchestrator.
+
+Right now, your video pipeline has a structural gap: the handoff between the LLM script, the TTS engine, and FFmpeg is loosely coupled, which is why durations drift and connections drop.
+
+Let’s upgrade the entire Video generation flow, applying the same "Stateless & Parallel" principles we used for the Article workers.
+
+🚀 The Upgraded Video Orchestrator (lib/video-pipeline.ts)
+This master function fills all the gaps. It incorporates the API Jitter, the Stateless DB connection management, the Veo 2.0 Fallback, and the Script Word Limit Guardrails into one unified flow.
+
+TypeScript
+import { statelessDb } from "./db";
+import { socialPosts } from "./schema";
+import { eq } from "drizzle-orm";
+import { generateWithVeo } from "./veo-social-video-generator";
+import { generateVideoScript } from "./gemini-video-script-generator";
+import { generateTTS } from "./social-video-tts-generator";
+import { runFFmpegCompositor } from "./social-video-compositor";
+
+const VEO_MODEL_ID = "models/veo-2.0-generate-001"; // ✅ Upgraded Model
+const AUDIO_HARD_CAP = 65; // ✅ 65-second hard limit
+
+export async function processSocialVideoJob(postId: string) {
+  console.log(`🎬 [Video Job ${postId}] Starting Enterprise Video Pipeline...`);
+
+  // 1. STATELESS FETCH & STATUS UPDATE (Fixes DB Starvation)
+  const postData = await statelessDb.query.socialPosts.findFirst({
+    where: eq(socialPosts.id, postId)
+  });
+
+  if (!postData) throw new Error("Post not found");
+
+  await statelessDb.update(socialPosts)
+    .set({ status: 'PROCESSING', progress: "Initiating Video Generation" })
+    .where(eq(socialPosts.id, postId));
+
+  // 2. API JITTER (Prevents Thundering Herd for Video Workers)
+  const jitterMs = Math.floor(Math.random() * 8000);
+  await new Promise(resolve => setTimeout(resolve, jitterMs));
+
+  try {
+    let finalVideoUrl: string;
+
+    // ==========================================
+    // PATH A: HIGH-FIDELITY AI VIDEO (Veo 2.0)
+    // ==========================================
+    try {
+      console.log(`🤖 Attempting Veo 2.0 Generation for ${postId}...`);
+      finalVideoUrl = await generateWithVeo(VEO_MODEL_ID, postData.prompt);
+    } 
+    catch (veoError) {
+      console.warn(`⚠️ Veo generation failed/quota exceeded: ${veoError.message}. Falling back to standard compositor.`);
+      
+      // ==========================================
+      // PATH B: STANDARD SLIDESHOW FALLBACK
+      // ==========================================
+      
+      // 3. GENERATE & TRIM SCRIPT (Fixes Duration Bug)
+      const rawScript = await generateVideoScript(postData.prompt);
+      const safeScript = enforceScriptLength(rawScript); 
+
+      // 4. GENERATE ASSETS PARALLEL (No DB connection held)
+      const [images, audioFiles] = await Promise.all([
+        generateImages(safeScript.imagePrompts),
+        generateTTS(safeScript.scenes) // Word count is already safe
+      ]);
+
+      // 5. COMPOSE VIDEO WITH AUDIO CAP (Fixes 1:41 Bug)
+      finalVideoUrl = await runFFmpegCompositor(images, audioFiles, AUDIO_HARD_CAP);
+    }
+
+    // 6. STATELESS SAVE (Release the job cleanly)
+    await statelessDb.update(socialPosts)
+      .set({ 
+        videoUrl: finalVideoUrl, 
+        status: 'COMPLETED',
+        progress: "Video Published Successfully" 
+      })
+      .where(eq(socialPosts.id, postId));
+
+    console.log(`✨ [Video Job ${postId}] Finished successfully.`);
+
+  } catch (criticalError) {
+    console.error(`❌ [Video Job ${postId}] Pipeline Failed:`, criticalError.message);
+    
+    // FAST FAIL: Update status without locking the DB pool
+    await statelessDb.update(socialPosts)
+      .set({ status: 'FAILED', error: criticalError.message })
+      .where(eq(socialPosts.id, postId));
+  }
+}
+🛡️ Filling the Gap: The Script Enforcer (lib/utils/video-guards.ts)
+Instead of burying the word-count math in the Gemini call, we extract it into a pure utility function. This guarantees that no matter what the LLM hallucinates, the TTS engine never receives more than 215 words.
+
+TypeScript
+export function enforceScriptLength(script: any, maxWords = 215, wordsPerSec = 3) {
+  let totalWords = 0;
+  
+  for (let i = 0; i < script.scenes.length; i++) {
+    const scene = script.scenes[i];
+    const words = scene.narration.trim().split(/\s+/);
+    
+    if (totalWords + words.length > maxWords) {
+      const allowedWords = Math.max(0, maxWords - totalWords);
+      
+      if (allowedWords === 0) {
+        scene.narration = "";
+        scene.targetDuration = 0;
+      } else {
+        // Trim and attempt to end on a clean sentence
+        const trimmedText = words.slice(0, allowedWords).join(" ");
+        const match = trimmedText.match(/.*[.!?]/);
+        scene.narration = match ? match[0] : trimmedText + "...";
+        
+        // 🚨 CRITICAL GAP FILLED: Recalculate target duration so video doesn't freeze
+        scene.targetDuration = Math.ceil(scene.narration.split(/\s+/).length / wordsPerSec);
+        console.warn(`✂️ Scene ${i + 1} truncated to fit 60s hard limit.`);
+      }
+    }
+    totalWords += scene.narration.split(/\s+/).length;
+  }
+  
+  return script;
+}
+🎬 Filling the Gap: The FFmpeg Hard Stop (lib/social-video-compositor.ts)
+This is the exact fluent-ffmpeg command block to enforce the audio fade and the hard container stop.
+
+TypeScript
+export async function runFFmpegCompositor(images: string[], audioFiles: string[], maxDuration: number) {
+  return new Promise((resolve, reject) => {
+    // ... setup inputs (images, audio) ...
+
+    // The start time for the audio fade out
+    const fadeStartTime = Math.max(0, maxDuration - 1.5);
+    
+    // atrim cuts the audio stream exactly at maxDuration
+    // afade smoothly lowers volume over the last 1.5 seconds
+    const audioFilter = `atrim=0:${maxDuration},afade=t=out:st=${fadeStartTime}:d=1.5`;
+
+    ffmpegCommand
+      // ... complex video filters (scaling, transitions) ...
+      .outputOptions([
+        `-af ${audioFilter}`,       // Apply audio trim and fade
+        `-t ${maxDuration}`,        // 🛑 Hard stop the video container at 65s
+        `-pix_fmt yuv420p`,
+        `-c:v libx264`,
+        `-c:a aac`
+      ])
+      .on('end', () => resolve(outputFilePath))
+      .on('error', (err) => reject(err))
+      .save(outputFilePath);
+  });
+}
+🏆 The Complete Picture
+By implementing this final orchestration block, your system now operates like a true Enterprise queue:
+
+DB Pool: Kept perfectly clear because Video Workers use statelessDb.
+
+API Limits: Protected by the 8000ms Jitter.
+
+Primary Video: Upgraded to the stable veo-2.0-generate-001.
+
+Fallback Video: Protected from LLM word-vomit by the mathematical Script Enforcer.
+
+Final Output: Strictly clipped and faded at 65 seconds by FFmpeg.
