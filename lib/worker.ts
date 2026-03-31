@@ -2061,7 +2061,7 @@ export async function registerWorkers() {
   // Start comprehensive job recovery monitor
   try {
     const { startJobRecoveryMonitor } = await import("./job-recovery");
-    startJobRecoveryMonitor(5); // Check every 5 minutes
+    startJobRecoveryMonitor(2); // Check every 2 minutes — halved from 5 to reduce stuck-article wait
   } catch (error) {
     console.error("⚠️ Failed to start job recovery monitor:", error);
   }

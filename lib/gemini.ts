@@ -35,12 +35,24 @@ const geminiRateLimiter = new Bottleneck({
   minTime: Math.floor((60 * 1000) / GEMINI_REQUESTS_PER_MINUTE), // Minimum time between requests
 });
 
-// Exponential backoff on 429 errors
+// Exponential backoff on rate-limit AND transient network errors
 geminiRateLimiter.on("failed", async (error, jobInfo) => {
-  const isRateLimitError = error?.message?.includes("429") || error?.message?.includes("RESOURCE_EXHAUSTED");
-  if (isRateLimitError && jobInfo.retryCount < 3) {
+  const msg = error?.message || "";
+  const isRateLimitError = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
+  // Retry transient network failures immediately — these are "fetch failed",
+  // ECONNRESET, ETIMEDOUT, etc. that Gemini API returns under load.
+  const isNetworkError =
+    msg.includes("fetch failed") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ENOTFOUND") ||
+    msg.includes("socket hang up") ||
+    (error?.code && ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "ECONNREFUSED"].includes(error.code));
+
+  if ((isRateLimitError || isNetworkError) && jobInfo.retryCount < 3) {
     const delay = Math.min(1000 * Math.pow(2, jobInfo.retryCount) + Math.random() * 1000, 10000);
-    console.warn(`⚠️  Gemini rate limit hit, retrying in ${delay}ms (attempt ${jobInfo.retryCount + 1}/3)`);
+    const reason = isRateLimitError ? "rate limit" : "network error";
+    console.warn(`⚠️  Gemini ${reason}, retrying in ${Math.round(delay)}ms (attempt ${jobInfo.retryCount + 1}/3)`);
     return delay;
   }
   return undefined;
