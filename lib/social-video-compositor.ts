@@ -313,8 +313,23 @@ export async function composeVideo(
     // TTS estimated durations are unreliable (±20%). Probing the file is the
     // only way to guarantee voice and video end at exactly the same moment.
     const actualAudioDuration = await getMediaDuration(audio.localPath);
-    const targetTotalDuration = actualAudioDuration > 5 ? actualAudioDuration : 60;
-    console.log(`  🎙️ Audio duration: ${targetTotalDuration.toFixed(2)}s (TTS estimate was: ${audio.duration}s)`);
+    const MAX_VIDEO_DURATION = 65; // Hard cap — Gemini sometimes writes over-length scripts
+    let targetTotalDuration = actualAudioDuration > 5 ? actualAudioDuration : 60;
+
+    if (targetTotalDuration > MAX_VIDEO_DURATION) {
+      console.warn(`  ⚠️ Audio is ${actualAudioDuration.toFixed(1)}s (script too long) — trimming to ${MAX_VIDEO_DURATION}s with fade-out`);
+      const trimmedAudioPath = path.join(tempDir, `audio-trimmed.mp3`);
+      await execFFmpeg([
+        '-i', audio.localPath,
+        '-t', MAX_VIDEO_DURATION.toString(),
+        '-af', `afade=t=out:st=${(MAX_VIDEO_DURATION - 1.5).toFixed(1)}:d=1.5`,
+        '-y', trimmedAudioPath,
+      ], 'audio-trim');
+      audio.localPath = trimmedAudioPath;
+      targetTotalDuration = MAX_VIDEO_DURATION;
+    }
+
+    console.log(`  🎙️ Audio duration: ${targetTotalDuration.toFixed(2)}s (TTS raw: ${actualAudioDuration.toFixed(1)}s, TTS estimate was: ${audio.duration}s)`);
 
     // Normalize scene durations to match ACTUAL audio duration (not hardcoded 60s)
     const totalDuration = sceneDurations.reduce((sum, d) => sum + d, 0);
