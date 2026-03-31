@@ -271,6 +271,7 @@ export function NotificationBell() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <div className="max-h-[360px] overflow-y-auto">
         {notifications.length === 0 ? (
           <div className="py-8 text-center text-muted-foreground" data-testid="text-no-notifications">
             <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -315,6 +316,7 @@ export function NotificationBell() {
             </DropdownMenuItem>
           ))
         )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
