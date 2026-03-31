@@ -2,11 +2,46 @@
 import { config } from 'dotenv';
 config({ path: '.env.local' });
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
+import * as net from 'net';
 
 console.log('🚀 Starting ApexContent Engine (Next.js)...\n');
 
-// Start pg-boss workers in separate process with active event loop
+// ── Port guard ──────────────────────────────────────────────────────────────
+// On Replit, restarts send SIGTERM to the parent but the Next.js child process
+// (via shell:true) can survive momentarily and keep port 5000 bound.
+// We forcibly free it before spawning next dev so EADDRINUSE never occurs.
+const PORT = parseInt(process.env.PORT || '5000', 10);
+
+async function waitForPortFree(port: number, maxMs = 8000): Promise<void> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const free = await new Promise<boolean>((resolve) => {
+      const probe = net.createServer();
+      probe.once('error', () => resolve(false));
+      probe.once('listening', () => { probe.close(); resolve(true); });
+      probe.listen(port, '0.0.0.0');
+    });
+    if (free) return;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  console.warn(`⚠️  Port ${port} still busy after ${maxMs}ms — starting anyway`);
+}
+
+function forceKillPort(port: number) {
+  try {
+    // fuser -k sends SIGKILL to every process bound to the port
+    execSync(`fuser -k ${port}/tcp 2>/dev/null || true`, { stdio: 'ignore' });
+  } catch {
+    // fuser may not be available; fall through to the wait loop
+  }
+}
+
+// Kill anything on the port, then wait until it's actually free
+forceKillPort(PORT);
+await waitForPortFree(PORT);
+
+// ── Workers ─────────────────────────────────────────────────────────────────
 let workerProcess: ReturnType<typeof spawn> | null = null;
 
 if (process.env.DISABLE_WORKERS === 'true') {
@@ -29,6 +64,7 @@ if (process.env.DISABLE_WORKERS === 'true') {
   });
 }
 
+// ── Next.js dev server ───────────────────────────────────────────────────────
 const nextDev = spawn('npx', ['next', 'dev', '--turbopack'], {
   stdio: 'inherit',
   shell: true,
@@ -45,20 +81,16 @@ nextDev.on('close', (code) => {
   process.exit(code || 0);
 });
 
-// Pre-warm all main pages after server is ready so Turbopack compiles them
-// upfront. Navigation will be instant after warmup rather than on first visit.
-const BASE_URL = `http://localhost:${process.env.PORT || 5000}`;
+// ── Page pre-warmer ──────────────────────────────────────────────────────────
+const BASE_URL = `http://localhost:${PORT}`;
 
 const PAGES_TO_WARM = [
-  // Auth API routes — must be first so login/logout compile before user interacts
   '/api/auth/me',
   '/api/auth/login',
   '/api/auth/logout',
-  // Core API routes hit immediately after login
   '/api/notifications',
   '/api/batches',
   '/api/health',
-  // UI pages
   '/home',
   '/content',
   '/batches',
@@ -103,7 +135,7 @@ async function warmupPages() {
         signal: AbortSignal.timeout(15000),
       });
     } catch {
-      // ignore errors — any response triggers compilation
+      // ignore — any response triggers compilation
     }
   }
 
@@ -111,18 +143,17 @@ async function warmupPages() {
   console.log(`✅ All pages pre-warmed in ${elapsed}s — navigation is now instant`);
 }
 
-// Start warmup in background, don't block server startup
 warmupPages().catch(() => {});
 
-// Handle shutdown gracefully — kill entire process groups so the shell
-// wrapper (shell:true) doesn't orphan the actual next/worker processes,
-// which would keep port 5000 bound after restart.
+// ── Graceful shutdown ────────────────────────────────────────────────────────
+// Kill the whole process group (negative PID) so the shell wrapper doesn't
+// orphan the actual next/worker child processes.
 function killGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
   if (child.pid == null) return;
   try {
-    process.kill(-child.pid, signal); // negative PID = whole process group
+    process.kill(-child.pid, signal);
   } catch {
-    child.kill(signal); // fallback: direct kill if group kill fails
+    child.kill(signal);
   }
 }
 
