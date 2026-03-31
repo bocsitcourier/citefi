@@ -9,6 +9,7 @@ import {
   socialPostLogs,
   errorLogs,
   ContentType,
+  articles,
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import type { SocialPostJobData } from "./queue";
@@ -307,29 +308,80 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       console.warn(`⚠️ Failed platforms: ${failedPlatforms.map(r => r.platform).join(", ")}`);
     }
 
-    // STAGE 3: Generate images if requested
+    // STAGE 3: Attach image if requested
+    // Strategy: reuse the parent article's hero image at $0.00 cost.
+    // Only fall back to AI generation if no usable hero image exists.
     if (includeImage) {
-      const { generateSocialImages } = await import("./gemini-social-image-generator");
-      
-      const imageResults = await generateSocialImages({
-        socialPostId,
-        prompt,
-        platforms,
-        industry: industry || "general",
-        companyName: companyName || undefined,
-      });
+      let attachedImageUrl: string | null = null;
 
-      console.log(`🖼️ Generated ${imageResults.length} platform-specific images`);
+      // Try to reuse the parent article's hero image
+      if (postDetails?.articleId) {
+        try {
+          const [parentArticle] = await db
+            .select({ heroImageUrl: articles.heroImageUrl })
+            .from(articles)
+            .where(eq(articles.id, postDetails.articleId))
+            .limit(1);
 
-      // Log image generation
-      await db.insert(socialPostLogs).values({
-        socialPostId,
-        eventType: "IMAGE_GENERATED",
-        stage: "IMAGE_GEN",
-        severity: "info",
-        message: `Generated ${imageResults.length} images for platforms: ${platforms.join(", ")}`,
-        payloadJson: { imageCount: imageResults.length },
-      });
+          const heroUrl = parentArticle?.heroImageUrl;
+          if (heroUrl && heroUrl.startsWith("http")) {
+            attachedImageUrl = heroUrl;
+            console.log(`♻️ Reusing article hero image for social post ${socialPostId}: ${heroUrl}`);
+          }
+        } catch (err) {
+          console.warn(`⚠️ Could not fetch parent article hero image:`, err instanceof Error ? err.message : err);
+        }
+      }
+
+      if (attachedImageUrl) {
+        // Store the reused hero image as a social post asset for each platform
+        const assetInserts = platforms.map((platform) => ({
+          socialPostId,
+          platform,
+          assetType: "image" as const,
+          promptUsed: "reused_from_article_hero",
+          storageUrl: attachedImageUrl!,
+          altText: `${companyName || "Article"} hero image`,
+          aspectRatio: "16:9",
+          fileFormat: "png",
+        }));
+
+        await db.insert(socialPostAssets).values(assetInserts);
+
+        await db.insert(socialPostLogs).values({
+          socialPostId,
+          eventType: "IMAGE_REUSED",
+          stage: "IMAGE_GEN",
+          severity: "info",
+          message: `Reused article hero image for ${platforms.length} platform(s) — $0.00 AI cost`,
+          payloadJson: { platforms, sourceArticleId: postDetails?.articleId, heroImageUrl: attachedImageUrl },
+        });
+
+        console.log(`✅ Hero image reused for ${platforms.length} social platform(s)`);
+      } else {
+        // Fallback: generate new AI social images (no parent article or no hero image available)
+        console.log(`🎨 No reusable hero image — generating social images via AI`);
+        const { generateSocialImages } = await import("./gemini-social-image-generator");
+
+        const imageResults = await generateSocialImages({
+          socialPostId,
+          prompt,
+          platforms,
+          industry: industry || "general",
+          companyName: companyName || undefined,
+        });
+
+        console.log(`🖼️ Generated ${imageResults.length} platform-specific images`);
+
+        await db.insert(socialPostLogs).values({
+          socialPostId,
+          eventType: "IMAGE_GENERATED",
+          stage: "IMAGE_GEN",
+          severity: "info",
+          message: `Generated ${imageResults.length} images for platforms: ${platforms.join(", ")}`,
+          payloadJson: { imageCount: imageResults.length },
+        });
+      }
     }
 
     // STAGE 4: Queue video generation if requested

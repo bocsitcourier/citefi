@@ -1,0 +1,73 @@
+To implement the "Image Memory" system, your worker needs a new pre-generation step. Instead of going straight to the AI, it will run a "Discovery Query" to see if a suitable image already exists.
+
+Here is the Drizzle-ORM logic you can provide to Replit.
+
+🛠️ The "Image Discovery" Utility (lib/image-memory.ts)
+This function searches your database for the most relevant existing image based on the article's keywords.
+
+TypeScript
+import { db } from "./db";
+import { articles } from "./schema";
+import { eq, and, isNotNull, ilike, or } from "drizzle-orm";
+
+/**
+ * 🧠 Image Memory Search
+ * Looks for an existing high-quality image from a previous article
+ * that matches the current topic.
+ */
+export async function findExistingImage(keywords: string[], title: string) {
+  // 1. Get the primary keyword (usually the first one)
+  const primaryKeyword = keywords[0];
+
+  if (!primaryKeyword) return null;
+
+  // 2. Search for a 'COMPLETED' article with a similar keyword or title
+  const match = await db.query.articles.findFirst({
+    where: and(
+      eq(articles.status, "COMPLETED"),
+      isNotNull(articles.hero_image_url),
+      or(
+        ilike(articles.keywords, `%${primaryKeyword}%`),
+        ilike(articles.title, `%${title.substring(0, 15)}%`)
+      )
+    ),
+    orderBy: (articles, { desc }) => [desc(articles.updatedAt)],
+  });
+
+  return match?.hero_image_url || null;
+}
+🛠️ Integrating into the Image Worker
+Update your main image generation function (likely in lib/worker.ts or lib/image-gen.ts) to use this "Memory" check first.
+
+TypeScript
+// Inside your Image Generation Worker
+export async function handleImageGeneration(articleId: string, keywords: string[], title: string) {
+  
+  // STEP 1: Check Memory (Cost: $0.00)
+  const existingUrl = await findExistingImage(keywords, title);
+  
+  if (existingUrl) {
+    console.log(`♻️ [Job ${articleId}] Reusing existing image: ${existingUrl}`);
+    await db.update(articles)
+      .set({ hero_image_url: existingUrl })
+      .where(eq(articles.id, articleId));
+    return; // Exit early! Saved money.
+  }
+
+  // STEP 2: Only if no match found, call Gemini/AI (Cost: $0.04)
+  console.log(`🎨 [Job ${articleId}] No match found. Generating new AI image...`);
+  const newImageUrl = await generateNewAIImage(keywords, title); 
+  
+  await db.update(articles)
+    .set({ hero_image_url: newImageUrl })
+    .where(eq(articles.id, articleId));
+}
+📂 Why this works for your SEO and Budget
+Semantic Clustering: If you are writing 50 articles about "Medical Delivery in Massachusetts," the first article will pay for the image. The other 49 will reuse it for free.
+
+Brand Consistency: Reusing images ensures that your "Bocsit" branding looks the same across related service pages, which is a signal Google uses to determine site quality.
+
+Database Efficiency: By checking the DB first (Helium latency ~2ms), you bypass the 15-second AI generation wait time, making your article batch finish significantly faster.
+
+📝 Final Instruction for Replit
+"Please implement the findExistingImage logic in the article worker. Ensure that before any AI image generation call, the system checks the articles table for existing hero_image_url values where the keywords or title match the current article. This is mandatory to resolve the Gemini billing spike."
