@@ -77,3 +77,7 @@ export const db = buildDb();
 // to Neon compute suspension killing idle pooled sockets.  Do NOT use this
 // for long-running transactions or video-generation workers (use `db`).
 export const neonHttpDb = drizzle(neon(process.env.DATABASE_URL!), { schema });
+
+// Alias used by video-pipeline and other stateless modules for clarity.
+// Semantically equivalent to neonHttpDb — both use the Neon HTTP driver.
+export const statelessDb = neonHttpDb;

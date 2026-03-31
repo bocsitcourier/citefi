@@ -446,7 +446,34 @@ export async function registerWorkers() {
 
           // STAGE 1: Generate content with Gemini
           console.log(`🤖 Stage 1: Gemini generating article ${articleId}${businessName ? ` for ${businessName}` : ''}${customInstructions ? ' (with custom instructions)' : ''}...`);
-          
+
+          // SHADOW RUN PRE-FLIGHT: Build failure pattern awareness before generation
+          let shadowRunPlan: any = undefined;
+          try {
+            const { buildArticleShadowRunPlan } = await import("./article-shadow-run");
+            shadowRunPlan = await buildArticleShadowRunPlan({
+              articleId,
+              title,
+              geographicFocus,
+            });
+            const { jobEvents } = await import("@/shared/schema");
+            await db.insert(jobEvents).values({
+              articleId,
+              batchId,
+              eventType: "ARTICLE_PREFLIGHT",
+              stage: "SHADOW_RUN",
+              severity: "info",
+              message: shadowRunPlan.summary,
+              payloadJson: {
+                failurePatterns: shadowRunPlan.failurePatterns,
+                recentErrors: shadowRunPlan.recentErrors,
+              },
+            });
+            console.log(`🔮 [SHADOW RUN] Pre-flight complete for article ${articleId}: ${shadowRunPlan.failurePatterns.length} failure pattern(s) loaded`);
+          } catch (shadowRunError) {
+            console.warn(`⚠️ Shadow Run preflight failed for article ${articleId} (non-fatal):`, shadowRunError);
+          }
+
           // HARD TIMEOUT: Force-fail if Gemini call hangs for >10 minutes
           const GEMINI_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
           
@@ -466,7 +493,8 @@ export async function registerWorkers() {
               companyLogoUrl,
               batchId, // OPTIMIZATION: Pass batch ID for SEO cache lookup
               articleTeamId, // Psychographic targeting: team context
-              articlePersonaId // Psychographic targeting: persona for content adaptation
+              articlePersonaId, // Psychographic targeting: persona for content adaptation
+              shadowRunPlan // Shadow run pre-flight failure pattern awareness
             ),
             GEMINI_TIMEOUT_MS,
             `Gemini Generation (Article ${articleId})`

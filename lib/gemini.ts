@@ -4,6 +4,8 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { createBrandLockPromptSegment } from "./branding";
 import { smartResearch, SmartResearchResult } from "./smart-topic-research";
 import { getContentOptimizationContext, ContentOptimizationContext } from "./persona-content-integration";
+import type { ArticleShadowRunPlan } from "./article-shadow-run";
+import { buildShadowRunPromptPreamble } from "./article-shadow-run";
 import { validateContentWithFacts, FactValidationOptions } from "./fact-validated-generators";
 import { humanizeArticle } from "./deterministic-humanizer";
 
@@ -857,7 +859,8 @@ export async function generateArticleContent(
   personaId?: number, // Psychographic targeting: persona ID for content adaptation
   enableFactValidation?: boolean, // Anti-Hallucination: enable fact-based validation
   articleId?: number, // Article ID for fact claims audit trail
-  serpFeatureTarget?: string // SERP feature optimization: Featured Snippet | PAA | List | Q&A
+  serpFeatureTarget?: string, // SERP feature optimization: Featured Snippet | PAA | List | Q&A
+  shadowRunPlan?: ArticleShadowRunPlan // Pre-flight failure pattern awareness
 ): Promise<ArticleGenerationResult> {
   // Dynamic year for freshness signals
   const currentYear = new Date().getFullYear();
@@ -1099,12 +1102,16 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
     }
   }
 
+  const shadowRunContext = shadowRunPlan
+    ? `\n\n${buildShadowRunPromptPreamble(shadowRunPlan)}`
+    : "";
+
   const prompt = `You are an expert content strategist implementing a composite 3-layer methodology combining Lily Ray's Answer-First structure, Mike King's passage-level optimization, and Kevin Indig's citation optimization for maximum AI visibility and E-E-A-T signals.
 
 Article Title: ${title}
 Target URL for Internal Linking: ${targetUrl}
 Word Count Range: ${wordCountMin}-${wordCountMax} words${geographicContext}${audienceContext}${toneContext}${customContext}${serpFeatureContext}
-${brandLockContext}${batchSeoContext}${personaContext}${guardianWarningsContext}
+${brandLockContext}${batchSeoContext}${personaContext}${guardianWarningsContext}${shadowRunContext}
 
 **CRITICAL CONTENT FOCUS - THIS IS EDUCATIONAL CONTENT, NOT AN ADVERTISEMENT:**
 The article MUST be ABOUT THE TOPIC/SUBJECT MATTER, NOT about ${businessName}.
@@ -1772,7 +1779,8 @@ export async function generateArticleWithGemini(
   companyLogoUrl?: string,
   batchId?: number,
   teamId?: number,
-  personaId?: number
+  personaId?: number,
+  shadowRunPlan?: ArticleShadowRunPlan
 ): Promise<AdvancedArticleResult> {
   const result = await generateArticleContent(
     title,
@@ -1790,7 +1798,8 @@ export async function generateArticleWithGemini(
     personaId,
     undefined, // enableFactValidation
     undefined, // articleId
-    serpFeatureTarget
+    serpFeatureTarget,
+    shadowRunPlan
   );
 
   let geoAccuracyScore: number | undefined;
