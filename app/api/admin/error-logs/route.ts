@@ -157,3 +157,38 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Failed to update" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    await requireAdmin(req);
+    const body = await req.json();
+
+    // Delete specific IDs
+    if (Array.isArray(body.ids) && body.ids.length > 0) {
+      const ids = body.ids.map(Number).filter((n: number) => !isNaN(n));
+      await db.delete(errorLogs).where(
+        sql`${errorLogs.id} = ANY(ARRAY[${sql.join(ids.map(id => sql`${id}`), sql`, `)}]::int[])`
+      );
+      return NextResponse.json({ success: true, deleted: ids.length });
+    }
+
+    // Clear all resolved errors
+    if (body.clearResolved === true) {
+      const result = await db
+        .delete(errorLogs)
+        .where(eq(errorLogs.resolved, 1));
+      return NextResponse.json({ success: true, deleted: result.rowCount ?? 0 });
+    }
+
+    // Clear all errors (optionally filtered by source type)
+    if (body.clearAll === true) {
+      await db.delete(errorLogs);
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: "Invalid delete request" }, { status: 400 });
+  } catch (error) {
+    console.error("Error deleting error logs:", error);
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+}

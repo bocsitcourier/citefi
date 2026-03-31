@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ChevronDown, ChevronUp, Trash2, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -74,20 +75,48 @@ function formatDate(iso: string) {
   });
 }
 
-function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: number, resolved: boolean) => void }) {
+function rowKey(entry: ErrorEntry) {
+  return `${entry.source}-${entry.id}`;
+}
+
+function ErrorRow({
+  entry,
+  selected,
+  onSelect,
+  onResolve,
+  onDelete,
+}: {
+  entry: ErrorEntry;
+  selected: boolean;
+  onSelect: (key: string, checked: boolean) => void;
+  onResolve: (id: number, resolved: boolean) => void;
+  onDelete: (entry: ErrorEntry) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isResolved = entry.resolved === 1;
+  const canDelete = entry.source === "article";
 
   return (
     <div
       className={cn(
         "border rounded-md p-4 space-y-2 transition-colors",
-        isResolved ? "opacity-60" : ""
+        isResolved ? "opacity-60" : "",
+        selected ? "border-primary/50 bg-primary/5" : ""
       )}
       data-testid={`error-row-${entry.id}`}
     >
       <div className="flex items-start justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          {canDelete ? (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onSelect(rowKey(entry), !!checked)}
+              data-testid={`checkbox-error-${entry.id}`}
+              aria-label="Select error"
+            />
+          ) : (
+            <div className="w-4" />
+          )}
           <Badge variant={severityVariant(entry.severity)} data-testid={`badge-severity-${entry.id}`}>
             {entry.severity}
           </Badge>
@@ -101,7 +130,7 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
             <Clock className="w-3 h-3" />
             {formatDate(entry.createdAt)}
           </span>
-          {!isResolved && (
+          {!isResolved && entry.source === "article" && (
             <Button
               size="sm"
               variant="outline"
@@ -112,7 +141,7 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
               Resolve
             </Button>
           )}
-          {isResolved && (
+          {isResolved && entry.source === "article" && (
             <Button
               size="sm"
               variant="outline"
@@ -122,11 +151,22 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
               Reopen
             </Button>
           )}
+          {canDelete && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onDelete(entry)}
+              data-testid={`button-delete-${entry.id}`}
+              aria-label="Delete error"
+            >
+              <Trash2 className="w-4 h-4 text-muted-foreground" />
+            </Button>
+          )}
         </div>
       </div>
 
       {(entry.title || entry.parentName) && (
-        <div className="text-sm text-foreground font-medium">
+        <div className="text-sm text-foreground font-medium pl-7">
           {entry.title || entry.parentName}
           {entry.title && entry.parentName && (
             <span className="text-muted-foreground font-normal"> — {entry.parentName}</span>
@@ -134,7 +174,7 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
         </div>
       )}
 
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2 pl-7">
         <p
           className={cn(
             "text-sm text-muted-foreground flex-1",
@@ -156,7 +196,7 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
       </div>
 
       {entry.screenshotUrl && (
-        <div className="mt-2">
+        <div className="mt-2 pl-7">
           <p className="text-xs text-muted-foreground mb-1 font-medium">UI Screenshot at time of error:</p>
           <a
             href={entry.screenshotUrl}
@@ -176,35 +216,63 @@ function ErrorRow({ entry, onResolve }: { entry: ErrorEntry; onResolve: (id: num
   );
 }
 
+function getAuthHeader() {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function AdminErrorLogsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch, isFetching } = useQuery<ErrorLogsResponse>({
     queryKey: ["/api/admin/error-logs", typeFilter, severityFilter, page],
     queryFn: async () => {
-      const token = localStorage.getItem("auth_token");
       const params = new URLSearchParams({ type: typeFilter, severity: severityFilter, page: String(page) });
       const res = await fetch(`/api/admin/error-logs?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: getAuthHeader() as HeadersInit,
       });
       if (!res.ok) throw new Error("Failed to fetch error logs");
       return res.json();
     },
   });
 
+  const errors = data?.errors || [];
+  const summary = data?.summary;
+
+  // Only article errors can be deleted (they live in error_logs table)
+  const articleErrors = errors.filter(e => e.source === "article");
+  const allArticleKeys = articleErrors.map(rowKey);
+  const selectedCount = selected.size;
+  const allSelected = allArticleKeys.length > 0 && allArticleKeys.every(k => selected.has(k));
+  const someSelected = selectedCount > 0;
+
+  function handleSelect(key: string, checked: boolean) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function handleSelectAll(checked: boolean) {
+    if (checked) {
+      setSelected(new Set(allArticleKeys));
+    } else {
+      setSelected(new Set());
+    }
+  }
+
   const resolveMutation = useMutation({
     mutationFn: async ({ id, resolved }: { id: number; resolved: boolean }) => {
-      const token = localStorage.getItem("auth_token");
       const res = await fetch("/api/admin/error-logs", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", ...getAuthHeader() } as HeadersInit,
         body: JSON.stringify({ id, resolved }),
       });
       if (!res.ok) throw new Error("Failed to update");
@@ -219,8 +287,46 @@ export default function AdminErrorLogsPage() {
     },
   });
 
-  const summary = data?.summary;
-  const errors = data?.errors || [];
+  const deleteMutation = useMutation({
+    mutationFn: async (body: Record<string, unknown>) => {
+      const res = await fetch("/api/admin/error-logs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() } as HeadersInit,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
+      setSelected(new Set());
+      const count = result?.deleted;
+      toast({ title: count !== undefined ? `Deleted ${count} error${count !== 1 ? "s" : ""}` : "Errors deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete errors", variant: "destructive" });
+    },
+  });
+
+  function handleDeleteSelected() {
+    const ids = [...selected]
+      .filter(k => k.startsWith("article-"))
+      .map(k => Number(k.replace("article-", "")));
+    if (ids.length === 0) return;
+    deleteMutation.mutate({ ids });
+  }
+
+  function handleDeleteOne(entry: ErrorEntry) {
+    deleteMutation.mutate({ ids: [entry.id] });
+  }
+
+  function handleClearResolved() {
+    deleteMutation.mutate({ clearResolved: true });
+  }
+
+  const resolvedCount = summary?.total !== undefined
+    ? articleErrors.filter(e => e.resolved === 1).length
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -234,15 +340,26 @@ export default function AdminErrorLogsPage() {
             Generation failures, AI errors, and validation issues
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-errors"
-        >
-          <RefreshCw className={cn("w-4 h-4 mr-2", isFetching && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            onClick={handleClearResolved}
+            disabled={deleteMutation.isPending || resolvedCount === 0}
+            data-testid="button-clear-resolved"
+          >
+            <CheckCircle2 className="w-4 h-4 mr-2" />
+            Clear Resolved
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-errors"
+          >
+            <RefreshCw className={cn("w-4 h-4 mr-2", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {summary && (
@@ -283,7 +400,7 @@ export default function AdminErrorLogsPage() {
       )}
 
       <div className="flex items-center gap-3 flex-wrap">
-        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
+        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); setSelected(new Set()); }}>
           <SelectTrigger className="w-44" data-testid="select-type-filter">
             <SelectValue placeholder="Filter by type" />
           </SelectTrigger>
@@ -295,7 +412,7 @@ export default function AdminErrorLogsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
+        <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); setSelected(new Set()); }}>
           <SelectTrigger className="w-44" data-testid="select-severity-filter">
             <SelectValue placeholder="Filter by severity" />
           </SelectTrigger>
@@ -322,11 +439,53 @@ export default function AdminErrorLogsPage() {
         </div>
       ) : (
         <div className="space-y-2" data-testid="error-list">
+          {/* Batch action toolbar */}
+          {articleErrors.length > 0 && (
+            <div className="flex items-center gap-3 py-2 px-4 bg-muted/40 rounded-md border">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={handleSelectAll}
+                data-testid="checkbox-select-all"
+                aria-label="Select all article errors"
+              />
+              <span className="text-sm text-muted-foreground">
+                {someSelected
+                  ? `${selectedCount} selected`
+                  : `Select all (${articleErrors.length} article error${articleErrors.length !== 1 ? "s" : ""})`}
+              </span>
+              {someSelected && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleDeleteSelected}
+                  disabled={deleteMutation.isPending}
+                  data-testid="button-delete-selected"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  Delete {selectedCount} selected
+                </Button>
+              )}
+              {someSelected && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelected(new Set())}
+                  data-testid="button-clear-selection"
+                >
+                  Clear selection
+                </Button>
+              )}
+            </div>
+          )}
+
           {errors.map((entry) => (
             <ErrorRow
-              key={`${entry.source}-${entry.id}`}
+              key={rowKey(entry)}
               entry={entry}
+              selected={selected.has(rowKey(entry))}
+              onSelect={handleSelect}
               onResolve={(id, resolved) => resolveMutation.mutate({ id, resolved })}
+              onDelete={handleDeleteOne}
             />
           ))}
         </div>
