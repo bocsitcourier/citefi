@@ -20,14 +20,22 @@ export async function GET(
     const fullPath = `public/${filePath}`;
     const file = bucket.file(fullPath);
 
-    const [exists] = await file.exists();
-    if (!exists) {
-      console.error(`[PUBLIC_OBJECTS] File not found: ${fullPath}`);
-      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    // Single GCS call — getMetadata() throws a 404-style error if the file
+    // doesn't exist, so file.exists() is a redundant round-trip we can skip.
+    let metadata: Record<string, any>;
+    try {
+      const [meta] = await file.getMetadata();
+      metadata = meta as Record<string, any>;
+    } catch (err: any) {
+      const code = err?.code ?? err?.response?.statusCode;
+      if (code === 404 || code === "404") {
+        console.error(`[PUBLIC_OBJECTS] File not found: ${fullPath}`);
+        return NextResponse.json({ error: "File not found" }, { status: 404 });
+      }
+      throw err;
     }
 
-    const [metadata] = await file.getMetadata();
-    const contentType = metadata.contentType || "application/octet-stream";
+    const contentType = (metadata.contentType as string) || "application/octet-stream";
     const fileSize = Number(metadata.size ?? 0);
 
     // ETag from GCS md5Hash or generation id

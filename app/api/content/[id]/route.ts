@@ -73,25 +73,13 @@ export async function GET(
       );
     }
 
-    // Get batch to retrieve targetUrl
-    const [batch] = await db
-      .select()
-      .from(jobBatches)
-      .where(eq(jobBatches.id, article.batchId));
-
-    const assets = await db
-      .select()
-      .from(articleAssets)
-      .where(eq(articleAssets.articleId, articleId))
-      .orderBy(asc(articleAssets.id)); // Order by ID to ensure hero image (first created) is first
-
-    // Fetch error logs for this article (most recent first)
-    const errors = await db
-      .select()
-      .from(errorLogs)
-      .where(eq(errorLogs.articleId, articleId))
-      .orderBy(desc(errorLogs.createdAt))
-      .limit(10);
+    // Run remaining queries in parallel — they're all independent once we have the article
+    const [batchResult, assets, errors] = await Promise.all([
+      db.select().from(jobBatches).where(eq(jobBatches.id, article.batchId)),
+      db.select().from(articleAssets).where(eq(articleAssets.articleId, articleId)).orderBy(asc(articleAssets.id)),
+      db.select().from(errorLogs).where(eq(errorLogs.articleId, articleId)).orderBy(desc(errorLogs.createdAt)).limit(10),
+    ]);
+    const batch = batchResult[0];
 
     return NextResponse.json({
       article: {
