@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUnreadNotifications, getAllNotifications, markAllAsRead, getUnreadCount } from "@/lib/notification-service";
+import { getUnreadNotifications, getAllNotifications, markAllAsRead, getUnreadCount, dismissAllNotifications } from "@/lib/notification-service";
 import { requireTeamMember } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
@@ -45,6 +45,11 @@ export async function POST(request: NextRequest) {
 
     if (action === "mark_all_read") {
       await markAllAsRead(auth.teamId);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "dismiss_all") {
+      await dismissAllNotifications(auth.teamId);
       return NextResponse.json({ success: true });
     }
 

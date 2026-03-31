@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Bell, Check, X, Video, FileText, Share2, Layers, AlertCircle, CheckCircle } from "lucide-react";
+import { Bell, Check, X, Video, FileText, Share2, Layers, AlertCircle, CheckCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -197,6 +197,23 @@ export function NotificationBell() {
     },
   });
 
+  const dismissAllMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("/api/notifications", {
+        method: "POST",
+        body: JSON.stringify({ action: "dismiss_all" }),
+      });
+    },
+    onSuccess: invalidateNotifications,
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to clear notifications",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleNotificationClick = (notification: Notification) => {
     if (notification.read === 0) {
       markReadMutation.mutate(notification.id);
@@ -223,20 +240,35 @@ export function NotificationBell() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80" data-testid="dropdown-notifications">
-        <DropdownMenuLabel className="flex items-center justify-between">
+        <DropdownMenuLabel className="flex items-center justify-between gap-1">
           <span>Notifications</span>
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs"
-              onClick={() => markAllReadMutation.mutate()}
-              data-testid="button-mark-all-read"
-            >
-              <Check className="h-3 w-3 mr-1" />
-              Mark all read
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={() => markAllReadMutation.mutate()}
+                data-testid="button-mark-all-read"
+              >
+                <Check className="h-3 w-3 mr-1" />
+                Mark all read
+              </Button>
+            )}
+            {notifications.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-muted-foreground"
+                onClick={() => dismissAllMutation.mutate()}
+                disabled={dismissAllMutation.isPending}
+                data-testid="button-dismiss-all"
+              >
+                <Trash2 className="h-3 w-3 mr-1" />
+                Clear all
+              </Button>
+            )}
+          </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {notifications.length === 0 ? (

@@ -100,6 +100,12 @@ export async function dismissNotification(notificationId: number, teamId: number
   return result;
 }
 
+export async function dismissAllNotifications(teamId: number) {
+  await db.update(notifications)
+    .set({ dismissed: 1 })
+    .where(eq(notifications.teamId, teamId));
+}
+
 export async function getUnreadCount(teamId: number): Promise<number> {
   const result = await db.select({ count: sql<number>`count(*)` })
     .from(notifications)
