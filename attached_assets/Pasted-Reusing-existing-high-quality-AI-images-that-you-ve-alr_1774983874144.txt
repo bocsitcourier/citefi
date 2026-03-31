@@ -1,0 +1,43 @@
+Reusing existing high-quality AI images that you’ve already paid for is the most cost-effective way to fix the billing spike while maintaining a consistent visual brand.
+
+To make this work, Replit needs to build an "Image Memory" system. Instead of the AI blindly generating a new image for every article, the system should first "search" your database for a matching visual.
+
+🛠️ The "Image Memory" Logic for Replit
+Paste these instructions into your Replit chat:
+
+Task: Implement Image Reuse & Deduplication Logic
+
+1. Create an Image Library Query:
+Before triggering any AI image generation (Gemini or DALL-E), the worker must perform a database search on the articles table.
+
+Search Criteria: Look for any completed article where the keywords or title have a 70% semantic match to the current article.
+
+Action: If a match is found, copy the hero_image_url from the old article to the new one.
+
+2. Cross-Channel Reuse:
+
+Social Media: The Social Media worker must always use the hero_image_url of the parent article. Do not call an AI image generator for social posts.
+
+Video/Podcast: The Video worker must use the same hero_image_url as the thumbnail.
+
+3. Fallback Mechanism:
+
+Only if NO similar keywords are found in the database should the system call the AI to generate one new image.
+
+Once generated, this new image is now "available" for any future articles with similar keywords.
+
+📂 How this fixes your "SEO Issues" (The Google Connection)
+Reusing images isn't just about saving money; it’s actually better for your Search Console reports:
+
+Reduced Page Weight: By reusing one Hero image for the blog, social, and thumbnail, you are serving fewer unique files. This improves Core Web Vitals (Page Load Speed).
+
+Image Search Ranking: When the same high-quality image appears across multiple related articles, Google begins to associate that image with your brand and those specific keywords, increasing your chances of appearing in Google Image Search.
+
+Eliminating "Broken" Image Tags: Part of your "Soft 404" and "Failed" validation errors in the report might be caused by the AI failing to generate an image, leaving a broken <img> tag. Reusing a "known good" URL from your database guarantees the page looks complete to Googlebot.
+
+📉 The Impact on your Gemini Bill
+By switching to this "Search First, Generate Last" model, your image costs will trend toward zero over time as your internal library grows.
+
+Current Path: 1,000 articles = 5,000 new images = $200+
+
+Reuse Path: 1,000 articles = ~100 new images (for new topics) = $4.00

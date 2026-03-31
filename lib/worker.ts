@@ -25,8 +25,8 @@ import {
   addPublishingJob,
 } from "./queue";
 import { db } from "./db";
-import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs } from "@/shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas } from "@/shared/schema";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
@@ -1014,6 +1014,46 @@ export async function registerWorkers() {
             .where(eq(articles.id, articleId));
           
           console.log(`✅ Article ${articleId} validation passed - marked COMPLETE`);
+
+          // Track article quota usage (fire-and-forget, non-blocking)
+          void (async () => {
+            try {
+              const batch = await db
+                .select({ userId: jobBatches.userId })
+                .from(jobBatches)
+                .where(eq(jobBatches.id, batchId))
+                .limit(1);
+              const batchUserId = batch[0]?.userId;
+              if (batchUserId) {
+                const now = new Date();
+                await db.execute(sql`
+                  UPDATE user_quotas
+                  SET
+                    current_usage = CASE
+                      WHEN period_ends_at < ${now} THEN 1
+                      ELSE current_usage + 1
+                    END,
+                    period_starts_at = CASE
+                      WHEN period_ends_at < ${now} THEN ${now}
+                      ELSE period_starts_at
+                    END,
+                    period_ends_at = CASE
+                      WHEN period_ends_at < ${now} AND period_type = 'hour'  THEN ${now}::timestamptz + INTERVAL '1 hour'
+                      WHEN period_ends_at < ${now} AND period_type = 'day'   THEN ${now}::timestamptz + INTERVAL '1 day'
+                      WHEN period_ends_at < ${now} AND period_type = 'week'  THEN ${now}::timestamptz + INTERVAL '7 days'
+                      WHEN period_ends_at < ${now} AND period_type = 'month' THEN ${now}::timestamptz + INTERVAL '30 days'
+                      ELSE period_ends_at
+                    END,
+                    updated_at = ${now}
+                  WHERE user_id = ${batchUserId}
+                    AND quota_type IN ('articles_per_day', 'articles_per_week', 'articles_per_month', 'articles_per_hour')
+                    AND enabled = 1
+                `);
+              }
+            } catch (quotaErr) {
+              console.warn(`⚠️ Quota tracking failed for article ${articleId}:`, quotaErr);
+            }
+          })();
         }
 
         // STAGE 4: Queue Images for Background Generation (non-blocking)
