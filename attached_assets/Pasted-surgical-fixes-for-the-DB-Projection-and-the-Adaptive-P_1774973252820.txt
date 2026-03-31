@@ -1,0 +1,61 @@
+surgical fixes for the DB Projection and the Adaptive Polling. This will immediately lower the "noise" on your database connections, leaving the full pool available for the actual AI workers.1. The DB Projection Fix (API Layer)Files: app/api/batches/[id]/route.ts and app/api/jobs/status/[batchId]/route.tsWe are modifying the Drizzle query to explicitly exclude large text fields (bodyHtml, redditResearch, transcript). This reduces the memory footprint of each poll from ~500KB per batch to ~5KB.TypeScript// app/api/batches/[id]/route.ts
+
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const batchId = params.id;
+
+  const batchData = await db.query.batches.findFirst({
+    where: eq(batches.id, batchId),
+    with: {
+      articles: {
+        // ✅ Only fetch UI-critical columns. 
+        // bodyHtml and redditResearch are excluded by default here.
+        columns: {
+          id: true,
+          title: true,
+          status: true, 
+          progress: true,
+          updatedAt: true,
+          error: true
+        }
+      }
+    }
+  });
+
+  if (!batchData) return new Response("Batch not found", { status: 404 });
+  
+  return Response.json(batchData);
+}
+2. The Adaptive Polling Fix (Frontend Layer)File: app/dashboard/components/GenerationProgress.tsxWe are removing the dual-interval logic and implementing a "Backoff" strategy. The UI will check frequently at the start, then relax its pace as the generation continues.TypeScript// Inside GenerationProgress.tsx
+
+const [pollRate, setPollRate] = useState(3000); // Start at 3 seconds
+
+useEffect(() => {
+  if (status !== 'RUNNING') return;
+
+  const fetchUpdate = async () => {
+    try {
+      await refetch();
+      // 📈 Slowly increase the delay between polls (max 15s)
+      // This prevents UI-induced DB starvation during long runs
+      setPollRate(prev => Math.min(prev + 1000, 15000));
+    } catch (err) {
+      console.error("Polling error:", err);
+    }
+  };
+
+  const timer = setTimeout(fetchUpdate, pollRate);
+  
+  return () => clearTimeout(timer);
+}, [status, pollRate, refetch]);
+3. The "Batch Detail" Page CleanupFile: app/batches/[id]/page.tsxIf this page is open, it often conflicts with the sidebar progress. Ensure the useEffect here uses a steady 10-second interval instead of 5s.TypeScript// app/batches/[id]/page.tsx
+
+useEffect(() => {
+  if (batch?.status !== 'RUNNING') return;
+
+  const interval = setInterval(() => {
+    mutate(); // SWR/React Query refresh
+  }, 10000); // Relaxed 10s polling for the full table view
+
+  return () => clearInterval(interval);
+}, [batch?.status]);
+📉 Expected ResultsMetricBefore FixAfter FixDB Data Transfer~10MB / minute~200KB / minuteDB Connections used by UI4-6 (Constant)1 (Intermittent)Worker Connection AvailabilityStarved / TimeoutsFull 20-pool availabilityApp SnappinessLaggy / "Refreshing"Smooth / Stable🛑 One Final "Hidden" CheckWhile you're in the code, check lib/db.ts one last time. If you see max: 20 in your Postgres connection config, increase the idleTimeoutMillis to 30000 (30 seconds). This keeps the connections "warm" for the workers so they don't have to perform a full handshake every time a new article stage starts.Would you like me to provide the specific Drizzle db.ts configuration to optimize the connection pooling for these high-volume workers

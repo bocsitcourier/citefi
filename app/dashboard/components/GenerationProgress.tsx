@@ -47,8 +47,10 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
       if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED") {
         return false;
       }
-      return 2000;
+      // Light status endpoint — poll every 3s while running
+      return 3000;
     },
+    refetchIntervalInBackground: false,
   });
 
   const { data: batchDetails } = useQuery({
@@ -63,8 +65,10 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
       if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED") {
         return false;
       }
-      return 2000;
+      // Heavier endpoint (article list) — poll every 5s, not 2s
+      return 5000;
     },
+    refetchIntervalInBackground: false,
     enabled: !!batchStatus,
   });
 

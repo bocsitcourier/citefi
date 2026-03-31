@@ -54,14 +54,29 @@ export async function GET(
       );
     }
 
+    // Only select columns needed for the UI — avoids pulling 20KB+ bodyHtml on every poll
     const batchArticles = await db
-      .select()
+      .select({
+        id: articles.id,
+        articleStatus: articles.articleStatus,
+        chosenTitle: articles.chosenTitle,
+        seoTitle: articles.seoTitle,
+        slug: articles.slug,
+        wordCount: articles.wordCount,
+        heroImageUrl: articles.heroImageUrl,
+        errorMessage: articles.errorMessage,
+        createdAt: articles.createdAt,
+      })
       .from(articles)
       .where(eq(articles.batchId, batchId));
     
-    // Fetch SEO cache (includes Reddit research)
+    // Fetch SEO cache metadata only — redditResearch is a large JSON blob
+    // not needed for the batch status display (omitted from poll response)
     const [seoCache] = await db
-      .select()
+      .select({
+        cacheVersion: batchSeoCache.cacheVersion,
+        generatedAt: batchSeoCache.generatedAt,
+      })
       .from(batchSeoCache)
       .where(eq(batchSeoCache.batchId, batchId))
       .limit(1);
@@ -79,7 +94,6 @@ export async function GET(
         completedAt: batch.completedAt,
       },
       seoCache: seoCache ? {
-        redditResearch: seoCache.redditResearch,
         cacheVersion: seoCache.cacheVersion,
         generatedAt: seoCache.generatedAt,
       } : null,

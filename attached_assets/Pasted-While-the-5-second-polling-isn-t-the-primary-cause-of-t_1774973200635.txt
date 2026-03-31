@@ -1,0 +1,32 @@
+While the 5-second polling isn't the primary cause of the 8-minute generation time, the redundant 2-second polling is creating a "Self-Inflicted Denial of Service" (SIDoS) on your database.Every 2 seconds, your frontend is requesting a full snapshot of the batch. If the batch has 35 articles, the server is fetching 35 rows of full HTML content just to see if a status string changed from PROCESSING to COMPLETED. With 20 workers already pushing the DB pool to its limit, these expensive "status checks" are likely causing query queuing and worker timeouts.1. Fix: Database Projection (The "Leaky SELECT" Fix)Files: app/api/batches/[id]/route.ts and app/api/jobs/status/[batchId]/route.tsStop fetching bodyHtml, redditResearch, and transcript during polling. These fields can be several megabytes combined. Only fetch the status and progress.Replacement Code (Drizzle):TypeScript// Inside your GET handler
+const batchWithArticles = await db.query.batches.findFirst({
+  where: eq(batches.id, batchId),
+  with: {
+    articles: {
+      columns: {
+        id: true,
+        status: true,
+        progress: true, // Only fetch what the UI actually displays
+        title: true,
+        updatedAt: true
+        // ❌ bodyHtml: false, (Default in Drizzle if columns is specified)
+        // ❌ redditResearch: false
+      }
+    }
+  }
+});
+2. Fix: Consolidate & Slow Down PollingFile: app/dashboard/components/GenerationProgress.tsxYou are currently running two parallel intervals. We need to merge them into one and implement Adaptive Polling (slow down as the task persists).Updated Component Logic:TypeScriptconst [pollingInterval, setPollingInterval] = useState(3000); // Start at 3s
+
+useEffect(() => {
+  if (status !== 'RUNNING') return;
+
+  const timer = setInterval(async () => {
+    await refetch();
+    
+    // 📈 Adaptive Backoff: Slow down polling over time to save DB
+    setPollingInterval(prev => Math.min(prev + 1000, 15000)); 
+  }, pollingInterval);
+
+  return () => clearInterval(timer);
+}, [status, pollingInterval]);
+3. Fix: The "Dual-Page" ConflictFile: app/batches/[id]/page.tsxIf the user is looking at the Batch Detail page, GenerationProgress is often also mounted in a sidebar or header. This doubles the load.Architect's Recommendation: Use a Shared State (like React Context or SWR) for batch status so that multiple components share one API response instead of firing their own.🔍 Root Causes for "Super Slow" Article Generation (Beyond Polling)If polling is fixed and it's still slow, check these three "March 2026" specific issues:Gemini 2.5 "Thinking" Overhead: If your lib/gemini.ts has thinking: true, Gemini spends up to 60 seconds "planning" the article before writing. This is overkill for SEO.Action: Set thinking: false in your generationConfig.The "TypeError: fetch failed" Loop:You mentioned fixing this to retry network errors. However, if your Retry Delay is too short (e.g., 1 second), you are likely hitting a "Circuit Breaker" on Google's side.Action: Ensure your lib/worker.ts uses Exponential Backoff: retryDelay = Math.pow(2, attempt) * 1000.Neon/Helium Cold Starts: If you are on the Replit Helium database, check your DATABASE_URL. If the workers are idle for 5 minutes, the next batch will take 30-60 seconds just to "wake up" the database connection.Action: Add a "Heartbeat" job in pg-boss that runs SELECT 1 every 4 minutes to keep the pool warm.Summary of Polling ChangesFeatureOld BehaviorNew BehaviorFrequency2 seconds (Fixed)5-15 seconds (Adaptive)Data LoadFull Article (Heavy)ID + Status Only (Light)DB ImpactConnection StarvationNegligibleUser FeelFast but "Jumpy"Smooth & Stable

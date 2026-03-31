@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { use, Suspense, useState } from "react";
+import { use, Suspense, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,14 +78,23 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
   const router = useRouter();
   const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
   const [publishProgress, setPublishProgress] = useState<{ done: number; total: number } | null>(null);
+  // Track when we first observed this batch as RUNNING for adaptive poll throttling
+  const runningStartRef = useRef<number | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<BatchResponse>({
     queryKey: [`/api/batches/${batchId}`],
     refetchInterval: (query) => {
-      // Auto-poll every 5 seconds when batch is actively running
       const batchData = query.state.data as BatchResponse | undefined;
-      return batchData?.batch.status === "RUNNING" ? 5000 : false;
+      if (batchData?.batch.status !== "RUNNING") return false;
+      // Record the first moment we see it running
+      if (!runningStartRef.current) runningStartRef.current = Date.now();
+      const elapsedMs = Date.now() - runningStartRef.current;
+      // Adaptive: 3s → 5s (after 1 min) → 10s (after 5 min)
+      if (elapsedMs < 60_000) return 3000;
+      if (elapsedMs < 300_000) return 5000;
+      return 10_000;
     },
+    refetchIntervalInBackground: false,
   });
 
   const handleRefresh = async () => {
