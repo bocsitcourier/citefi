@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { GEMINI_CRITIQUE_MODEL } from "./ai-config";
 /**
  * ============================================================================
  * ARTICLE CRITIQUE & FACT-CHECKING MODULE
@@ -951,9 +951,17 @@ Return ONLY the refined article content in Markdown format.
 Do NOT include explanations or meta-commentary.`;
 
     const result = await genAI.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: GEMINI_CRITIQUE_MODEL,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { temperature: 0.3 } // Low temp for precise editing
+      config: {
+        temperature: 0.3,
+        // Disable Gemini's chain-of-thought to avoid billing for hidden
+        // "thinking" tokens — this is a structured editing task, not reasoning.
+        thinkingConfig: {
+          thinkingBudget: 0,
+          includeThoughts: false,
+        },
+      },
     });
     const refinedContent = result.text || '';
 

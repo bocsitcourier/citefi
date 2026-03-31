@@ -34,6 +34,24 @@ export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4
 export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4o-mini";
 export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "chatgpt-4o-latest";
 
+// Keyword hyperlink pipeline models — two separate constants so extraction
+// (low output complexity) and correction (full-document HTML rewrite) can be
+// tuned independently.
+// Extraction → gpt-4.1-nano: simple JSON extraction; downstream exact-match
+//   validation catches any quality drop.  92% cheaper than gpt-4o.
+// Correction → gpt-4o: must reconstruct 35 000–40 000 chars of HTML reliably
+//   inside a JSON wrapper; structural drift (dropped tags) is the failure mode
+//   and gpt-4o is more reliable here.  Override via env var to experiment.
+export const GPT_HYPERLINK_EXTRACT_MODEL = process.env.GPT_HYPERLINK_EXTRACT_MODEL || "gpt-4.1-nano";
+export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-4o";
+
+// Gemini model for article critique / refine pass.
+// Uses Flash-Lite (80% cheaper than Flash) because this is an editing task,
+// not a reasoning task.  thinkingBudget:0 disables Gemini's thinking tokens
+// to avoid billing for hidden chain-of-thought.
+// Override to "gemini-2.5-flash" for higher-quality critiques if needed.
+export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-2.5-flash-lite";
+
 // Veo Video Generation - Using Veo 2 for cost-efficient cinematic AI videos
 // veo-2.0-generate-001: High-quality clips, no native audio (we use OpenAI TTS instead)
 // veo-3.1-generate-preview: Premium model with native audio — billed separately, not used
@@ -61,9 +79,12 @@ export function logAIConfig() {
   console.log(`   Gemini Pro: ${GEMINI_PRO_MODEL}`);
   console.log(`   Gemini Image: ${GEMINI_IMAGE_MODEL}`);
   console.log(`   Veo Video: ${VEO_VIDEO_MODEL}`);
+  console.log(`   Gemini Critique: ${GEMINI_CRITIQUE_MODEL}`);
   console.log(`   GPT Enhancement: ${GPT_ENHANCEMENT_MODEL}`);
   console.log(`   GPT Review: ${GPT_REVIEW_MODEL}`);
   console.log(`   GPT Advanced: ${GPT_ADVANCED_MODEL}`);
+  console.log(`   GPT Hyperlink Extract: ${GPT_HYPERLINK_EXTRACT_MODEL}`);
+  console.log(`   GPT Hyperlink Correction: ${GPT_HYPERLINK_CORRECTION_MODEL}`);
   console.log(`   TTS: ${TTS_MODEL} (voice: ${TTS_VOICE})`);
 }
 
@@ -75,6 +96,7 @@ export const AI_CONFIG = {
     pro: GEMINI_PRO_MODEL,
     image: GEMINI_IMAGE_MODEL,
     experimental: GEMINI_EXPERIMENTAL_MODEL,
+    critique: GEMINI_CRITIQUE_MODEL,
   },
   veo: {
     video: VEO_VIDEO_MODEL,
@@ -83,6 +105,8 @@ export const AI_CONFIG = {
     enhancement: GPT_ENHANCEMENT_MODEL,
     review: GPT_REVIEW_MODEL,
     advanced: GPT_ADVANCED_MODEL,
+    hyperlinkExtract: GPT_HYPERLINK_EXTRACT_MODEL,
+    hyperlinkCorrection: GPT_HYPERLINK_CORRECTION_MODEL,
   },
   tts: {
     model: TTS_MODEL,

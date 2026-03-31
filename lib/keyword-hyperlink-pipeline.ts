@@ -2,6 +2,7 @@ import { callOpenAI } from "./openai-client";
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "./seo-policy";
+import { GPT_HYPERLINK_EXTRACT_MODEL, GPT_HYPERLINK_CORRECTION_MODEL } from "./ai-config";
 
 // ---------------------------------------------------------------------------
 // CHEERIO-BASED HYPERLINK INJECTOR
@@ -243,7 +244,7 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4o",
+        model: GPT_HYPERLINK_EXTRACT_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -252,7 +253,7 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
         max_tokens: 2000,
         response_format: { type: "json_object" },
       }),
-      `GPT-4o Keyword Extraction from Article`,
+      `Keyword Extraction from Article`,
       120000
     );
 
@@ -344,7 +345,7 @@ CRITICAL RULES:
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4o",
+        model: GPT_HYPERLINK_EXTRACT_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -353,7 +354,7 @@ CRITICAL RULES:
         max_tokens: 2000,
         response_format: { type: "json_object" },
       }),
-      `GPT-4o Long-Phrase Keyword Extraction`,
+      `Long-Phrase Keyword Extraction`,
       120000
     );
 
@@ -652,7 +653,7 @@ Output JSON:
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4o",
+        model: GPT_HYPERLINK_CORRECTION_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -664,7 +665,7 @@ Output JSON:
         max_tokens: 16000,
         response_format: { type: "json_object" },
       }),
-      `GPT-4o Keyword Validation Pass`,
+      `Keyword Validation Pass`,
       300000
     );
 

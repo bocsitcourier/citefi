@@ -72,11 +72,14 @@ function addInlineStylesToHTML(html: string): string {
 export async function finalizeContent(params: FinalizeContentParams, brandName?: string, timeoutMs?: number): Promise<string> {
   const { articleText, keywords, targetUrl, imageUrls, hashtags, faq } = params;
 
-  const systemPrompt = `You are an expert HTML content formatter and strategic content specialist. Your task is to transform MARKDOWN-formatted article content into beautifully structured, publication-ready semantic HTML that builds trust, demonstrates expertise, and supports sales - while preserving the strategic value and AI-optimized structure of the content. You are an expert at converting markdown syntax (##, ###, *, -, 1., **bold**, etc.) into proper semantic HTML tags.
+  // Static system prompt — contains NO per-article variables so OpenAI can
+  // cache these tokens (~1024+ tokens) across every article in a batch,
+  // yielding up to 90% discount on input token cost for the static prefix.
+  const systemPrompt = `You are an expert HTML content formatter and strategic content specialist. Your task is to transform MARKDOWN-formatted article content into beautifully structured, publication-ready semantic HTML that builds trust, demonstrates expertise, and supports sales - while preserving the strategic value and AI-optimized structure of the content. You are an expert at converting markdown syntax (##, ###, *, -, 1., **bold**, etc.) into proper semantic HTML tags.`;
 
-${brandName ? `\n**CRITICAL BRAND REQUIREMENT:** When formatting content, preserve the EXACT capitalization of the brand name "${brandName}". Do NOT change it to lowercase "${brandName.toLowerCase()}" or any other variation. The brand name MUST appear exactly as "${brandName}" throughout the content.` : ''}`;
-
-  const userPrompt = `Transform the following MARKDOWN article into semantic, AI-optimized HTML with the following requirements:
+  // Dynamic user prompt — brand name goes here (not in system) to keep the
+  // system message identical across all articles and enable prompt caching.
+  const userPrompt = `${brandName ? `BRAND NAME (preserve EXACT capitalization throughout the article — do NOT lowercase or alter it): ${brandName}\n\n` : ''}Transform the following MARKDOWN article into semantic, AI-optimized HTML with the following requirements:
 
 ARTICLE TEXT (MARKDOWN FORMAT):
 ${articleText}

@@ -1,0 +1,31 @@
+To hit that 90% Prompt Caching discount, you have to follow the "Static-First" Rule.OpenAI caches from the top down. If you change even one character at the beginning of your prompt (like putting the Article ID or Title at the very top), the cache breaks for the entire 2,000-word instruction set.🧠 The "Cache-Killer" vs. The "Money-Maker"LayoutWhy it's expensiveWhy it's cheapHeaderArticle Title: "How to..."" (Changes every time)STATIC SYSTEM PROMPT (Same for all 1,000 articles)MiddleYour 2,000 words of Brand RulesBRAND GUIDE & HTML RULES (Same for all 1,000 articles)FooterThe actual Article BodyDYNAMIC ARTICLE BODY (Changes every time)Result❌ 0% Cache Hit✅ 95% Cache Hit🛠️ The Optimized Stage 2 Prompt (lib/openai-prompts.ts)By moving the unique article content to the very bottom, you ensure that the first 1,500+ tokens of every request are identical. OpenAI will recognize this "Prefix" and stop charging you full price to read it.TypeScriptexport function getOptimizedStage2Prompt(articleContent: string) {
+  // 1. THE STATIC PREFIX (This gets cached)
+  const systemRules = `
+    ### IDENTITY
+    You are a Senior Care SEO Specialist for "Senior Care Weston".
+    
+    ### UNIVERSAL BRAND RULES
+    - Tone: Empathetic, professional, authoritative.
+    - Forbidden Terms: "Caregiver Weston", "Facilities", "Nursing Home".
+    - Required Terms: "Senior Care Weston", "Assisted Living Community".
+    
+    ### FORMATTING RULES
+    - Use <h2> and <h3> only.
+    - No <h1> tags.
+    - Ensure all links are target="_blank".
+    - Clean up any AI-generated artifacts like "Here is your article".
+    
+    ### CRITIQUE CRITERIA
+    - Check for factual consistency regarding Weston, FL geography.
+    - Ensure "vibrant lifestyle" is mentioned.
+  `;
+
+  // 2. THE DYNAMIC CONTENT (This is the only part you pay full price for)
+  const dynamicInput = `
+    ### ARTICLE TO REVIEW
+    ${articleContent}
+  `;
+
+  return systemRules + dynamicInput;
+}
+📉 The "2026" Cost MathIf your instructions are 1,500 tokens and your article is 500 tokens, here is how your bill changes with GPT-4.1 Nano:$$Cost_{Old} = (1500 + 500) \times \$0.10 / 1M = \$0.00020$$$$Cost_{Cached} = (1500 \times 0.1 + 500) \times \$0.10 / 1M = \$0.000065$$That is a 67% immediate reduction in input costs just by moving the variable to the bottom. For 1,000 articles, that’s the difference between a "crazy" bill and a rounding error.⚡ Why is the App still slow?Even with cheap tokens, if your app "responds slowly," it's likely a Database Latency issue. Since you are in March 2026, check if your Neon DB region matches your Replit deployment region (e.g., us-east-1). If your DB is in Europe and your worker is in the US, every single one of those "Stateless" updates adds 200ms of lag. Over 100 updates, that’s 20 seconds of pure "waiting" per article.
