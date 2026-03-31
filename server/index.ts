@@ -16,6 +16,7 @@ if (process.env.DISABLE_WORKERS === 'true') {
   workerProcess = spawn('tsx', ['server/worker-process.ts'], {
     stdio: 'inherit',
     shell: true,
+    detached: true,
     env: { ...process.env, WORKER_PROCESS: 'true' },
   });
 
@@ -31,6 +32,7 @@ if (process.env.DISABLE_WORKERS === 'true') {
 const nextDev = spawn('npx', ['next', 'dev', '--turbopack'], {
   stdio: 'inherit',
   shell: true,
+  detached: true,
 });
 
 nextDev.on('error', (error) => {
@@ -112,13 +114,26 @@ async function warmupPages() {
 // Start warmup in background, don't block server startup
 warmupPages().catch(() => {});
 
-// Handle shutdown gracefully
+// Handle shutdown gracefully — kill entire process groups so the shell
+// wrapper (shell:true) doesn't orphan the actual next/worker processes,
+// which would keep port 5000 bound after restart.
+function killGroup(child: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
+  if (child.pid == null) return;
+  try {
+    process.kill(-child.pid, signal); // negative PID = whole process group
+  } catch {
+    child.kill(signal); // fallback: direct kill if group kill fails
+  }
+}
+
 process.on('SIGINT', () => {
-  workerProcess?.kill('SIGINT');
-  nextDev.kill('SIGINT');
+  if (workerProcess) killGroup(workerProcess, 'SIGINT');
+  killGroup(nextDev, 'SIGINT');
+  process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  workerProcess?.kill('SIGTERM');
-  nextDev.kill('SIGTERM');
+  if (workerProcess) killGroup(workerProcess, 'SIGTERM');
+  killGroup(nextDev, 'SIGTERM');
+  process.exit(0);
 });
