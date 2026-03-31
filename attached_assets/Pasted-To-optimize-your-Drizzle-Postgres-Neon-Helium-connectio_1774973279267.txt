@@ -1,0 +1,51 @@
+To optimize your Drizzle + Postgres (Neon/Helium) connection pool for a high-volume article factory, you need to move away from the default settings.
+
+Standard settings often kill "idle" connections too quickly. When your AI is "thinking" for 60 seconds, the DB thinks the connection is dead, closes it, and then your worker has to waste 200ms–500ms performing a new handshake for the next step. Multiplying that by 1,000 articles and 5 stages each, you lose hours of productivity to "TCP handshakes."
+
+🛠️ The Optimized lib/db.ts Configuration
+This setup ensures that your 20 connections stay "warm" and ready, but don't leak or hang indefinitely.
+
+TypeScript
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema";
+
+// 🚀 Use the Helium DATABASE_URL (March 2026 standard)
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("DATABASE_URL is missing. Check your Replit Secrets.");
+}
+
+// ⚙️ High-Throughput Pool Settings
+const client = postgres(connectionString, {
+  max: 20,                // Match your Neon/Helium tier limit
+  idle_timeout: 30,       // ⏳ Keep connection alive for 30s of AI "thinking"
+  connect_timeout: 10,    // ⚡ Fast fail if DB is slammed
+  prepare: true,          // 🏎️ Pre-compile queries for speed
+  
+  // 🛡️ Critical for Serverless/Edge environments:
+  onnotice: () => {},     // Silence logs to save CPU
+  transform: {
+    undefined: null       // Prevents Drizzle crashes on missing fields
+  }
+});
+
+export const db = drizzle(client, { schema });
+🧠 Why these specific numbers?
+max: 20: This is your "hard ceiling." If you set this higher than your Neon/Helium plan allows, you will get too many clients already errors.
+
+idle_timeout: 30: Most AI steps (Image gen, Critique, SEO check) take 10–40 seconds. By setting this to 30s, the connection stays open while the AI works. When the AI is done, the DB is already "awake" and ready to save the result instantly.
+
+prepare: true: This tells Postgres to remember the structure of your "Update Article Status" queries. It makes repeated tasks (like polling or batch updates) up to 15% faster.
+
+🏁 Final "Speed-Run" Checklist
+Switch to Helium: Ensure your Secret is DATABASE_URL, not the old NEON_ one.
+
+Apply Projection: Only fetch id and status in your /api/batches route.
+
+Disable Thinking: Set thinking: false in your Gemini config.
+
+Adaptive Polling: Use the setTimeout backoff in your React components.
+
+With these four changes implemented, your app will stop "auto-refreshing" the entire DB and start acting like a streamlined production engine.
