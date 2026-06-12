@@ -21,22 +21,23 @@ export default function Verify2FAPage() {
 function Verify2FAContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tempToken = searchParams.get("token");
+  const userIdParam = searchParams.get("userId");
+  const method = searchParams.get("method");
   const { verify2FA } = useAuth();
   const { toast } = useToast();
   const [code, setCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!tempToken) {
+    if (!userIdParam || !method) {
       router.push("/login");
     }
-  }, [tempToken, router]);
+  }, [userIdParam, method, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!tempToken) {
+    if (!userIdParam || !method) {
       toast({
         variant: "destructive",
         title: "Invalid session",
@@ -49,7 +50,7 @@ function Verify2FAContent() {
     setIsLoading(true);
 
     try {
-      await verify2FA(code, tempToken);
+      await verify2FA(code, Number(userIdParam), method);
       toast({
         title: "Verification successful!",
         description: "You have been securely authenticated.",

@@ -22,9 +22,24 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Authentication enforcement is handled by server middleware (server/middleware/auth.ts)
-  // which has access to Node.js APIs for JWT verification and session validation.
-  // This Next.js middleware just passes through - it runs in Edge Runtime and can't use crypto.
+  // API routes enforce auth in their own handlers (returning JSON 401/403).
+  // We don't redirect them here — that would break fetch() error handling.
+  if (pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  // Protected page routes (/admin, /dashboard): require an auth cookie.
+  // Full JWT/session validation still happens server-side in the route/API
+  // handlers; this is a fast edge gate that prevents rendering the page shell
+  // for unauthenticated visitors. The token never leaves the HttpOnly cookie.
+  const hasAuthCookie = Boolean(request.cookies.get("auth_token")?.value);
+  if (!hasAuthCookie) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 

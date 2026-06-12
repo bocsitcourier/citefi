@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, getTxDb } from "@/lib/db";
 import { 
   articles, 
   articleAssets, 
@@ -54,52 +54,56 @@ export async function DELETE(
       );
     }
 
-    // Execute cascading delete (Neon HTTP driver doesn't support transactions)
-    // Get social posts before deleting
-    const socialPostsToDelete = await db
-      .select({ id: socialPosts.id })
-      .from(socialPosts)
-      .where(eq(socialPosts.articleId, articleId));
-    
-    const socialPostIds = socialPostsToDelete.map(sp => sp.id);
+    // Execute cascading delete atomically — if any step fails, the whole
+    // delete rolls back so the article is never left partially deleted.
+    const txDb = getTxDb();
+    await txDb.transaction(async (tx) => {
+      // Get social posts before deleting
+      const socialPostsToDelete = await tx
+        .select({ id: socialPosts.id })
+        .from(socialPosts)
+        .where(eq(socialPosts.articleId, articleId));
 
-    // CRITICAL: Delete in correct cascade order to avoid FK violations
-    if (socialPostIds.length > 0) {
-      // 1. Delete social post logs (depends on social_posts)
-      await db.delete(socialPostLogs).where(
-        sql`${socialPostLogs.socialPostId} = ANY(${socialPostIds})`
-      );
-      
-      // 2. Delete social post variants (depends on social_posts)
-      await db.delete(socialPostVariants).where(
-        sql`${socialPostVariants.socialPostId} = ANY(${socialPostIds})`
-      );
-      
-      // 3. Delete social post assets (depends on social_posts)
-      await db.delete(socialPostAssets).where(
-        sql`${socialPostAssets.socialPostId} = ANY(${socialPostIds})`
-      );
-      
-      // 4. Delete social post jobs (depends on social_posts)
-      await db.delete(socialPostJobs).where(
-        sql`${socialPostJobs.socialPostId} = ANY(${socialPostIds})`
-      );
-    }
-    
-    // 5. Delete social posts (now safe - ALL children removed)
-    await db.delete(socialPosts).where(eq(socialPosts.articleId, articleId));
-    await db.delete(articleVersions).where(eq(articleVersions.articleId, articleId));
-    await db.delete(seoLogs).where(eq(seoLogs.articleId, articleId));
-    await db.delete(articleAssets).where(eq(articleAssets.articleId, articleId));
-    await db.delete(jobEvents).where(eq(jobEvents.articleId, articleId));
-    await db.delete(errorLogs).where(eq(errorLogs.articleId, articleId));
-    // 6. Delete publishing jobs (FK reference to articles — must go before article delete)
-    //    Child rows referencing publishingJobs.id have onDelete:'cascade' so they
-    //    are removed automatically when the publishing_jobs row is deleted.
-    await db.delete(publishingJobs).where(eq(publishingJobs.articleId, articleId));
-    
-    // Finally delete the article itself
-    await db.delete(articles).where(eq(articles.id, articleId));
+      const socialPostIds = socialPostsToDelete.map(sp => sp.id);
+
+      // CRITICAL: Delete in correct cascade order to avoid FK violations
+      if (socialPostIds.length > 0) {
+        // 1. Delete social post logs (depends on social_posts)
+        await tx.delete(socialPostLogs).where(
+          sql`${socialPostLogs.socialPostId} = ANY(${socialPostIds})`
+        );
+
+        // 2. Delete social post variants (depends on social_posts)
+        await tx.delete(socialPostVariants).where(
+          sql`${socialPostVariants.socialPostId} = ANY(${socialPostIds})`
+        );
+
+        // 3. Delete social post assets (depends on social_posts)
+        await tx.delete(socialPostAssets).where(
+          sql`${socialPostAssets.socialPostId} = ANY(${socialPostIds})`
+        );
+
+        // 4. Delete social post jobs (depends on social_posts)
+        await tx.delete(socialPostJobs).where(
+          sql`${socialPostJobs.socialPostId} = ANY(${socialPostIds})`
+        );
+      }
+
+      // 5. Delete social posts (now safe - ALL children removed)
+      await tx.delete(socialPosts).where(eq(socialPosts.articleId, articleId));
+      await tx.delete(articleVersions).where(eq(articleVersions.articleId, articleId));
+      await tx.delete(seoLogs).where(eq(seoLogs.articleId, articleId));
+      await tx.delete(articleAssets).where(eq(articleAssets.articleId, articleId));
+      await tx.delete(jobEvents).where(eq(jobEvents.articleId, articleId));
+      await tx.delete(errorLogs).where(eq(errorLogs.articleId, articleId));
+      // 6. Delete publishing jobs (FK reference to articles — must go before article delete)
+      //    Child rows referencing publishingJobs.id have onDelete:'cascade' so they
+      //    are removed automatically when the publishing_jobs row is deleted.
+      await tx.delete(publishingJobs).where(eq(publishingJobs.articleId, articleId));
+
+      // Finally delete the article itself
+      await tx.delete(articles).where(eq(articles.id, articleId));
+    });
 
     return NextResponse.json({
       success: true,

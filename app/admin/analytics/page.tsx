@@ -26,18 +26,17 @@ interface AnalyticsData {
   };
   summary: {
     totalArticles: number;
-    activeUsers: number;
+    activeTeams: number;
     averagePerDay: number;
   };
   dailyStats: Array<{
     date: string;
     total_articles: number;
-    active_users: number;
+    active_teams: number;
   }>;
-  topUsers: Array<{
-    userId: number;
-    userEmail: string;
-    userName: string | null;
+  topTeams: Array<{
+    teamId: number | null;
+    teamName: string;
     articleCount: number;
   }>;
 }
@@ -74,10 +73,13 @@ export default function AdminAnalyticsPage() {
     );
   }
 
-  const chartData = analytics.dailyStats.map(stat => ({
+  const dailyStats = analytics.dailyStats ?? [];
+  const topTeams = analytics.topTeams ?? [];
+
+  const chartData = dailyStats.map(stat => ({
     date: new Date(stat.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     articles: Number(stat.total_articles),
-    users: Number(stat.active_users),
+    teams: Number(stat.active_teams),
   }));
 
   return (
@@ -116,11 +118,11 @@ export default function AdminAnalyticsPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Users</CardTitle>
+            <CardTitle className="text-sm font-medium">Active Teams</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{analytics.summary.activeUsers}</div>
+            <div className="text-2xl font-bold" data-testid="text-active-teams">{analytics.summary.activeTeams}</div>
             <p className="text-xs text-muted-foreground mt-2">
               Created content this period
             </p>
@@ -155,40 +157,38 @@ export default function AdminAnalyticsPage() {
               <YAxis />
               <Tooltip />
               <Line type="monotone" dataKey="articles" stroke="hsl(var(--primary))" strokeWidth={2} name="Articles" />
-              <Line type="monotone" dataKey="users" stroke="hsl(var(--chart-2))" strokeWidth={2} name="Active Users" />
+              <Line type="monotone" dataKey="teams" stroke="hsl(var(--chart-2))" strokeWidth={2} name="Active Teams" />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Top Users */}
+      {/* Top Teams */}
       <Card>
         <CardHeader>
-          <CardTitle>Top Content Creators</CardTitle>
-          <CardDescription>Most active users in the selected period</CardDescription>
+          <CardTitle>Top Teams</CardTitle>
+          <CardDescription>Most active teams in the selected period</CardDescription>
         </CardHeader>
         <CardContent>
-          {analytics.topUsers.length === 0 ? (
+          {topTeams.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No user activity in this period
+              No team activity in this period
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Rank</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Email</TableHead>
+                  <TableHead>Team</TableHead>
                   <TableHead className="text-right">Articles Created</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {analytics.topUsers.map((user, index) => (
-                  <TableRow key={user.userId} data-testid={`row-user-${user.userId}`}>
+                {topTeams.map((team, index) => (
+                  <TableRow key={team.teamId ?? `unassigned-${index}`} data-testid={`row-team-${team.teamId ?? "unassigned"}`}>
                     <TableCell className="font-medium">#{index + 1}</TableCell>
-                    <TableCell>{user.userName || "Unknown"}</TableCell>
-                    <TableCell>{user.userEmail}</TableCell>
-                    <TableCell className="text-right font-bold">{user.articleCount}</TableCell>
+                    <TableCell>{team.teamName}</TableCell>
+                    <TableCell className="text-right font-bold">{team.articleCount}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

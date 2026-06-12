@@ -1,0 +1,1 @@
+- [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.

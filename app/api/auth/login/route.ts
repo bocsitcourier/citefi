@@ -2,10 +2,22 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
 import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
+    // Rate limit by IP: 10 login attempts per 15 minutes
+    const ip = getClientIp(req);
+    const limit = rateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+      );
+    }
+
     const body = await req.json();
     const { email, password } = body;
 
@@ -190,7 +202,7 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: "Login successful",
       token: accessToken,
       user: {
@@ -201,6 +213,17 @@ export async function POST(req: Request) {
         twoFactorEnabled: user.twoFactorEnabled === 1,
       },
     });
+
+    // Set HttpOnly session cookie so the token is never exposed to JavaScript (XSS-safe)
+    response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 24 * 60 * 60, // 24 hours
+    });
+
+    return response;
 
   } catch (error) {
     console.error("Login error:", error);

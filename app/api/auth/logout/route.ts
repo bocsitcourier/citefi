@@ -2,27 +2,36 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sessions, activityLogs } from "@/shared/schema";
 import { verifyToken, hashToken } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, getTokenFromRequest } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
+
+// Build a success response that always clears the auth cookie.
+function loggedOutResponse() {
+  const response = NextResponse.json({ message: "Logged out successfully" });
+  response.cookies.set(AUTH_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+  return response;
+}
 
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization");
-    
-    // Allow logout even without valid token - just clear client-side
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json({
-        message: "Logged out successfully",
-      });
+    const token = getTokenFromRequest(req);
+
+    // Allow logout even without valid token - just clear the cookie client-side
+    if (!token) {
+      return loggedOutResponse();
     }
 
-    const token = authHeader.substring(7);
     const payload = verifyToken(token);
 
     // If token is invalid/expired, still return success (session already gone)
     if (!payload) {
-      return NextResponse.json({
-        message: "Logged out successfully",
-      });
+      return loggedOutResponse();
     }
 
     const tokenHash = hashToken(token);
@@ -44,9 +53,7 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    return NextResponse.json({
-      message: "Logged out successfully",
-    });
+    return loggedOutResponse();
 
   } catch (error) {
     console.error("Logout error:", error);

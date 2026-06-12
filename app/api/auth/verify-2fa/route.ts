@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, sessions, activityLogs, totpSecrets, emailVerificationCodes } from "@/shared/schema";
 import { generateAccessToken, hashToken, verifyTOTPToken } from "@/lib/auth";
+import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
@@ -172,7 +173,7 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: "2FA verification successful",
       token: accessToken,
       user: {
@@ -183,6 +184,17 @@ export async function POST(req: Request) {
         twoFactorEnabled: user.twoFactorEnabled === 1,
       },
     });
+
+    // Set HttpOnly session cookie so the token is never exposed to JavaScript (XSS-safe)
+    response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 24 * 60 * 60, // 24 hours
+    });
+
+    return response;
 
   } catch (error) {
     console.error("2FA verification error:", error);

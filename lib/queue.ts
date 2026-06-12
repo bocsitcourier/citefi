@@ -193,7 +193,30 @@ async function createPgBoss(): Promise<PgBoss> {
 
   await boss.start();
   console.log("✅ pg-boss queue initialized (PostgreSQL-backed)");
-  console.log("✅ Queue partitions configured (managed manually in PostgreSQL)");
+
+  // Explicitly create every queue at startup. pg-boss v10+ silently drops
+  // sends to queues that were never created; createQueue is idempotent so
+  // this is safe to run on every boot.
+  const ALL_QUEUES = [
+    BATCH_GENERATION_QUEUE,
+    ARTICLE_GENERATION_QUEUE,
+    SOCIAL_POST_GENERATION_QUEUE,
+    IMAGE_GENERATION_QUEUE,
+    REFORMAT_QUEUE,
+    SOCIAL_VIDEO_GENERATION_QUEUE,
+    VIDEO_IDEA_GENERATION_QUEUE,
+    CLEANUP_QUEUE,
+    SITE_CRAWL_QUEUE,
+    CONTENT_PUBLISHING_QUEUE,
+  ];
+  for (const queueName of ALL_QUEUES) {
+    try {
+      await boss.createQueue(queueName);
+    } catch (err) {
+      console.warn(`⚠️  createQueue(${queueName}) skipped: ${(err as Error).message}`);
+    }
+  }
+  console.log(`✅ ${ALL_QUEUES.length} queues created/verified`);
   return boss;
 }
 

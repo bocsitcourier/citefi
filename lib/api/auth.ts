@@ -12,14 +12,44 @@ export interface AuthenticatedUser {
   teamId: number | null; // Multi-tenant team context
 }
 
+export const AUTH_COOKIE_NAME = "auth_token";
+
+/**
+ * Extract the auth token from a request, preferring a valid Authorization
+ * Bearer header but falling back to the HttpOnly `auth_token` cookie.
+ * Bogus header values ("null"/"undefined"/empty) are ignored so legacy
+ * client code that sends `Bearer null` still authenticates via the cookie.
+ * Works for both NextRequest and the standard Request (reads the cookie header).
+ */
+export function getTokenFromRequest(req: Request): string | null {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const t = authHeader.slice(7).trim();
+    if (t && t !== "null" && t !== "undefined") return t;
+  }
+
+  const cookieHeader = req.headers.get("cookie");
+  if (cookieHeader) {
+    for (const part of cookieHeader.split(";")) {
+      const idx = part.indexOf("=");
+      if (idx === -1) continue;
+      const key = part.slice(0, idx).trim();
+      if (key === AUTH_COOKIE_NAME) {
+        return decodeURIComponent(part.slice(idx + 1).trim());
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Verify JWT token and return authenticated user
  * Throws error if token is invalid or user not found
  */
 export async function getAuthenticatedUser(req: NextRequest): Promise<AuthenticatedUser> {
-  // Get token from Authorization header or cookie
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
+  // Get token from Authorization header or HttpOnly cookie
+  const token = getTokenFromRequest(req);
 
   if (!token) {
     throw new Error("No authentication token provided");
@@ -112,8 +142,7 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
  * Exported as both verifyTokenFromRequest and as an alias verifyToken for backwards compatibility
  */
 async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number } | null> {
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
+  const token = getTokenFromRequest(req);
 
   if (!token) {
     return null;

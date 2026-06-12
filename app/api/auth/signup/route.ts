@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, getTxDb } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
+    // Rate limit by IP: 5 signups per hour
+    const ip = getClientIp(req);
+    const limit = rateLimit(`signup:${ip}`, 5, 60 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+      );
+    }
+
     const body = await req.json();
     const { email, password, fullName, role } = body;
 
@@ -68,30 +79,35 @@ export async function POST(req: Request) {
     const userRole = isFirstUser ? "admin" : "team_member";
     const accountStatus = isFirstUser ? "active" : "pending_approval";
     
-    const [newUserRow] = await db
-      .insert(users)
-      .values({
-        email: email.toLowerCase(),
-        passwordHash,
-        fullName: fullName || null,
-        role: userRole,
-        accountStatus: accountStatus,
-        emailVerified: isFirstUser ? 1 : 0, // First user auto-verified
-        twoFactorEnabled: 0,
-      })
-      .returning();
-    const newUser = newUserRow!;
+    // Atomically create the user and its signup activity log. If the activity
+    // log insert fails, the user insert is rolled back too (no orphan accounts).
+    const txDb = getTxDb();
+    const newUser = await txDb.transaction(async (tx) => {
+      const [createdUser] = await tx
+        .insert(users)
+        .values({
+          email: email.toLowerCase(),
+          passwordHash,
+          fullName: fullName || null,
+          role: userRole,
+          accountStatus: accountStatus,
+          emailVerified: isFirstUser ? 1 : 0, // First user auto-verified
+          twoFactorEnabled: 0,
+        })
+        .returning();
 
-    // Log activity
-    await db.insert(activityLogs).values({
-      userId: newUser.id,
-      action: "user_signup",
-      resource: "users",
-      resourceId: newUser.id,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { email: newUser.email, role: newUser.role, status: "pending_approval" },
-      severity: "info",
+      await tx.insert(activityLogs).values({
+        userId: createdUser!.id,
+        action: "user_signup",
+        resource: "users",
+        resourceId: createdUser!.id,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: { email: createdUser!.email, role: createdUser!.role, status: accountStatus },
+        severity: "info",
+      });
+
+      return createdUser!;
     });
 
     // TODO: Send email verification email to user

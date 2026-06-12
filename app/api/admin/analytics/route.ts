@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { articles, users } from "@/shared/schema";
-import { sql, gte, and, eq } from "drizzle-orm";
+import { articles, teams } from "@/shared/schema";
+import { sql, gte, eq } from "drizzle-orm";
 import { subDays } from "date-fns";
 
 export async function GET(req: NextRequest) {
@@ -26,16 +26,24 @@ export async function GET(req: NextRequest) {
     `);
     const dailyStats = (dailyStatsResult as any).rows || [];
 
-    const teamStats = await db
+    const teamStatsRaw = await db
       .select({
         teamId: articles.teamId,
+        teamName: teams.name,
         articleCount: sql<number>`count(${articles.id})`,
       })
       .from(articles)
+      .leftJoin(teams, eq(teams.id, articles.teamId))
       .where(gte(articles.createdAt, startDate))
-      .groupBy(articles.teamId)
+      .groupBy(articles.teamId, teams.name)
       .orderBy(sql`count(${articles.id}) DESC`)
       .limit(10);
+
+    const teamStats = teamStatsRaw.map((t) => ({
+      teamId: t.teamId,
+      teamName: t.teamName || (t.teamId ? `Team #${t.teamId}` : "Unassigned"),
+      articleCount: Number(t.articleCount) || 0,
+    }));
 
     const totalArticles = await db
       .select({ count: sql<number>`count(*)` })

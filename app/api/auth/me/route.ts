@@ -2,20 +2,20 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/shared/schema";
 import { verifyToken } from "@/lib/auth";
+import { getTokenFromRequest } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
 
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization");
-    
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const token = getTokenFromRequest(req);
+
+    if (!token) {
       return NextResponse.json(
         { error: "Unauthorized - No token provided" },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
     const payload = verifyToken(token);
 
     if (!payload) {

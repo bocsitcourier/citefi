@@ -15,8 +15,8 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; tempToken?: string }>;
-  verify2FA: (code: string, tempToken: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; userId?: number; twoFactorMethod?: string }>;
+  verify2FA: (code: string, userId: number, method: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -30,37 +30,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("auth_token");
-    if (storedToken) {
-      setToken(storedToken);
-      fetchUser(storedToken);
-    } else {
-      setIsLoading(false);
+    // Auth lives in an HttpOnly cookie sent automatically — just ask the server who we are.
+    // Clear any stale token left in localStorage by older builds so legacy pages stop
+    // sending a "Bearer <stale>" header that would override the fresh cookie.
+    try {
+      localStorage.removeItem("auth_token");
+    } catch {
+      // ignore (SSR / disabled storage)
     }
+    fetchUser();
   }, []);
 
-  const fetchUser = async (authToken: string) => {
+  const fetchUser = async () => {
     try {
       const response = await fetch("/api/auth/me", {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-        },
+        credentials: "same-origin",
       });
 
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
       } else {
-        // Clear both token AND user state on auth failure
-        localStorage.removeItem("auth_token");
-        setToken(null);
         setUser(null);
       }
     } catch (error) {
       console.error("Failed to fetch user:", error);
-      // Clear both token AND user state on error
-      localStorage.removeItem("auth_token");
-      setToken(null);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -74,23 +68,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (response.requiresTwoFactor) {
-      return { requiresTwoFactor: true, tempToken: response.tempToken };
+      return {
+        requiresTwoFactor: true,
+        userId: response.userId,
+        twoFactorMethod: response.twoFactorMethod,
+      };
     }
 
-    setToken(response.token);
-    localStorage.setItem("auth_token", response.token);
+    // Token is now stored in an HttpOnly cookie by the server; we only keep user state.
     setUser(response.user);
     return { requiresTwoFactor: false };
   };
 
-  const verify2FA = async (code: string, tempToken: string) => {
+  const verify2FA = async (code: string, userId: number, method: string) => {
     const response = await apiRequest("/api/auth/verify-2fa", {
       method: "POST",
-      body: JSON.stringify({ code, tempToken }),
+      body: JSON.stringify({ userId, code, method }),
     });
 
-    setToken(response.token);
-    localStorage.setItem("auth_token", response.token);
     setUser(response.user);
   };
 
@@ -106,28 +101,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    if (token) {
-      try {
-        await apiRequest("/api/auth/logout", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      } catch (error) {
-        console.error("Logout error:", error);
-      }
+    try {
+      await apiRequest("/api/auth/logout", { method: "POST" });
+    } catch (error) {
+      console.error("Logout error:", error);
     }
 
+    try {
+      localStorage.removeItem("auth_token");
+    } catch {
+      // ignore
+    }
     setUser(null);
-    setToken(null);
-    localStorage.removeItem("auth_token");
   };
 
   const refreshUser = async () => {
-    if (token) {
-      await fetchUser(token);
-    }
+    await fetchUser();
   };
 
   return (

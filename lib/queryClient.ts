@@ -5,14 +5,9 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: async ({ queryKey }) => {
         const url = queryKey[0] as string;
-        const token = localStorage.getItem("auth_token");
-        const headers: Record<string, string> = {};
-
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-
-        const response = await fetch(url, { headers });
+        // Auth travels via the HttpOnly `auth_token` cookie, sent automatically
+        // on same-origin requests. No need to read a token from JS.
+        const response = await fetch(url, { credentials: "same-origin" });
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -30,18 +25,15 @@ export const queryClient = new QueryClient({
 });
 
 export async function apiRequest(url: string, options?: RequestInit) {
-  const token = localStorage.getItem("auth_token");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options?.headers as Record<string, string> | undefined ?? {}),
   };
-  
-  if (token && !headers.Authorization) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
+
+  // Auth travels via the HttpOnly `auth_token` cookie (same-origin), not JS.
   const response = await fetch(url, {
     ...options,
+    credentials: "same-origin",
     headers,
   });
 

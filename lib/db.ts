@@ -81,3 +81,28 @@ export const neonHttpDb = drizzle(neon(process.env.DATABASE_URL!), { schema });
 // Alias used by video-pipeline and other stateless modules for clarity.
 // Semantically equivalent to neonHttpDb — both use the Neon HTTP driver.
 export const statelessDb = neonHttpDb;
+
+// ─── Transaction-capable pooled client (for API routes) ─────────────────────
+// The Neon HTTP driver (`db` in the main process) does NOT support interactive
+// transactions. For multi-step writes that must be atomic, use this lazily-
+// created pooled pg client. Safe in the long-running Next.js process on Replit.
+let _txPool: Pool | null = null;
+
+export function getTxDb() {
+  if (!_txPool) {
+    _txPool = new Pool({
+      connectionString: process.env.DATABASE_POOLED_URL ?? process.env.DATABASE_URL!,
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+      keepAlive: true,
+    });
+    _txPool.on("error", (err) => {
+      console.error(
+        `🔥 Tx pool error (dead connection discarded): ${err.message} [code: ${(err as any).code ?? "?"}]`
+      );
+    });
+    process.on("beforeExit", () => _txPool?.end().catch(() => {}));
+  }
+  return drizzlePooled(_txPool, { schema });
+}
