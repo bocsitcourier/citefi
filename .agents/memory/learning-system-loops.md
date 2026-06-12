@@ -1,67 +1,64 @@
 ---
 name: Learning system design
-description: Key decisions and architecture for the AI Learning Center adaptive engine — what was broken, what was fixed, and the durable rules to follow.
+description: Durable rules and architecture decisions for the AI Learning Center adaptive engine.
 ---
 
 ## Durable rules
 
+**PATTERN_DIMENSION — single source of truth**
+- Lives in `lib/pattern-dimension-map.ts`. Import it; never duplicate it.
+- Current map: hook/cta/opening/pacing/hashtag/visual_style → engagement; tone → humanness; structure/format/composition/color/text → structure; eeat_signal → factuality.
+- Adding a new pattern type means editing only this one file.
+
+**Why:** Duplicated maps in LearningService and EngagementScoringService diverged silently. Centralized module prevents drift.
+
 **Pattern selection (buildOptimizationContext)**
-- Use Wilson lower-bound (95% CI) to rank patterns by `patternDimensionStats.wilsonScore` for each pattern's *governing dimension* (not always "engagement").
-- PATTERN_DIMENSION map routes each patternType to its dimension: hook/cta/opening/pacing/hashtag/visual_style → engagement; tone → humanness; structure/format/composition/color/text → structure; eeat_signal → factuality.
-- Epsilon-greedy: 15% of prompt slots go to randomly-selected *untested* patterns (trials < MIN_CONFIDENCE_SAMPLES=5) — cold-start fix.
-- Never gate on `confidence >= threshold` in `buildOptimizationContext`. Seeds start at 0; threshold caused a circular deadlock.
-- `priorityDimension?: Dimension` option lets callers override the PATTERN_DIMENSION map for a specific call.
+- Fetches all dimensions in one `inArray` query; routes each pattern through PATTERN_DIMENSION.
+- Epsilon-greedy (ε=0.15): exploit proven (trials ≥ 5) patterns by Wilson score, explore untested randomly.
+- Cold start: if no proven patterns exist, use all patterns as-is (never return empty context).
+- `priorityDimension?: Dimension` option overrides the PATTERN_DIMENSION lookup for a specific call.
+- Never gate on confidence threshold — this caused a circular deadlock (confidence=0 blocked seeded patterns from ever being used, so they never got trials, so confidence never rose).
 
-**Why:** Seeded patterns were never surfaced (confidence=0 < threshold=60), and the single "engagement" dimension meant eeat_signal/tone patterns never accumulated data in their governing dimensions.
+**Engagement attribution (attributeEngagement)**
+- Looks up each pattern's type from learningPatterns, routes to its governing dimension via PATTERN_DIMENSION.
+- Single batch fetch of patternDimensionStats for all patternIds, then upsert per pattern.
 
-**PATTERN_DIMENSION must stay in sync across TWO files:**
-- `LearningService.PATTERN_DIMENSION` in `lib/learning-service.ts`
-- `EngagementScoringService.PATTERN_DIMENSION` in `lib/engagement-scoring-service.ts`
-- Update both together when adding new pattern types.
+**updatePatternDimension — atomic upsert**
+- Uses INSERT ... ON CONFLICT DO UPDATE (unique index on patternId + dimension).
+- After upsert, reads back actual successes/trials and recomputes Wilson for accuracy.
+- Never use read-then-insert/update pattern — concurrent writers lose increments.
 
-**attributeEngagement — per-dimension writes**
-- Looks up each pattern's type from `learningPatterns`, maps to its governing dimension, writes Wilson there.
-- Batch-fetches all `patternDimensionStats` for affected patterns in one `inArray` query before the update loop.
+**Negative constraints — via contentReviewService, not raw ledger**
+- `collectNegativeConstraints` calls `contentReviewService.getNegativeConstraints()`.
+- This queries `aiLearningLedger` which is populated by `mineCorpus → recordCorpusDefects`.
+- Cold start before any corpus mining: returns [] (safe, expected).
 
-**Why:** Previously always wrote to "engagement", so eeat_signal (factuality) and tone (humanness) patterns never accumulated data in their real dimensions.
+**mineCorpus — content-type-specific sources**
+- SOCIAL → `socialPosts` (status=READY) + first READY variant caption from `socialPostVariants`
+- VIDEO → `videoIdeas` (status=READY) + shortIdea + expandedConceptJson
+- ARTICLE / PODCAST → `articles` table (finalHtmlContent)
 
-**Negative constraints — use contentReviewService, not aiLearningLedger**
-- `collectNegativeConstraints` calls `contentReviewService.getNegativeConstraints(teamId, contentType, 5)`.
-- This pulls richer, dimension-aware defect strings from the `contentReviews` table.
-- aiLearningLedger had only narrow error codes; contentReviews has full AI judge output.
+**recordContentGeneration — PODCAST uses articleId**
+- ARTICLE and PODCAST both set `articleId` in contentPerformanceMetrics.
+- SOCIAL → socialPostId, VIDEO → videoIdeaId.
+- Metrics row was orphaned for PODCAST before this fix.
 
-**Pattern tracking (patternsUsed)**
-- Workers must call `recordContentGenerated(teamId, contentType, contentId, patternsUsed, score)` from `lib/learning-integration.ts`.
-- Never use `learningService.recordContentGeneration(teamId, hardcoded_id, ...)` directly — hardcoded agent IDs 1/2/3 break multi-tenant correctness.
-- patternsUsed must never be []; it must be the real IDs from the OptimizationContext returned by getOptimizationContext.
+**Podcast learning loop**
+- `podcast-worker.ts` calls `recordContentGenerated(PODCAST, articleId, [], 0)` after successful generation.
+- patternsUsed=[] because podcast script generator is not yet integrated with getPromptEnhancement (follow-up item).
+- This creates the contentPerformanceMetrics row so the engagement scorer can label it.
 
 **Engagement labeling**
-- `EngagementScoringService.labelMaturedContent()` runs every 6h via pg-boss scheduler.
+- `EngagementScoringService.labelMaturedContent()` runs every 6h via pg-boss.
 - Maturity gates: ARTICLE/PODCAST=336h, VIDEO=168h, SOCIAL=72h; MIN_COHORT=8.
-- Low-reach items (views < MIN_REACH) get `successReason="insufficient_data"` in DB; isSuccess stays NULL.
-- Composite score: percentile normalization + channel-specific weights.
-- Writes `isSuccess` to `contentPerformanceMetrics`, then updates Wilson per pattern via `attributeEngagement`.
+- Low-reach items get `successReason="insufficient_data"`; isSuccess stays NULL.
 
 **Security**
-- `addPattern()` must verify `agent.teamId === teamId` before inserting.
+- `addPattern()` verifies `agent.teamId === teamId`.
 - `buildOptimizationContext` scopes pattern query by both agentId AND teamId.
 
-**mine-corpus API**
-- POST `/api/learning/mine-corpus` → `contentReviewService.mineCorpus(teamId, contentType, opts)`
-- Accepts: `contentType` (required), `limit` (default 500), `judgeSampleRate` (default 0.2).
-- Protected by `requireTeamMember`.
-
-**New tables**
-- `content_reviews` — one row per reviewed piece (deterministic + GPT judge scores)
-- `pattern_dimension_stats` — per-(patternId, dimension) Wilson score ledger; unique index on (patternId, dimension)
-
-**New services**
-- `lib/content-review-service.ts` — 3-tier review + `mineCorpus()` backfill + `getNegativeConstraints()`
-- `lib/engagement-scoring-service.ts` — auto-labeler with cohort maturity + per-dimension attribution
-- `lib/learning-monitor-service.ts` — drift detection, leaderboards, snapshot API
-
-**How to apply:**
-- Whenever modifying the learning pipeline, verify patternsUsed IDs are non-empty.
-- Any new content type worker must call `recordContentGenerated` (not the hardcoded version).
-- The engagement scheduler queue "engagement-scoring" must be pre-created with `createQueue` before `schedule()` — pg-boss requires the queue to exist first.
-- When adding a new pattern type, add it to BOTH PATTERN_DIMENSION maps (learning-service + engagement-scoring-service).
+**How to apply when extending:**
+- New pattern type → add to `lib/pattern-dimension-map.ts` only.
+- New content type worker → call `recordContentGenerated` after success, and create a contentPerformanceMetrics entry.
+- New content type in mineCorpus → add a branch in the if/else chain with correct table + content extraction.
+- pg-boss scheduler queue must be pre-created with `createQueue` before `schedule()`.

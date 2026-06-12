@@ -1,11 +1,14 @@
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   contentReviews,
   patternDimensionStats,
   contentPerformanceMetrics,
   aiLearningLedger,
   articles,
+  socialPosts,
+  socialPostVariants,
+  videoIdeas,
   ContentType,
 } from "../shared/schema";
 import { analyzeContentQuality } from "./deterministic-humanizer";
@@ -284,49 +287,118 @@ ${content.slice(0, 8000)}`;
     opts: { limit?: number; judgeSampleRate?: number } = {}
   ): Promise<{ reviewed: number; topDefects: Array<{ code: string; count: number }> }> {
     const judgeRate = opts.judgeSampleRate ?? 0.2;
-    const rows = await db
-      .select()
-      .from(articles)
-      .where(eq(articles.teamId, teamId))
-      .orderBy(desc(articles.createdAt))
-      .limit(opts.limit ?? 500);
-
+    const limit = opts.limit ?? 500;
     const defectCounts = new Map<string, number>();
     let reviewed = 0;
 
-    for (const row of rows) {
-      // Skip articles with no generated content yet
-      const content = row.finalHtmlContent;
-      if (!content || content.trim().length === 0) continue;
-
-      const [perf] = await db
+    if (contentType === ContentType.SOCIAL) {
+      // Social: review generated variant captions
+      const posts = await db
         .select()
-        .from(contentPerformanceMetrics)
-        .where(
-          and(
+        .from(socialPosts)
+        .where(and(eq(socialPosts.teamId, teamId), eq(socialPosts.status, "READY")))
+        .orderBy(desc(socialPosts.createdAt))
+        .limit(limit);
+
+      for (const post of posts) {
+        const [variant] = await db
+          .select()
+          .from(socialPostVariants)
+          .where(and(eq(socialPostVariants.socialPostId, post.id), eq(socialPostVariants.status, "READY")))
+          .limit(1);
+        const content = variant?.caption;
+        if (!content || content.trim().length < 50) continue;
+
+        const [perf] = await db
+          .select()
+          .from(contentPerformanceMetrics)
+          .where(and(
             eq(contentPerformanceMetrics.teamId, teamId),
-            eq(contentPerformanceMetrics.articleId, row.id)
-          )
-        )
-        .limit(1);
+            eq(contentPerformanceMetrics.socialPostId, post.id)
+          ))
+          .limit(1);
 
-      const brief: Brief = {
-        targetWords: 2000,
-        keyword: (row as any).keyword ?? undefined,
-        questions: ((row.metadata as any)?.research?.redditQuestions || [])
-          .slice(0, 10)
-          .map((q: any) => q.title),
-      };
+        const review = await this.reviewContent(
+          teamId, post.id, contentType, content,
+          { targetWords: 150, keyword: post.topic, questions: [] },
+          { useJudge: Math.random() < judgeRate }
+        );
+        reviewed++;
+        for (const d of review.defects) defectCounts.set(d.code, (defectCounts.get(d.code) || 0) + 1);
+        await this.attributeReview((perf?.patternsUsedJson as number[]) || [], review);
+      }
+    } else if (contentType === ContentType.VIDEO) {
+      // Video: review expanded concept / script
+      const videos = await db
+        .select()
+        .from(videoIdeas)
+        .where(and(eq(videoIdeas.teamId, teamId), eq(videoIdeas.status, "READY")))
+        .orderBy(desc(videoIdeas.createdAt))
+        .limit(limit);
 
-      const review = await this.reviewContent(
-        teamId, row.id, contentType, content, brief,
-        { useJudge: Math.random() < judgeRate }
-      );
-      reviewed++;
-      for (const d of review.defects) defectCounts.set(d.code, (defectCounts.get(d.code) || 0) + 1);
+      for (const video of videos) {
+        const expandedConcept = video.expandedConceptJson as any;
+        const content = video.shortIdea
+          + (expandedConcept ? "\n\n" + (typeof expandedConcept === "string" ? expandedConcept : JSON.stringify(expandedConcept)) : "");
+        if (!content || content.trim().length < 50) continue;
 
-      const patternsUsed = (perf?.patternsUsedJson as number[]) || [];
-      await this.attributeReview(patternsUsed, review);
+        const [perf] = await db
+          .select()
+          .from(contentPerformanceMetrics)
+          .where(and(
+            eq(contentPerformanceMetrics.teamId, teamId),
+            eq(contentPerformanceMetrics.videoIdeaId, video.id)
+          ))
+          .limit(1);
+
+        const review = await this.reviewContent(
+          teamId, video.id, contentType, content,
+          { targetWords: 300, keyword: video.ideaTitle, questions: [] },
+          { useJudge: Math.random() < judgeRate }
+        );
+        reviewed++;
+        for (const d of review.defects) defectCounts.set(d.code, (defectCounts.get(d.code) || 0) + 1);
+        await this.attributeReview((perf?.patternsUsedJson as number[]) || [], review);
+      }
+    } else {
+      // ARTICLE and PODCAST: use articles table
+      const rows = await db
+        .select()
+        .from(articles)
+        .where(eq(articles.teamId, teamId))
+        .orderBy(desc(articles.createdAt))
+        .limit(limit);
+
+      for (const row of rows) {
+        const content = row.finalHtmlContent;
+        if (!content || content.trim().length === 0) continue;
+
+        const [perf] = await db
+          .select()
+          .from(contentPerformanceMetrics)
+          .where(and(
+            eq(contentPerformanceMetrics.teamId, teamId),
+            eq(contentPerformanceMetrics.articleId, row.id),
+            eq(contentPerformanceMetrics.contentType, contentType)
+          ))
+          .limit(1);
+
+        const brief: Brief = {
+          targetWords: 2000,
+          keyword: (row as any).keyword ?? undefined,
+          questions: ((row.metadata as any)?.research?.redditQuestions || [])
+            .slice(0, 10)
+            .map((q: any) => q.title),
+        };
+
+        const review = await this.reviewContent(
+          teamId, row.id, contentType, content, brief,
+          { useJudge: Math.random() < judgeRate }
+        );
+        reviewed++;
+        for (const d of review.defects) defectCounts.set(d.code, (defectCounts.get(d.code) || 0) + 1);
+        await this.attributeReview((perf?.patternsUsedJson as number[]) || [], review);
+      }
     }
 
     const topDefects = [...defectCounts.entries()]
@@ -350,27 +422,30 @@ ${content.slice(0, 8000)}`;
   }
 
   async updatePatternDimension(patternId: number, dimension: Dimension, success: boolean): Promise<void> {
-    const [stat] = await db
-      .select()
-      .from(patternDimensionStats)
-      .where(and(
-        eq(patternDimensionStats.patternId, patternId),
-        eq(patternDimensionStats.dimension, dimension)
-      ))
-      .limit(1);
+    const initSuccesses = success ? 1 : 0;
+    const initWilson = wilsonLowerBound(initSuccesses, 1);
 
-    const successes = (stat?.successes || 0) + (success ? 1 : 0);
-    const trials = (stat?.trials || 0) + 1;
-    const wilson = wilsonLowerBound(successes, trials);
+    // Atomic upsert handles the concurrent insert-vs-insert race.
+    // The unique index on (patternId, dimension) ensures exactly one row per pair.
+    const [upserted] = await db
+      .insert(patternDimensionStats)
+      .values({ patternId, dimension, successes: initSuccesses, trials: 1, wilsonScore: initWilson })
+      .onConflictDoUpdate({
+        target: [patternDimensionStats.patternId, patternDimensionStats.dimension],
+        set: {
+          successes: sql`${patternDimensionStats.successes} + ${initSuccesses}`,
+          trials: sql`${patternDimensionStats.trials} + 1`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
 
-    if (stat) {
+    // Recompute Wilson from the actual post-upsert totals for accuracy.
+    if (upserted) {
+      const wilson = wilsonLowerBound(upserted.successes, upserted.trials);
       await db.update(patternDimensionStats)
-        .set({ successes, trials, wilsonScore: wilson, updatedAt: new Date() })
-        .where(eq(patternDimensionStats.id, stat.id));
-    } else {
-      await db.insert(patternDimensionStats).values({
-        patternId, dimension, successes, trials, wilsonScore: wilson,
-      });
+        .set({ wilsonScore: wilson, updatedAt: new Date() })
+        .where(eq(patternDimensionStats.id, upserted.id));
     }
   }
 

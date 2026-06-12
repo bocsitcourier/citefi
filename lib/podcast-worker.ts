@@ -1,6 +1,7 @@
 import { db } from "./db";
-import { articles, articleAssets, jobBatches } from "../shared/schema";
+import { articles, articleAssets, jobBatches, ContentType } from "../shared/schema";
 import { eq } from "drizzle-orm";
+import { recordContentGenerated } from "./learning-integration";
 import { logError, logCritical } from "./error-logger";
 import { generatePodcastScript, type PodcastScript } from "./podcast-generator";
 import { mergeAudioSegments, estimateAudioDuration } from "./openai-tts";
@@ -163,6 +164,14 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
             podcastGeneratedAt: new Date(),
           })
           .where(eq(articles.id, articleId));
+
+        // Close the learning loop: record this podcast in the learning pipeline
+        // so the engagement scorer can label it and Wilson attribution can fire.
+        const effectiveTeamId = teamId ?? article.teamId;
+        if (effectiveTeamId) {
+          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, [], 0)
+            .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
+        }
       } catch (dbError) {
         console.error(`[Podcast Worker] DB write failed after upload, cleaning up:`, dbError);
         

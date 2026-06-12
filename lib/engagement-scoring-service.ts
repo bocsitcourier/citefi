@@ -7,6 +7,7 @@ import {
   ContentType,
 } from "../shared/schema";
 import { wilsonLowerBound } from "./content-review-service";
+import { PATTERN_DIMENSION } from "./pattern-dimension-map";
 
 const MATURITY_HOURS: Record<string, number> = {
   [ContentType.SOCIAL]: 72,
@@ -167,18 +168,6 @@ export class EngagementScoringService {
     };
   }
 
-  // Maps pattern types to the review dimension they govern.
-  // Must stay in sync with LearningService.PATTERN_DIMENSION.
-  private readonly PATTERN_DIMENSION: Record<string, string> = {
-    hook: "engagement", opening_style: "engagement", opening: "engagement",
-    cta: "engagement", engagement: "engagement", pacing: "engagement",
-    visual_style: "engagement", hashtag: "engagement",
-    tone: "humanness",
-    structure: "structure", format: "structure", composition: "structure",
-    color: "structure", text: "structure",
-    eeat_signal: "factuality",
-  };
-
   private async attributeEngagement(patternIds: number[], success: boolean): Promise<void> {
     if (patternIds.length === 0) return;
 
@@ -189,7 +178,7 @@ export class EngagementScoringService {
       .from(learningPatterns)
       .where(inArray(learningPatterns.id, patternIds));
     const dimByPattern = new Map(
-      patternRows.map(p => [p.id, this.PATTERN_DIMENSION[p.patternType] ?? "engagement"])
+      patternRows.map(p => [p.id, PATTERN_DIMENSION[p.patternType] ?? "engagement"])
     );
 
     // Batch-fetch all existing dimension stats for these patterns in one query.

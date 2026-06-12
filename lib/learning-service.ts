@@ -18,6 +18,7 @@ import {
 } from "./ai-config";
 import { factStore } from "./fact-store";
 import { contentReviewService, type Dimension } from "./content-review-service";
+import { PATTERN_DIMENSION } from "./pattern-dimension-map";
 import { getFactCoverageReport } from "./fact-validated-generators";
 import { 
   humanizeContent, 
@@ -174,26 +175,6 @@ export class LearningService {
     return this.buildOptimizationContext(agent, options);
   }
 
-  // Maps each pattern type to the review dimension it most affects.
-  // Unknown types fall back to "engagement".
-  private readonly PATTERN_DIMENSION: Record<string, Dimension> = {
-    hook: "engagement",
-    opening_style: "engagement",
-    opening: "engagement",
-    cta: "engagement",
-    engagement: "engagement",
-    pacing: "engagement",
-    visual_style: "engagement",
-    hashtag: "engagement",
-    tone: "humanness",
-    structure: "structure",
-    format: "structure",
-    composition: "structure",
-    color: "structure",
-    text: "structure",
-    eeat_signal: "factuality",
-  };
-
   private async buildOptimizationContext(
     agent: typeof learningAgents.$inferSelect,
     options?: {
@@ -243,7 +224,7 @@ export class LearningService {
 
     // Score each pattern by Wilson in its governing dimension.
     const scored = allPatterns.map(p => {
-      const dim = options?.priorityDimension ?? this.PATTERN_DIMENSION[p.patternType] ?? "engagement";
+      const dim = options?.priorityDimension ?? PATTERN_DIMENSION[p.patternType] ?? "engagement";
       const stat = statMap.get(statKey(p.id, dim));
       return { pattern: p, dim, wilson: stat?.wilsonScore ?? 0, trials: stat?.trials ?? 0 };
     });
@@ -337,7 +318,7 @@ export class LearningService {
       .values({
         teamId,
         contentType,
-        articleId: contentType === ContentType.ARTICLE ? contentId : null,
+        articleId: (contentType === ContentType.ARTICLE || contentType === ContentType.PODCAST) ? contentId : null,
         socialPostId: contentType === ContentType.SOCIAL ? contentId : null,
         videoIdeaId: contentType === ContentType.VIDEO ? contentId : null,
         patternsUsedJson: patternsUsed,
