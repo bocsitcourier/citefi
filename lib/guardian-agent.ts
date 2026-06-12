@@ -90,7 +90,7 @@ async function checkToneWithAI(
   try {
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-4.5-mini",
       messages: [
         {
           role: "system",

@@ -9,7 +9,7 @@
  * - gemini-2.0-flash is discontinued (June 2026). All workloads use gemini-2.5-flash.
  *
  * OPENAI MODELS:
- * - "gpt-4.1-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
+ * - "gpt-4.5-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
  * - "gpt-4.1" is the latest standard model (replaces gpt-4o)
  *
  * To pin to a specific version (disable auto-updates), use dated versions:
@@ -25,10 +25,10 @@ export const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-
 export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-2.5-pro";
 
 // OpenAI Models
-// gpt-4.1-mini: Latest mini model — fast, cost-effective, used for review / chat tasks
+// gpt-4.5-mini: Latest mini model — fast, cost-effective, used for review / chat tasks
 // gpt-4.1:      Latest standard model — used for advanced/enhancement tasks
-export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4.1-mini";
-export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4.1-mini";
+export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4.5-mini";
+export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4.5-mini";
 export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "gpt-4.1";
 
 // Keyword hyperlink pipeline models
