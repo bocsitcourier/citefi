@@ -45,8 +45,8 @@ export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemin
 export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2.0-generate-001";
 
 // TTS Configuration
-// gpt-5.4-mini-tts: supports emotional steering via instructions parameter
-export const TTS_MODEL = process.env.TTS_MODEL || "gpt-5.4-mini-tts";
+// gpt-4o-mini-tts: supports emotional steering via instructions parameter
+export const TTS_MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts";
 export const TTS_VOICE = process.env.TTS_VOICE || "coral";
 
 // Voice options: alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer

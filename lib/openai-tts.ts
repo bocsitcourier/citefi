@@ -15,7 +15,7 @@ export async function generateSpeech(
   try {
     const mp3Response = await callOpenAI(
       (client) => client.audio.speech.create({
-        model: "gpt-5.4-mini-tts",
+        model: "gpt-4o-mini-tts",
         voice: voice,
         input: text,
         speed: speed,
