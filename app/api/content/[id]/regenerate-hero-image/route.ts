@@ -133,7 +133,7 @@ export async function POST(
       metadata: {
         ...(heroAsset[0]?.metadataJson as object | undefined),
         regeneratedAt: new Date().toISOString(),
-        model: "gemini-2.5-flash-image",
+        model: "gemini-3.5-flash-image",
         originalPrompt: prompt,
       },
     });

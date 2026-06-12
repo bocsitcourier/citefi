@@ -120,7 +120,7 @@ export async function generateImagesForArticle(
       const response = await throttledGeminiRequest(() =>
         withTimeout(
           genAI.models.generateContent({
-            model: "gemini-2.5-flash-image",
+            model: "gemini-3.5-flash-image",
             contents: [{ role: "user", parts: [{ text: heroPrompt }] }],
             config: { responseModalities: ["Image"] },
           }),
@@ -155,7 +155,7 @@ export async function generateImagesForArticle(
         altText: `Hero image - ${heroPromptRaw.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.5-flash-image",
           isHeroImage: true,
           originalPrompt: heroPromptRaw,
         },
@@ -224,7 +224,7 @@ export async function generateImagesForArticle(
 export async function generateSingleImage(prompt: string): Promise<string | null> {
   try {
     const response = await genAI.models.generateContent({
-      model: "gemini-2.5-flash-image",
+      model: "gemini-3.5-flash-image",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseModalities: ["Image"] },
     });
@@ -270,7 +270,7 @@ export async function generateAndStoreHeroImage(
 
       const response = await withTimeout(
         genAI.models.generateContent({
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.5-flash-image",
           contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
           config: { responseModalities: ["Image"] },
         }),
@@ -303,7 +303,7 @@ export async function generateAndStoreHeroImage(
         altText: `Hero image - ${prompt.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: "gemini-2.5-flash-image",
+          model: "gemini-3.5-flash-image",
           isHeroImage: true,
           originalPrompt: prompt,
         },

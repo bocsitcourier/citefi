@@ -4,25 +4,25 @@
  * Models are configured to automatically use the latest stable versions.
  *
  * GEMINI MODELS:
- * - Google's auto-updated aliases (e.g., "gemini-2.5-flash") automatically point
+ * - Google's auto-updated aliases (e.g., "gemini-3.5-flash") automatically point
  *   to the latest stable version within that generation.
- * - gemini-2.0-flash is discontinued (June 2026). All workloads use gemini-2.5-flash.
+ * - gemini-2.0-flash and gemini-2.5-flash are superseded. All workloads use gemini-3.5-flash.
  *
  * OPENAI MODELS:
  * - "gpt-4.5-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
  * - "gpt-4.1" is the latest standard model (replaces gpt-4o)
  *
  * To pin to a specific version (disable auto-updates), use dated versions:
- * - Gemini: "gemini-2.5-flash-001" (specific snapshot)
+ * - Gemini: "gemini-3.5-flash-001" (specific snapshot)
  * - OpenAI: "gpt-4.1-2025-04-14" (specific snapshot)
  */
 
-// Gemini Models - gemini-2.5-flash/pro are the latest stable aliases
-export const GEMINI_ARTICLE_MODEL = process.env.GEMINI_ARTICLE_MODEL || "gemini-2.5-flash";
-export const GEMINI_FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-2.5-flash";
-export const GEMINI_PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-2.5-pro";
-export const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
-export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-2.5-pro";
+// Gemini Models - gemini-3.5-flash/pro are the latest stable aliases
+export const GEMINI_ARTICLE_MODEL = process.env.GEMINI_ARTICLE_MODEL || "gemini-3.5-flash";
+export const GEMINI_FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-3.5-flash";
+export const GEMINI_PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.5-pro";
+export const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.5-flash-image";
+export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-3.5-pro";
 
 // OpenAI Models
 // gpt-4.5-mini: Latest mini model — fast, cost-effective, used for review / chat tasks
@@ -39,7 +39,7 @@ export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTI
 
 // Gemini model for article critique / refine pass.
 // Flash-Lite is 80% cheaper than Flash; override to gemini-2.5-flash for higher quality.
-export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-2.5-flash-lite";
+export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-3.5-flash-lite";
 
 // Veo Video Generation
 export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2.0-generate-001";

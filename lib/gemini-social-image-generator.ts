@@ -133,7 +133,7 @@ Requirements:
       console.log(`📸 Generating ${platform} image (${aspectConfig.ratio}) with Gemini...`);
 
       const result = await genAI.models.generateContent({
-        model: "gemini-2.5-flash-image",
+        model: "gemini-3.5-flash-image",
         contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
         config: {
           responseModalities: ["Image"],
