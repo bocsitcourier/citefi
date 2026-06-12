@@ -320,22 +320,21 @@ export default function Dashboard() {
     setUploadingLogo(true);
     try {
       const formData = new FormData();
-      formData.append('file', file);
-      formData.append('assetType', 'image');
-      formData.append('altText', `${businessName || 'Company'} Logo`);
+      formData.append('logo', file);
 
       const token = sessionStorage.getItem("auth_token");
-      const response = await fetch('/api/media/upload', {
+      const response = await fetch('/api/upload/logo', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('Upload failed');
+        throw new Error(data?.error || 'Upload failed');
       }
 
-      const data = await response.json();
       setCompanyLogoUrl(data.url);
       
       toast({
@@ -346,7 +345,7 @@ export default function Dashboard() {
       console.error('Logo upload error:', error);
       toast({
         title: "Upload failed",
-        description: "Failed to upload logo. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to upload logo. Please try again.",
         variant: "destructive",
       });
     } finally {
