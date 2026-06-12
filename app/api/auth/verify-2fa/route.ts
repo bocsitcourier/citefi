@@ -186,11 +186,13 @@ export async function POST(req: Request) {
     });
 
     // Set HttpOnly session cookie so the token is never exposed to JavaScript (XSS-safe)
-    // Always secure=true — Replit serves over HTTPS in both dev and prod
+    // Always secure=true — Replit serves over HTTPS in both dev and prod.
+    // sameSite:"none" is required so the cookie is sent when the app is embedded
+    // in an iframe (e.g. the Replit preview pane). secure:true is mandatory with none.
     response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
       httpOnly: true,
       secure: true,
-      sameSite: "lax",
+      sameSite: "none",
       path: "/",
       maxAge: 24 * 60 * 60, // 24 hours
     });

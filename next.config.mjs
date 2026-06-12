@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Allow the Replit dev proxy origin to access _next/* resources without
+  // triggering cross-origin warnings that can interfere with cookie delivery.
+  allowedDevOrigins: ["*.riker.replit.dev", "*.replit.dev"],
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -1,2 +1,2 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
-- [Next.js auth cookie loop](nextjs-auth-cookie-loop.md) — After login, use window.location.href (not router.replace) to bust the App Router cache so middleware sees the fresh cookie.
+- [Auth cookie iframe + Next.js 16 proxy](auth-cookie-iframe.md) — SameSite=Lax blocks cookies in Replit preview iframe; must use None+Secure. Next.js 16 renames middleware.ts → proxy.ts with `export function proxy()`.

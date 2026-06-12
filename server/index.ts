@@ -13,7 +13,7 @@ console.log('🚀 Starting ApexContent Engine (Next.js)...\n');
 // We forcibly free it before spawning next dev so EADDRINUSE never occurs.
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-async function waitForPortFree(port: number, maxMs = 8000): Promise<void> {
+async function waitForPortFree(port: number, maxMs = 15000): Promise<void> {
   const deadline = Date.now() + maxMs;
   while (Date.now() < deadline) {
     const free = await new Promise<boolean>((resolve) => {
@@ -67,7 +67,7 @@ if (process.env.DISABLE_WORKERS === 'true') {
 // ── Next.js dev server ───────────────────────────────────────────────────────
 const nextDev = spawn('npx', ['next', 'dev', '--turbopack'], {
   stdio: 'inherit',
-  shell: true,
+  shell: false,
   detached: true,
 });
 
@@ -85,15 +85,11 @@ nextDev.on('close', (code) => {
 const BASE_URL = `http://localhost:${PORT}`;
 
 const PAGES_TO_WARM = [
-  '/api/auth/me',
-  '/api/auth/login',
-  '/api/auth/logout',
-  '/api/notifications',
-  '/api/batches',
+  // Read-only pages only — never warm auth mutation endpoints or protected
+  // pages that just redirect (e.g. /admin → /login).
   '/api/health',
   '/home',
   '/content',
-  '/batches',
   '/monitoring',
   '/media',
   '/social',
@@ -102,7 +98,6 @@ const PAGES_TO_WARM = [
   '/learning',
   '/settings',
   '/settings/publishing',
-  '/admin',
 ];
 
 async function waitForServer(maxAttempts = 30): Promise<boolean> {

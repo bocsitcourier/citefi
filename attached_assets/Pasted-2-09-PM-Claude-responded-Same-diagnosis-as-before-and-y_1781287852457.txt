@@ -1,0 +1,49 @@
+2:09 PMClaude responded: Same diagnosis as before — and your middleware is fine.Same diagnosis as before — and your middleware is fine. The loop is: login succeeds, but the request to /admin arrives without the auth_token cookie, so the gate correctly redirects to /login. Everything hinges on why auth_token isn't on that next request. Since you re-sent the same files rather than test results, let me give you the exact commands to nail it, plus catch one thing in your startup script that could actively be deleting your cookie.
+Run this test first (under a minute, splits the whole problem)
+Open your app in a standalone browser tab — the real *.replit.dev URL, not the embedded Replit preview pane — and log in.
+
+Works standalone, loops only in preview → third-party-iframe cookie problem. Your auth_token is SameSite=Lax, the preview embeds your app in an iframe, so the browser won't send the cookie cross-site. Fix below. (Your deployed app won't have this — users visit first-party.)
+Loops standalone too → the cookie isn't being set at all. Real bug in /api/auth/login. Paste that route and I'll find it.
+
+Confirm in DevTools after login: Application → Cookies (is auth_token present?) and Network → the /admin request → Request Headers (is Cookie: auth_token=… sent?). Cookie in the jar but absent from the request = iframe/SameSite. Not in the jar = login route isn't setting it.
+⚠️ Your pre-warmer is hitting /api/auth/logout on every boot
+This is new and important — I can see it in the startup file you pasted:
+tsconst PAGES_TO_WARM = [
+  '/api/auth/me',
+  '/api/auth/login',
+  '/api/auth/logout',   // ← this fires a request to logout on every server start
+  ...
+The warmer does `fetch(\`BASEURL{BASE_URL}
+BASEU​RL{page}\`)` against each of these. If your logout handler clears `auth_token` on a plain GET (many do), then **every restart and every "run" is wiping the session cookie** server-side or poisoning the route. Even if it's same-origin localhost and doesn't touch *your browser's* cookie directly, warming auth-mutation endpoints is a real source of phantom auth weirdness. Remove all three auth endpoints from the warm list — warm read-only pages only:
+tsconst PAGES_TO_WARM = [
+  '/api/health',
+  '/api/notifications',
+  '/api/batches',
+  '/home', '/content', '/batches', '/monitoring',
+  '/media', '/social', '/seo-tools', '/personas',
+  '/learning', '/settings', '/settings/publishing',
+  // dropped: /api/auth/me, /api/auth/login, /api/auth/logout
+  // dropped: /admin (it just 307s to /login — wasted warm)
+];
+This is worth fixing regardless of which branch the standalone test points to.
+The fix for the likely (iframe) case
+Wherever /api/auth/login sets the cookie, change sameSite:
+tsres.cookies.set('auth_token', token, {
+  httpOnly: true,
+  sameSite: 'none',   // was 'lax' — required to ride in a 3rd-party iframe
+  secure: true,       // mandatory when sameSite is 'none' (Replit is HTTPS)
+  path: '/',
+});
+Make it conditional so production keeps the safer default:
+tssameSite: process.env.REPLIT_PREVIEW === 'true' ? 'none' : 'lax',
+Caveat: even None; Secure gets blocked by browsers with third-party cookies disabled (Safari ITP by default, Chrome trending that way). If preview still loops after this, that's why — and the correct answer is just "test auth in a standalone tab," because your deployment is unaffected.
+Triage of your four planned changes
+
+middleware.ts → proxy.ts: Hygiene only, won't fix the loop. Your file has no runtime: 'edge' export and only uses request.cookies.get + NextResponse, so the migration is safe — use the codemod, then delete middleware.ts (you pasted it twice; if both middleware.ts and proxy.ts exist, behavior gets unstable).
+allowedDevOrigins: Clears the /_next/* asset warning. Won't touch cookies. Add it for the warning, expect nothing for auth.
+detached/shell/EADDRINUSE: Separate restart-reliability issue, zero effect on login. Don't let fixing it convince you auth is solved.
+307 caching: Already correctly ruled out — 307 isn't cached. Your no-store header is harmless but irrelevant.
+
+On the spawn issue (since you'll touch it anyway)
+Dropping shell: true is right and it cleans up your group-kill: with shell: true the PID is the shell's, so process.kill(-child.pid) targets the wrong group; without it, spawn('npx', ['next','dev','--turbopack']) gives you the real PID and the negative-PID kill works. One real bug in the current file: your forceKillPort + waitForPortFree only run once at startup, but on SIGTERM you killGroup and immediately process.exit(0) — you never wait for the port to release on the way out, which is what produces the next-boot EADDRINUSE. Escalating to SIGKILL or extending the wait is a band-aid; the cleaner fix is dropping shell:true so the kill actually lands. But again — none of this affects the login loop. Keep the two tracks separate.
+Do the standalone-tab test and pull the logout endpoint from the warmer. Those two together will either fix it or tell me exactly which file to look at next. If it still loops standalone, paste /api/auth/login and /api/auth/logout.

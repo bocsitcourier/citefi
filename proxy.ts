@@ -14,7 +14,7 @@ const PUBLIC_ROUTES = [
   "/api/public-objects",
 ];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public routes
@@ -37,13 +37,16 @@ export function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+    const response = NextResponse.redirect(url);
+    // Prevent browsers and CDNs from caching auth redirects
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    return response;
   }
 
   return NextResponse.next();
 }
 
-// Configure which routes the middleware runs on
+// Configure which routes the proxy runs on
 export const config = {
   matcher: [
     "/api/:path*",

@@ -11,7 +11,7 @@ function loggedOutResponse() {
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    sameSite: "none",
     path: "/",
     maxAge: 0,
   });
