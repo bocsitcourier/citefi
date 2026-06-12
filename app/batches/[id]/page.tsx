@@ -528,7 +528,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
               <Button
                 onClick={async () => {
                   const failedArticles = articles.filter(a => a.articleStatus === "FAILED");
-                  const token = localStorage.getItem("auth_token");
+                  const token = sessionStorage.getItem("auth_token");
                   const response = await fetch("/api/admin/requeue-failed", {
                     method: "POST",
                     headers: {

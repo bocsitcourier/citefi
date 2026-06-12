@@ -1,2 +1,2 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
-- [Auth cookie iframe + Next.js 16 proxy](auth-cookie-iframe.md) — SameSite=Lax blocks cookies in Replit preview iframe; must use None+Secure. Next.js 16 renames middleware.ts → proxy.ts with `export function proxy()`.
+- [Auth token storage](auth-token-storage.md) — JWT is stored in sessionStorage (not localStorage) and sent as Authorization: Bearer on every request; all components must read from sessionStorage.

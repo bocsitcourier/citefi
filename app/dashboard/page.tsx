@@ -324,7 +324,7 @@ export default function Dashboard() {
       formData.append('assetType', 'image');
       formData.append('altText', `${businessName || 'Company'} Logo`);
 
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       const response = await fetch('/api/media/upload', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},

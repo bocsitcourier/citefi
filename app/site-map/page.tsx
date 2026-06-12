@@ -51,7 +51,7 @@ export default function SiteMapPage() {
 
   const fetchPages = useCallback(async () => {
     try {
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       const params = new URLSearchParams();
       if (filterDomain) params.set("domain", filterDomain);
       const res = await fetch(`/api/site-map/pages?${params}`, {
@@ -69,7 +69,7 @@ export default function SiteMapPage() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/site-map/jobs", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -114,7 +114,7 @@ export default function SiteMapPage() {
 
     setIsCrawling(true);
     try {
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/site-map/crawl", {
         method: "POST",
         headers: {
@@ -141,7 +141,7 @@ export default function SiteMapPage() {
   const deleteDomain = async (domain: string) => {
     if (!confirm(`Remove all indexed pages for ${domain}?`)) return;
     try {
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       const res = await fetch(`/api/site-map/pages?domain=${encodeURIComponent(domain)}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -155,7 +155,7 @@ export default function SiteMapPage() {
 
   const deletePage = async (pageId: number) => {
     try {
-      const token = localStorage.getItem("auth_token");
+      const token = sessionStorage.getItem("auth_token");
       await fetch(`/api/site-map/pages?id=${pageId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },

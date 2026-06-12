@@ -442,7 +442,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
       
       const pollInterval = setInterval(async () => {
         try {
-          const token = localStorage.getItem("auth_token");
+          const token = sessionStorage.getItem("auth_token");
           const response = await fetch(`/api/content/${articleId}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
@@ -683,7 +683,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
       setPodcastStatusPolling(true);
       const pollInterval = setInterval(async () => {
         try {
-          const token = localStorage.getItem("auth_token");
+          const token = sessionStorage.getItem("auth_token");
           const statusResponse = await fetch(`/api/podcast/status/${articleId}`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });

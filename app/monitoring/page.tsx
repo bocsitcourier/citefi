@@ -112,7 +112,7 @@ export default function MonitoringDashboard() {
   });
 
   const calculateCustomCost = async () => {
-    const token = localStorage.getItem("auth_token");
+    const token = sessionStorage.getItem("auth_token");
     await fetch("/api/monitoring/cost-calculator", {
       method: "POST",
       headers: {

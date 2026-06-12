@@ -188,7 +188,7 @@ export default function SocialPostDetailPage() {
       const formData = new FormData();
       formData.append("logo", file);
       
-      const authToken = localStorage.getItem("auth_token");
+      const authToken = sessionStorage.getItem("auth_token");
       const response = await fetch("/api/upload/logo", {
         method: "POST",
         body: formData,
