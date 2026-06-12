@@ -1,0 +1,217 @@
+// ============================================================================
+// FILE 1 — shared/schema.ts   (ADD these two tables)
+// ============================================================================
+import {
+  pgTable, serial, integer, text, jsonb, timestamp, uniqueIndex, index,
+} from "drizzle-orm/pg-core";
+
+/**
+ * One row per reviewed piece of content. Written by ContentReviewService.
+ * dimensionScoresJson: { completeness, factuality, structure, humanness, engagement }
+ * defectsJson:         [{ code, dim, severity, evidence }]
+ */
+export const contentReviews = pgTable("content_reviews", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull(),
+  contentType: text("content_type").notNull(),
+  articleId: integer("article_id"),
+  socialPostId: integer("social_post_id"),
+  videoIdeaId: integer("video_idea_id"),
+  dimensionScoresJson: jsonb("dimension_scores_json").notNull(),
+  defectsJson: jsonb("defects_json").notNull(),
+  passed: integer("passed").notNull().default(0),       // 0/1, matches your int-boolean convention
+  usedJudge: integer("used_judge").notNull().default(0), // did the LLM judge run on this one?
+  reviewedAt: timestamp("reviewed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  teamTypeIdx: index("content_reviews_team_type_idx").on(t.teamId, t.contentType),
+  articleIdx: index("content_reviews_article_idx").on(t.articleId),
+}));
+
+/**
+ * Per-(pattern, dimension) success ledger. This is what replaces the single
+ * `successRate`/`confidence` on learningPatterns for ranking purposes.
+ * teamId is intentionally omitted — it's always reachable via
+ * patternId -> learningPatterns.teamId (join when you need to scope).
+ */
+export const patternDimensionStats = pgTable("pattern_dimension_stats", {
+  id: serial("id").primaryKey(),
+  patternId: integer("pattern_id").notNull(),
+  dimension: text("dimension").notNull(), // completeness|factuality|structure|humanness|engagement
+  successes: integer("successes").notNull().default(0),
+  trials: integer("trials").notNull().default(0),
+  wilsonScore: integer("wilson_score").notNull().default(0), // 0-100, the honest score
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  patternDimUnique: uniqueIndex("pattern_dimension_unique").on(t.patternId, t.dimension),
+  dimIdx: index("pattern_dimension_dim_idx").on(t.dimension),
+}));
+
+// Run:  npx drizzle-kit generate  &&  npx drizzle-kit migrate
+
+
+// ============================================================================
+// FILE 2 — learning-service.ts   (CHANGES to your existing LearningService)
+// ============================================================================
+
+// --- add to your imports at the top of the file ---
+import { inArray } from "drizzle-orm";
+import { patternDimensionStats } from "../shared/schema";
+import { contentReviewService, type Dimension } from "./content-review-service";
+
+/*
+ * Drop the following INTO your LearningService class. It:
+ *   1. Ranks patterns by Wilson score in the dimension that pattern governs
+ *      (a "hook" pattern is judged on engagement; an "eeat_signal" on factuality).
+ *   2. REMOVES the `gte(confidence, threshold)` gate that caused the cold-start
+ *      deadlock (new patterns could never be picked, so never earned confidence).
+ *   3. Adds an epsilon-greedy exploration slot so under-sampled patterns get
+ *      tried on purpose to gather data.
+ *   4. Appends negative constraints mined from the review ledger as [AVOID] lines.
+ *
+ * Also extend your OptimizationContext options type with an optional
+ * `priorityDimension?: Dimension` if a caller wants to force a lens.
+ */
+
+  // Map each pattern TYPE to the review dimension it most affects.
+  // Tune this to your taxonomy; unknown types fall back to "engagement".
+  private readonly PATTERN_DIMENSION: Record<string, Dimension> = {
+    hook: "engagement",
+    opening_style: "engagement",
+    cta: "engagement",
+    engagement: "engagement",
+    pacing: "engagement",
+    visual_style: "engagement",
+    hashtag: "engagement",
+    tone: "humanness",
+    structure: "structure",
+    format: "structure",
+    composition: "structure",
+    color: "structure",
+    text: "structure",
+    eeat_signal: "factuality",
+    opening: "engagement",
+  };
+
+  private async buildOptimizationContext(
+    agent: typeof learningAgents.$inferSelect,
+    options?: {
+      industry?: string;
+      audience?: string;
+      patternTypes?: string[];
+      priorityDimension?: Dimension; // optional override: rank everything on one lens
+    }
+  ): Promise<OptimizationContext> {
+    const EXPLORE_RATE = 0.15;
+    const TOP_N = 20;
+
+    // 1. Fetch ALL candidate patterns for this agent. No confidence gate here —
+    //    that gate is exactly what prevented new patterns from ever surfacing.
+    const candidates = await db
+      .select()
+      .from(learningPatterns)
+      .where(eq(learningPatterns.agentId, agent.id));
+
+    if (candidates.length === 0) {
+      return {
+        agentId: agent.id,
+        contentType: agent.contentType,
+        patterns: [],
+        promptEnhancements: await this.collectNegatives(agent),
+        modelConfig: { model: agent.primaryModel, temperature: agent.temperature / 100 },
+      };
+    }
+
+    // 2. Pull per-dimension Wilson stats for these patterns in one query.
+    const patternIds = candidates.map((p) => p.id);
+    const stats = await db
+      .select()
+      .from(patternDimensionStats)
+      .where(inArray(patternDimensionStats.patternId, patternIds));
+
+    const key = (pid: number, dim: string) => `${pid}:${dim}`;
+    const statMap = new Map<string, typeof patternDimensionStats.$inferSelect>();
+    for (const s of stats) statMap.set(key(s.patternId, s.dimension), s);
+
+    // 3. Score each pattern by Wilson in ITS governing dimension.
+    const scored = candidates.map((p) => {
+      const dim =
+        options?.priorityDimension ??
+        this.PATTERN_DIMENSION[p.patternType] ??
+        "engagement";
+      const stat = statMap.get(key(p.id, dim));
+      return {
+        pattern: p,
+        dimension: dim,
+        wilson: stat?.wilsonScore ?? 0,
+        trials: stat?.trials ?? 0,
+      };
+    });
+
+    // 4. EXPLOIT — proven patterns (enough trials) ranked by Wilson.
+    //    BOOTSTRAP — if nothing is proven yet (fresh team), fall back to the
+    //    seeded patterns as-is so generation still has guidance.
+    const proven = scored
+      .filter((s) => s.trials >= MIN_CONFIDENCE_SAMPLES)
+      .sort((a, b) => b.wilson - a.wilson)
+      .slice(0, TOP_N);
+
+    const selected = proven.length > 0 ? [...proven] : scored.slice(0, TOP_N);
+    const chosenIds = new Set(selected.map((s) => s.pattern.id));
+
+    // 5. EXPLORE — occasionally inject one under-sampled pattern to gather data
+    //    on it (epsilon-greedy). This is what lets new patterns earn their score.
+    if (Math.random() < EXPLORE_RATE) {
+      const unproven = scored.filter(
+        (s) => s.trials < MIN_CONFIDENCE_SAMPLES && !chosenIds.has(s.pattern.id)
+      );
+      if (unproven.length > 0) {
+        const pick = unproven[Math.floor(Math.random() * unproven.length)]!;
+        selected.push(pick);
+        // Optionally flag pick.pattern.id as "exploration" in your logs so you
+        // can audit explore-vs-exploit decisions later.
+      }
+    }
+
+    // 6. Map to LearnedPattern. successRate now carries the honest Wilson score;
+    //    confidence reflects sample size (trials vs MIN_CONFIDENCE_SAMPLES).
+    const learnedPatterns: LearnedPattern[] = selected.map((s) => ({
+      id: s.pattern.id,
+      patternType: s.pattern.patternType,
+      patternName: s.pattern.patternName,
+      patternValue: s.pattern.patternValue,
+      successRate: s.wilson,
+      confidence: Math.min(100, Math.round((s.trials / MIN_CONFIDENCE_SAMPLES) * 100)),
+    }));
+
+    // 7. Positive enhancements (your existing builder) + NEGATIVE constraints
+    //    mined from the corpus review ledger.
+    const promptEnhancements = this.buildPromptEnhancements(learnedPatterns);
+    const negatives = await this.collectNegatives(agent);
+
+    return {
+      agentId: agent.id,
+      contentType: agent.contentType,
+      patterns: learnedPatterns,
+      promptEnhancements: [...promptEnhancements, ...negatives],
+      modelConfig: { model: agent.primaryModel, temperature: agent.temperature / 100 },
+    };
+  }
+
+  // Pull the top recurring defects for this team/type and render them as
+  // explicit avoid-instructions for the prompt.
+  private async collectNegatives(
+    agent: typeof learningAgents.$inferSelect
+  ): Promise<string[]> {
+    try {
+      const negatives = await contentReviewService.getNegativeConstraints(
+        agent.teamId,
+        agent.contentType,
+        5
+      );
+      return negatives.map((n) => `[AVOID] ${n}`);
+    } catch (e) {
+      console.warn("⚠️ Could not load negative constraints:", e);
+      return [];
+    }
+  }

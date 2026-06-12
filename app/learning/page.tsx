@@ -10,6 +10,7 @@ import {
   Loader2, 
   Brain, 
   TrendingUp, 
+  TrendingDown,
   Zap, 
   FileText, 
   Video, 
@@ -26,6 +27,10 @@ import {
   DollarSign,
   Shield,
   ShieldCheck,
+  Activity,
+  BarChart2,
+  FlaskConical,
+  Trophy,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Progress } from "@/components/ui/progress";
@@ -77,6 +82,57 @@ interface IntelligenceData {
   };
 }
 
+interface DriftEntry {
+  dimension: string;
+  recentAvg: number;
+  baselineAvg: number;
+  delta: number;
+  recentSamples: number;
+  drifting: boolean;
+  note?: string;
+}
+
+interface LeaderboardEntry {
+  patternId: number;
+  name: string;
+  type: string;
+  wilson: number;
+  successes: number;
+  trials: number;
+}
+
+interface LeaderboardData {
+  dimension: string;
+  best: LeaderboardEntry[];
+  worst: LeaderboardEntry[];
+  proven: number;
+}
+
+interface ReadinessData {
+  dimension: string;
+  untouched: number;
+  exploring: number;
+  proven: number;
+  total: number;
+}
+
+interface DefectEntry {
+  defect: string;
+  contentType: string;
+  count: number;
+  lastSeen: string;
+  status: string;
+}
+
+interface MonitorSnapshot {
+  alerts: string[];
+  drift: DriftEntry[];
+  leaderboards: LeaderboardData[];
+  topDefects: DefectEntry[];
+  readiness: ReadinessData;
+  engineDrift: Array<{ patternId: number; name: string; lifetimeWilson: number; recentRate: number; recentSamples: number; gap: number; drifting: boolean }>;
+}
+
 const CONTENT_TYPE_ICONS: Record<string, any> = {
   article: FileText,
   video: Video,
@@ -102,9 +158,18 @@ function timeAgo(isoString: string): string {
   return `${days}d ago`;
 }
 
+const DIM_LABELS: Record<string, string> = {
+  completeness: "Completeness",
+  factuality: "Factuality",
+  structure: "Structure",
+  humanness: "Humanness",
+  engagement: "Engagement",
+};
+
 export default function LearningDashboard() {
   const { toast } = useToast();
   const [expandedAgent, setExpandedAgent] = useState<number | null>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   const { data: agentsData, isLoading, refetch } = useQuery<{ success: boolean; agents: LearningAgent[] }>({
     queryKey: ["/api/learning/agents"],
@@ -112,6 +177,31 @@ export default function LearningDashboard() {
 
   const { data: intelligenceData, isLoading: intelligenceLoading } = useQuery<{ success: boolean } & IntelligenceData>({
     queryKey: ["/api/learning/intelligence"],
+  });
+
+  const { data: monitorData, isLoading: monitorLoading, refetch: refetchMonitor } = useQuery<{ success: boolean } & MonitorSnapshot>({
+    queryKey: ["/api/learning/monitor/snapshot"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const mineCorpusMutation = useMutation({
+    mutationFn: async (contentType: string) => {
+      return apiRequest("/api/learning/monitor/mine-corpus", {
+        method: "POST",
+        body: JSON.stringify({ contentType, limit: 200 }),
+      });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Corpus review complete",
+        description: `Reviewed ${data?.reviewed ?? 0} pieces. Top defect: ${data?.topDefects?.[0]?.code ?? "none"}`,
+      });
+      refetchMonitor();
+      queryClient.invalidateQueries({ queryKey: ["/api/learning/agents"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Mine corpus failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const optimizeMutation = useMutation({
@@ -168,17 +258,35 @@ export default function LearningDashboard() {
             Monitors failures, tracks patterns, and corrects the AI on every future generation
           </p>
         </div>
-        <Button 
-          variant="outline" 
-          onClick={() => {
-            refetch();
-            queryClient.invalidateQueries({ queryKey: ["/api/learning/intelligence"] });
-          }}
-          data-testid="button-refresh"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => mineCorpusMutation.mutate("article")}
+            disabled={mineCorpusMutation.isPending}
+            data-testid="button-mine-corpus"
+          >
+            {mineCorpusMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <FlaskConical className="w-4 h-4 mr-2" />
+            )}
+            Backfill Reviews
+          </Button>
+          <Button 
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              refetch();
+              refetchMonitor();
+              queryClient.invalidateQueries({ queryKey: ["/api/learning/intelligence"] });
+            }}
+            data-testid="button-refresh"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Top stats row */}
@@ -413,6 +521,206 @@ export default function LearningDashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* ================================================================
+          LEARNING SIGNAL MONITOR
+          ================================================================ */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Activity className="w-5 h-5" />
+          Live Learning Signal
+        </h2>
+
+        {/* Drift alerts */}
+        {monitorLoading ? (
+          <Card>
+            <CardContent className="py-6 flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading signal data...
+            </CardContent>
+          </Card>
+        ) : monitorData?.alerts && monitorData.alerts.length > 0 ? (
+          <Card className="border-orange-500/40">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-orange-500" />
+                Active Drift Alerts
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {monitorData.alerts.map((alert, i) => (
+                <div key={i} className="flex items-start gap-2 p-2 rounded-md bg-orange-500/10 text-sm" data-testid={`alert-drift-${i}`}>
+                  <TrendingDown className="w-4 h-4 text-orange-500 mt-0.5 shrink-0" />
+                  <span>{alert}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : monitorData ? (
+          <Card>
+            <CardContent className="py-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              No drift detected — all dimensions are stable
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {/* Dimension scorecards + cohort readiness */}
+        {monitorData?.drift && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-blue-500" />
+                  Dimension Scores (7-day vs 28-day baseline)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {monitorData.drift.map((d) => (
+                  <div key={d.dimension} className="space-y-1" data-testid={`drift-${d.dimension}`}>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">{DIM_LABELS[d.dimension] ?? d.dimension}</span>
+                      <div className="flex items-center gap-2">
+                        {d.note ? (
+                          <span className="text-xs text-muted-foreground italic">{d.note}</span>
+                        ) : (
+                          <span className={`text-xs font-medium ${d.delta >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
+                            {d.delta >= 0 ? "+" : ""}{d.delta}pts
+                          </span>
+                        )}
+                        <span className="font-medium w-8 text-right">{d.recentAvg > 0 ? d.recentAvg : "—"}</span>
+                      </div>
+                    </div>
+                    <Progress
+                      value={d.recentAvg}
+                      className={`h-1.5 ${d.drifting ? "opacity-60" : ""}`}
+                    />
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground pt-1">
+                  Scores averaged from content reviews. Run "Backfill Reviews" to populate.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FlaskConical className="w-4 h-4 text-purple-500" />
+                  Pattern Cohort Readiness
+                </CardTitle>
+                <CardDescription>How many patterns have real engagement data vs. still exploring</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {monitorData.readiness ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="p-3 rounded-md bg-muted/40">
+                        <p className="text-xl font-bold text-muted-foreground">{monitorData.readiness.untouched}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Untested</p>
+                      </div>
+                      <div className="p-3 rounded-md bg-muted/40">
+                        <p className="text-xl font-bold text-yellow-500">{monitorData.readiness.exploring}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Exploring</p>
+                      </div>
+                      <div className="p-3 rounded-md bg-muted/40">
+                        <p className="text-xl font-bold text-green-500">{monitorData.readiness.proven}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Proven</p>
+                      </div>
+                    </div>
+                    <Progress
+                      value={monitorData.readiness.total > 0
+                        ? Math.round((monitorData.readiness.proven / monitorData.readiness.total) * 100)
+                        : 0}
+                      className="h-2"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {monitorData.readiness.proven}/{monitorData.readiness.total} patterns have ≥5 engagement trials (Wilson-scored)
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No data yet</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Engagement leaderboard toggle */}
+        {monitorData?.leaderboards && monitorData.leaderboards.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowLeaderboard(!showLeaderboard)}>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-yellow-500" />
+                  Pattern Leaderboards (Wilson Score)
+                </CardTitle>
+                <Button variant="ghost" size="icon" data-testid="button-toggle-leaderboard">
+                  {showLeaderboard ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </Button>
+              </div>
+              <CardDescription>Top patterns per quality dimension, ranked by statistical confidence</CardDescription>
+            </CardHeader>
+            {showLeaderboard && (
+              <CardContent>
+                <div className="space-y-6">
+                  {monitorData.leaderboards.map((board) => (
+                    board.best.length > 0 && (
+                      <div key={board.dimension}>
+                        <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                          {DIM_LABELS[board.dimension] ?? board.dimension}
+                          <span className="ml-2 font-normal normal-case">({board.proven} proven)</span>
+                        </h4>
+                        <div className="space-y-1">
+                          {board.best.map((p, rank) => (
+                            <div key={p.patternId} className="flex items-center gap-3 py-1.5 text-sm" data-testid={`leaderboard-${board.dimension}-${p.patternId}`}>
+                              <span className="w-5 text-center text-muted-foreground text-xs font-mono">#{rank + 1}</span>
+                              <span className="flex-1 truncate">{p.name}</span>
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {p.wilson}pt Wilson
+                              </Badge>
+                              <span className="text-xs text-muted-foreground shrink-0">{p.successes}/{p.trials}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ))}
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        )}
+
+        {/* Top defects from corpus mining */}
+        {monitorData?.topDefects && monitorData.topDefects.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-red-500" />
+                Top Content Defects (from Review Corpus)
+              </CardTitle>
+              <CardDescription>Most frequent quality failures detected by the review system</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {monitorData.topDefects.slice(0, 6).map((d) => (
+                  <div key={`${d.defect}-${d.contentType}`} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/40 text-sm" data-testid={`defect-${d.defect}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${d.status === "active" ? "bg-red-500" : "bg-muted-foreground"}`} />
+                      <span className="truncate font-mono text-xs">{d.defect}</span>
+                      <Badge variant="outline" className="text-xs shrink-0">{d.contentType}</Badge>
+                    </div>
+                    <Badge variant={d.count >= 10 ? "destructive" : "secondary"} className="shrink-0 text-xs">
+                      {d.count}×
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* ================================================================

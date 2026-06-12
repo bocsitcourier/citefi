@@ -2612,6 +2612,51 @@ export type AiLearningLedger = typeof aiLearningLedger.$inferSelect;
 export type InsertAiLearningLedger = typeof aiLearningLedger.$inferInsert;
 
 // ============================================================================
+// CONTENT REVIEWS — one row per reviewed piece, written by ContentReviewService
+// ============================================================================
+export const contentReviews = pgTable("content_reviews", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  articleId: integer("article_id"),
+  socialPostId: integer("social_post_id"),
+  videoIdeaId: integer("video_idea_id"),
+  dimensionScoresJson: jsonb("dimension_scores_json").notNull().default({}),
+  defectsJson: jsonb("defects_json").notNull().default([]),
+  passed: integer("passed").notNull().default(0),
+  usedJudge: integer("used_judge").notNull().default(0),
+  reviewedAt: timestamp("reviewed_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  teamTypeIdx: index("content_reviews_team_type_idx").on(t.teamId, t.contentType),
+  articleIdx: index("content_reviews_article_idx").on(t.articleId),
+  reviewedAtIdx: index("content_reviews_reviewed_at_idx").on(t.reviewedAt),
+}));
+
+export type ContentReview = typeof contentReviews.$inferSelect;
+export type InsertContentReview = typeof contentReviews.$inferInsert;
+
+// ============================================================================
+// PATTERN DIMENSION STATS — per-(patternId, dimension) Wilson score ledger
+// ============================================================================
+export const patternDimensionStats = pgTable("pattern_dimension_stats", {
+  id: serial("id").primaryKey(),
+  patternId: integer("pattern_id").notNull().references(() => learningPatterns.id, { onDelete: "cascade" }),
+  dimension: varchar("dimension", { length: 50 }).notNull(),
+  successes: integer("successes").notNull().default(0),
+  trials: integer("trials").notNull().default(0),
+  wilsonScore: integer("wilson_score").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  patternDimUnique: uniqueIndex("pattern_dimension_unique").on(t.patternId, t.dimension),
+  dimIdx: index("pattern_dimension_dim_idx").on(t.dimension),
+  wilsonIdx: index("pattern_dimension_wilson_idx").on(t.wilsonScore),
+}));
+
+export type PatternDimensionStat = typeof patternDimensionStats.$inferSelect;
+export type InsertPatternDimensionStat = typeof patternDimensionStats.$inferInsert;
+
+// ============================================================================
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

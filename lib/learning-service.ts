@@ -1,10 +1,12 @@
 import { db } from "./db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, sql, asc } from "drizzle-orm";
 import {
   learningAgents,
   learningPatterns,
+  patternDimensionStats,
   contentPerformanceMetrics,
   agentOptimizationLogs,
+  aiLearningLedger,
   ContentType,
 } from "../shared/schema";
 import {
@@ -25,6 +27,17 @@ import {
 
 const EMA_ALPHA = 0.1;
 const MIN_CONFIDENCE_SAMPLES = 5;
+const EPSILON = 0.15; // exploration fraction for epsilon-greedy
+
+// Wilson lower-bound (95% CI) — same formula as content-review-service
+function wilsonLowerBound(successes: number, trials: number, z = 1.96): number {
+  if (trials === 0) return 0;
+  const p = successes / trials;
+  const denom = 1 + (z * z) / trials;
+  const center = p + (z * z) / (2 * trials);
+  const margin = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * trials)) / trials);
+  return Math.max(0, Math.round(((center - margin) / denom) * 100));
+}
 
 export interface LearnedPattern {
   id: number;
@@ -40,6 +53,8 @@ export interface OptimizationContext {
   contentType: string;
   patterns: LearnedPattern[];
   promptEnhancements: string[];
+  negativeConstraints?: string[];
+  humanizationGuidelines?: string[];
   modelConfig: {
     model: string;
     temperature: number;
@@ -84,7 +99,7 @@ export class LearningService {
         name: "Podcast Script Agent",
         description: "Learns conversational patterns, pacing, and hooks for engaging audio content",
         primaryModel: GEMINI_FLASH_MODEL,
-        fallbackModel: TTS_MODEL,
+        fallbackModel: GPT_ENHANCEMENT_MODEL,
       },
       {
         contentType: ContentType.IMAGE,
@@ -165,28 +180,65 @@ export class LearningService {
       patternTypes?: string[];
     }
   ): Promise<OptimizationContext> {
-    let query = db
+    // Fetch ALL patterns for this agent — no confidence gate here.
+    // Seeded patterns start at confidence=0 but are still valid for exploration.
+    const allPatterns = await db
       .select()
       .from(learningPatterns)
+      .where(eq(learningPatterns.agentId, agent.id))
+      .limit(100);
+
+    if (allPatterns.length === 0) {
+      return {
+        agentId: agent.id,
+        contentType: agent.contentType,
+        patterns: [],
+        promptEnhancements: [],
+        negativeConstraints: [],
+        modelConfig: { model: agent.primaryModel, temperature: agent.temperature / 100 },
+      };
+    }
+
+    // Fetch engagement Wilson scores for all patterns
+    const patternIds = allPatterns.map(p => p.id);
+    const dimStats = await db
+      .select()
+      .from(patternDimensionStats)
       .where(
         and(
-          eq(learningPatterns.agentId, agent.id),
-          gte(learningPatterns.confidence, agent.confidenceThreshold)
+          eq(patternDimensionStats.dimension, "engagement"),
+          sql`${patternDimensionStats.patternId} = ANY(ARRAY[${sql.join(patternIds.map(id => sql`${id}`), sql`, `)}]::int[])`
         )
-      )
-      .orderBy(desc(learningPatterns.successRate))
-      .limit(20);
+      );
+    const wilsonById = new Map(dimStats.map(s => [s.patternId, s.wilsonScore]));
 
-    const patterns = await query;
+    // Separate patterns with Wilson data (proven) from untested ones (exploratory)
+    const proven = allPatterns.filter(p => wilsonById.has(p.id));
+    const untested = allPatterns.filter(p => !wilsonById.has(p.id));
 
-    const learnedPatterns: LearnedPattern[] = patterns.map((p) => ({
+    // Sort proven by Wilson score descending
+    proven.sort((a, b) => (wilsonById.get(b.id) ?? 0) - (wilsonById.get(a.id) ?? 0));
+
+    // Epsilon-greedy: 15% of slots go to random untested patterns for exploration
+    const totalSlots = 8;
+    const exploreSlots = Math.max(1, Math.round(totalSlots * EPSILON));
+    const exploitSlots = totalSlots - exploreSlots;
+
+    const exploited = proven.slice(0, exploitSlots);
+    const explored = untested.sort(() => Math.random() - 0.5).slice(0, exploreSlots);
+    const selected = [...exploited, ...explored];
+
+    const learnedPatterns: LearnedPattern[] = selected.map(p => ({
       id: p.id,
       patternType: p.patternType,
       patternName: p.patternName,
       patternValue: p.patternValue,
       successRate: p.successRate,
-      confidence: p.confidence,
+      confidence: wilsonById.has(p.id) ? (wilsonById.get(p.id) ?? p.confidence) : p.confidence,
     }));
+
+    // Collect negative constraints from error ledger
+    const negativeConstraints = await this.collectNegativeConstraints(agent.teamId!, agent.contentType);
 
     const promptEnhancements = this.buildPromptEnhancements(learnedPatterns);
 
@@ -195,6 +247,7 @@ export class LearningService {
       contentType: agent.contentType,
       patterns: learnedPatterns,
       promptEnhancements,
+      negativeConstraints,
       modelConfig: {
         model: agent.primaryModel,
         temperature: agent.temperature / 100,
@@ -202,9 +255,39 @@ export class LearningService {
     };
   }
 
+  private async collectNegativeConstraints(teamId: number, contentType: string): Promise<string[]> {
+    const NEGATIVE_MAP: Record<string, string> = {
+      "COMPLETENESS:TRUNCATED": "Finish every section. Never end mid-thought.",
+      "COMPLETENESS:UNANSWERED_BRIEF": "Answer every question stated in the brief.",
+      "COMPLETENESS:THIN_SECTION": "Each H2 section must have at least 120 words.",
+      "FACTUALITY:UNSUPPORTED_CLAIM": "Only state statistics you can ground in provided facts.",
+      "FACTUALITY:FAKE_CITATION": "Do not invent citations, URLs, or named sources.",
+      "STRUCTURE:MISSING_FAQ": "Always include a FAQ section with 3+ questions.",
+      "STRUCTURE:NO_ANSWER_FIRST": "Open with a direct answer containing the target keyword.",
+      "HUMANNESS:AI_ISMS": "Avoid AI-isms (leverage, dive into, it's worth noting).",
+      "HUMANNESS:LOW_BURSTINESS": "Vary sentence length sharply — mix short and long sentences.",
+      "CHANNEL:WEAK_HOOK": "Lead with a hook that engages in the first 3 seconds.",
+      "CHANNEL:NO_CTA": "End with a clear, natural call to action.",
+    };
+
+    try {
+      const rows = await db
+        .select()
+        .from(aiLearningLedger)
+        .where(and(eq(aiLearningLedger.teamId, teamId), eq(aiLearningLedger.contentType, contentType)))
+        .orderBy(desc(aiLearningLedger.count))
+        .limit(5);
+
+      return rows
+        .map(r => NEGATIVE_MAP[r.errorType])
+        .filter((v): v is string => Boolean(v));
+    } catch {
+      return [];
+    }
+  }
+
   private buildPromptEnhancements(patterns: LearnedPattern[]): string[] {
     const enhancements: string[] = [];
-
     const patternsByType = patterns.reduce((acc, p) => {
       if (!acc[p.patternType]) acc[p.patternType] = [];
       acc[p.patternType]!.push(p);
@@ -214,20 +297,14 @@ export class LearningService {
     for (const [type, typePatterns] of Object.entries(patternsByType)) {
       if (typePatterns.length > 0) {
         const topPattern = typePatterns[0]!;
-        const confidence = topPattern.confidence;
-        
-        if (confidence >= 70) {
-          enhancements.push(
-            `[LEARNED - ${type.toUpperCase()}] ${topPattern.patternValue} (${topPattern.successRate}% success rate)`
-          );
-        } else if (confidence >= 50) {
-          enhancements.push(
-            `[SUGGESTED - ${type.toUpperCase()}] Consider: ${topPattern.patternValue}`
-          );
-        }
+        const isProven = topPattern.confidence >= 50;
+        enhancements.push(
+          isProven
+            ? `[LEARNED - ${type.toUpperCase()}] ${topPattern.patternValue} (${topPattern.successRate}% success)`
+            : `[EXPLORING - ${type.toUpperCase()}] Try: ${topPattern.patternValue}`
+        );
       }
     }
-
     return enhancements;
   }
 
@@ -410,6 +487,7 @@ export class LearningService {
       .limit(1);
 
     if (!agent) throw new Error(`Agent ${agentId} not found`);
+    if (agent.teamId !== teamId) throw new Error(`Agent ${agentId} does not belong to team ${teamId}`);
 
     const [newPatternRow] = await db
       .insert(learningPatterns)

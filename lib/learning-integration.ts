@@ -42,26 +42,37 @@ export async function getPromptEnhancement(
     const userAdditions: string[] = [];
     const patternsUsed: number[] = [];
 
-    const highConfidencePatterns = context.patterns.filter(p => p.confidence >= 60);
-    
-    if (highConfidencePatterns.length > 0) {
+    // Use ALL patterns returned by the context (Wilson-ranked, epsilon-greedy selected).
+    // No confidence gate here — the gate was in buildOptimizationContext which
+    // already filtered/ranked them. Tracking every used pattern ID is critical
+    // so EMA/Wilson updates actually fire.
+    const topPatterns = context.patterns.slice(0, 5);
+    const suggestedPatterns = context.patterns.slice(5, 8);
+
+    if (topPatterns.length > 0) {
       systemAdditions.push("\n\n--- LEARNED OPTIMIZATION PATTERNS (Apply these for best results) ---");
-      
-      for (const pattern of highConfidencePatterns.slice(0, 5)) {
+      for (const pattern of topPatterns) {
         systemAdditions.push(`\n[${pattern.patternType.toUpperCase()}] ${pattern.patternValue}`);
         patternsUsed.push(pattern.id);
       }
-      
       systemAdditions.push("\n--- END LEARNED PATTERNS ---\n");
     }
 
-    const suggestedPatterns = context.patterns.filter(p => p.confidence >= 40 && p.confidence < 60);
     if (suggestedPatterns.length > 0) {
       userAdditions.push("\nConsider these suggested approaches:");
-      for (const pattern of suggestedPatterns.slice(0, 3)) {
+      for (const pattern of suggestedPatterns) {
         userAdditions.push(`- ${pattern.patternName}: ${pattern.patternValue}`);
         patternsUsed.push(pattern.id);
       }
+    }
+
+    // Add negative constraints — things the model must avoid based on past failures
+    if (context.negativeConstraints && context.negativeConstraints.length > 0) {
+      systemAdditions.push("\n\n--- QUALITY CONSTRAINTS (Avoid past failures) ---");
+      for (const c of context.negativeConstraints) {
+        systemAdditions.push(`\n• ${c}`);
+      }
+      systemAdditions.push("\n--- END CONSTRAINTS ---\n");
     }
 
     // Add humanization guidelines to system prompt

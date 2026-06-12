@@ -1,0 +1,344 @@
+import { db } from "./db";
+import { eq, and, gte, lt, desc, sql } from "drizzle-orm";
+import {
+  learningPatterns,
+  patternDimensionStats,
+  contentReviews,
+  contentPerformanceMetrics,
+  aiLearningLedger,
+} from "../shared/schema";
+import type { Dimension } from "./content-review-service";
+
+const ALL_DIMS: Dimension[] = ["completeness", "factuality", "structure", "humanness", "engagement"];
+
+// Drift fires when the recent-window average drops this many points below the
+// trailing baseline. Tunable — start conservative, tighten as you trust labels.
+const DRIFT_WARN_POINTS = 6;
+const MIN_WINDOW_SAMPLES = 10; // don't cry drift on a handful of reviews
+
+export class LearningMonitorService {
+  private static instance: LearningMonitorService;
+  static getInstance() {
+    if (!this.instance) this.instance = new LearningMonitorService();
+    return this.instance;
+  }
+
+  // ==========================================================================
+  // 1. PER-DIMENSION WILSON LEADERBOARD
+  //    What's actually working (and what to retire) for one dimension.
+  // ==========================================================================
+  async dimensionLeaderboard(
+    teamId: number,
+    dimension: Dimension,
+    opts: { minTrials?: number; limit?: number } = {}
+  ) {
+    const minTrials = opts.minTrials ?? 5;
+    const limit = opts.limit ?? 10;
+
+    const rows = await db
+      .select({
+        patternId: learningPatterns.id,
+        name: learningPatterns.patternName,
+        type: learningPatterns.patternType,
+        wilson: patternDimensionStats.wilsonScore,
+        successes: patternDimensionStats.successes,
+        trials: patternDimensionStats.trials,
+      })
+      .from(patternDimensionStats)
+      .innerJoin(learningPatterns, eq(learningPatterns.id, patternDimensionStats.patternId))
+      .where(
+        and(
+          eq(learningPatterns.teamId, teamId),
+          eq(patternDimensionStats.dimension, dimension),
+          gte(patternDimensionStats.trials, minTrials)
+        )
+      )
+      .orderBy(desc(patternDimensionStats.wilsonScore));
+
+    return {
+      dimension,
+      best: rows.slice(0, limit),
+      worst: rows.slice(-limit).reverse(), // retire candidates
+      proven: rows.length,
+    };
+  }
+
+  // ==========================================================================
+  // 2. DIMENSION DRIFT  ← the early-warning system
+  //    Recent-window avg vs trailing baseline, per dimension. A negative delta
+  //    means quality on that dimension is REGRESSING right now, before the
+  //    cumulative Wilson scores have caught up.
+  // ==========================================================================
+  async dimensionDrift(
+    teamId: number,
+    opts: { contentType?: string; recentDays?: number; baselineDays?: number } = {}
+  ) {
+    const recentDays = opts.recentDays ?? 7;
+    const baselineDays = opts.baselineDays ?? 28;
+    const ctFilter = opts.contentType ? eq(contentReviews.contentType, opts.contentType) : undefined;
+
+    const out = [];
+    for (const dim of ALL_DIMS) {
+      const numeric = sql<number>`avg((dimension_scores_json->>${dim})::numeric)`;
+      const cnt = sql<number>`count(*)`;
+
+      const [recent] = await db
+        .select({ avg: numeric, n: cnt })
+        .from(contentReviews)
+        .where(
+          and(
+            eq(contentReviews.teamId, teamId),
+            ctFilter,
+            gte(contentReviews.reviewedAt, sql`now() - (${recentDays} || ' days')::interval`)
+          )
+        );
+
+      const [baseline] = await db
+        .select({ avg: numeric, n: cnt })
+        .from(contentReviews)
+        .where(
+          and(
+            eq(contentReviews.teamId, teamId),
+            ctFilter,
+            gte(contentReviews.reviewedAt, sql`now() - (${baselineDays} || ' days')::interval`),
+            lt(contentReviews.reviewedAt, sql`now() - (${recentDays} || ' days')::interval`)
+          )
+        );
+
+      const recentAvg = Number(recent?.avg ?? 0);
+      const baselineAvg = Number(baseline?.avg ?? 0);
+      const delta = Math.round(recentAvg - baselineAvg);
+      const enoughData = Number(recent?.n ?? 0) >= MIN_WINDOW_SAMPLES;
+
+      out.push({
+        dimension: dim,
+        recentAvg: Math.round(recentAvg),
+        baselineAvg: Math.round(baselineAvg),
+        delta,
+        recentSamples: Number(recent?.n ?? 0),
+        drifting: enoughData && delta <= -DRIFT_WARN_POINTS,
+        note: !enoughData ? "insufficient recent data" : undefined,
+      });
+    }
+    return out;
+  }
+
+  // ==========================================================================
+  // 3. TOP RECURRING DEFECTS  (from your Guardian/review ledger)
+  //    What mistakes keep happening — these are your active [AVOID] constraints.
+  // ==========================================================================
+  async topDefects(teamId: number, opts: { contentType?: string; limit?: number } = {}) {
+    const limit = opts.limit ?? 10;
+    const rows = await db
+      .select()
+      .from(aiLearningLedger)
+      .where(
+        and(
+          eq(aiLearningLedger.teamId, teamId),
+          opts.contentType ? eq(aiLearningLedger.contentType, opts.contentType) : undefined
+        )
+      )
+      .orderBy(desc(aiLearningLedger.count))
+      .limit(limit);
+
+    const now = Date.now();
+    return rows.map((r) => ({
+      defect: r.errorType,
+      contentType: r.contentType,
+      count: r.count,
+      lastSeen: r.lastOccurrence,
+      // "active" = still happening; "stale" = constraint may have fixed it
+      status: now - new Date(r.lastOccurrence).getTime() < 7 * 86400_000 ? "active" : "stale",
+    }));
+  }
+
+  // ==========================================================================
+  // 4a. EXPLORE/EXPLOIT — no-instrumentation proxy
+  //     Healthy exploration = the "untouched" bucket shrinks over time as
+  //     patterns graduate to "exploring" then "proven". If untouched stays
+  //     stuck > 0 forever, your exploration slot isn't firing.
+  // ==========================================================================
+  async cohortReadiness(teamId: number, dimension: Dimension = "engagement") {
+    const rows = await db
+      .select({ trials: patternDimensionStats.trials })
+      .from(patternDimensionStats)
+      .innerJoin(learningPatterns, eq(learningPatterns.id, patternDimensionStats.patternId))
+      .where(
+        and(eq(learningPatterns.teamId, teamId), eq(patternDimensionStats.dimension, dimension))
+      );
+
+    // total patterns for this team (some may have zero stats rows = untouched)
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(learningPatterns)
+      .where(eq(learningPatterns.teamId, teamId));
+
+    const exploring = rows.filter((r) => r.trials >= 1 && r.trials < 5).length;
+    const proven = rows.filter((r) => r.trials >= 5).length;
+    const touched = rows.length;
+    const untouched = Number(total) - touched;
+
+    return { dimension, untouched, exploring, proven, total: Number(total) };
+  }
+
+  // 4b. EXPLORE/EXPLOIT — instrumented (recommended). Requires logging each
+  //     selection. Add a tiny table + 2 lines in buildOptimizationContext:
+  //
+  //     patternSelections: id, teamId, patternId, mode('exploit'|'explore'), createdAt
+  //
+  //     // in buildOptimizationContext, when you push a proven pattern:
+  //     selectionLog.push({ patternId, mode: 'exploit' });
+  //     // when the exploration slot injects one:
+  //     selectionLog.push({ patternId, mode: 'explore' });
+  //     await db.insert(patternSelections).values(selectionLog.map(s => ({ ...s, teamId })));
+  //
+  //     Then this gives you the true ratio over time:
+  async exploreExploitRatio(teamId: number, days = 7) {
+    // Uncomment once patternSelections exists:
+    // const rows = await db.select({ mode: patternSelections.mode, n: sql<number>`count(*)` })
+    //   .from(patternSelections)
+    //   .where(and(eq(patternSelections.teamId, teamId),
+    //              gte(patternSelections.createdAt, sql`now() - (${days} || ' days')::interval`)))
+    //   .groupBy(patternSelections.mode);
+    // const explore = Number(rows.find(r => r.mode === 'explore')?.n ?? 0);
+    // const exploit = Number(rows.find(r => r.mode === 'exploit')?.n ?? 0);
+    // return { explore, exploit, exploreRate: explore / Math.max(explore + exploit, 1) };
+    return { note: "enable patternSelections logging (see 4b comment) to populate" };
+  }
+
+  // ==========================================================================
+  // 5. PATTERN-LEVEL DRIFT (engagement)  ← catch a single hook going bad
+  //    Recent real-engagement success rate vs lifetime Wilson, per pattern.
+  //    Big negative gap = this pattern is degrading even if its lifetime
+  //    score still looks fine. Uses metrics (engagement's authoritative source).
+  // ==========================================================================
+  async enginePatternDrift(teamId: number, opts: { recentDays?: number; minRecent?: number } = {}) {
+    const recentDays = opts.recentDays ?? 14;
+    const minRecent = opts.minRecent ?? 4;
+
+    // Recent labeled metrics (isSuccess set by the engagement labeler) in window
+    const recent = await db
+      .select({
+        patternsUsedJson: contentPerformanceMetrics.patternsUsedJson,
+        isSuccess: contentPerformanceMetrics.isSuccess,
+      })
+      .from(contentPerformanceMetrics)
+      .where(
+        and(
+          eq(contentPerformanceMetrics.teamId, teamId),
+          sql`${contentPerformanceMetrics.isSuccess} is not null`,
+          gte(contentPerformanceMetrics.updatedAt, sql`now() - (${recentDays} || ' days')::interval`)
+        )
+      );
+
+    // Tally recent outcomes per pattern
+    const tally = new Map<number, { s: number; n: number }>();
+    for (const m of recent) {
+      const ids = (m.patternsUsedJson as number[]) || [];
+      for (const id of ids) {
+        const t = tally.get(id) ?? { s: 0, n: 0 };
+        t.s += m.isSuccess === 1 ? 1 : 0;
+        t.n += 1;
+        tally.set(id, t);
+      }
+    }
+
+    // Compare to lifetime engagement Wilson
+    const ids = [...tally.keys()].filter((id) => (tally.get(id)!.n) >= minRecent);
+    if (ids.length === 0) return [];
+
+    const lifetime = await db
+      .select({
+        patternId: patternDimensionStats.patternId,
+        wilson: patternDimensionStats.wilsonScore,
+        name: learningPatterns.patternName,
+      })
+      .from(patternDimensionStats)
+      .innerJoin(learningPatterns, eq(learningPatterns.id, patternDimensionStats.patternId))
+      .where(
+        and(
+          eq(patternDimensionStats.dimension, "engagement"),
+          sql`${patternDimensionStats.patternId} in (${sql.join(ids, sql`, `)})`
+        )
+      );
+
+    return lifetime
+      .map((l) => {
+        const t = tally.get(l.patternId)!;
+        const recentRate = Math.round((t.s / t.n) * 100);
+        return {
+          patternId: l.patternId,
+          name: l.name,
+          lifetimeWilson: l.wilson,
+          recentRate,
+          recentSamples: t.n,
+          gap: recentRate - l.wilson, // strongly negative = drifting down
+          drifting: recentRate - l.wilson <= -15,
+        };
+      })
+      .sort((a, b) => a.gap - b.gap); // worst drift first
+  }
+
+  // ==========================================================================
+  // 6. ONE-CALL DASHBOARD SNAPSHOT
+  // ==========================================================================
+  async snapshot(teamId: number, contentType?: string) {
+    const [drift, defects, readiness, engineDrift, ...boards] = await Promise.all([
+      this.dimensionDrift(teamId, { contentType }),
+      this.topDefects(teamId, { contentType }),
+      this.cohortReadiness(teamId),
+      this.enginePatternDrift(teamId),
+      ...ALL_DIMS.map((d) => this.dimensionLeaderboard(teamId, d, { limit: 5 })),
+    ]);
+
+    const alerts: string[] = [];
+    drift.filter((d) => d.drifting).forEach((d) =>
+      alerts.push(`⚠️ ${d.dimension} drifting ${d.delta} pts (${d.recentAvg} vs ${d.baselineAvg})`)
+    );
+    engineDrift.filter((p) => p.drifting).forEach((p) =>
+      alerts.push(`⚠️ pattern "${p.name}" engagement dropped ${p.gap} pts vs lifetime`)
+    );
+    if (readiness.untouched > 0 && readiness.exploring === 0)
+      alerts.push(`⚠️ ${readiness.untouched} patterns never tried — exploration may be off`);
+
+    return { alerts, drift, leaderboards: boards, topDefects: defects, readiness, engineDrift };
+  }
+}
+
+export const learningMonitorService = LearningMonitorService.getInstance();
+
+/* ----------------------------------------------------------------------------
+RAW SQL (for a BI tool / SQL console, if you'd rather not call the service):
+
+-- Leaderboard: best engagement patterns (proven only)
+SELECT p.pattern_name, p.pattern_type, s.wilson_score, s.successes, s.trials
+FROM pattern_dimension_stats s
+JOIN learning_patterns p ON p.id = s.pattern_id
+WHERE p.team_id = $1 AND s.dimension = 'engagement' AND s.trials >= 5
+ORDER BY s.wilson_score DESC LIMIT 10;
+
+-- Dimension drift: this week vs prior 4 weeks
+SELECT
+  avg((dimension_scores_json->>'completeness')::numeric)
+    FILTER (WHERE reviewed_at >= now() - interval '7 days')  AS recent,
+  avg((dimension_scores_json->>'completeness')::numeric)
+    FILTER (WHERE reviewed_at <  now() - interval '7 days'
+            AND reviewed_at >= now() - interval '35 days')    AS baseline
+FROM content_reviews WHERE team_id = $1;
+
+-- Active recurring defects
+SELECT error_type, content_type, count, last_occurrence
+FROM ai_learning_ledger
+WHERE team_id = $1 AND last_occurrence >= now() - interval '7 days'
+ORDER BY count DESC LIMIT 10;
+
+-- Cohort readiness (explore proxy): pattern trial distribution
+SELECT
+  count(*) FILTER (WHERE s.trials = 0)              AS untouched,
+  count(*) FILTER (WHERE s.trials BETWEEN 1 AND 4)  AS exploring,
+  count(*) FILTER (WHERE s.trials >= 5)             AS proven
+FROM learning_patterns p
+LEFT JOIN pattern_dimension_stats s
+  ON s.pattern_id = p.id AND s.dimension = 'engagement'
+WHERE p.team_id = $1;
+---------------------------------------------------------------------------- */

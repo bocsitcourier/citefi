@@ -1,0 +1,277 @@
+import { db } from "./db";
+import { eq, and, lte, isNull, inArray } from "drizzle-orm";
+import {
+  contentPerformanceMetrics,
+  patternDimensionStats,
+  ContentType,
+} from "../shared/schema";
+import { wilsonLowerBound } from "./content-review-service";
+
+// ============================================================================
+// CONFIG — every number here is a TUNABLE STARTING POINT, not gospel.
+// Calibrate against your own data before trusting the labels (see notes).
+// ============================================================================
+
+// How long content must age before its engagement is trustworthy.
+// Social peaks in hours; blog/SEO accrues over months (14d is an EARLY read —
+// see caveat on slow-burn SEO winners).
+const MATURITY_HOURS: Record<string, number> = {
+  [ContentType.SOCIAL]: 72,    // 3 days
+  [ContentType.VIDEO]: 168,    // 7 days
+  [ContentType.PODCAST]: 336,  // 14 days
+  [ContentType.ARTICLE]: 336,  // 14 days (preliminary; consider re-label at 60d)
+};
+
+// Minimum reach (views/impressions) required to label at all.
+// Below this it's a DISTRIBUTION problem, not a content-quality signal —
+// you can't blame the writing if almost nobody saw it.
+const MIN_REACH: Record<string, number> = {
+  [ContentType.SOCIAL]: 500,
+  [ContentType.VIDEO]: 200,
+  [ContentType.PODCAST]: 100,
+  [ContentType.ARTICLE]: 100,
+};
+
+// Composite component weights per channel. QUALITY (dwell, shares, comments)
+// is weighted OVER vanity (raw views) on purpose — this is your anti-clickbait
+// guardrail. Reweighting toward reach will teach the system to bait clicks.
+type Weights = { engagementRate: number; dwell: number; bounce: number; shareRate: number };
+const CHANNEL_WEIGHTS: Record<string, Weights> = {
+  [ContentType.ARTICLE]: { engagementRate: 0.20, dwell: 0.40, bounce: 0.25, shareRate: 0.15 },
+  [ContentType.SOCIAL]:  { engagementRate: 0.45, dwell: 0.00, bounce: 0.00, shareRate: 0.55 },
+  [ContentType.VIDEO]:   { engagementRate: 0.30, dwell: 0.45, bounce: 0.05, shareRate: 0.20 },
+  [ContentType.PODCAST]: { engagementRate: 0.30, dwell: 0.55, bounce: 0.00, shareRate: 0.15 },
+};
+
+// Composite thresholds (0..1). Middle band is left UNLABELED on purpose —
+// forcing a label on ambiguous content just injects noise into the learner.
+const SUCCESS_CUTOFF = 0.62;
+const FAIL_CUTOFF = 0.35;
+
+// Need a big enough cohort to percentile-rank meaningfully.
+const MIN_COHORT = 8;
+
+// ============================================================================
+// Percentile-rank a list of values to 0..1 (robust to scale & outliers).
+// We rank each metric component this way so wildly different units
+// (seconds vs ratios) become comparable before weighting.
+// ============================================================================
+function toPercentiles(values: number[]): number[] {
+  const n = values.length;
+  if (n === 0) return [];
+  if (n === 1) return [1];
+  const order = values.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+  const pct = new Array(n).fill(0);
+  order.forEach((item, rank) => { pct[item.i] = rank / (n - 1); });
+  return pct;
+}
+
+interface MetricRow {
+  id: number;
+  views: number | null;
+  clicks: number | null;
+  shares: number | null;
+  likes: number | null;
+  comments: number | null;
+  timeOnPage: number | null;
+  bounceRate: number | null;
+  patternsUsedJson: unknown;
+}
+
+interface RawComponents {
+  engagementRate: number; // active engagements / reach
+  dwell: number;          // timeOnPage proxy for retention
+  bounceQuality: number;  // 1 - bounceRate (inverse: lower bounce = better)
+  shareRate: number;      // shares / reach (amplification)
+}
+
+export class EngagementScoringService {
+  private static instance: EngagementScoringService;
+  static getInstance() {
+    if (!this.instance) this.instance = new EngagementScoringService();
+    return this.instance;
+  }
+
+  // ==========================================================================
+  // MAIN BATCH: label all matured, sufficiently-distributed, unlabeled content
+  // for a team+channel using REAL engagement. Idempotent — only touches rows
+  // where isSuccess IS NULL. Schedule this daily per content type.
+  // ==========================================================================
+  async labelMaturedContent(
+    teamId: number,
+    contentType: string
+  ): Promise<{
+    cohort: number;
+    labeledSuccess: number;
+    labeledFail: number;
+    skippedAmbiguous: number;
+    skippedLowReach: number;
+  }> {
+    const maturityHrs = MATURITY_HOURS[contentType] ?? 168;
+    const minReach = MIN_REACH[contentType] ?? 100;
+    const weights = CHANNEL_WEIGHTS[contentType] ?? CHANNEL_WEIGHTS[ContentType.ARTICLE]!;
+    const cutoff = new Date(Date.now() - maturityHrs * 3600_000);
+
+    // 1. Pull matured + still-unlabeled metrics for this channel.
+    const rows = (await db
+      .select()
+      .from(contentPerformanceMetrics)
+      .where(
+        and(
+          eq(contentPerformanceMetrics.teamId, teamId),
+          eq(contentPerformanceMetrics.contentType, contentType),
+          isNull(contentPerformanceMetrics.isSuccess),
+          lte(contentPerformanceMetrics.createdAt, cutoff)
+        )
+      )) as unknown as MetricRow[];
+
+    // 2. Gate on reach — drop low-distribution pieces (NOT a content signal).
+    const reachOf = (m: MetricRow) => m.views ?? 0;
+    const distributed = rows.filter((m) => reachOf(m) >= minReach);
+    const skippedLowReach = rows.length - distributed.length;
+
+    if (distributed.length < MIN_COHORT) {
+      console.log(
+        `📉 [Engagement] ${contentType}: only ${distributed.length} matured pieces with reach ≥ ${minReach} (need ${MIN_COHORT}) — waiting for more data`
+      );
+      return { cohort: distributed.length, labeledSuccess: 0, labeledFail: 0, skippedAmbiguous: 0, skippedLowReach };
+    }
+
+    // 3. Compute raw components, then percentile-rank each across the cohort.
+    const comps = distributed.map((m) => this.rawComponents(m));
+    const pERate = toPercentiles(comps.map((c) => c.engagementRate));
+    const pDwell = toPercentiles(comps.map((c) => c.dwell));
+    const pBounce = toPercentiles(comps.map((c) => c.bounceQuality));
+    const pShare = toPercentiles(comps.map((c) => c.shareRate));
+
+    // 4. Weighted composite per piece (already on a 0..1 comparable scale).
+    let labeledSuccess = 0, labeledFail = 0, skippedAmbiguous = 0;
+
+    for (let i = 0; i < distributed.length; i++) {
+      const composite =
+        weights.engagementRate * pERate[i] +
+        weights.dwell * pDwell[i] +
+        weights.bounce * pBounce[i] +
+        weights.shareRate * pShare[i];
+
+      let success: boolean | null = null;
+      if (composite >= SUCCESS_CUTOFF) success = true;
+      else if (composite <= FAIL_CUTOFF) success = false;
+      // middle band → leave NULL, revisit next run as more data lands
+
+      if (success === null) { skippedAmbiguous++; continue; }
+
+      const m = distributed[i]!;
+      const reason = `engagement composite ${composite.toFixed(2)} (reach ${reachOf(m)})`;
+
+      // 5a. Set isSuccess for your existing dashboards / optimizeAgent aggregation.
+      await db
+        .update(contentPerformanceMetrics)
+        .set({ isSuccess: success ? 1 : 0, successReason: reason, updatedAt: new Date() })
+        .where(eq(contentPerformanceMetrics.id, m.id));
+
+      // 5b. Attribute the REAL outcome to the engagement dimension (authoritative).
+      const patternIds = (m.patternsUsedJson as number[]) || [];
+      await this.attributeEngagement(patternIds, success);
+
+      if (success) labeledSuccess++; else labeledFail++;
+    }
+
+    console.log(
+      `📊 [Engagement] ${contentType}: ${labeledSuccess} success / ${labeledFail} fail / ${skippedAmbiguous} ambiguous (cohort ${distributed.length})`
+    );
+    return { cohort: distributed.length, labeledSuccess, labeledFail, skippedAmbiguous, skippedLowReach };
+  }
+
+  // ==========================================================================
+  // Raw engagement components from the fields you already record.
+  // ==========================================================================
+  private rawComponents(m: MetricRow): RawComponents {
+    const reach = Math.max(m.views ?? 0, 1);
+    // Active engagements weight amplification (shares) and conversation
+    // (comments) above passive likes/clicks.
+    const active =
+      (m.shares ?? 0) * 3 +
+      (m.comments ?? 0) * 2 +
+      (m.likes ?? 0) * 1 +
+      (m.clicks ?? 0) * 1;
+
+    return {
+      engagementRate: active / reach,
+      dwell: m.timeOnPage ?? 0,
+      // bounceRate may be stored 0..1 or 0..100; normalize both.
+      bounceQuality: 1 - Math.min((m.bounceRate ?? 0) > 1 ? (m.bounceRate ?? 0) / 100 : (m.bounceRate ?? 0), 1),
+      shareRate: (m.shares ?? 0) / reach,
+    };
+  }
+
+  // ==========================================================================
+  // Upsert the engagement-dimension Wilson stat for each pattern that was used.
+  // Shares the same table the ContentReviewService writes its other 4
+  // dimensions to — but engagement is owned exclusively by REAL data here.
+  // ==========================================================================
+  private async attributeEngagement(patternIds: number[], success: boolean): Promise<void> {
+    if (patternIds.length === 0) return;
+
+    const existing = await db
+      .select()
+      .from(patternDimensionStats)
+      .where(
+        and(
+          inArray(patternDimensionStats.patternId, patternIds),
+          eq(patternDimensionStats.dimension, "engagement")
+        )
+      );
+    const byPattern = new Map(existing.map((s) => [s.patternId, s]));
+
+    for (const pid of patternIds) {
+      const stat = byPattern.get(pid);
+      const successes = (stat?.successes ?? 0) + (success ? 1 : 0);
+      const trials = (stat?.trials ?? 0) + 1;
+      const wilson = wilsonLowerBound(successes, trials);
+
+      if (stat) {
+        await db
+          .update(patternDimensionStats)
+          .set({ successes, trials, wilsonScore: wilson, updatedAt: new Date() })
+          .where(eq(patternDimensionStats.id, stat.id));
+      } else {
+        await db.insert(patternDimensionStats).values({
+          patternId: pid,
+          dimension: "engagement",
+          successes,
+          trials,
+          wilsonScore: wilson,
+          updatedAt: new Date(),
+        });
+      }
+    }
+  }
+}
+
+export const engagementScoringService = EngagementScoringService.getInstance();
+
+/* ----------------------------------------------------------------------------
+SCHEDULE (pg-boss, in your worker process):
+
+  boss.work("label-engagement", async () => {
+    for (const teamId of await getActiveTeamIds()) {
+      for (const ct of [ContentType.ARTICLE, ContentType.SOCIAL,
+                        ContentType.VIDEO, ContentType.PODCAST]) {
+        await engagementScoringService.labelMaturedContent(teamId, ct);
+      }
+    }
+  });
+  await boss.schedule("label-engagement", "0 */6 * * *"); // every 6h
+
+WHY THIS NEEDS NO RANKING CHANGES:
+  buildOptimizationContext already ranks engagement-governed patterns (hook,
+  cta, pacing, ...) by their "engagement" Wilson score. Once this labeler
+  populates that dimension from REAL data, your hooks/CTAs are automatically
+  ranked by how they actually performed — not by the judge's guess.
+
+RECONCILING THE LEGACY PATH:
+  Setting isSuccess still feeds your old updatePatternWithEMA via optimizeAgent.
+  That path updates the now-vestigial single `successRate`. Harmless during
+  transition; retire it once you trust the Wilson dimension stats.
+---------------------------------------------------------------------------- */

@@ -32,6 +32,7 @@ import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
+import { recordContentGenerated } from "./learning-integration";
 import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
@@ -1156,13 +1157,13 @@ export async function registerWorkers() {
         try {
           const articleTeamId = currentArticle?.teamId;
           if (articleTeamId) {
-            await learningService.recordContentGeneration(
+            const patternsUsed = (currentArticle as any)._patternsUsed as number[] | undefined;
+            await recordContentGenerated(
               articleTeamId,
-              1, // Article Optimization Agent ID
               ContentType.ARTICLE,
               articleId,
-              [], // patterns used (would come from prompt enhancement if available)
-              80 // default quality score - will be updated based on engagement
+              patternsUsed || [],
+              80 // default quality score - updated by engagement labeler
             );
             console.log(`📊 Recorded article generation for AI Learning`);
           }
@@ -1760,6 +1761,36 @@ export async function registerWorkers() {
       console.log(`⏱️ Recurring video orphan sweeper registered (runs every 2 min)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register recurring sweeper (non-fatal):`, (scheduleErr as Error).message);
+    }
+
+    // ENGAGEMENT SCORING SCHEDULER: every 6h, label matured content and update Wilson scores
+    try {
+      const ENGAGEMENT_QUEUE = "engagement-scoring";
+      try { await boss.createQueue(ENGAGEMENT_QUEUE); } catch (_) { /* already exists */ }
+      await boss.schedule(ENGAGEMENT_QUEUE, "0 */6 * * *", {});
+      await boss.work<Record<string, never>>(ENGAGEMENT_QUEUE, async (_jobs) => {
+        try {
+          const { engagementScoringService } = await import("./engagement-scoring-service");
+          const { db: _db } = await import("./db");
+          const { teams } = await import("../shared/schema");
+          const { ContentType } = await import("../shared/schema");
+          const allTeams = await _db.select({ id: teams.id }).from(teams);
+          const contentTypes = [ContentType.ARTICLE, ContentType.SOCIAL, ContentType.VIDEO, ContentType.PODCAST];
+          for (const team of allTeams) {
+            for (const ct of contentTypes) {
+              await engagementScoringService.labelMaturedContent(team.id, ct).catch(e =>
+                console.warn(`⚠️ Engagement scoring failed for team ${team.id} ${ct}:`, (e as Error).message)
+              );
+            }
+          }
+          console.log(`✅ Engagement scoring sweep done for ${allTeams.length} teams`);
+        } catch (e) {
+          console.error(`🚨 Engagement scoring job failed:`, (e as Error).message);
+        }
+      });
+      console.log(`⏱️ Engagement scoring scheduler registered (every 6h)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register engagement scoring scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
     await boss.work<SocialVideoJobData>(

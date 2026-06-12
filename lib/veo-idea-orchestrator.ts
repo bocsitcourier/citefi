@@ -5,6 +5,7 @@ import { expandVideoIdea, VideoIdeaInput, ExpandedVideoConcept } from "./veo-ide
 import { generateIdeaVideoScript, IdeaVideoScript } from "./veo-idea-script-generator";
 import { generateVideoFromScript, generateIdeaVideoSlideshow } from "./veo-social-video-generator";
 import { learningService } from "./learning-service";
+import { recordContentGenerated } from "./learning-integration";
 
 export interface VideoIdeaOrchestrationRequest {
   videoIdeaId: number;
@@ -207,13 +208,12 @@ export async function orchestrateVideoIdeaGeneration(
         .limit(1);
       
       if (idea?.teamId) {
-        await learningService.recordContentGeneration(
+        await recordContentGenerated(
           idea.teamId,
-          2, // Video Script Agent ID
           ContentType.VIDEO,
           videoIdeaId,
-          [], // patterns used
-          80 // default quality score
+          [],
+          80
         );
         console.log(`📊 Recorded video generation for AI Learning`);
       }

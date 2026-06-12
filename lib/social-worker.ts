@@ -16,6 +16,7 @@ import type { SocialPostJobData } from "./queue";
 import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
+import { recordContentGenerated } from "./learning-integration";
 
 // Platform character limits
 const CHAR_LIMITS = {
@@ -474,13 +475,12 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
     // Record generation for AI Learning System
     try {
       if (postDetails?.teamId) {
-        await learningService.recordContentGeneration(
+        await recordContentGenerated(
           postDetails.teamId,
-          3, // Social Media Agent ID
           ContentType.SOCIAL,
           socialPostId,
-          [], // patterns used
-          80 // default quality score
+          [],
+          80
         );
         console.log(`📊 Recorded social post generation for AI Learning`);
       }

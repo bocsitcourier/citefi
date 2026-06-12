@@ -1,0 +1,254 @@
+import { learningService } from "./learning-service";
+import { contentReviewService } from "./content-review-service";
+import { db } from "./db";
+import { ContentType } from "../shared/schema";
+
+// Defects the agent can fix by REVISING. Factuality defects are NOT here —
+// re-asking a model to "fix" a hallucination often just hallucinates again,
+// so those get stripped/flagged for human review instead (see handleFactuality).
+const REPAIRABLE = new Set<string>([
+  "completeness:truncated", "completeness:missing_section", "completeness:thin_section",
+  "completeness:unanswered_brief", "structure:no_answer_first", "structure:bad_headings",
+  "structure:missing_faq", "structure:missing_schema", "humanness:ai_isms",
+  "humanness:low_burstiness", "humanness:repetitive_openings",
+  "channel:weak_hook", "channel:no_cta", "channel:no_pacing_markers",
+]);
+
+const MAX_REPAIRS = 2;        // bound the critic-in-the-loop (cost control)
+const MAX_INJECTED_PATTERNS = 8; // cap prompt injection — more dilutes & conflicts
+
+interface Brief {
+  topic: string;
+  location?: string;
+  keyword?: string;
+  targetWords?: number;
+  questions?: string[];
+}
+
+interface GenResult {
+  content: string;
+  status: "ready" | "needs_human";
+  patternsInjected: number[];
+  metricId: number;
+  qualityScore: number;
+  review: Awaited<ReturnType<typeof contentReviewService.reviewContent>>;
+}
+
+export class OptimizedContentGenerator {
+  private static instance: OptimizedContentGenerator;
+  static getInstance() {
+    if (!this.instance) this.instance = new OptimizedContentGenerator();
+    return this.instance;
+  }
+
+  // ==========================================================================
+  // THE WRAP: learned context in -> supervised generation -> recorded outcome
+  // ==========================================================================
+  async generate(teamId: number, contentType: string, brief: Brief): Promise<GenResult> {
+    // ───── INJECTION POINT 1: PRE — assemble everything the agent has learned ─────
+    const ctx = await learningService.getOptimizationContext(teamId, contentType, {
+      // optionally bias ranking toward the dimension this piece most needs,
+      // e.g. priorityDimension: "engagement" for a social hook test
+    });
+    if (!ctx) throw new Error(`No learning agent for ${contentType}`);
+
+    const injectedPatterns = ctx.patterns.slice(0, MAX_INJECTED_PATTERNS);
+    const exemplars = await this.retrieveExemplars(teamId, contentType, brief);
+    const prompt = this.assemblePrompt(brief, ctx.promptEnhancements, injectedPatterns, exemplars);
+
+    // ───── Generate with the AGENT-SELECTED model + temperature ─────
+    let content = await this.callModel(
+      ctx.modelConfig.model,
+      prompt,
+      ctx.modelConfig.temperature
+    );
+
+    // ───── INJECTION POINT 2: DURING — critic-in-the-loop repair ─────
+    let review = await contentReviewService.reviewContent(
+      teamId, 0 /* temp id; real id assigned after persist */, contentType, content, brief,
+      { useJudge: true }
+    );
+
+    let repairs = 0;
+    while (!review.passed && repairs < MAX_REPAIRS) {
+      const fixable = review.defects.filter((d) => REPAIRABLE.has(d.code));
+      const factual = review.defects.filter((d) => d.dim === "factuality");
+
+      // Unsupported claims aren't "repaired" by re-asking — strip/flag them.
+      if (factual.length > 0) content = this.handleFactuality(content, factual);
+
+      if (fixable.length === 0) break; // nothing left we can safely auto-fix
+      content = await this.repair(content, fixable, brief, ctx.modelConfig);
+      review = await contentReviewService.reviewContent(teamId, 0, contentType, content, brief, { useJudge: true });
+      repairs++;
+      console.log(`🔧 Repair pass ${repairs}: ${fixable.length} defects addressed`);
+    }
+
+    // ───── INJECTION POINT 3: POST — persist + RECORD which patterns were used ─────
+    // (This is what makes injection a closed loop. Skip it and the engagement
+    //  labeler + review attribution have nothing to credit/blame.)
+    const contentId = await this.persistContent(teamId, contentType, brief, content);
+    const qualityScore = Math.round(
+      Object.values(review.dimensionScores).reduce((a, b) => a + b, 0) / 5
+    );
+
+    const metricId = await learningService.recordContentGeneration(
+      teamId,
+      ctx.agentId,
+      contentType,
+      contentId,
+      injectedPatterns.map((p) => p.id), // EXACT patterns injected == patterns scored
+      qualityScore
+    );
+
+    // Gate: clean drafts ship; defective ones go to a human queue, not live.
+    const status: GenResult["status"] = review.passed ? "ready" : "needs_human";
+    console.log(`✅ Generated ${contentType} (${status}) — quality ${qualityScore}, ${repairs} repairs`);
+
+    return {
+      content,
+      status,
+      patternsInjected: injectedPatterns.map((p) => p.id),
+      metricId,
+      qualityScore,
+      review,
+    };
+  }
+
+  // ==========================================================================
+  // PROMPT ASSEMBLY — weave learned knowledge into the instruction
+  // ==========================================================================
+  private assemblePrompt(
+    brief: Brief,
+    enhancements: string[],
+    patterns: { patternType: string; patternName: string; patternValue: string }[],
+    exemplars: string[]
+  ): string {
+    // [LEARNED] / [SUGGESTED] / [AVOID] lines already come pre-formatted from
+    // the LearningService (buildPromptEnhancements + negative constraints).
+    const learned = enhancements.length
+      ? `LEARNED GUIDANCE (apply these — ranked by proven performance):\n${enhancements.join("\n")}`
+      : "";
+
+    const playbook = patterns.length
+      ? `PROVEN TACTICS:\n${patterns.map((p) => `• [${p.patternType}] ${p.patternValue}`).join("\n")}`
+      : "";
+
+    // The single biggest lever for "human" output: show real past winners.
+    const examples = exemplars.length
+      ? `EXAMPLES OF YOUR BEST PAST WORK (match this quality & voice, don't copy):\n${exemplars
+          .map((ex, i) => `--- Example ${i + 1} ---\n${ex}`)
+          .join("\n\n")}`
+      : "";
+
+    return [
+      `Write a ${brief.targetWords ?? 2000}-word piece.`,
+      `TOPIC: ${brief.topic}`,
+      brief.location ? `LOCATION: ${brief.location}` : "",
+      brief.keyword ? `PRIMARY KEYWORD: ${brief.keyword}` : "",
+      brief.questions?.length ? `MUST ANSWER:\n${brief.questions.map((q) => `- ${q}`).join("\n")}` : "",
+      "",
+      learned,
+      "",
+      playbook,
+      "",
+      examples,
+      "",
+      "Output clean semantic HTML. Finish every section.",
+    ].filter(Boolean).join("\n");
+  }
+
+  // ==========================================================================
+  // REPAIR — targeted revision for the specific defects found
+  // ==========================================================================
+  private async repair(
+    content: string,
+    defects: { code: string; evidence: string }[],
+    brief: Brief,
+    modelConfig: { model: string; temperature: number }
+  ): Promise<string> {
+    const instructions = defects.map((d) => this.defectToInstruction(d)).join("\n");
+    const prompt = `Revise the following content. Fix ONLY these issues, keep everything else intact:
+${instructions}
+
+CONTENT:
+${content}
+
+Return the full corrected HTML.`;
+    // Slightly lower temperature for repairs — we want compliance, not creativity.
+    return this.callModel(modelConfig.model, prompt, Math.max(0.2, modelConfig.temperature - 0.2));
+  }
+
+  private defectToInstruction(d: { code: string; evidence: string }): string {
+    const MAP: Record<string, string> = {
+      "completeness:truncated": "The content is cut off — complete the final section properly.",
+      "completeness:missing_section": "A required section is missing — add it.",
+      "completeness:thin_section": "Some sections are too thin — expand them to substantive depth.",
+      "completeness:unanswered_brief": `An assigned question wasn't answered: ${d.evidence}`,
+      "structure:no_answer_first": "Open with a direct answer containing the keyword in the first 80 words.",
+      "structure:missing_faq": "Add an FAQ section with 6-8 natural questions.",
+      "structure:missing_schema": "Add JSON-LD structured data.",
+      "humanness:ai_isms": "Remove AI-isms (leverage, dive into, in today's world, it's worth noting).",
+      "humanness:low_burstiness": "Vary sentence length — mix short punchy lines with longer ones.",
+      "humanness:repetitive_openings": "Vary how sentences begin; avoid repeated openers.",
+      "channel:weak_hook": "Strengthen the opening hook so it lands in the first 3 seconds.",
+      "channel:no_cta": "Add a clear, natural call to action.",
+    };
+    return `- ${MAP[d.code] ?? d.code}`;
+  }
+
+  // Strip/flag unsupported claims rather than blindly regenerating them.
+  private handleFactuality(content: string, factual: { evidence: string }[]): string {
+    let out = content;
+    for (const f of factual) {
+      // Conservative: wrap the unverifiable claim so a human reviewer sees it,
+      // rather than silently deleting or re-rolling it into a new hallucination.
+      if (f.evidence) out = out.replace(f.evidence, `<mark data-unverified="true">${f.evidence}</mark>`);
+    }
+    console.warn(`⚠️ ${factual.length} unverifiable claim(s) flagged for human review`);
+    return out;
+  }
+
+  // ==========================================================================
+  // EXEMPLAR RETRIEVAL — your real past winners, by similarity to this brief
+  // (the "always remembers" piece becoming concrete in the prompt)
+  // ==========================================================================
+  private async retrieveExemplars(
+    _teamId: number, _contentType: string, _brief: Brief
+  ): Promise<string[]> {
+    // TODO: embed the brief, vector-search your generationMemory for the top
+    // 1-3 defect-free, high-engagement past pieces on similar topics, and
+    // return trimmed excerpts. Cap total tokens — exemplars are expensive.
+    return [];
+  }
+
+  // ── wiring stubs (connect to your existing layers) ──
+  private async callModel(_model: string, _prompt: string, _temperature: number): Promise<string> {
+    throw new Error("wire callModel to your gemini/openai layer");
+  }
+  private async persistContent(
+    _teamId: number, _contentType: string, _brief: Brief, _content: string
+  ): Promise<number> {
+    throw new Error("wire persistContent to your articles/socialPosts insert; return the new id");
+  }
+}
+
+export const optimizedContentGenerator = OptimizedContentGenerator.getInstance();
+
+/* ----------------------------------------------------------------------------
+WHERE THIS SITS:
+  Your article-generator / social-generator stop calling the model directly.
+  They call optimizedContentGenerator.generate(teamId, contentType, brief).
+  The agent is now IN the path — assembling the prompt, supervising the draft,
+  and recording the outcome so the next generation is smarter.
+
+MULTI-STAGE (your "4-stage article pipeline"):
+  Apply the same wrap PER STAGE — an outline agent, a draft agent, a polish
+  agent each pull their own patterns (priorityDimension differs per stage:
+  structure for outline, humanness for polish) and record separately.
+
+THE CONTRACT THAT MAKES IT LEARN:
+  injectedPatterns (assembled in step 1) MUST equal the IDs recorded in step 3.
+  That identity is what lets the engagement labeler and review attribution
+  credit/blame the right patterns. Break it and the loop goes open.
+---------------------------------------------------------------------------- */
