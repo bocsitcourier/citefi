@@ -16,7 +16,7 @@ const TONE_VOICE_MAP: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable
   default: "coral",           // Warm default for educational content
 };
 
-// Emotional instructions for gpt-4o-mini-tts based on content tone
+// Emotional instructions for gpt-5.4-mini-tts based on content tone
 const TONE_INSTRUCTIONS: Record<string, string> = {
   Professional: "Speak in a warm, confident, and approachable tone. Sound like a knowledgeable expert who genuinely wants to help. Use natural pacing with slight emphasis on key points. Convey trustworthiness and expertise without sounding robotic or overly formal.",
   Authoritative: "Speak with confident authority and gravitas. Use measured pacing and a deeper register. Sound like an experienced industry leader sharing important insights. Be commanding but not condescending.",
@@ -124,8 +124,8 @@ export async function generateVeoTTS(
     console.log(`  🎤 Using voice: ${voice} (tone: ${tone})`);
     console.log(`  🎭 Emotion: ${emotionInstructions.slice(0, 60)}...`);
 
-    // Use gpt-4o-mini-tts for emotional steering, fallback to tts-1-hd for legacy
-    const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
+    // Use gpt-5.4-mini-tts for emotional steering
+    const useEmotionalTTS = TTS_MODEL === "gpt-5.4-mini-tts";
     
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
