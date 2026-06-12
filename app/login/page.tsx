@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, user } = useAuth();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
@@ -21,12 +22,14 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // If already logged in, redirect to home
+  // If already logged in, do a full-page redirect to bust the Next.js router cache
   useEffect(() => {
     if (user) {
-      router.replace("/home");
+      const redirect = searchParams.get("redirect");
+      const dest = redirect && redirect.startsWith("/") ? redirect : "/admin";
+      window.location.href = dest;
     }
-  }, [user, router]);
+  }, [user, searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +47,11 @@ export default function LoginPage() {
           title: "Welcome back!",
           description: "You have successfully logged in.",
         });
-        router.replace("/home");
+        // Full-page navigation clears the Next.js router cache so the
+        // middleware sees the fresh auth cookie on the very next request.
+        const redirect = searchParams.get("redirect");
+        const dest = redirect && redirect.startsWith("/") ? redirect : "/admin";
+        window.location.href = dest;
       }
     } catch (error: any) {
       toast({
@@ -234,5 +241,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
