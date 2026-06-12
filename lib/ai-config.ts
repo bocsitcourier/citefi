@@ -1,69 +1,53 @@
 /**
  * AI Model Configuration - AUTO-UPDATING MODELS
- * 
+ *
  * Models are configured to automatically use the latest stable versions.
- * 
+ *
  * GEMINI MODELS:
  * - Google's auto-updated aliases (e.g., "gemini-2.5-flash") automatically point
  *   to the latest stable version within that generation.
- * - When Google releases updates, your app automatically uses them.
- * - NOTE: gemini-2.0-flash and gemini-2.0-flash-lite are deprecated and will be
- *   discontinued June 1, 2026. All workloads now use gemini-2.5-flash.
- * 
+ * - gemini-2.0-flash is discontinued (June 2026). All workloads use gemini-2.5-flash.
+ *
  * OPENAI MODELS:
- * - "chatgpt-4o-latest" automatically updates to the latest ChatGPT version
- * - "gpt-4o-mini" auto-updates within the mini tier
- * - Note: chatgpt-4o-latest costs 2x more but stays current automatically
- * 
+ * - "gpt-4.1-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
+ * - "gpt-4.1" is the latest standard model (replaces gpt-4o)
+ *
  * To pin to a specific version (disable auto-updates), use dated versions:
  * - Gemini: "gemini-2.5-flash-001" (specific snapshot)
- * - OpenAI: "gpt-4o-2024-11-20" (specific snapshot)
+ * - OpenAI: "gpt-4.1-2025-04-14" (specific snapshot)
  */
 
-// Gemini Models - Using auto-updated aliases (latest stable within generation)
+// Gemini Models - gemini-2.5-flash/pro are the latest stable aliases
 export const GEMINI_ARTICLE_MODEL = process.env.GEMINI_ARTICLE_MODEL || "gemini-2.5-flash";
 export const GEMINI_FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-2.5-flash";
 export const GEMINI_PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-2.5-pro";
 export const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
-export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-2.5-flash";
+export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-2.5-pro";
 
-// OpenAI Models - Using auto-updating aliases
-// chatgpt-4o-latest: Auto-updates to latest ChatGPT improvements (2x cost but always current)
-// gpt-4o-mini: Auto-updates within the mini tier (cost-effective)
-export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4o-mini";
-export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4o-mini";
-export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "chatgpt-4o-latest";
+// OpenAI Models
+// gpt-4.1-mini: Latest mini model — fast, cost-effective, used for review / chat tasks
+// gpt-4.1:      Latest standard model — used for advanced/enhancement tasks
+export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4.1-mini";
+export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4.1-mini";
+export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "gpt-4.1";
 
-// Keyword hyperlink pipeline models — two separate constants so extraction
-// (low output complexity) and correction (full-document HTML rewrite) can be
-// tuned independently.
-// Extraction → gpt-4.1-nano: simple JSON extraction; downstream exact-match
-//   validation catches any quality drop.  92% cheaper than gpt-4o.
-// Correction → gpt-4o: must reconstruct 35 000–40 000 chars of HTML reliably
-//   inside a JSON wrapper; structural drift (dropped tags) is the failure mode
-//   and gpt-4o is more reliable here.  Override via env var to experiment.
+// Keyword hyperlink pipeline models
+// Extraction → gpt-4.1-nano: simple JSON extraction; 92% cheaper than gpt-4.1
+// Correction → gpt-4.1: must reconstruct 35 000–40 000 chars of HTML reliably
 export const GPT_HYPERLINK_EXTRACT_MODEL = process.env.GPT_HYPERLINK_EXTRACT_MODEL || "gpt-4.1-nano";
-export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-4o";
+export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-4.1";
 
 // Gemini model for article critique / refine pass.
-// Uses Flash-Lite (80% cheaper than Flash) because this is an editing task,
-// not a reasoning task.  thinkingBudget:0 disables Gemini's thinking tokens
-// to avoid billing for hidden chain-of-thought.
-// Override to "gemini-2.5-flash" for higher-quality critiques if needed.
+// Flash-Lite is 80% cheaper than Flash; override to gemini-2.5-flash for higher quality.
 export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-2.5-flash-lite";
 
-// Veo Video Generation - Using Veo 2 for cost-efficient cinematic AI videos
-// veo-2.0-generate-001: High-quality clips, no native audio (we use OpenAI TTS instead)
-// veo-3.1-generate-preview: Premium model with native audio — billed separately, not used
-// Override via VEO_VIDEO_MODEL env var to switch models without a redeploy
+// Veo Video Generation
 export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2.0-generate-001";
 
 // TTS Configuration
-// gpt-4o-mini-tts: Supports emotional steering via instructions parameter
-// tts-1-hd: High-quality studio-grade audio (48kHz)
-// tts-1: Fast, lower latency (good for real-time)
+// gpt-4o-mini-tts: supports emotional steering via instructions parameter
 export const TTS_MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts";
-export const TTS_VOICE = process.env.TTS_VOICE || "coral"; // Warm, friendly voice
+export const TTS_VOICE = process.env.TTS_VOICE || "coral";
 
 // Voice options: alloy, ash, coral, echo, fable, nova, onyx, sage, shimmer
 // - coral: Warm, friendly (great for educational content)
@@ -71,7 +55,6 @@ export const TTS_VOICE = process.env.TTS_VOICE || "coral"; // Warm, friendly voi
 // - nova: Energetic, youthful
 // - onyx: Deep, authoritative
 
-// Helper to log current configuration
 export function logAIConfig() {
   console.log("🤖 AI Model Configuration:");
   console.log(`   Gemini Article: ${GEMINI_ARTICLE_MODEL}`);
@@ -88,7 +71,6 @@ export function logAIConfig() {
   console.log(`   TTS: ${TTS_MODEL} (voice: ${TTS_VOICE})`);
 }
 
-// Export all config as object for easy access
 export const AI_CONFIG = {
   gemini: {
     article: GEMINI_ARTICLE_MODEL,

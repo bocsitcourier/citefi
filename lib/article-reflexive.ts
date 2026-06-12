@@ -144,7 +144,7 @@ async function performReflexiveRewrite(
   console.log(`🔄 Performing reflexive rewrite to fix ${violations.length} violations and ${cliches.length} clichés...`);
   
   const result = await genAI.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: { 
       temperature: 0.2,

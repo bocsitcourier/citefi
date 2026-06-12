@@ -285,7 +285,7 @@ ${content}
   
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
