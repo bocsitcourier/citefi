@@ -10,7 +10,7 @@ function loggedOutResponse() {
   const response = NextResponse.json({ message: "Logged out successfully" });
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "lax",
     path: "/",
     maxAge: 0,
