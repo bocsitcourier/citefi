@@ -123,7 +123,7 @@ ${articleHtml}
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1",
+        model: "gpt-4.5-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -241,7 +241,7 @@ ${faqHtml}
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1",
+        model: "gpt-4.5-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

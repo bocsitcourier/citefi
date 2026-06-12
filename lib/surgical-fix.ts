@@ -110,7 +110,7 @@ ${html}`;
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-4.5-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

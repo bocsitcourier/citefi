@@ -10,11 +10,11 @@
  *
  * OPENAI MODELS:
  * - "gpt-4.5-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
- * - "gpt-4.1" is the latest standard model (replaces gpt-4o)
+ * - "gpt-4.5-mini" is the latest standard model (replaces gpt-4o)
  *
  * To pin to a specific version (disable auto-updates), use dated versions:
  * - Gemini: "gemini-3.5-flash-001" (specific snapshot)
- * - OpenAI: "gpt-4.1-2025-04-14" (specific snapshot)
+ * - OpenAI: "gpt-4.5-mini-2025-04-14" (specific snapshot)
  */
 
 // Gemini Models - gemini-3.5-flash/pro are the latest stable aliases
@@ -29,13 +29,13 @@ export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL |
 // gpt-4.1:      Latest standard model — used for advanced/enhancement tasks
 export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-4.5-mini";
 export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-4.5-mini";
-export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "gpt-4.1";
+export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "gpt-4.5-mini";
 
 // Keyword hyperlink pipeline models
 // Extraction → gpt-4.1-nano: simple JSON extraction; 92% cheaper than gpt-4.1
 // Correction → gpt-4.1: must reconstruct 35 000–40 000 chars of HTML reliably
-export const GPT_HYPERLINK_EXTRACT_MODEL = process.env.GPT_HYPERLINK_EXTRACT_MODEL || "gpt-4.1-nano";
-export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-4.1";
+export const GPT_HYPERLINK_EXTRACT_MODEL = process.env.GPT_HYPERLINK_EXTRACT_MODEL || "gpt-4.5-mini";
+export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-4.5-mini";
 
 // Gemini model for article critique / refine pass.
 // Flash-Lite is 80% cheaper than Flash; override to gemini-2.5-flash for higher quality.
