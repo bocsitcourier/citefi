@@ -17,6 +17,7 @@ import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated } from "./learning-integration";
+import { optimizedContentGenerator } from "./optimized-content-generator";
 
 // Platform character limits
 const CHAR_LIMITS = {
@@ -222,6 +223,31 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         );
 
         console.log(`✅ Gemini generated ${platform} post (${geminiResult.caption.length} chars)${location ? ` for ${location}` : ''}`);
+
+        // STAGE 1.5: Critic-in-the-loop repair
+        // Reviews the Gemini caption for structural / channel / humanness defects
+        // and patches them before GPT enhancement. Bounded to 2 passes.
+        const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
+        if (!disableCriticLoop && postDetails?.teamId) {
+          try {
+            const repairResult = await optimizedContentGenerator.reviewAndRepairContent(
+              postDetails.teamId,
+              "SOCIAL",
+              variant.id,
+              geminiResult.caption,
+              [],
+              { topic: topic || prompt, location: location || undefined }
+            );
+            if (repairResult.repairs > 0) {
+              geminiResult.caption = repairResult.content;
+              console.log(
+                `🔧 Stage 1.5: Critic applied ${repairResult.repairs} repair(s) to ${platform} caption`
+              );
+            }
+          } catch (criticError) {
+            console.warn(`⚠️ Social critic loop failed, continuing:`, (criticError as Error).message);
+          }
+        }
 
         // STAGE 2: GPT-4 enhances with hashtags, emojis, hyperlinks (with retry)
         const gptResult = await retryWithBackoff(

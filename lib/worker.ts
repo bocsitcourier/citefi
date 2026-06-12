@@ -33,6 +33,7 @@ import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
 import { recordContentGenerated } from "./learning-integration";
+import { optimizedContentGenerator } from "./optimized-content-generator";
 import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
@@ -612,6 +613,49 @@ export async function registerWorkers() {
             }
           } catch (reflexiveError) {
             console.warn(`⚠️ Reflexive validation failed, continuing with original content:`, (reflexiveError as Error).message);
+          }
+        }
+
+        // STAGE 1.6: Critic-in-the-loop repair (OptimizedContentGenerator)
+        // Runs structural, completeness, and humanness checks then patches
+        // specific defects before content reaches GPT review. Bounded to 2 passes.
+        // Factuality defects are flagged <mark data-unverified> for human review,
+        // never blindly re-rolled into a different hallucination.
+        const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
+        if (!disableCriticLoop && currentArticle?.teamId) {
+          try {
+            const criticBrief = {
+              topic: title,
+              location: geographicFocus || undefined,
+              targetWords: Math.round((wordCountMin + wordCountMax) / 2),
+              contentId: articleId,
+            };
+            const repairResult = await optimizedContentGenerator.reviewAndRepairContent(
+              currentArticle.teamId,
+              "ARTICLE",
+              articleId,
+              geminiResult.rawContent,
+              [],
+              criticBrief
+            );
+            if (repairResult.repairs > 0) {
+              geminiResult.rawContent = repairResult.content;
+              // Persist repaired content so resume logic picks it up cleanly
+              await db
+                .update(articles)
+                .set({ finalHtmlContent: repairResult.content })
+                .where(eq(articles.id, articleId));
+              console.log(
+                `🔧 Stage 1.6: Critic applied ${repairResult.repairs} repair(s), quality=${repairResult.qualityScore}, status=${repairResult.status}`
+              );
+            } else {
+              console.log(`✅ Stage 1.6: Content passed critic review (no repairs needed)`);
+            }
+          } catch (criticError) {
+            console.warn(
+              `⚠️ Stage 1.6 critic loop failed, continuing with current content:`,
+              (criticError as Error).message
+            );
           }
         }
 

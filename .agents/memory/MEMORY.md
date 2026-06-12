@@ -1,3 +1,4 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
 - [Auth token storage](auth-token-storage.md) — JWT is stored in sessionStorage (not localStorage) and sent as Authorization: Bearer on every request; all components must read from sessionStorage.
 - [Learning system design](learning-system-loops.md) — Wilson+epsilon-greedy drives pattern selection; 8 broken loops closed; key architecture decisions documented.
+- [Optimized content generator](optimized-content-generator.md) — 3-point injection orchestrator; reviewer wired at Stage 1.6 articles + Stage 1.5 social; exemplar retrieval is the last gap.
