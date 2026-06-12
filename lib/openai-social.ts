@@ -119,7 +119,7 @@ ${location && city ? `- MUST include location-based hashtags (${city}) in the ev
 
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.5-mini",
+      model: "gpt-5.4-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       response_format: { type: "json_object" },

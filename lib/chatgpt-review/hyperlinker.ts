@@ -86,7 +86,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.5-mini",
+        model: "gpt-5.4-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

@@ -156,7 +156,7 @@ ${articleHtml}
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4.5-mini",
+      model: "gpt-5.4-mini",
       messages: [
         {
           role: "system",
@@ -271,7 +271,7 @@ ${targets.slice(0, 20).map((t, i) => `${i + 1}. "${t.title}" (ID: ${t.id})`).joi
 Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highest first).`;
 
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4.5-mini",
+      model: "gpt-5.4-mini",
       messages: [
         {
           role: "system",

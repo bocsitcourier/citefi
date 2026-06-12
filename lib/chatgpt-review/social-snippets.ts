@@ -90,7 +90,7 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.5-mini",
+        model: "gpt-5.4-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
