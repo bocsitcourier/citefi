@@ -124,8 +124,9 @@ export class ContentReviewService {
     return result;
   }
 
-  private deterministicChecks(content: string, contentType: string, brief: Brief): Defect[] {
+  private deterministicChecks(content: string | null | undefined, contentType: string, brief: Brief): Defect[] {
     const defects: Defect[] = [];
+    if (!content) return defects;
     const text = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     const words = text ? text.split(/\s+/).length : 0;
 
@@ -294,6 +295,10 @@ ${content.slice(0, 8000)}`;
     let reviewed = 0;
 
     for (const row of rows) {
+      // Skip articles with no generated content yet
+      const content = row.finalHtmlContent;
+      if (!content || content.trim().length === 0) continue;
+
       const [perf] = await db
         .select()
         .from(contentPerformanceMetrics)
@@ -314,7 +319,7 @@ ${content.slice(0, 8000)}`;
       };
 
       const review = await this.reviewContent(
-        teamId, row.id, contentType, row.content, brief,
+        teamId, row.id, contentType, content, brief,
         { useJudge: Math.random() < judgeRate }
       );
       reviewed++;
