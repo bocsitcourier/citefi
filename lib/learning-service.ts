@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc, gte, sql, asc } from "drizzle-orm";
+import { eq, and, desc, gte, sql, asc, inArray } from "drizzle-orm";
 import {
   learningAgents,
   learningPatterns,
@@ -17,6 +17,7 @@ import {
   VEO_VIDEO_MODEL,
 } from "./ai-config";
 import { factStore } from "./fact-store";
+import { contentReviewService, type Dimension } from "./content-review-service";
 import { getFactCoverageReport } from "./fact-validated-generators";
 import { 
   humanizeContent, 
@@ -158,6 +159,7 @@ export class LearningService {
       industry?: string;
       audience?: string;
       patternTypes?: string[];
+      priorityDimension?: Dimension;
     }
   ): Promise<OptimizationContext | null> {
     const agent = await this.getAgentForContentType(teamId, contentType);
@@ -172,12 +174,33 @@ export class LearningService {
     return this.buildOptimizationContext(agent, options);
   }
 
+  // Maps each pattern type to the review dimension it most affects.
+  // Unknown types fall back to "engagement".
+  private readonly PATTERN_DIMENSION: Record<string, Dimension> = {
+    hook: "engagement",
+    opening_style: "engagement",
+    opening: "engagement",
+    cta: "engagement",
+    engagement: "engagement",
+    pacing: "engagement",
+    visual_style: "engagement",
+    hashtag: "engagement",
+    tone: "humanness",
+    structure: "structure",
+    format: "structure",
+    composition: "structure",
+    color: "structure",
+    text: "structure",
+    eeat_signal: "factuality",
+  };
+
   private async buildOptimizationContext(
     agent: typeof learningAgents.$inferSelect,
     options?: {
       industry?: string;
       audience?: string;
       patternTypes?: string[];
+      priorityDimension?: Dimension;
     }
   ): Promise<OptimizationContext> {
     // Fetch ALL patterns for this agent — no confidence gate here.
@@ -206,45 +229,51 @@ export class LearningService {
       };
     }
 
-    // Fetch engagement Wilson scores for all patterns
+    // Fetch per-dimension Wilson scores for all patterns in a single query.
+    // Previously only "engagement" was fetched — now each pattern is judged
+    // in the dimension it actually governs (eeat_signal → factuality, etc.).
     const patternIds = allPatterns.map(p => p.id);
-    const dimStats = await db
-      .select()
-      .from(patternDimensionStats)
-      .where(
-        and(
-          eq(patternDimensionStats.dimension, "engagement"),
-          sql`${patternDimensionStats.patternId} = ANY(ARRAY[${sql.join(patternIds.map(id => sql`${id}`), sql`, `)}]::int[])`
-        )
-      );
-    const wilsonById = new Map(dimStats.map(s => [s.patternId, s.wilsonScore]));
+    const dimStats = patternIds.length > 0
+      ? await db.select().from(patternDimensionStats).where(inArray(patternDimensionStats.patternId, patternIds))
+      : [];
 
-    // Separate patterns with Wilson data (proven) from untested ones (exploratory)
-    const proven = allPatterns.filter(p => wilsonById.has(p.id));
-    const untested = allPatterns.filter(p => !wilsonById.has(p.id));
+    const statKey = (pid: number, dim: string) => `${pid}:${dim}`;
+    const statMap = new Map<string, typeof patternDimensionStats.$inferSelect>();
+    for (const s of dimStats) statMap.set(statKey(s.patternId, s.dimension), s);
 
-    // Sort proven by Wilson score descending
-    proven.sort((a, b) => (wilsonById.get(b.id) ?? 0) - (wilsonById.get(a.id) ?? 0));
+    // Score each pattern by Wilson in its governing dimension.
+    const scored = allPatterns.map(p => {
+      const dim = options?.priorityDimension ?? this.PATTERN_DIMENSION[p.patternType] ?? "engagement";
+      const stat = statMap.get(statKey(p.id, dim));
+      return { pattern: p, dim, wilson: stat?.wilsonScore ?? 0, trials: stat?.trials ?? 0 };
+    });
 
-    // Epsilon-greedy: 15% of slots go to random untested patterns for exploration
+    // Separate proven (≥MIN_CONFIDENCE_SAMPLES trials) from untested (exploratory).
+    const proven = scored
+      .filter(s => s.trials >= MIN_CONFIDENCE_SAMPLES)
+      .sort((a, b) => b.wilson - a.wilson);
+    const untested = scored.filter(s => s.trials < MIN_CONFIDENCE_SAMPLES);
+
+    // Epsilon-greedy: exploit proven patterns + explore untested ones.
+    // Cold start: if nothing is proven yet, fall back to all patterns as-is.
     const totalSlots = 8;
     const exploreSlots = Math.max(1, Math.round(totalSlots * EPSILON));
     const exploitSlots = totalSlots - exploreSlots;
 
-    const exploited = proven.slice(0, exploitSlots);
+    const exploited = proven.length > 0 ? proven.slice(0, exploitSlots) : scored.slice(0, exploitSlots);
     const explored = untested.sort(() => Math.random() - 0.5).slice(0, exploreSlots);
     const selected = [...exploited, ...explored];
 
-    const learnedPatterns: LearnedPattern[] = selected.map(p => ({
-      id: p.id,
-      patternType: p.patternType,
-      patternName: p.patternName,
-      patternValue: p.patternValue,
-      successRate: p.successRate,
-      confidence: wilsonById.has(p.id) ? (wilsonById.get(p.id) ?? p.confidence) : p.confidence,
+    const learnedPatterns: LearnedPattern[] = selected.map(s => ({
+      id: s.pattern.id,
+      patternType: s.pattern.patternType,
+      patternName: s.pattern.patternName,
+      patternValue: s.pattern.patternValue,
+      successRate: s.wilson,
+      confidence: Math.min(100, Math.round((s.trials / MIN_CONFIDENCE_SAMPLES) * 100)),
     }));
 
-    // Collect negative constraints from error ledger
+    // Collect negative constraints from the content review ledger
     const negativeConstraints = await this.collectNegativeConstraints(agent.teamId!, agent.contentType);
 
     const promptEnhancements = this.buildPromptEnhancements(learnedPatterns);
@@ -263,31 +292,11 @@ export class LearningService {
   }
 
   private async collectNegativeConstraints(teamId: number, contentType: string): Promise<string[]> {
-    const NEGATIVE_MAP: Record<string, string> = {
-      "COMPLETENESS:TRUNCATED": "Finish every section. Never end mid-thought.",
-      "COMPLETENESS:UNANSWERED_BRIEF": "Answer every question stated in the brief.",
-      "COMPLETENESS:THIN_SECTION": "Each H2 section must have at least 120 words.",
-      "FACTUALITY:UNSUPPORTED_CLAIM": "Only state statistics you can ground in provided facts.",
-      "FACTUALITY:FAKE_CITATION": "Do not invent citations, URLs, or named sources.",
-      "STRUCTURE:MISSING_FAQ": "Always include a FAQ section with 3+ questions.",
-      "STRUCTURE:NO_ANSWER_FIRST": "Open with a direct answer containing the target keyword.",
-      "HUMANNESS:AI_ISMS": "Avoid AI-isms (leverage, dive into, it's worth noting).",
-      "HUMANNESS:LOW_BURSTINESS": "Vary sentence length sharply — mix short and long sentences.",
-      "CHANNEL:WEAK_HOOK": "Lead with a hook that engages in the first 3 seconds.",
-      "CHANNEL:NO_CTA": "End with a clear, natural call to action.",
-    };
-
     try {
-      const rows = await db
-        .select()
-        .from(aiLearningLedger)
-        .where(and(eq(aiLearningLedger.teamId, teamId), eq(aiLearningLedger.contentType, contentType)))
-        .orderBy(desc(aiLearningLedger.count))
-        .limit(5);
-
-      return rows
-        .map(r => NEGATIVE_MAP[r.errorType])
-        .filter((v): v is string => Boolean(v));
+      // Mine top recurring defects from the content review ledger, not the error ledger.
+      // This gives richer, dimension-aware negative constraints based on actual AI judge output.
+      const negatives = await contentReviewService.getNegativeConstraints(teamId, contentType, 5);
+      return negatives.map(n => `[AVOID] ${n}`);
     } catch {
       return [];
     }

@@ -3,6 +3,7 @@ import { eq, and, lte, isNull, inArray } from "drizzle-orm";
 import {
   contentPerformanceMetrics,
   patternDimensionStats,
+  learningPatterns,
   ContentType,
 } from "../shared/schema";
 import { wilsonLowerBound } from "./content-review-service";
@@ -92,7 +93,20 @@ export class EngagementScoringService {
 
     const reachOf = (m: MetricRow) => m.views ?? 0;
     const distributed = rows.filter(m => reachOf(m) >= minReach);
-    const skippedLowReach = rows.length - distributed.length;
+    const lowReach = rows.filter(m => reachOf(m) < minReach);
+    const skippedLowReach = lowReach.length;
+
+    // Stamp low-reach items with successReason="insufficient_data" so the monitor
+    // can distinguish "not yet labeled" from "known no-reach — not actionable".
+    // isSuccess remains NULL — we intentionally do not label these.
+    if (lowReach.length > 0) {
+      const lowReachIds = lowReach.map(m => m.id);
+      await db
+        .update(contentPerformanceMetrics)
+        .set({ successReason: "insufficient_data", updatedAt: new Date() })
+        .where(inArray(contentPerformanceMetrics.id, lowReachIds));
+      console.log(`📉 [Engagement] ${contentType}: ${lowReach.length} items stamped insufficient_data (views < ${minReach})`);
+    }
 
     if (distributed.length < MIN_COHORT) {
       console.log(`📉 [Engagement] ${contentType}: only ${distributed.length} matured pieces with reach ≥ ${minReach} (need ${MIN_COHORT}) — waiting`);
@@ -153,20 +167,42 @@ export class EngagementScoringService {
     };
   }
 
+  // Maps pattern types to the review dimension they govern.
+  // Must stay in sync with LearningService.PATTERN_DIMENSION.
+  private readonly PATTERN_DIMENSION: Record<string, string> = {
+    hook: "engagement", opening_style: "engagement", opening: "engagement",
+    cta: "engagement", engagement: "engagement", pacing: "engagement",
+    visual_style: "engagement", hashtag: "engagement",
+    tone: "humanness",
+    structure: "structure", format: "structure", composition: "structure",
+    color: "structure", text: "structure",
+    eeat_signal: "factuality",
+  };
+
   private async attributeEngagement(patternIds: number[], success: boolean): Promise<void> {
     if (patternIds.length === 0) return;
 
+    // Look up each pattern's type so we write Wilson data to its governing dimension
+    // (eeat_signal → factuality, tone → humanness, etc.), not always "engagement".
+    const patternRows = await db
+      .select({ id: learningPatterns.id, patternType: learningPatterns.patternType })
+      .from(learningPatterns)
+      .where(inArray(learningPatterns.id, patternIds));
+    const dimByPattern = new Map(
+      patternRows.map(p => [p.id, this.PATTERN_DIMENSION[p.patternType] ?? "engagement"])
+    );
+
+    // Batch-fetch all existing dimension stats for these patterns in one query.
     const existing = await db
       .select()
       .from(patternDimensionStats)
-      .where(and(
-        inArray(patternDimensionStats.patternId, patternIds),
-        eq(patternDimensionStats.dimension, "engagement")
-      ));
-    const byPattern = new Map(existing.map(s => [s.patternId, s]));
+      .where(inArray(patternDimensionStats.patternId, patternIds));
+    const statKey = (pid: number, dim: string) => `${pid}:${dim}`;
+    const byKey = new Map(existing.map(s => [statKey(s.patternId, s.dimension), s]));
 
     for (const pid of patternIds) {
-      const stat = byPattern.get(pid);
+      const dim = dimByPattern.get(pid) ?? "engagement";
+      const stat = byKey.get(statKey(pid, dim));
       const successes = (stat?.successes ?? 0) + (success ? 1 : 0);
       const trials = (stat?.trials ?? 0) + 1;
       const wilson = wilsonLowerBound(successes, trials);
@@ -177,7 +213,7 @@ export class EngagementScoringService {
           .where(eq(patternDimensionStats.id, stat.id));
       } else {
         await db.insert(patternDimensionStats).values({
-          patternId: pid, dimension: "engagement", successes, trials, wilsonScore: wilson,
+          patternId: pid, dimension: dim, successes, trials, wilsonScore: wilson,
         });
       }
     }
