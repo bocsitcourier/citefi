@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
@@ -8,7 +8,7 @@ import { AppSidebar } from "./app-sidebar";
 import { AppBreadcrumbs } from "./app-breadcrumbs";
 import { PUBLIC_ROUTES } from "./nav-config";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
 
 function ThemeToggle() {
@@ -31,6 +31,7 @@ function ThemeToggle() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, isLoading } = useAuth();
   const [mounted, setMounted] = useState(false);
 
@@ -45,8 +46,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/accept-invite/") ||
     pathname.startsWith("/examples/");
 
-  if (!mounted || isPublicRoute || isLoading || !user) {
+  // Client-side auth guard — redirect unauthenticated users on protected routes
+  useEffect(() => {
+    if (!mounted || isLoading || isPublicRoute) return;
+    if (!user) {
+      router.replace("/login");
+    }
+  }, [mounted, isLoading, isPublicRoute, user, router]);
+
+  // While auth is resolving, show a spinner for protected routes
+  if (!mounted || isLoading) {
+    if (isPublicRoute) return <>{children}</>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Public routes — render without shell
+  if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  // Not logged in — blank while redirect happens
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (

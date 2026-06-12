@@ -24,38 +24,55 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ---------------------------------------------------------------------------
+// Token helpers — sessionStorage keeps the JWT alive across full-page reloads
+// within the same browser tab. This is the fallback for iframe contexts where
+// SameSite=None HttpOnly cookies may be blocked (e.g. Replit preview pane).
+// ---------------------------------------------------------------------------
+function saveToken(t: string) {
+  try { sessionStorage.setItem("auth_token", t); } catch { /* SSR / locked */ }
+}
+function loadToken(): string | null {
+  try { return sessionStorage.getItem("auth_token"); } catch { return null; }
+}
+function clearToken() {
+  try { sessionStorage.removeItem("auth_token"); } catch { /* ignore */ }
+  try { localStorage.removeItem("auth_token"); } catch { /* ignore */ }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Auth lives in an HttpOnly cookie sent automatically — just ask the server who we are.
-    // Clear any stale token left in localStorage by older builds so legacy pages stop
-    // sending a "Bearer <stale>" header that would override the fresh cookie.
-    try {
-      localStorage.removeItem("auth_token");
-    } catch {
-      // ignore (SSR / disabled storage)
-    }
     fetchUser();
   }, []);
 
   const fetchUser = async () => {
     try {
+      const storedToken = loadToken();
+      const headers: Record<string, string> = {};
+      if (storedToken) headers["Authorization"] = `Bearer ${storedToken}`;
+
       const response = await fetch("/api/auth/me", {
-        credentials: "same-origin",
+        credentials: "include",
+        headers,
       });
 
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        if (storedToken) setToken(storedToken);
       } else {
         setUser(null);
+        setToken(null);
+        clearToken();
       }
     } catch (error) {
       console.error("Failed to fetch user:", error);
       setUser(null);
+      setToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +92,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    // Token is now stored in an HttpOnly cookie by the server; we only keep user state.
+    // Persist token in sessionStorage so it survives full-page reloads
+    // (needed when SameSite cookies are blocked in cross-site iframe contexts).
+    if (response.token) {
+      saveToken(response.token);
+      setToken(response.token);
+    }
     setUser(response.user);
     return { requiresTwoFactor: false };
   };
@@ -86,6 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ userId, code, method }),
     });
 
+    if (response.token) {
+      saveToken(response.token);
+      setToken(response.token);
+    }
     setUser(response.user);
   };
 
@@ -94,9 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-
-    // Do NOT auto-login - user must verify email and wait for admin approval
-    // Return the response message to show to the user
     return response;
   };
 
@@ -106,13 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Logout error:", error);
     }
-
-    try {
-      localStorage.removeItem("auth_token");
-    } catch {
-      // ignore
-    }
+    clearToken();
     setUser(null);
+    setToken(null);
   };
 
   const refreshUser = async () => {
