@@ -16,7 +16,7 @@ import type { SocialPostJobData } from "./queue";
 import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
-import { recordContentGenerated } from "./learning-integration";
+import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { optimizedContentGenerator } from "./optimized-content-generator";
 
 // Platform character limits
@@ -160,6 +160,14 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         geoTagsJson: geoTags,
       })
       .where(eq(socialPosts.id, socialPostId));
+
+    // Fetch learned patterns once (shared across all platform variants) so that
+    // EMA/Wilson updates fire on the real patterns that influenced generation.
+    const socialEnhancement = postDetails?.teamId
+      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL)
+          .catch(() => ({ patternsUsed: [] as number[] }))
+      : { patternsUsed: [] as number[] };
+    const capturedPatternIds = socialEnhancement.patternsUsed;
     
     // CONCURRENT PROCESSING: Generate posts for all platforms in parallel
     console.log(`🚀 Generating ${platforms.length} platform variants concurrently...`);
@@ -235,7 +243,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
               "SOCIAL",
               variant.id,
               geminiResult.caption,
-              [],
+              capturedPatternIds,
               { topic: topic || prompt, location: location || undefined }
             );
             if (repairResult.repairs > 0) {
@@ -505,7 +513,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           postDetails.teamId,
           ContentType.SOCIAL,
           socialPostId,
-          [],
+          capturedPatternIds,
           80
         );
         console.log(`📊 Recorded social post generation for AI Learning`);

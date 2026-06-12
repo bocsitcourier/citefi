@@ -32,7 +32,7 @@ import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
-import { recordContentGenerated } from "./learning-integration";
+import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { optimizedContentGenerator } from "./optimized-content-generator";
 import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
@@ -624,6 +624,15 @@ export async function registerWorkers() {
         const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
         if (!disableCriticLoop && currentArticle?.teamId) {
           try {
+            // Fetch learned patterns for attribution so EMA/Wilson updates fire
+            // on the real patterns that influenced this generation.
+            const articleEnhancement = await getPromptEnhancement(
+              currentArticle.teamId,
+              ContentType.ARTICLE
+            ).catch(() => ({ patternsUsed: [] as number[] }));
+            // Store on the article object — read by recordContentGenerated below.
+            (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
+
             const criticBrief = {
               topic: title,
               location: geographicFocus || undefined,
@@ -635,7 +644,7 @@ export async function registerWorkers() {
               "ARTICLE",
               articleId,
               geminiResult.rawContent,
-              [],
+              articleEnhancement.patternsUsed,
               criticBrief
             );
             if (repairResult.repairs > 0) {

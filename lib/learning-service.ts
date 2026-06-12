@@ -182,10 +182,17 @@ export class LearningService {
   ): Promise<OptimizationContext> {
     // Fetch ALL patterns for this agent — no confidence gate here.
     // Seeded patterns start at confidence=0 but are still valid for exploration.
+    // Defense-in-depth: scope by both agentId AND teamId so a spoofed agentId
+    // cannot leak patterns across team boundaries.
     const allPatterns = await db
       .select()
       .from(learningPatterns)
-      .where(eq(learningPatterns.agentId, agent.id))
+      .where(
+        and(
+          eq(learningPatterns.agentId, agent.id),
+          eq(learningPatterns.teamId, agent.teamId)
+        )
+      )
       .limit(100);
 
     if (allPatterns.length === 0) {

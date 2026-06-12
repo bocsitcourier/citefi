@@ -1252,6 +1252,80 @@ export default function SEOToolsPage() {
                       ))}
                     </div>
                   </div>
+
+                  <div className="border-t pt-4 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-lg font-semibold">✨ Create Articles from This Strategy</h3>
+                      <Button
+                        onClick={() => setShowArticleForm(showArticleForm === "pillar" ? null : "pillar")}
+                        variant="default"
+                        data-testid="button-toggle-article-form-pillar"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Create Articles
+                      </Button>
+                    </div>
+
+                    {showArticleForm === "pillar" && (
+                      <Card>
+                        <CardContent className="pt-6 space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="article-target-url-pillar">Target URL *</Label>
+                            <Input
+                              id="article-target-url-pillar"
+                              data-testid="input-article-target-url-pillar"
+                              placeholder="https://yoursite.com"
+                              value={articleTargetUrl}
+                              onChange={(e) => setArticleTargetUrl(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="article-geo-pillar">Geographic Focus</Label>
+                            <Input
+                              id="article-geo-pillar"
+                              data-testid="input-article-geo-pillar"
+                              placeholder="e.g., Austin, TX"
+                              value={articleGeographicFocus}
+                              onChange={(e) => setArticleGeographicFocus(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="article-num-articles-pillar">Number of Articles (1–20)</Label>
+                            <Input
+                              id="article-num-articles-pillar"
+                              type="number"
+                              min={1}
+                              max={20}
+                              data-testid="input-article-num-articles-pillar"
+                              value={articleNumArticles}
+                              onChange={(e) => setArticleNumArticles(e.target.value)}
+                            />
+                          </div>
+                          <Button
+                            onClick={() => createArticlesMutation.mutate({
+                              seoToolType: "pillar_cluster",
+                              seoToolOutput: pillarStrategy,
+                            })}
+                            disabled={!articleTargetUrl || createArticlesMutation.isPending}
+                            className="w-full"
+                            data-testid="button-create-articles-pillar"
+                          >
+                            {createArticlesMutation.isPending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Generating Titles...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4 mr-2" />
+                                Generate Title Pool
+                              </>
+                            )}
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
