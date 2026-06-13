@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPgBoss } from "@/lib/queue";
+import { debitCredits, refundCredits } from "@/lib/credits";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const CONN_ERROR_PATTERNS = ["connection terminated", "connection refused", "ECONNRESET", "ECONNREFUSED", "fetch failed"];
 function isConnectionError(err: unknown): boolean {
@@ -75,7 +76,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (post.videoStatus === "GENERATING" && !force) {
+    const isVeo = videoType === "veo";
+    const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
+    console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
+
+    // Atomically acquire GENERATING lock — this is both the duplicate-guard AND the state transition
+    // force=true overrides the GENERATING guard for stuck jobs
+    const [locked] = await db
+      .update(socialPosts)
+      .set({ videoType, videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
+      .where(
+        and(
+          eq(socialPosts.id, socialPostId),
+          eq(socialPosts.teamId, teamId),
+          force
+            ? sql`TRUE`
+            : sql`${socialPosts.videoStatus} IS DISTINCT FROM 'GENERATING'`
+        )
+      )
+      .returning({ id: socialPosts.id });
+
+    if (!locked) {
       console.log(`⚠️ Video already generating for social post ${socialPostId}, skipping duplicate queue`);
       return NextResponse.json({
         success: true,
@@ -87,23 +108,42 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (post.videoStatus === "GENERATING" && force) {
-      console.log(`🔄 Force-reset requested for stuck video on social post ${socialPostId}`);
+    if (force) {
+      console.log(`🔄 Force-reset applied for social post ${socialPostId}`);
     }
-
-    const isVeo = videoType === "veo";
-    const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
-    console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
-
-    // Mark GENERATING immediately (prevents double-clicks)
-    await db
-      .update(socialPosts)
-      .set({ videoType, videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
-      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
-
     console.log(`✅ Video status set to GENERATING (progress: 0%, stage: queued)`);
 
-    // Queue with retries — rolls back to FAILED on any unrecoverable error
+    // Per-request idempotency key: stable for network retries, unique per generation attempt
+    const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
+
+    // Debit AFTER acquiring lock — reset lock on insufficient credits
+    const creditDebit = await debitCredits({
+      teamId,
+      userId,
+      productType: "video",
+      idempotencyKey: `video:${socialPostId}:${requestKey}`,
+      sourceType: "social_post",
+      sourceId: socialPostId,
+    });
+
+    if (!creditDebit.ok) {
+      await db
+        .update(socialPosts)
+        .set({ videoStatus: post.videoStatus ?? null, videoProgress: post.videoProgress ?? 0, videoStage: post.videoStage ?? null })
+        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)))
+        .catch(() => {});
+      return NextResponse.json(
+        {
+          error: "Insufficient credits",
+          balance: creditDebit.balance,
+          requiredCredits: creditDebit.requiredCredits,
+          message: `You need ${creditDebit.requiredCredits} credits to generate a video. Current balance: ${creditDebit.balance}.`,
+        },
+        { status: 402 }
+      );
+    }
+
+    // Queue the job — refund + reset to FAILED on any send failure
     const expireInSeconds = isVeo ? 5400 : 900;
     let jobId: string;
     try {
@@ -120,6 +160,12 @@ export async function POST(request: NextRequest) {
         .update(socialPosts)
         .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })
         .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
+      await refundCredits({
+        teamId, userId, amount: 15,
+        reason: `Refund: video queue failure for social post ${socialPostId}`,
+        sourceType: "social_post", sourceId: socialPostId,
+        debitLedgerRowId: creditDebit.ledgerRowId,
+      }).catch(() => {});
       throw sendError;
     }
 

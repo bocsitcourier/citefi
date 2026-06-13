@@ -8,8 +8,45 @@ import { AppSidebar } from "./app-sidebar";
 import { AppBreadcrumbs } from "./app-breadcrumbs";
 import { PUBLIC_ROUTES } from "./nav-config";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Moon, Sun, Loader2, Coins, AlertTriangle } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useQuery } from "@tanstack/react-query";
+
+function CreditBalancePill() {
+  const { data, isLoading } = useQuery<{ balance: number }>({
+    queryKey: ["/api/credits/balance"],
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  if (isLoading || data === undefined) return null;
+
+  const balance = data.balance;
+  const isLow = balance <= 20;
+  const isCritical = balance <= 0;
+
+  return (
+    <div
+      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${
+        isCritical
+          ? "bg-destructive/10 border-destructive/30 text-destructive"
+          : isLow
+          ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-600 dark:text-yellow-400"
+          : "bg-muted border-border text-muted-foreground"
+      }`}
+      title={`Credit balance: ${balance}`}
+      data-testid="text-credit-balance"
+    >
+      {isCritical || isLow ? (
+        <AlertTriangle className="w-3 h-3 shrink-0" />
+      ) : (
+        <Coins className="w-3 h-3 shrink-0" />
+      )}
+      <span>{balance.toLocaleString()} cr</span>
+    </div>
+  );
+}
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -89,7 +126,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex-1 min-w-0">
               <AppBreadcrumbs />
             </div>
-            <div className="flex items-center gap-1 ml-auto shrink-0">
+            <div className="flex items-center gap-2 ml-auto shrink-0">
+              <CreditBalancePill />
               <ThemeToggle />
             </div>
           </header>

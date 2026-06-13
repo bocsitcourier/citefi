@@ -137,6 +137,7 @@ export async function generateVideoTTS(
     // Use gpt-4o-mini-tts for emotional steering
     const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
     
+    const _socialTtsStart = Date.now();
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
         model: TTS_MODEL,
@@ -150,6 +151,13 @@ export async function generateVideoTTS(
 
     // Convert response to buffer
     const buffer = Buffer.from(await mp3.arrayBuffer());
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
+      safeLogCostTelemetry(
+        { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
+        { characters: fullNarration.length },
+        Date.now() - _socialTtsStart, true
+      );
+    }).catch(() => {});
 
     console.log(`  ✅ Audio generated, uploading to storage...`);
 
@@ -274,6 +282,7 @@ export async function generateMultiVoiceTTS(
     console.log(`     Scenes: ${sceneNumbers.join(", ")}, Words: ${combinedText.split(/\s+/).length}`);
 
     try {
+      const _multiTtsStart = Date.now();
       const mp3 = await callOpenAI(
         (client) => client.audio.speech.create({
           model: TTS_MODEL,
@@ -286,6 +295,13 @@ export async function generateMultiVoiceTTS(
       );
 
       const buffer = Buffer.from(await mp3.arrayBuffer());
+      void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
+        safeLogCostTelemetry(
+          { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
+          { characters: combinedText.length },
+          Date.now() - _multiTtsStart, true
+        );
+      }).catch(() => {});
       const wordCount = combinedText.split(/\s+/).length;
       const estimatedDuration = Math.ceil((wordCount / 150) * 60);
 

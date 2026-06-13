@@ -134,7 +134,6 @@ export async function GET(
 }
 
 const updateArticleSchema = z.object({
-  userId: z.number().int(),
   finalHtmlContent: z.string().optional(),
   seoTitle: z.string().max(60).optional(),
   metaDescription: z.string().max(160).optional(),
@@ -148,7 +147,7 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId: authUserId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -169,29 +168,17 @@ export async function PUT(
       );
     }
 
-    const { userId, ...updateData } = validation.data;
+    const updateData = validation.data;
 
     const [article] = await db
       .select()
       .from(articles)
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     if (!article) {
       return NextResponse.json(
         { error: "Article not found" },
         { status: 404 }
-      );
-    }
-
-    const [batch] = await db
-      .select()
-      .from(jobBatches)
-      .where(eq(jobBatches.id, article.batchId));
-
-    if (!batch || batch.userId !== userId) {
-      return NextResponse.json(
-        { error: "Unauthorized: You do not have permission to update this article" },
-        { status: 403 }
       );
     }
 
@@ -208,11 +195,8 @@ export async function PUT(
       const [updated] = await db
         .update(articles)
         .set(updatePayload)
-        .where(eq(articles.id, articleId))
+        .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
         .returning();
-
-      // MVP: Skip audit log for now
-      // TODO: Add audit logging when admin features are implemented
 
       return NextResponse.json({
         success: true,
@@ -239,7 +223,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId: authUserId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -250,22 +234,10 @@ export async function DELETE(
       );
     }
 
-    const { searchParams } = new URL(request.url);
-    const userIdParam = searchParams.get("userId");
-    
-    if (!userIdParam) {
-      return NextResponse.json(
-        { error: "Missing userId parameter" },
-        { status: 400 }
-      );
-    }
-
-    const userId = parseInt(userIdParam);
-
     const [article] = await db
       .select()
       .from(articles)
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     if (!article) {
       return NextResponse.json(
@@ -274,25 +246,12 @@ export async function DELETE(
       );
     }
 
-    const [batch] = await db
-      .select()
-      .from(jobBatches)
-      .where(eq(jobBatches.id, article.batchId));
-
-    if (!batch || batch.userId !== userId) {
-      return NextResponse.json(
-        { error: "Unauthorized: You do not have permission to delete this article" },
-        { status: 403 }
-      );
-    }
-
     const assets = await db
       .select()
       .from(articleAssets)
       .where(eq(articleAssets.articleId, articleId))
-      .orderBy(asc(articleAssets.id)); // Order by ID to ensure consistent ordering
+      .orderBy(asc(articleAssets.id));
 
-    // MVP: Only delete article assets
     await db.delete(articleAssets).where(eq(articleAssets.articleId, articleId));
 
     if (assets.length > 0) {
@@ -308,7 +267,7 @@ export async function DELETE(
       }
     }
 
-    await db.delete(articles).where(eq(articles.id, articleId));
+    await db.delete(articles).where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     // MVP: Skip audit log for now
     // TODO: Add audit logging when admin features are implemented

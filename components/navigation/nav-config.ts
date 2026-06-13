@@ -17,6 +17,8 @@ import {
   Map,
   AlertCircle,
   KeyRound,
+  CreditCard,
+  Building2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -57,9 +59,17 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Agency",
+    items: [
+      { title: "Agency Clients", href: "/agency", icon: Building2 },
+      { title: "Client Dashboard", href: "/client-dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
     label: "System",
     items: [
       { title: "Publishing", href: "/settings/publishing", icon: Send },
+      { title: "Billing & Credits", href: "/settings/billing", icon: CreditCard },
       { title: "Site Maps", href: "/site-map", icon: Map },
       { title: "Schedules", href: "/settings/schedules", icon: CalendarClock },
       { title: "Account & Security", href: "/settings", icon: KeyRound },
@@ -103,11 +113,14 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   personas: "Personas",
   learning: "AI Learning",
   settings: "Account Settings",
+  billing: "Billing & Credits",
   publishing: "Publishing",
   jobs: "Jobs",
   job: "Job Detail",
   schedules: "Schedules",
   "site-map": "Site Maps",
+  agency: "Agency Clients",
+  "client-dashboard": "Client Dashboard",
   admin: "Admin",
   users: "Users",
   analytics: "Analytics",

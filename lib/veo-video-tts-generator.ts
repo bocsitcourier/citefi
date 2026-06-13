@@ -127,6 +127,7 @@ export async function generateVeoTTS(
     // Use gpt-4o-mini-tts for emotional steering
     const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
     
+    const _veoTtsStart = Date.now();
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
         model: TTS_MODEL,
@@ -139,6 +140,13 @@ export async function generateVeoTTS(
     );
 
     const buffer = Buffer.from(await mp3.arrayBuffer());
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
+      safeLogCostTelemetry(
+        { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
+        { characters: ttsNarration.length },
+        Date.now() - _veoTtsStart, true
+      );
+    }).catch(() => {});
 
     console.log(`  ✅ Audio generated, uploading to storage...`);
 

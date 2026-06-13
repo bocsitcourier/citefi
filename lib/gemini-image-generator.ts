@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { uploadMedia } from "./storage";
 import { logError } from "./error-logger";
 import { throttledGeminiRequest } from "./gemini";
+import { safeLogCostTelemetry, extractGeminiUsage } from "./cost-telemetry";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
 
@@ -117,6 +118,7 @@ export async function generateImagesForArticle(
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
+      const _imgStart = Date.now();
       const response = await throttledGeminiRequest(() =>
         withTimeout(
           genAI.models.generateContent({
@@ -142,6 +144,13 @@ export async function generateImagesForArticle(
       if (!imageData) {
         throw new Error("No image data returned from Gemini API");
       }
+
+      // Log flat-rate image cost only after confirmed successful image delivery
+      safeLogCostTelemetry(
+        { operationType: "image_generation", provider: "gemini", model: "gemini-3.5-flash-image" },
+        { imageCount: 1 },
+        Date.now() - _imgStart, true
+      );
 
       const imageBuffer = Buffer.from(imageData, "base64");
       console.log(`  ✅ Image generated (${(imageBuffer.length / 1024).toFixed(2)} KB) — uploading...`);

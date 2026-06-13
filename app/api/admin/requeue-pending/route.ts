@@ -1,11 +1,13 @@
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { addArticleJob } from "@/lib/queue";
-import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/auth";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    await requireAdmin(request);
     console.log("🔄 Finding pending articles...");
     
     const pendingArticles = await db

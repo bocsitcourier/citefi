@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { users, sessions, teamMembers } from "@/shared/schema";
+import { users, sessions, teamMembers, teams } from "@/shared/schema";
 import { verifyToken as verifyJWT, hashToken } from "@/lib/auth";
 import { eq, and, isNull, gt } from "drizzle-orm";
 
@@ -141,7 +141,7 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
  * Returns null if token is invalid or session is terminated
  * Exported as both verifyTokenFromRequest and as an alias verifyToken for backwards compatibility
  */
-async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number } | null> {
+async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number; teamContextId: number | null } | null> {
   const token = getTokenFromRequest(req);
 
   if (!token) {
@@ -162,6 +162,7 @@ async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: n
       and(
         eq(sessions.tokenHash, tokenHash),
         eq(sessions.userId, payload.userId),
+        eq(sessions.isActive, 1),
         isNull(sessions.forceLogoutAt),
         gt(sessions.expiresAt, new Date())
       )
@@ -177,6 +178,7 @@ async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: n
     email: payload.email,
     role: payload.role,
     sessionId: session.id,
+    teamContextId: session.teamContextId ?? null,
   };
 }
 
@@ -189,8 +191,7 @@ export { verifyTokenFromRequestImpl as verifyToken, verifyTokenFromRequestImpl a
  * This prevents NULL teamId from bypassing team isolation
  * Uses session-aware token verification to prevent false token expiry errors
  */
-export async function requireTeamMember(req: NextRequest): Promise<{ userId: number; teamId: number }> {
-  // Use session-aware verification instead of direct JWT validation
+export async function requireTeamMember(req: NextRequest): Promise<{ userId: number; teamId: number; role: string }> {
   const authResult = await verifyTokenFromRequestImpl(req);
   
   if (!authResult) {
@@ -199,7 +200,6 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     throw error;
   }
 
-  // Load user to get team context
   const [user] = await db
     .select()
     .from(users)
@@ -212,14 +212,48 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     throw error;
   }
 
-  // Get team membership
+  // If the session has an active team context, use it (agency team-switching support)
+  if (authResult.teamContextId) {
+    // Validate the user can access this team: direct membership OR agency-admin inheritance
+    const [directMembership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
+      .limit(1);
+
+    if (directMembership) {
+      return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
+    }
+
+    // Check agency-admin inheritance: target team's parent team has the user as admin
+    const [targetTeam] = await db
+      .select({ parentTeamId: teams.parentTeamId })
+      .from(teams)
+      .where(and(eq(teams.id, authResult.teamContextId), isNull(teams.deletedAt)))
+      .limit(1);
+
+    if (targetTeam?.parentTeamId) {
+      const [agencyMembership] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
+        .limit(1);
+
+      if (agencyMembership?.role === "admin") {
+        return { userId: user.id, teamId: authResult.teamContextId, role: "admin" };
+      }
+    }
+
+    // teamContextId set but access denied — clear context and fall through to default
+  }
+
+  // Default: first direct team membership
   const [teamMembership] = await db
     .select()
     .from(teamMembers)
     .where(eq(teamMembers.userId, user.id))
     .limit(1);
   
-  // CRITICAL: Reject users without team membership to prevent NULL bypass
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: User must be assigned to a team");
     error.statusCode = 403;
@@ -228,8 +262,101 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   
   return {
     userId: user.id,
-    teamId: teamMembership.teamId, // Guaranteed non-null
+    teamId: teamMembership.teamId,
+    role: teamMembership.role,
   };
+}
+
+/**
+ * Require the authenticated user to be a team admin (role = 'admin' in team_members).
+ * Used for high-privilege billing actions: checkout, portal, subscription management.
+ */
+export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: number; teamId: number }> {
+  const authResult = await verifyTokenFromRequestImpl(req);
+
+  if (!authResult) {
+    const error: any = new Error("Authentication required");
+    error.status = 401;
+    throw error;
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, authResult.userId)).limit(1);
+  if (!user) {
+    const error: any = new Error("User not found");
+    error.status = 404;
+    throw error;
+  }
+
+  // If the session has an active team context, verify admin access to that team
+  if (authResult.teamContextId) {
+    // Direct membership with admin role
+    const [directMembership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
+      .limit(1);
+
+    if (directMembership?.role === "admin" || user.role === "admin") {
+      return { userId: user.id, teamId: authResult.teamContextId };
+    }
+
+    // Agency-admin inheritance: user is admin of the parent team
+    const [targetTeam] = await db
+      .select({ parentTeamId: teams.parentTeamId })
+      .from(teams)
+      .where(and(eq(teams.id, authResult.teamContextId), isNull(teams.deletedAt)))
+      .limit(1);
+
+    if (targetTeam?.parentTeamId) {
+      const [agencyMembership] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
+        .limit(1);
+
+      if (agencyMembership?.role === "admin") {
+        return { userId: user.id, teamId: authResult.teamContextId };
+      }
+    }
+
+    // teamContextId set but not admin — fall through to default team check
+  }
+
+  // Global admins bypass team-role check
+  if (user.role === "admin") {
+    const [teamMembership] = await db
+      .select()
+      .from(teamMembers)
+      .where(eq(teamMembers.userId, user.id))
+      .limit(1);
+    if (!teamMembership?.teamId) {
+      const error: any = new Error("Access denied: No team membership");
+      error.status = 403;
+      throw error;
+    }
+    return { userId: user.id, teamId: teamMembership.teamId };
+  }
+
+  // For regular team members, require role='admin' in team_members
+  const [teamMembership] = await db
+    .select()
+    .from(teamMembers)
+    .where(and(eq(teamMembers.userId, user.id)))
+    .limit(1);
+
+  if (!teamMembership?.teamId) {
+    const error: any = new Error("Access denied: No team membership");
+    error.status = 403;
+    throw error;
+  }
+
+  if (teamMembership.role !== "admin") {
+    const error: any = new Error("Access denied: Only team admins can manage this resource");
+    error.status = 403;
+    throw error;
+  }
+
+  return { userId: user.id, teamId: teamMembership.teamId };
 }
 
 /**

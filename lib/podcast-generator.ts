@@ -1,6 +1,7 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { throttledGeminiRequest } from "./gemini";
+import { safeLogCostTelemetry, extractGeminiUsage } from "./cost-telemetry";
 import { createBrandLockPromptSegment } from "./branding";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { validateContentWithFacts } from "./fact-validated-generators";
@@ -152,6 +153,7 @@ ${brandLockContext}
 Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
   try {
+    const _podStart = Date.now();
     const result = await throttledGeminiRequest(() => genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [
@@ -161,6 +163,15 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
         },
       ],
     }));
+
+    if (result?.usageMetadata) {
+      safeLogCostTelemetry(
+        { operationType: "podcast_script", provider: "gemini", model: GEMINI_FLASH_MODEL },
+        extractGeminiUsage(result),
+        Date.now() - _podStart, true
+      );
+    }
+
     const text = (result.text || "").trim();
     
     const jsonMatch = text.match(/\{[\s\S]*\}/);

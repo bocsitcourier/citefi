@@ -17,10 +17,23 @@ export const teams = pgTable("teams", {
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Stripe billing
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }).unique(),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }).unique(),
+  billingPlan: varchar("billing_plan", { length: 30 }).notNull().default("free"),
+  billingStatus: varchar("billing_status", { length: 30 }).notNull().default("active"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  // Agency hierarchy — a client team points to its parent agency team
+  parentTeamId: integer("parent_team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
+  clientStatus: varchar("client_status", { length: 20 }).notNull().default("active"), // active, archived
 }, (table) => ({
   publicIdIdx: index("teams_public_id_idx").on(table.publicId),
   nameIdx: index("teams_name_idx").on(table.name),
   createdByIdx: index("teams_created_by_idx").on(table.createdBy),
+  stripeCustomerIdx: index("teams_stripe_customer_idx").on(table.stripeCustomerId),
+  parentTeamIdx: index("teams_parent_team_idx").on(table.parentTeamId),
+  parentClientStatusIdx: index("teams_parent_client_status_idx").on(table.parentTeamId, table.clientStatus),
 }));
 
 // Team Members table - join table for user-team relationships
@@ -495,6 +508,7 @@ export const socialPosts = pgTable("social_posts", {
   
   // Job Metadata
   jobId: varchar("job_id", { length: 255 }), // pg-boss job ID
+  requestKey: varchar("request_key", { length: 255 }), // per-request idempotency key (composite unique with teamId below)
   errorMessage: text("error_message"),
   
   // Soft Delete Support
@@ -508,6 +522,7 @@ export const socialPosts = pgTable("social_posts", {
   userIdIdx: index("social_posts_user_id_idx").on(table.userId),
   statusIdx: index("social_posts_status_idx").on(table.status),
   scheduleAtIdx: index("social_posts_schedule_at_idx").on(table.scheduleAt),
+  teamRequestKeyIdx: uniqueIndex("social_posts_team_request_key_idx").on(table.teamId, table.requestKey),
 }));
 
 // Social Post Variants table - one row per platform with generated content
@@ -671,6 +686,7 @@ export const userInvites = pgTable("user_invites", {
   id: serial("id").primaryKey(),
   email: varchar("email", { length: 255 }).notNull(),
   invitedBy: integer("invited_by").notNull().references(() => users.id),
+  teamId: integer("team_id").references(() => teams.id),
   role: varchar("role", { length: 50 }).notNull().default("team_member"), // admin, team_member
   
   // Invite Token
@@ -2655,6 +2671,98 @@ export const patternDimensionStats = pgTable("pattern_dimension_stats", {
 
 export type PatternDimensionStat = typeof patternDimensionStats.$inferSelect;
 export type InsertPatternDimensionStat = typeof patternDimensionStats.$inferInsert;
+
+// ============================================================================
+// COST TELEMETRY — actual AI API usage and cost per operation
+// ============================================================================
+export const costTelemetry = pgTable("cost_telemetry", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id"),
+  userId: integer("user_id"),
+  batchId: integer("batch_id"),
+  articleId: integer("article_id"),
+  jobId: varchar("job_id", { length: 100 }),
+  operationType: varchar("operation_type", { length: 50 }).notNull(),
+  provider: varchar("provider", { length: 20 }).notNull(),
+  model: varchar("model", { length: 100 }).notNull(),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  totalTokens: integer("total_tokens"),
+  unitType: varchar("unit_type", { length: 20 }).notNull().default("tokens"),
+  unitCount: integer("unit_count"),
+  costMicrousd: integer("cost_microusd").notNull().default(0),
+  success: integer("success").notNull().default(1),
+  latencyMs: integer("latency_ms"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  teamCreatedIdx: index("cost_telemetry_team_created_idx").on(t.teamId, t.createdAt),
+  opTypeIdx: index("cost_telemetry_op_type_idx").on(t.operationType, t.createdAt),
+  providerModelIdx: index("cost_telemetry_provider_model_idx").on(t.provider, t.model),
+  batchIdx: index("cost_telemetry_batch_idx").on(t.batchId),
+  articleIdx: index("cost_telemetry_article_idx").on(t.articleId),
+}));
+
+export const insertCostTelemetrySchema = createInsertSchema(costTelemetry).omit({ id: true, createdAt: true });
+export type InsertCostTelemetry = z.infer<typeof insertCostTelemetrySchema>;
+export type CostTelemetry = typeof costTelemetry.$inferSelect;
+
+// ============================================================================
+// CREDIT SYSTEM
+// ============================================================================
+
+export const creditBalances = pgTable("credit_balances", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }).unique(),
+  balance: integer("balance").notNull().default(0),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  teamIdx: uniqueIndex("credit_balances_team_idx").on(t.teamId),
+}));
+
+export type CreditBalance = typeof creditBalances.$inferSelect;
+
+export const creditLedger = pgTable("credit_ledger", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id),
+  adminUserId: integer("admin_user_id").references(() => users.id),
+  amount: integer("amount").notNull(),
+  balanceAfter: integer("balance_after").notNull(),
+  eventType: varchar("event_type", { length: 30 }).notNull(),
+  productType: varchar("product_type", { length: 30 }),
+  sourceType: varchar("source_type", { length: 30 }),
+  sourceId: integer("source_id"),
+  jobId: varchar("job_id", { length: 255 }),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+  reason: text("reason"),
+  reversedAt: timestamp("reversed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  teamCreatedIdx: index("credit_ledger_team_created_idx").on(t.teamId, t.createdAt),
+  productIdx: index("credit_ledger_product_idx").on(t.productType, t.createdAt),
+  idempotencyIdx: uniqueIndex("credit_ledger_idempotency_idx").on(t.idempotencyKey),
+}));
+
+export type CreditLedger = typeof creditLedger.$inferSelect;
+
+// ============================================================================
+// BILLING EVENTS — Stripe webhook idempotency log
+// ============================================================================
+
+export const billingEvents = pgTable("billing_events", {
+  id: serial("id").primaryKey(),
+  stripeEventId: varchar("stripe_event_id", { length: 255 }).notNull().unique(),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "set null" }),
+  processedAt: timestamp("processed_at").notNull().defaultNow(),
+  payload: jsonb("payload"),
+}, (t) => ({
+  stripeEventIdx: uniqueIndex("billing_events_stripe_event_idx").on(t.stripeEventId),
+  teamIdx: index("billing_events_team_idx").on(t.teamId),
+}));
+
+export type BillingEvent = typeof billingEvents.$inferSelect;
 
 // ============================================================================
 

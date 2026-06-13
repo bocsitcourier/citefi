@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { requireTeamMember } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
+    const { teamId } = await requireTeamMember(request);
     const { socialPostId } = await request.json();
 
     if (!socialPostId || typeof socialPostId !== "number") {
@@ -14,7 +16,7 @@ export async function POST(request: NextRequest) {
     const [post] = await db
       .select({ id: socialPosts.id, videoStatus: socialPosts.videoStatus })
       .from(socialPosts)
-      .where(eq(socialPosts.id, socialPostId))
+      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)))
       .limit(1);
 
     if (!post) {
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
         errorMessage: "Cancelled by user",
         updatedAt: new Date(),
       })
-      .where(eq(socialPosts.id, socialPostId));
+      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
 
     console.log(`🛑 Video generation cancelled by user for social post ${socialPostId}`);
 

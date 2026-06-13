@@ -5,6 +5,15 @@ import { requireAdminById, verifyToken } from '@/lib/api/auth';
 import { eq, and, gt } from 'drizzle-orm';
 import crypto from 'crypto';
 
+async function getAdminTeamId(userId: number): Promise<number | null> {
+  const [adminUser] = await db
+    .select({ defaultTeamId: users.defaultTeamId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return adminUser?.defaultTeamId ?? null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await verifyToken(req);
@@ -104,11 +113,14 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
+    const adminTeamId = await getAdminTeamId(auth.userId);
+
     const insertedInvites = await db
       .insert(userInvites)
       .values({
         email: email.toLowerCase(),
         invitedBy: auth.userId,
+        teamId: adminTeamId,
         role,
         tokenHash,
         expiresAt,

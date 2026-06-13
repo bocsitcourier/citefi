@@ -9,6 +9,7 @@ import { objectStorageClient } from "./storage";
 import { validateBrandInOutput } from "./branding";
 import { uploadPodcastToDrive } from "./google-drive";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
+import { refundCredits, CREDIT_COSTS } from "./credits";
 
 export interface PodcastGenerationJob {
   articleId: number;
@@ -16,6 +17,8 @@ export interface PodcastGenerationJob {
   duration?: string;
   teamId?: number;
   personaId?: number;
+  userId?: number;
+  debitLedgerRowId?: number;
 }
 
 export async function generateArticlePodcast(job: PodcastGenerationJob): Promise<void> {
@@ -222,6 +225,21 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     await db.update(articles)
       .set({ podcastStatus: 'failed' })
       .where(eq(articles.id, articleId));
+
+    // Refund credits if userId + ledger row were provided by the caller
+    if (job.userId && job.debitLedgerRowId && job.teamId) {
+      await refundCredits({
+        teamId: job.teamId,
+        userId: job.userId,
+        amount: CREDIT_COSTS.podcast,
+        reason: `Refund: podcast generation failure for article ${articleId}`,
+        sourceType: "article",
+        sourceId: articleId,
+        debitLedgerRowId: job.debitLedgerRowId,
+      }).catch((refundErr) => {
+        console.error(`[Podcast Worker] Failed to refund credits for article ${articleId}:`, refundErr);
+      });
+    }
 
     await logError({
       errorType: "PODCAST",

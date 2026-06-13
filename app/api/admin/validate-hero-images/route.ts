@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { logError } from "@/lib/error-logger";
+import { requireAdmin } from "@/lib/api/auth";
 import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
@@ -24,33 +25,11 @@ interface ValidationResult {
   }>;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
     const { searchParams } = new URL(request.url);
     const checkUrls = searchParams.get("checkUrls") === "true"; // Optional: actually fetch URLs to validate
-    
-    // Security: Require valid admin token
-    const authHeader = request.headers.get("authorization");
-    const isLocalDev = process.env.NODE_ENV === "development";
-    const adminToken = process.env.ADMIN_API_TOKEN;
-    
-    if (!isLocalDev) {
-      if (!authHeader || !adminToken) {
-        return NextResponse.json(
-          { success: false, error: "Unauthorized - admin access required" },
-          { status: 401 }
-        );
-      }
-      
-      // Validate token format: "Bearer <token>"
-      const expectedHeader = `Bearer ${adminToken}`;
-      if (authHeader !== expectedHeader) {
-        return NextResponse.json(
-          { success: false, error: "Invalid admin token" },
-          { status: 403 }
-        );
-      }
-    }
 
     // Get all articles
     const allArticles = await db

@@ -181,6 +181,7 @@ Return ONLY valid JSON in this exact format:
 
   try {
     const genAI = getGeminiClient();
+    const _ideaStart = Date.now();
     const response = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -189,6 +190,16 @@ Return ONLY valid JSON in this exact format:
         maxOutputTokens: 2000,
       },
     });
+
+    if (response?.usageMetadata) {
+      void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
+        safeLogCostTelemetry(
+          { operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL },
+          extractGeminiUsage(response),
+          Date.now() - _ideaStart, true
+        );
+      }).catch(() => {});
+    }
 
     const text = (response.text || "").trim();
     

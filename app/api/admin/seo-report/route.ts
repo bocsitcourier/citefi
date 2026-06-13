@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { seoLogs, articles, jobBatches } from "@/shared/schema";
 import { eq, sql, desc } from "drizzle-orm";
+import { requireAdmin } from "@/lib/api/auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
+
     const costOverview = await db
       .select({
         totalTokenCost: sql<number>`sum(${seoLogs.tokenCost})`,
@@ -47,11 +50,11 @@ export async function GET() {
       topPerformingArticles,
       bottomPerformingArticles,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("SEO report error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch SEO report" },
-      { status: 500 }
+      { error: error?.message || "Failed to fetch SEO report" },
+      { status: error?.statusCode || 500 }
     );
   }
 }

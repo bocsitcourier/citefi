@@ -1,15 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { userInvites, users } from '@/shared/schema';
+import { db, getTxDb } from '@/lib/db';
+import { userInvites, users, teamMembers } from '@/shared/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   try {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`invite-accept:${ip}`, 10, 60 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
     const { token } = await params;
     const body = await req.json();
     const { fullName, password } = body;
@@ -63,43 +73,56 @@ export async function POST(
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
+    const teamId = invite.teamId ?? null;
 
-    const insertedUsers = await db
-      .insert(users)
-      .values({
-        email: invite.email,
-        fullName,
-        passwordHash: hashedPassword,
-        role: invite.role,
-        accountStatus: 'active',
-        emailVerified: 1,
-      })
-      .returning();
+    const txDb = getTxDb();
+    let newUser: typeof users.$inferSelect;
 
-    const newUser = insertedUsers[0];
-    if (!newUser) {
-      return NextResponse.json(
-        { error: 'Failed to create user account' },
-        { status: 500 }
-      );
-    }
+    await txDb.transaction(async (tx) => {
+      const insertedUsers = await tx
+        .insert(users)
+        .values({
+          email: invite.email,
+          fullName,
+          passwordHash: hashedPassword,
+          role: invite.role,
+          accountStatus: 'active',
+          emailVerified: 1,
+          ...(teamId ? { defaultTeamId: teamId } : {}),
+        })
+        .returning();
 
-    await db
-      .update(userInvites)
-      .set({
-        status: 'accepted',
-        acceptedAt: new Date(),
-        acceptedBy: newUser.id,
-      })
-      .where(eq(userInvites.id, invite.id));
+      newUser = insertedUsers[0];
+      if (!newUser) throw new Error('Failed to create user account');
+
+      if (teamId) {
+        await tx
+          .insert(teamMembers)
+          .values({
+            teamId,
+            userId: newUser.id,
+            role: invite.role === 'admin' ? 'admin' : 'member',
+          })
+          .onConflictDoNothing();
+      }
+
+      await tx
+        .update(userInvites)
+        .set({
+          status: 'accepted',
+          acceptedAt: new Date(),
+          acceptedBy: newUser.id,
+        })
+        .where(eq(userInvites.id, invite.id));
+    });
 
     return NextResponse.json({
       success: true,
       user: {
-        id: newUser.id,
-        email: newUser.email,
-        fullName: newUser.fullName,
-        role: newUser.role,
+        id: newUser!.id,
+        email: newUser!.email,
+        fullName: newUser!.fullName,
+        role: newUser!.role,
       },
     });
   } catch (error: any) {

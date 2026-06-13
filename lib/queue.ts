@@ -310,19 +310,34 @@ function isConnErr(err: unknown) {
   return CONN_ERR_PATTERNS.some((p) => msg.includes(p));
 }
 
-export async function addSocialPostJob(data: SocialPostJobData) {
+export async function addSocialPostJob(
+  data: SocialPostJobData,
+  options?: { singletonKey?: string }
+) {
   const MAX_ATTEMPTS = 3;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const boss = await getPgBoss();
-      const jobId = await boss.send(SOCIAL_POST_GENERATION_QUEUE, data, {
+      const sendOpts: Parameters<typeof boss.send>[2] = {
         retryLimit: 3,
         retryDelay: 5,
         retryBackoff: true,
-      });
+      };
+      if (options?.singletonKey) sendOpts.singletonKey = options.singletonKey;
+      const jobId = await boss.send(SOCIAL_POST_GENERATION_QUEUE, data, sendOpts);
       if (!jobId) {
-        throw new Error(`pg-boss returned null job ID for social post ${data.socialPostId} — queue may be unhealthy`);
+        if (options?.singletonKey) {
+          // pg-boss rejects a duplicate: original job is still pending/active.
+          // Return null so the caller can handle "already queued" gracefully.
+          console.log(
+            `♻️ Social post ${data.socialPostId} already queued (singletonKey collision: ${options.singletonKey})`
+          );
+          return null;
+        }
+        throw new Error(
+          `pg-boss returned null job ID for social post ${data.socialPostId} — queue may be unhealthy`
+        );
       }
       console.log(`🎭 Social post job queued: ${jobId} for social post ${data.socialPostId}`);
       return jobId;

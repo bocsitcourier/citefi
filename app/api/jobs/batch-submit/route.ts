@@ -4,7 +4,9 @@ import { db } from "@/lib/db";
 import { jobBatches, articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { addBatchGenerationJob } from "@/lib/queue";
+import { debitCredits, refundCredits, CREDIT_COSTS } from "@/lib/credits";
 import { requireTeamMember } from "@/lib/api/auth";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
 const batchSubmitSchema = z.object({
   batchId: z.number(),
@@ -41,7 +43,7 @@ const batchSubmitSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    const { teamId, userId } = await requireTeamMember(request);
 
     const body = await request.json();
     const validatedData = batchSubmitSchema.parse(body);
@@ -71,85 +73,127 @@ export async function POST(request: NextRequest) {
       personaId,
     } = validatedData;
 
-    // CRITICAL: Verify batch belongs to user's team
+    // Atomically claim PENDING → SUBMITTING — prevents concurrent double-submit race
     const [batch] = await db
-      .select()
-      .from(jobBatches)
+      .update(jobBatches)
+      .set({ status: "SUBMITTING" })
       .where(
         and(
           eq(jobBatches.id, batchId),
-          eq(jobBatches.teamId, teamId) // TEAM ISOLATION
+          eq(jobBatches.teamId, teamId),
+          eq(jobBatches.status, "PENDING")
         )
-      );
+      )
+      .returning();
 
     if (!batch) {
-      return NextResponse.json(
-        { error: "Batch not found or access denied" },
-        { status: 404 }
-      );
-    }
-
-    if (batch.status !== "PENDING") {
-      return NextResponse.json(
-        { error: "Batch already submitted or completed" },
-        { status: 400 }
-      );
+      const [exists] = await db
+        .select({ id: jobBatches.id })
+        .from(jobBatches)
+        .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
+      if (!exists) {
+        return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
+      }
+      return NextResponse.json({ error: "Batch already submitted or in progress" }, { status: 409 });
     }
 
     console.log(`📦 Submitting batch ${batchId} with ${selectedTitles.length} articles`);
 
-    // CRITICAL: Merge with existing generationParams to preserve redditResearchCache
-    const existingParams = batch.generationParams as Record<string, any> || {};
-    const mergedParams = {
-      ...existingParams, // Preserve existing data (especially redditResearchCache)
-      tone, 
-      wordCountMin, 
-      wordCountMax, 
-      geographicFocus, 
-      audience,
-      // Persist serpFeatureTarget so batch records are self-describing for audits/re-runs
-      ...(serpFeatureTarget ? { serpFeatureTarget } : {}),
-    };
+    // Paywall gate: block free/canceled teams with zero credits before debit attempt
+    // Reset batch to PENDING on 402 so the user can retry after purchasing credits
+    const paywallCheck = await checkTeamPaywall(teamId);
+    if (!paywallCheck.allowed) {
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      return NextResponse.json(paywallErrorBody(paywallCheck), { status: 402 });
+    }
 
-    await db
-      .update(jobBatches)
-      .set({
-        generationParams: mergedParams,
-        businessName: businessName,
-        businessAddress: businessAddress || null,
-        businessPhone: businessPhone || null,
-        companyLogoUrl: companyLogoUrl || null,
-        autoPublishEnabled: autoPublishEnabled ? 1 : 0,
-        autoPublishConnectionIds: autoPublishConnectionIds && autoPublishConnectionIds.length > 0 
-          ? autoPublishConnectionIds 
-          : null,
-        personaId: personaId || null,
-      })
-      .where(eq(jobBatches.id, batchId));
+    // Per-request idempotency key: stable for retries of the same request, unique per submission attempt
+    const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
 
-    const jobId = await addBatchGenerationJob({
-      batchId,
-      userId: batch.userId,
-      teamId, // CRITICAL: Pass teamId for article creation
-      selectedTitles,
-      targetUrl,
-      tone,
-      wordCountMin,
-      wordCountMax,
-      geographicFocus,
-      audience,
-      businessName,
-      companyLogoUrl,
-      // Advanced features
-      competitorUrls,
-      semanticClusterId,
-      serpFeatureTarget,
-      personaId,
+    // Debit credits — refund + reset batch if insufficient
+    const creditDebit = await debitCredits({
+      teamId,
+      userId,
+      productType: "article",
+      units: selectedTitles.length,
+      idempotencyKey: `batch:${batchId}:${requestKey}`,
+      sourceType: "batch",
+      sourceId: batchId,
     });
 
-    // CRITICAL: Verify job was actually queued
-    if (!jobId) {
-      console.error(`❌ Batch ${batchId} submission failed - job not queued`);
+    if (!creditDebit.ok) {
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      return NextResponse.json(
+        {
+          error: "Insufficient credits",
+          balance: creditDebit.balance,
+          requiredCredits: creditDebit.requiredCredits,
+          upgradeUrl: "/settings/billing",
+          message: `You need ${creditDebit.requiredCredits} credits to generate ${selectedTitles.length} articles. Current balance: ${creditDebit.balance}. Purchase more credits at /settings/billing.`,
+        },
+        { status: 402 }
+      );
+    }
+
+    // Wrap all post-debit work — refund + reset batch on any failure
+    let jobId: string | null = null;
+    try {
+      // CRITICAL: Merge with existing generationParams to preserve redditResearchCache
+      const existingParams = batch.generationParams as Record<string, any> || {};
+      const mergedParams = {
+        ...existingParams,
+        tone, wordCountMin, wordCountMax, geographicFocus, audience,
+        ...(serpFeatureTarget ? { serpFeatureTarget } : {}),
+      };
+
+      await db
+        .update(jobBatches)
+        .set({
+          generationParams: mergedParams,
+          businessName: businessName,
+          businessAddress: businessAddress || null,
+          businessPhone: businessPhone || null,
+          companyLogoUrl: companyLogoUrl || null,
+          autoPublishEnabled: autoPublishEnabled ? 1 : 0,
+          autoPublishConnectionIds: autoPublishConnectionIds && autoPublishConnectionIds.length > 0
+            ? autoPublishConnectionIds
+            : null,
+          personaId: personaId || null,
+        })
+        .where(eq(jobBatches.id, batchId));
+
+      jobId = await addBatchGenerationJob({
+        batchId,
+        userId: batch.userId,
+        teamId,
+        selectedTitles,
+        targetUrl,
+        tone,
+        wordCountMin,
+        wordCountMax,
+        geographicFocus,
+        audience,
+        businessName,
+        companyLogoUrl,
+        competitorUrls,
+        semanticClusterId,
+        serpFeatureTarget,
+        personaId,
+      });
+
+      if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
+    } catch (queueErr) {
+      console.error(`❌ Batch ${batchId} submission failed:`, queueErr);
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      await refundCredits({
+        teamId,
+        userId,
+        amount: CREDIT_COSTS.article * selectedTitles.length,
+        reason: `Refund: batch ${batchId} queue failure`,
+        sourceType: "batch",
+        sourceId: batchId,
+        debitLedgerRowId: creditDebit.ledgerRowId,
+      }).catch(() => {});
       return NextResponse.json(
         { error: "Failed to queue batch generation job. Please try again." },
         { status: 500 }

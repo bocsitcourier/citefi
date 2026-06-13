@@ -5,11 +5,12 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { addCleanupJob } from "@/lib/queue";
 import { getDefaults, clearConfigCache } from "@/lib/cleanup-policy";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { requireAdmin } from "@/lib/api/auth";
 
 // GET /api/cleanup - Get cleanup configuration and recent jobs
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
     const { searchParams } = new URL(request.url);
     const jobType = searchParams.get("jobType");
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
@@ -55,7 +56,7 @@ const triggerSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    const userId = await requireAdmin(request);
     const body = await request.json();
     const data = triggerSchema.parse(body);
 

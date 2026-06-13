@@ -44,13 +44,8 @@ export async function GET(request: NextRequest) {
     
     // CRITICAL SECURITY FIX: Proper team isolation for NULL team_id
     if (teamId) {
-      // User has a team: show articles matching their teamId OR articles with NULL team_id (legacy)
-      whereConditions.push(
-        or(
-          eq(articles.teamId, teamId),
-          isNull(articles.teamId)
-        )
-      );
+      // Team user: strict isolation — only their own team's articles
+      whereConditions.push(eq(articles.teamId, teamId));
     } else {
       // User has NO team: ONLY show articles with NULL team_id (prevent cross-team leaks)
       whereConditions.push(isNull(articles.teamId));

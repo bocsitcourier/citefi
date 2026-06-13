@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { safeLogCostTelemetry, extractOpenAIUsage } from "../cost-telemetry";
 import { validateContent, type ContentValidationResult } from "./content-validator";
 import { isHighQualityAnchor } from "../seo-policy";
 
@@ -297,6 +298,14 @@ ${content}
     `Batched Review: ${title.substring(0, 50)}`,
     chatgptReviewTimeout // Pass timeout to callOpenAI wrapper (controls request timeout)
   );
+
+  if (completion.usage) {
+    safeLogCostTelemetry(
+      { operationType: "article_review", provider: "openai", model: "gpt-5.4-mini" },
+      extractOpenAIUsage(completion),
+      0, true
+    );
+  }
 
   const responseText = completion.choices[0]?.message?.content || "{}";
   const parsed = JSON.parse(responseText);

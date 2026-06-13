@@ -3,9 +3,11 @@ import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { addArticleJob } from "@/lib/queue";
+import { requireAdmin } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdmin(request);
     const body = await request.json();
     const { articleIds } = body;
 

@@ -3,11 +3,13 @@ import { db } from "@/lib/db";
 import { errorLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { objectStorageClient } from "@/lib/storage";
+import { requireTeamMember } from "@/lib/api/auth";
 
 const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
 
 export async function POST(req: NextRequest) {
   try {
+    await requireTeamMember(req);
     const formData = await req.formData();
     const file = formData.get("screenshot") as File | null;
     const errorMessage = formData.get("errorMessage") as string || "Unknown client error";

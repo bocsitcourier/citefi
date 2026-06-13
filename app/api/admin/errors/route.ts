@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobEvents } from "@/shared/schema";
 import { desc, eq, and, sql } from "drizzle-orm";
+import { requireAdmin } from "@/lib/api/auth";
 
 // MVP: Using job_events for error tracking
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
     const searchParams = request.nextUrl.searchParams;
     const severity = searchParams.get("severity");
     const page = parseInt(searchParams.get("page") || "1");

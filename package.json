@@ -116,6 +116,7 @@
     "recharts": "^2.15.2",
     "sharp": "^0.34.4",
     "speakeasy": "^2.0.0",
+    "stripe": "^22.2.1",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.21.0",

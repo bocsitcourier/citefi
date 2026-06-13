@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
-import { hashPassword, verifyPassword, verifyToken, validatePassword } from "@/lib/auth";
+import { hashPassword, verifyPassword, validatePassword } from "@/lib/auth";
+import { verifyToken } from "@/lib/api/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ip = getClientIp(req);
+    const rl = rateLimit(`change-password:${ip}`, 5, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many password change attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
     }
 
-    const token = authHeader.substring(7);
-    const payload = verifyToken(token);
-    if (!payload) {
+    const authResult = await verifyToken(req);
+    if (!authResult) {
       return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
@@ -44,7 +49,7 @@ export async function POST(req: NextRequest) {
     const [user] = await db
       .select({ id: users.id, email: users.email, passwordHash: users.passwordHash })
       .from(users)
-      .where(eq(users.id, payload.userId))
+      .where(eq(users.id, authResult.userId))
       .limit(1);
 
     if (!user || !user.passwordHash) {

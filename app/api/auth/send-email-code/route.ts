@@ -2,10 +2,20 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`email-code:${ip}`, 5, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many code requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
     const body = await req.json();
     const { userId, purpose } = body;
 
@@ -13,6 +23,14 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "userId and purpose are required" },
         { status: 400 }
+      );
+    }
+
+    const userRl = rateLimit(`email-code:user:${userId}`, 5, 15 * 60 * 1000);
+    if (!userRl.allowed) {
+      return NextResponse.json(
+        { error: "Too many code requests for this account. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(userRl.retryAfter) } }
       );
     }
 

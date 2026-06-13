@@ -7,7 +7,7 @@ import { generateSocialSnippets } from "@/lib/chatgpt-review/social-snippets";
 import { enhanceImagePrompts } from "@/lib/chatgpt-review/image-enhancer";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export interface ChatGPTReviewRequest {
   articleId: number;
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
         metaEnrichment: metaEnrichment as any,
         updatedAt: new Date(),
       })
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     console.log(`[ChatGPT Review] Database updated for article ${articleId}`);
     console.log(`[ChatGPT Review] Token usage: ${tokenUsage.total} total tokens`);

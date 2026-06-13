@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { safeLogCostTelemetry, extractOpenAIUsage } from "../cost-telemetry";
 import { isHighQualityAnchor } from "../seo-policy";
 
 export interface HyperlinkResult {
@@ -97,6 +98,14 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
       }),
       `Hyperlinker: ${coreTopic.substring(0, 50)}`
     );
+
+    if (completion.usage) {
+      safeLogCostTelemetry(
+        { operationType: "article_hyperlink", provider: "openai", model: "gpt-5.4-mini" },
+        extractOpenAIUsage(completion),
+        0, true
+      );
+    }
 
     const responseText = completion.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(responseText);

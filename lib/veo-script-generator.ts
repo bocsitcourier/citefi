@@ -151,6 +151,7 @@ OUTPUT FORMAT:
 CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUST end with the no-text disclaimer.`;
 
   try {
+    const _veoStart = Date.now();
     const response = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -159,6 +160,16 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
         maxOutputTokens: 8192,
       },
     });
+
+    if (response?.usageMetadata) {
+      void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
+        safeLogCostTelemetry(
+          { operationType: "video_script", provider: "gemini", model: GEMINI_FLASH_MODEL },
+          extractGeminiUsage(response),
+          Date.now() - _veoStart, true
+        );
+      }).catch(() => {});
+    }
 
     const text = (response.text || "").trim();
     

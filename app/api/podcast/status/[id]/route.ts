@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
 export async function GET(
@@ -20,17 +20,18 @@ export async function GET(
       );
     }
     
-    const article = await db.query.articles.findFirst({
-      where: eq(articles.id, articleId),
-      columns: {
-        id: true,
-        podcastStatus: true,
-        podcastUrl: true,
-        podcastDuration: true,
-        podcastGeneratedAt: true,
-        podcastScriptJson: true,
-      },
-    });
+    const [article] = await db
+      .select({
+        id: articles.id,
+        podcastStatus: articles.podcastStatus,
+        podcastUrl: articles.podcastUrl,
+        podcastDuration: articles.podcastDuration,
+        podcastGeneratedAt: articles.podcastGeneratedAt,
+        podcastScriptJson: articles.podcastScriptJson,
+      })
+      .from(articles)
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
+      .limit(1);
     
     if (!article) {
       return NextResponse.json(

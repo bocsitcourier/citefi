@@ -3,12 +3,22 @@ import { db } from '@/lib/db';
 import { userInvites } from '@/shared/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import crypto from 'crypto';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   try {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`invite-validate:${ip}`, 20, 60 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
     const { token } = await params;
 
     if (!token) {

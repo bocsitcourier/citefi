@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPgBoss } from "@/lib/queue";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { requireAdmin } from "@/lib/api/auth";
 
 /**
  * Job Health Check API
@@ -11,6 +12,7 @@ import { sql } from "drizzle-orm";
  */
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
     const boss = await getPgBoss();
     
     // Get all queue states

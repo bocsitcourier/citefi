@@ -1,30 +1,36 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, totpSecrets, activityLogs } from "@/shared/schema";
-import { verifyToken } from "@/lib/auth";
+import { verifyToken } from "@/lib/api/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq } from "drizzle-orm";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const payload = verifyToken(authHeader.substring(7));
-    if (!payload) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ip = getClientIp(req);
+    const rl = rateLimit(`totp-disable:${ip}`, 3, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
     }
 
-    await db.delete(totpSecrets).where(eq(totpSecrets.userId, payload.userId));
+    const authResult = await verifyToken(req);
+    if (!authResult) {
+      return NextResponse.json({ error: "Unauthorized - Invalid or expired session" }, { status: 401 });
+    }
+
+    await db.delete(totpSecrets).where(eq(totpSecrets.userId, authResult.userId));
     await db.update(users)
       .set({ twoFactorEnabled: 0, twoFactorMethod: null })
-      .where(eq(users.id, payload.userId));
+      .where(eq(users.id, authResult.userId));
 
     await db.insert(activityLogs).values({
-      userId: payload.userId,
+      userId: authResult.userId,
       action: "totp_disabled",
       resource: "users",
-      resourceId: payload.userId,
+      resourceId: authResult.userId,
       ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
       userAgent: req.headers.get("user-agent") || null,
       severity: "warning",

@@ -193,6 +193,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
   }
 
   // Generate content with Gemini (shared by both prompt systems)
+  const _socialStart = Date.now();
   const result = await genAI.models.generateContent({
     model: GEMINI_FLASH_MODEL,
     contents: [
@@ -202,6 +203,16 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
       },
     ],
   });
+
+  if (result?.usageMetadata) {
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
+      safeLogCostTelemetry(
+        { operationType: "social_post", provider: "gemini", model: GEMINI_FLASH_MODEL },
+        extractGeminiUsage(result),
+        Date.now() - _socialStart, true
+      );
+    }).catch(() => {});
+  }
   
   // Strip any AI-generated trailing dots before checking length
   const caption = cleanGeneratedText((result.text || "").trim()) || "";

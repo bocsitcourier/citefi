@@ -1,26 +1,27 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, totpSecrets, activityLogs } from "@/shared/schema";
-import { verifyToken, generateTOTPSecret, verifyTOTPToken, generateBackupCodes, hashBackupCodes } from "@/lib/auth";
+import { generateTOTPSecret, verifyTOTPToken, generateBackupCodes, hashBackupCodes } from "@/lib/auth";
+import { verifyToken } from "@/lib/api/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq } from "drizzle-orm";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`totp-setup:${ip}`, 5, 15 * 60 * 1000);
+    if (!rl.allowed) {
       return NextResponse.json(
-        { error: "Unauthorized - No token provided" },
-        { status: 401 }
+        { error: "Too many TOTP setup attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = verifyToken(token);
+    const authResult = await verifyToken(req);
 
-    if (!payload) {
+    if (!authResult) {
       return NextResponse.json(
-        { error: "Unauthorized - Invalid token" },
+        { error: "Unauthorized - Invalid or expired session" },
         { status: 401 }
       );
     }
@@ -29,11 +30,10 @@ export async function POST(req: Request) {
     const { action, verificationCode } = body;
 
     if (action === "generate") {
-      // Generate new TOTP secret
       const [user] = await db
         .select()
         .from(users)
-        .where(eq(users.id, payload.userId))
+        .where(eq(users.id, authResult.userId))
         .limit(1);
 
       if (!user) {
@@ -45,15 +45,13 @@ export async function POST(req: Request) {
 
       const totpSetup = await generateTOTPSecret(user.email);
 
-      // Return QR code and manual entry key (don't save to DB yet)
       return NextResponse.json({
         qrCodeUrl: totpSetup.qrCodeUrl,
         manualEntryKey: totpSetup.manualEntryKey,
-        secret: totpSetup.secret, // Temporary, will be confirmed in next step
+        secret: totpSetup.secret,
       });
 
     } else if (action === "verify") {
-      // Verify and save TOTP secret
       const { secret } = body;
 
       if (!secret || !verificationCode) {
@@ -63,7 +61,6 @@ export async function POST(req: Request) {
         );
       }
 
-      // Verify the code
       const verified = verifyTOTPToken(verificationCode, secret);
 
       if (!verified) {
@@ -73,52 +70,46 @@ export async function POST(req: Request) {
         );
       }
 
-      // Generate backup codes
       const backupCodes = await generateBackupCodes(10);
       const hashedBackupCodes = await hashBackupCodes(backupCodes);
 
-      // Check if TOTP already exists
       const [existingTotp] = await db
         .select()
         .from(totpSecrets)
-        .where(eq(totpSecrets.userId, payload.userId))
+        .where(eq(totpSecrets.userId, authResult.userId))
         .limit(1);
 
       if (existingTotp) {
-        // Update existing
         await db
           .update(totpSecrets)
           .set({
             secret,
             backupCodes: hashedBackupCodes,
           })
-          .where(eq(totpSecrets.userId, payload.userId));
+          .where(eq(totpSecrets.userId, authResult.userId));
       } else {
-        // Create new
         await db
           .insert(totpSecrets)
           .values({
-            userId: payload.userId,
+            userId: authResult.userId,
             secret,
             backupCodes: hashedBackupCodes,
           });
       }
 
-      // Enable 2FA for user
       await db
         .update(users)
         .set({
           twoFactorEnabled: 1,
           twoFactorMethod: "totp",
         })
-        .where(eq(users.id, payload.userId));
+        .where(eq(users.id, authResult.userId));
 
-      // Log activity
       await db.insert(activityLogs).values({
-        userId: payload.userId,
+        userId: authResult.userId,
         action: "totp_setup",
         resource: "users",
-        resourceId: payload.userId,
+        resourceId: authResult.userId,
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
         severity: "info",
@@ -126,7 +117,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         message: "TOTP setup successful",
-        backupCodes, // Return plain backup codes once for user to save
+        backupCodes,
       });
     } else {
       return NextResponse.json(

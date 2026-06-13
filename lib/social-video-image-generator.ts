@@ -160,6 +160,7 @@ Visual Elements:
 
     // CRITICAL FIX: Pass aspectRatio to Gemini API to prevent square/1:1 default
     // Without this, Gemini generates square images which causes black bars when resized
+    const _vidImgStart = Date.now();
     let response = await callGeminiWithRetry(imagePrompt);
 
     // Extract image from response
@@ -206,6 +207,15 @@ Visual Elements:
     if (!imageData) {
       throw new Error(`No image data returned for Scene ${scene.sceneNumber} after retry`);
     }
+
+    // Log confirmed successful image generation (after fallback resolution)
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
+      safeLogCostTelemetry(
+        { operationType: "image_generation", provider: "gemini", model: "gemini-3.5-flash-image" },
+        { imageCount: 1 },
+        Date.now() - _vidImgStart, true
+      );
+    }).catch(() => {});
 
     console.log(`  ✅ Image ${scene.sceneNumber} generated from Gemini`);
 

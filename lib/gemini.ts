@@ -208,6 +208,36 @@ export async function throttledGeminiRequest<T>(fn: () => Promise<T>): Promise<T
   return geminiRateLimiter.schedule(() => fn());
 }
 
+/**
+ * Tracked variant of throttledGeminiRequest — logs cost telemetry automatically.
+ * Falls back to throttledGeminiRequest behaviour on telemetry errors (never throws for telemetry).
+ */
+export async function trackedGeminiRequest<T extends { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } }>(
+  fn: () => Promise<T>,
+  ctx: import("./cost-telemetry").TelemetryContext
+): Promise<T> {
+  const { safeLogCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+  const startTime = Date.now();
+  try {
+    const result = await throttledGeminiRequest(fn);
+    const latencyMs = Date.now() - startTime;
+    if (result?.usageMetadata) {
+      safeLogCostTelemetry(ctx, extractGeminiUsage(result), latencyMs, true);
+    }
+    return result;
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    safeLogCostTelemetry(
+      ctx,
+      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      latencyMs,
+      false,
+      error instanceof Error ? error.message : String(error)
+    );
+    throw error;
+  }
+}
+
 export function getGeminiRateLimitConfig() {
   return {
     requestsPerMinute: GEMINI_REQUESTS_PER_MINUTE,
@@ -535,6 +565,16 @@ Return ONLY valid JSON with enhanced coverage mapping:
     }
   }));
   console.log(`✅ Gemini API returned response`);
+
+  if (result?.usageMetadata) {
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
+      safeLogCostTelemetry(
+        { operationType: "article_title_pool", provider: "gemini", model: GEMINI_FLASH_MODEL },
+        extractGeminiUsage(result),
+        0, true
+      );
+    }).catch(() => {});
+  }
 
   let responseText = result.text || "";
   if (!responseText) {
@@ -1611,6 +1651,16 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       }
     }
   }));
+
+  if (result?.usageMetadata) {
+    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
+      safeLogCostTelemetry(
+        { operationType: "article_generation", provider: "gemini", model },
+        extractGeminiUsage(result),
+        0, true
+      );
+    }).catch(() => {});
+  }
 
   let responseText = result.text || "";
   if (!responseText) {

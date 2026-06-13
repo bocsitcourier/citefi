@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches, articles, jobEvents, users } from "@/shared/schema";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
+import { requireAdmin } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin(request);
+
     // Get total counts
     const [totalBatches] = await db.select({ count: sql<string>`count(*)::text` }).from(jobBatches);
     const [totalArticles] = await db.select({ count: sql<string>`count(*)::text` }).from(articles);

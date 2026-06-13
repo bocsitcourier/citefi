@@ -2,10 +2,20 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { hashPassword } from "@/lib/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 import { eq, and, gt } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`reset-password:${ip}`, 5, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many password reset attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
+
     const body = await req.json();
     const { email, code, newPassword } = body;
 
@@ -15,6 +25,14 @@ export async function POST(req: Request) {
 
     if (newPassword.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+    }
+
+    const emailRl = rateLimit(`reset-password:email:${email.toLowerCase().trim()}`, 5, 15 * 60 * 1000);
+    if (!emailRl.allowed) {
+      return NextResponse.json(
+        { error: "Too many password reset attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(emailRl.retryAfter) } }
+      );
     }
 
     const [user] = await db
