@@ -1,7 +1,7 @@
 import { eq, sql, isNull, and } from "drizzle-orm";
 import { getTxDb } from "./db";
 import { db } from "./db";
-import { creditBalances, creditLedger, teams } from "@shared/schema";
+import { creditBalances, creditLedger, teams } from "@/shared/schema";
 
 export const CREDIT_COSTS = {
   article: 10,
