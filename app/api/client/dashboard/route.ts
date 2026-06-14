@@ -46,8 +46,9 @@ export async function GET(req: NextRequest) {
       recentBatches,
     });
   } catch (err: any) {
-    if (err.status === 401 || err.status === 403) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    const httpStatus = err.status ?? err.statusCode;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[client/dashboard]", err);
     return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 });

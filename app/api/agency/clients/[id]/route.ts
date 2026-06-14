@@ -35,6 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
+    // Ownership constraint included in WHERE to close TOCTOU window
     const [updated] = await db
       .update(teams)
       .set({
@@ -42,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         ...(parsed.data.clientStatus ? { clientStatus: parsed.data.clientStatus } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(teams.id, clientId))
+      .where(and(eq(teams.id, clientId), eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
       .returning({ id: teams.id, name: teams.name, clientStatus: teams.clientStatus });
 
     return NextResponse.json({ client: updated });

@@ -196,7 +196,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   
   if (!authResult) {
     const error: any = new Error("Authentication required");
-    error.statusCode = 401;
+    error.status = 401;
     throw error;
   }
 
@@ -208,13 +208,14 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
 
   if (!user) {
     const error: any = new Error("User not found");
-    error.statusCode = 404;
+    error.status = 404;
     throw error;
   }
 
-  // If the session has an active team context, use it (agency team-switching support)
+  // If the session has an active team context, validate it strictly —
+  // NEVER fall through to a different team if the context is unauthorized.
   if (authResult.teamContextId) {
-    // Validate the user can access this team: direct membership OR agency-admin inheritance
+    // Check 1: direct membership
     const [directMembership] = await db
       .select({ role: teamMembers.role })
       .from(teamMembers)
@@ -225,7 +226,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
       return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
     }
 
-    // Check agency-admin inheritance: target team's parent team has the user as admin
+    // Check 2: agency-admin inheritance — user is admin of the client team's parent agency
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
@@ -244,10 +245,14 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
       }
     }
 
-    // teamContextId set but access denied — clear context and fall through to default
+    // teamContextId is set but the user no longer has access — hard-fail with 403.
+    // Do NOT fall through to a different team; the caller explicitly targeted this context.
+    const error: any = new Error("Access denied: team context is no longer authorized");
+    error.status = 403;
+    throw error;
   }
 
-  // Default: first direct team membership
+  // No explicit context — resolve from first direct team membership
   const [teamMembership] = await db
     .select()
     .from(teamMembers)
@@ -256,7 +261,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: User must be assigned to a team");
-    error.statusCode = 403;
+    error.status = 403;
     throw error;
   }
   
@@ -287,8 +292,13 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
     throw error;
   }
 
-  // If the session has an active team context, verify admin access to that team
+  // If the session has an active team context, validate strictly — hard-fail if unauthorized.
   if (authResult.teamContextId) {
+    // Global admins bypass team-role check for any context
+    if (user.role === "admin") {
+      return { userId: user.id, teamId: authResult.teamContextId };
+    }
+
     // Direct membership with admin role
     const [directMembership] = await db
       .select({ role: teamMembers.role })
@@ -296,11 +306,11 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
       .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
       .limit(1);
 
-    if (directMembership?.role === "admin" || user.role === "admin") {
+    if (directMembership?.role === "admin") {
       return { userId: user.id, teamId: authResult.teamContextId };
     }
 
-    // Agency-admin inheritance: user is admin of the parent team
+    // Agency-admin inheritance: user is admin of the parent agency team
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
@@ -319,7 +329,10 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
       }
     }
 
-    // teamContextId set but not admin — fall through to default team check
+    // teamContextId set but not admin — hard-fail, do not fall through
+    const ctxError: any = new Error("Access denied: insufficient privileges for requested team context");
+    ctxError.status = 403;
+    throw ctxError;
   }
 
   // Global admins bypass team-role check
