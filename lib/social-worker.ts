@@ -251,6 +251,8 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         // and patches them before GPT enhancement. Bounded to 2 passes.
         // Controlled by DISABLE_CRITIC_LOOP=true env var (orchestrator handles flag internally).
         // contentId=socialPostId so content_review_service.socialPostId field is set correctly.
+        // armIdOverride: pass the pre-sampled shared arm so each platform variant does NOT
+        // fire an extra sampleArm() DB query (one arm per post, not one per platform).
         if (postDetails?.teamId) {
           try {
             const orchestratorResult = await runGenerationOrchestrator({
@@ -261,6 +263,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
               patternsUsed: capturedPatternIds,
               brief: { topic: topic || prompt, location: location || undefined },
               kind: "social",
+              armIdOverride: capturedSocialArmId,
             });
             if (orchestratorResult.repairs > 0) {
               geminiResult.caption = orchestratorResult.content;

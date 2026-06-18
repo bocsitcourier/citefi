@@ -60,10 +60,10 @@ export async function computeIntelligence(
       articleId: contentEvents.articleId,
       socialPostId: contentEvents.socialPostId,
       views: count(
-        sql<number>`CASE WHEN ${contentEvents.eventType} = 'view' THEN 1 END`
+        sql<number>`CASE WHEN ${contentEvents.eventType} IN ('view','page_view') THEN 1 END`
       ),
       clicks: count(
-        sql<number>`CASE WHEN ${contentEvents.eventType} = 'click' THEN 1 END`
+        sql<number>`CASE WHEN ${contentEvents.eventType} IN ('click','cta_click') THEN 1 END`
       ),
       shares: count(
         sql<number>`CASE WHEN ${contentEvents.eventType} = 'share' THEN 1 END`

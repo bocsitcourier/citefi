@@ -1419,12 +1419,17 @@ export async function registerWorkers() {
               let finalImagePrompts = imagePrompts;
               if (batch?.teamId) {
                 try {
+                  // Fetch learned patterns for attribution so Wilson/EMA updates fire.
+                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE)
+                    .catch(() => ({ patternsUsed: [] as number[] }));
+                  const capturedImagePatternIds = imageEnhancement.patternsUsed;
+
                   const orchResult = await runGenerationOrchestrator({
                     teamId: batch.teamId,
                     contentType: ContentType.IMAGE,
                     contentId: articleId,
                     content: imagePrompts.join('\n\n---\n\n'),
-                    patternsUsed: [],
+                    patternsUsed: capturedImagePatternIds,
                     brief: {},
                     kind: "script",
                     requireJudge: false,
@@ -1440,7 +1445,7 @@ export async function registerWorkers() {
                     batch.teamId,
                     ContentType.IMAGE,
                     articleId,
-                    [],
+                    capturedImagePatternIds,
                     orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
                     { armId: orchResult.armId }
                   ).catch(() => { /* non-fatal */ });
@@ -1905,19 +1910,19 @@ export async function registerWorkers() {
         try {
           const { db: _db } = await import("./db");
           const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
-          const { eq, and, gte, count, avg, sql: drizzleSql } = await import("drizzle-orm");
+          const { eq, and, gte, count, avg, sql: drizzleSql, desc: drizzleDesc, isNotNull: drizzleIsNotNull } = await import("drizzle-orm");
 
           const allTeams = await _db.select({ id: teams.id }).from(teams);
           const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
 
           let labeledCount = 0;
           for (const team of allTeams) {
-            // Aggregate per article
+            // ── Article aggregation ──────────────────────────────────────────
             const articleStats = await _db
               .select({
                 articleId: contentEvents.articleId,
                 views: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('view','page_view') THEN 1 END`),
-                clicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'click' THEN 1 END`),
+                clicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('click','cta_click') THEN 1 END`),
                 shares: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'share' THEN 1 END`),
                 conversions: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'conversion' THEN 1 END`),
                 readCompletes: count(drizzleSql`CASE WHEN ${contentEvents.readComplete} = TRUE THEN 1 END`),
@@ -1945,41 +1950,138 @@ export async function registerWorkers() {
               const totalConversions = Number(stat.conversions) || 0;
               const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
               const avgScrollPct = Math.round(Number(stat.avgScrollPct) || 0);
-              // Composite engagement score (weighted, 0-100)
               const qualityScore = Math.round(Math.min(100,
                 readCompleteRate * 40 + (1 - bounceRateDecimal) * 20 + ctr * 20 + conversionRate * 20
               ));
-              // eatScore encodes read-complete rate (0-100) — proxy for deep engagement quality
               const eatScore = Math.round(readCompleteRate * 100);
-              // readabilityScore encodes average scroll depth (0-100) — proxy for content scannability
               const readabilityScore = avgScrollPct;
+              const engagementPayload = {
+                views: totalViews,
+                clicks: totalClicks,
+                shares: Number(stat.shares) || 0,
+                bounceRate: Math.round(bounceRateDecimal * 100),
+                timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0),
+                qualityScore,
+                eatScore,
+                readabilityScore,
+                updatedAt: new Date(),
+              };
 
-              // Insert snapshot (time-series — intentional, powers learning trends)
-              await _db
-                .insert(contentPerformanceMetrics)
-                .values({
-                  teamId: team.id,
-                  contentType: "article",
-                  articleId: stat.articleId,
-                  views: totalViews,
-                  clicks: totalClicks,
-                  shares: Number(stat.shares) || 0,
-                  bounceRate: Math.round(bounceRateDecimal * 100), // 0–100 integer
-                  timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0), // seconds
-                  qualityScore,
-                  eatScore,
-                  readabilityScore,
-                });
+              // Prefer updating the existing generation row (which has patternsUsedJson /
+              // variantId / armId set by recordContentGenerated) so that the engagement
+              // labeler can credit/blame the correct patterns. Only insert a standalone
+              // snapshot if no attributed row exists (e.g. pre-orchestrator legacy content).
+              const [existingRow] = await _db
+                .select({ id: contentPerformanceMetrics.id })
+                .from(contentPerformanceMetrics)
+                .where(and(
+                  eq(contentPerformanceMetrics.teamId, team.id),
+                  eq(contentPerformanceMetrics.contentType, "article"),
+                  eq(contentPerformanceMetrics.articleId, stat.articleId),
+                  drizzleIsNotNull(contentPerformanceMetrics.patternsUsedJson)
+                ))
+                .orderBy(drizzleDesc(contentPerformanceMetrics.createdAt))
+                .limit(1);
 
-              // Emit CONVERSION_LABEL log event for observability
+              if (existingRow) {
+                await _db
+                  .update(contentPerformanceMetrics)
+                  .set(engagementPayload)
+                  .where(eq(contentPerformanceMetrics.id, existingRow.id));
+              } else {
+                await _db
+                  .insert(contentPerformanceMetrics)
+                  .values({
+                    teamId: team.id,
+                    contentType: "article",
+                    articleId: stat.articleId,
+                    ...engagementPayload,
+                  });
+              }
+
               console.log(
                 `[CONVERSION_LABEL] teamId=${team.id} articleId=${stat.articleId} ` +
                 `views=${totalViews} readCompleteRate=${readCompleteRate.toFixed(3)} ` +
                 `bounceRate=${bounceRateDecimal.toFixed(3)} avgScrollPct=${avgScrollPct} ` +
                 `convRate=${conversionRate.toFixed(4)} qualityScore=${qualityScore} ` +
-                `eatScore=${eatScore} readabilityScore=${readabilityScore}`
+                `eatScore=${eatScore} readabilityScore=${readabilityScore} ` +
+                `${existingRow ? "updated_attribution_row" : "inserted_standalone_snapshot"}`
               );
+              labeledCount++;
+            }
 
+            // ── Social post aggregation ───────────────────────────────────────
+            // beacon.js uses contentType="social_post"; metrics table uses "social"
+            const socialStats = await _db
+              .select({
+                socialPostId: contentEvents.socialPostId,
+                views: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('view','page_view') THEN 1 END`),
+                clicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('click','cta_click') THEN 1 END`),
+                shares: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'share' THEN 1 END`),
+                conversions: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'conversion' THEN 1 END`),
+                avgEngagedSec: avg(contentEvents.engagedSec),
+              })
+              .from(contentEvents)
+              .where(and(
+                eq(contentEvents.teamId, team.id),
+                eq(contentEvents.contentType, "social_post"),
+                gte(contentEvents.createdAt, since)
+              ))
+              .groupBy(contentEvents.socialPostId)
+              .limit(500);
+
+            for (const stat of socialStats) {
+              if (!stat.socialPostId) continue;
+              const totalViews = Number(stat.views) || 0;
+              const totalClicks = Number(stat.clicks) || 0;
+              const totalShares = Number(stat.shares) || 0;
+              const totalConversions = Number(stat.conversions) || 0;
+              // Social quality: engagement-rate weighted (clicks+shares per view)
+              const engagementRate = totalViews > 0 ? (totalClicks + totalShares) / totalViews : 0;
+              const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
+              const qualityScore = Math.round(Math.min(100, engagementRate * 60 + conversionRate * 40));
+              const socialPayload = {
+                views: totalViews,
+                clicks: totalClicks,
+                shares: totalShares,
+                timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0),
+                qualityScore,
+                updatedAt: new Date(),
+              };
+
+              const [existingSocialRow] = await _db
+                .select({ id: contentPerformanceMetrics.id })
+                .from(contentPerformanceMetrics)
+                .where(and(
+                  eq(contentPerformanceMetrics.teamId, team.id),
+                  eq(contentPerformanceMetrics.contentType, "social"),
+                  eq(contentPerformanceMetrics.socialPostId, stat.socialPostId),
+                  drizzleIsNotNull(contentPerformanceMetrics.patternsUsedJson)
+                ))
+                .orderBy(drizzleDesc(contentPerformanceMetrics.createdAt))
+                .limit(1);
+
+              if (existingSocialRow) {
+                await _db
+                  .update(contentPerformanceMetrics)
+                  .set(socialPayload)
+                  .where(eq(contentPerformanceMetrics.id, existingSocialRow.id));
+              } else {
+                await _db
+                  .insert(contentPerformanceMetrics)
+                  .values({
+                    teamId: team.id,
+                    contentType: "social",
+                    socialPostId: stat.socialPostId,
+                    ...socialPayload,
+                  });
+              }
+
+              console.log(
+                `[CONVERSION_LABEL] social teamId=${team.id} socialPostId=${stat.socialPostId} ` +
+                `views=${totalViews} engagementRate=${engagementRate.toFixed(3)} qualityScore=${qualityScore} ` +
+                `${existingSocialRow ? "updated_attribution_row" : "inserted_standalone_snapshot"}`
+              );
               labeledCount++;
             }
           }

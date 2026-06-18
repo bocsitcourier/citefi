@@ -70,6 +70,13 @@ export interface OrchestratorInput {
    * Explicitly set false to skip for PODCAST / VIDEO (lower-value text artifacts).
    */
   requireJudge?: boolean;
+  /**
+   * Pre-sampled arm ID from sampleArmForType().
+   * When provided, skips the internal sampleArm() DB query so callers that
+   * pre-sample a shared arm (e.g. social post across concurrent platform variants)
+   * don't pay an extra DB round-trip per variant.
+   */
+  armIdOverride?: number;
 }
 
 export interface OrchestratorResult extends RepairResult {
@@ -213,8 +220,12 @@ export async function runGenerationOrchestrator(
   // All downstream comparisons use this normalized value.
   const normalizedType = input.contentType.toLowerCase();
 
-  // Arm assignment is independent of critic enable/disable — always attempt
-  const armId = await sampleArm(input.teamId, normalizedType);
+  // Arm assignment is independent of critic enable/disable — always attempt.
+  // When armIdOverride is provided (e.g. social post pre-samples once for all
+  // concurrent platform variants), skip the internal sampleArm() DB query.
+  const armId = input.armIdOverride !== undefined
+    ? input.armIdOverride
+    : await sampleArm(input.teamId, normalizedType);
   if (armId !== undefined) {
     console.log(
       `[ARM_ASSIGNED] type=${normalizedType} id=${input.contentId} armId=${armId}`

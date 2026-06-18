@@ -32,6 +32,11 @@ const beaconEventSchema = z.object({
   readComplete: z.boolean().optional(),
   bounced: z.boolean().optional(),
   fatigueSignal: z.boolean().optional(),
+  // Journey / return-visitor signals (sent by beacon.js, stored for learning signal)
+  isReturn: z.boolean().optional(),
+  sessionCount: z.number().int().min(0).optional(),
+  journeyId: z.string().max(100).optional(),
+  journeyStep: z.number().int().min(1).optional(),
   conversionType: z.string().max(50).optional(),
   conversionValue: z.number().optional(),
   channel: z.string().max(30).optional(),
@@ -173,6 +178,11 @@ export async function POST(req: NextRequest) {
         readComplete: evt.readComplete ?? false,
         bounced: evt.bounced ?? false,
         fatigueSignal: evt.fatigueSignal ?? false,
+        // Return-visitor / journey signals from beacon.js client
+        isReturn: evt.isReturn ?? false,
+        sessionCount: evt.sessionCount ?? null,
+        journeyId: evt.journeyId ?? null,
+        journeyStep: evt.journeyStep ?? null,
         conversionType: evt.conversionType ?? null,
         conversionValue: evt.conversionValue ?? null,
         channel: evt.channel ?? null,

@@ -7,7 +7,7 @@ import { generateVideoTTS } from "./social-video-tts-generator";
 import { composeVideo, cleanupTempFiles } from "./social-video-compositor";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
 import { runGenerationOrchestrator } from "./generation-orchestrator";
-import { recordContentGenerated } from "./learning-integration";
+import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 
 export interface GenerateSocialVideoRequest {
   socialPostId: number;
@@ -119,12 +119,18 @@ export async function generateSocialVideo(
     // Pass script as compact JSON so the critic can inspect structure.
     let reviewedScript = script;
     try {
+      // Fetch learned patterns for attribution so Wilson/EMA updates fire on the
+      // right patterns. Must be done before the orchestrator call.
+      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO)
+        .catch(() => ({ patternsUsed: [] as number[] }));
+      const capturedVideoPatternIds = videoEnhancement.patternsUsed;
+
       const orchResult = await runGenerationOrchestrator({
         teamId: post.teamId,
         contentType: ContentType.VIDEO,
         contentId: socialPostId,
         content: JSON.stringify(script, null, 0),
-        patternsUsed: [],
+        patternsUsed: capturedVideoPatternIds,
         brief: { topic: post.topic, location: post.location ?? undefined },
         kind: "script",
         requireJudge: false,
@@ -140,12 +146,12 @@ export async function generateSocialVideo(
           /* JSON parse failed — keep original script */
         }
       }
-      // Non-blocking — record arm + quality for the video content type
+      // Non-blocking — record arm + quality + patterns for the video content type
       recordContentGenerated(
         post.teamId,
         ContentType.VIDEO,
         socialPostId,
-        [],
+        capturedVideoPatternIds,
         orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
         { armId: orchResult.armId }
       ).catch(() => { /* non-fatal */ });
