@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { db, getTxDb } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
     // Rate limit by IP: 5 signups per hour
     const ip = getClientIp(req);
-    const limit = rateLimit(`signup:${ip}`, 5, 60 * 60 * 1000);
+    const limit = await rateLimitDb(`signup:${ip}`, 5, 60 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Too many signup attempts. Please try again later." },

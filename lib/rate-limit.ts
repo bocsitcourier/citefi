@@ -46,12 +46,25 @@ export function rateLimit(key: string, limit: number, windowMs: number): RateLim
   return { allowed: true, retryAfter: 0 };
 }
 
-/** Extract the best-effort client IP from a request. */
+/**
+ * Extract the trusted client IP from a request.
+ *
+ * We rely ONLY on the rightmost x-forwarded-for entry, which is appended by
+ * Replit's edge proxy (the last trusted hop before our process). Client-supplied
+ * XFF entries appear to the left and are ignored.
+ *
+ * We deliberately avoid x-real-ip and cf-connecting-ip: we cannot guarantee
+ * those headers are always stripped by every upstream before reaching this
+ * process, so they are client-spoofable in some deployment configurations.
+ *
+ * Proxy contract: exactly one trusted proxy sits in front of this server.
+ */
 export function getClientIp(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) {
-    const first = fwd.split(",")[0]?.trim();
-    if (first) return first;
+    const parts = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last) return last;
   }
-  return req.headers.get("x-real-ip") || "unknown";
+  return "unknown";
 }

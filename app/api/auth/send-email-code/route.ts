@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
-    const rl = rateLimit(`email-code:${ip}`, 5, 15 * 60 * 1000);
+    const rl = await rateLimitDb(`email-code:${ip}`, 5, 15 * 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many code requests. Please try again later." },
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const userRl = rateLimit(`email-code:user:${userId}`, 5, 15 * 60 * 1000);
+    const userRl = await rateLimitDb(`email-code:user:${userId}`, 5, 15 * 60 * 1000);
     if (!userRl.allowed) {
       return NextResponse.json(
         { error: "Too many code requests for this account. Please try again later." },

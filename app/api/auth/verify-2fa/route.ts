@@ -3,13 +3,13 @@ import { db } from "@/lib/db";
 import { users, sessions, activityLogs, totpSecrets, emailVerificationCodes } from "@/shared/schema";
 import { generateAccessToken, hashToken, verifyTOTPToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
     const ip = getClientIp(req);
-    const rl = rateLimit(`2fa-verify:${ip}`, 5, 15 * 60 * 1000);
+    const rl = await rateLimitDb(`2fa-verify:${ip}`, 5, 15 * 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many verification attempts. Please try again later." },
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const userRl = rateLimit(`2fa-verify:user:${userId}`, 5, 15 * 60 * 1000);
+    const userRl = await rateLimitDb(`2fa-verify:user:${userId}`, 5, 15 * 60 * 1000);
     if (!userRl.allowed) {
       return NextResponse.json(
         { error: "Too many verification attempts for this account. Please try again later." },

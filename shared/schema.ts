@@ -2765,6 +2765,19 @@ export const billingEvents = pgTable("billing_events", {
 export type BillingEvent = typeof billingEvents.$inferSelect;
 
 // ============================================================================
+// RATE LIMITING (DB-backed, survives restarts)
+// ============================================================================
+export const rateLimitWindows = pgTable("rate_limit_windows", {
+  keyHash: varchar("key_hash", { length: 64 }).primaryKey(),
+  count: integer("count").notNull().default(1),
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+}, (table) => ({
+  resetAtIdx: index("rate_limit_windows_reset_at_idx").on(table.resetAt),
+}));
+
+export type RateLimitWindow = typeof rateLimitWindows.$inferSelect;
+
+// ============================================================================
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

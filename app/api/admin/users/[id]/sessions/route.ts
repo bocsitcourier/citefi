@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sessions, users } from '@/shared/schema';
 import { requireAdminById, verifyToken } from '@/lib/api/auth';
-import { eq, and, isNull, gt } from 'drizzle-orm';
+import { eq, and, isNull, gt, desc } from 'drizzle-orm';
 
 export async function GET(
   req: NextRequest,
@@ -38,11 +38,12 @@ export async function GET(
       .where(
         and(
           eq(sessions.userId, userId),
+          eq(sessions.isActive, 1),
           isNull(sessions.forceLogoutAt),
           gt(sessions.expiresAt, new Date())
         )
       )
-      .orderBy(sessions.createdAt);
+      .orderBy(desc(sessions.createdAt));
 
     return NextResponse.json({
       sessions: activeSessions,

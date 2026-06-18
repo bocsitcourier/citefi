@@ -92,10 +92,12 @@ export const NAV_SECTIONS: NavSection[] = [
 export const PUBLIC_ROUTES = [
   "/login",
   "/signup",
+  "/register",
   "/forgot-password",
   "/verify-2fa",
   "/accept-invite",
   "/embed",
+  "/pricing",
   "/",
 ];
 

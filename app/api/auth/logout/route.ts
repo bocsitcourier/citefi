@@ -36,10 +36,10 @@ export async function POST(req: Request) {
 
     const tokenHash = hashToken(token);
 
-    // Deactivate session
+    // Terminate session: set both isActive=0 and forceLogoutAt for consistency with force-logout.
     await db
       .update(sessions)
-      .set({ isActive: 0 })
+      .set({ isActive: 0, forceLogoutAt: new Date() })
       .where(eq(sessions.tokenHash, tokenHash));
 
     // Log logout activity

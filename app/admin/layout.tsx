@@ -15,7 +15,8 @@ import {
   Home,
   Trash2,
   AlertTriangle,
-  Send
+  Send,
+  Coins
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,18 @@ const adminNavItems = [
     href: "/admin/quotas",
     icon: FileText,
     description: "Limits & Tracking"
+  },
+  {
+    title: "Credits",
+    href: "/admin/credits",
+    icon: Coins,
+    description: "Balances, Grants & Ledger"
+  },
+  {
+    title: "Cost & Margin",
+    href: "/admin/cost-telemetry",
+    icon: BarChart3,
+    description: "AI COGS & Credit Anchor Validation"
   },
   {
     title: "System Health",

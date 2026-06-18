@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { sessions, adminActionLogs } from '@/shared/schema';
-import { requireAdmin, verifyToken } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 import { eq, and, isNull } from 'drizzle-orm';
 
 export async function POST(
@@ -9,12 +9,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await verifyToken(req);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    await requireAdmin(req);
+    // Single session-aware admin check — returns adminUserId directly.
+    const adminUserId = await requireAdmin(req);
 
     const { id } = await params;
     const userId = parseInt(id);
@@ -26,11 +22,14 @@ export async function POST(
     const body = await req.json();
     const { reason } = body;
 
+    // Terminate sessions: set both isActive=0 and forceLogoutAt so verifyTokenFromRequestImpl
+    // rejects them via both the isActive check AND the forceLogoutAt check.
     const terminatedSessions = await db
       .update(sessions)
       .set({
+        isActive: 0,
         forceLogoutAt: new Date(),
-        terminatedBy: auth.userId,
+        terminatedBy: adminUserId,
         terminationReason: reason || 'Forced logout by admin',
       })
       .where(
@@ -39,10 +38,10 @@ export async function POST(
           isNull(sessions.forceLogoutAt)
         )
       )
-      .returning();
+      .returning({ id: sessions.id });
 
     await db.insert(adminActionLogs).values({
-      userId: auth.userId,
+      userId: adminUserId,
       action: 'force_logout',
       targetType: 'user',
       targetId: userId,
@@ -61,7 +60,7 @@ export async function POST(
     console.error('Error forcing logout:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to force logout' },
-      { status: error.message?.includes('Admin') ? 403 : 500 }
+      { status: (error?.statusCode ?? 500) }
     );
   }
 }

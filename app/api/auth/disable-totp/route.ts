@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, totpSecrets, activityLogs } from "@/shared/schema";
 import { verifyToken } from "@/lib/api/auth";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
-    const rl = rateLimit(`totp-disable:${ip}`, 3, 15 * 60 * 1000);
+    const rl = await rateLimitDb(`totp-disable:${ip}`, 3, 15 * 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many attempts. Please try again later." },

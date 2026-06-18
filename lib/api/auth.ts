@@ -2,7 +2,16 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { users, sessions, teamMembers, teams } from "@/shared/schema";
 import { verifyToken as verifyJWT, hashToken } from "@/lib/auth";
-import { eq, and, isNull, gt } from "drizzle-orm";
+import { eq, and, isNull, gt, ne } from "drizzle-orm";
+
+/** Five-minute throttle for lastActivityAt writes — one DB write per session per 5 min. */
+const ACTIVITY_THROTTLE_MS = 5 * 60 * 1000;
+
+/**
+ * In-memory set of session IDs whose lastActivityAt write recently failed.
+ * Suppresses repeated log noise: only one error is emitted per session per throttle window.
+ */
+const recentActivityFailures = new Set<number>();
 
 export interface AuthenticatedUser {
   id: number;
@@ -99,17 +108,27 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
  */
 export async function requireAdminById(userId: number): Promise<void> {
   const [user] = await db
-    .select()
+    .select({ role: users.role, accountStatus: users.accountStatus })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
   if (!user) {
-    throw new Error("User not found");
+    const error: any = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (user.accountStatus !== "active") {
+    const error: any = new Error("Account is not active");
+    error.statusCode = 401;
+    throw error;
   }
 
   if (user.role !== "admin") {
-    throw new Error("Admin access required");
+    const error: any = new Error("Admin access required");
+    error.statusCode = 403;
+    throw error;
   }
 }
 
@@ -120,14 +139,28 @@ export async function requireAdminById(userId: number): Promise<void> {
  */
 export async function requireAdmin(req: NextRequest): Promise<number> {
   const authResult = await verifyTokenFromRequestImpl(req);
-  
+
   if (!authResult) {
     const error: any = new Error("Authentication required");
     error.statusCode = 401;
     throw error;
   }
 
-  if (authResult.role !== "admin") {
+  // Re-fetch role and accountStatus from DB — JWT role may be stale if the user
+  // was demoted or suspended after their last login.
+  const [user] = await db
+    .select({ role: users.role, accountStatus: users.accountStatus })
+    .from(users)
+    .where(eq(users.id, authResult.userId))
+    .limit(1);
+
+  if (!user || user.accountStatus !== "active") {
+    const error: any = new Error("Account is not active");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  if (user.role !== "admin") {
     const error: any = new Error("Admin access required");
     error.statusCode = 403;
     throw error;
@@ -142,44 +175,80 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
  * Exported as both verifyTokenFromRequest and as an alias verifyToken for backwards compatibility
  */
 async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number; teamContextId: number | null } | null> {
-  const token = getTokenFromRequest(req);
+  // Build ordered candidate list: Bearer header first, then HttpOnly cookie.
+  // If Bearer holds a stale/revoked token (e.g. localStorage legacy token), we
+  // transparently fall through to the cookie so users aren't force-logged-out.
+  const candidates: string[] = [];
 
-  if (!token) {
-    return null;
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const t = authHeader.slice(7).trim();
+    if (t && t !== "null" && t !== "undefined") candidates.push(t);
   }
 
-  const payload = verifyJWT(token);
-  if (!payload) {
-    return null;
+  const cookieHeader = req.headers.get("cookie");
+  if (cookieHeader) {
+    for (const part of cookieHeader.split(";")) {
+      const idx = part.indexOf("=");
+      if (idx === -1) continue;
+      if (part.slice(0, idx).trim() === AUTH_COOKIE_NAME) {
+        const val = decodeURIComponent(part.slice(idx + 1).trim());
+        if (val && !candidates.includes(val)) candidates.push(val);
+        break;
+      }
+    }
   }
 
-  const tokenHash = hashToken(token);
+  for (const token of candidates) {
+    const payload = verifyJWT(token);
+    if (!payload) continue; // Invalid/expired JWT — try next candidate
 
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(
-      and(
-        eq(sessions.tokenHash, tokenHash),
-        eq(sessions.userId, payload.userId),
-        eq(sessions.isActive, 1),
-        isNull(sessions.forceLogoutAt),
-        gt(sessions.expiresAt, new Date())
+    const tokenHash = hashToken(token);
+
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.tokenHash, tokenHash),
+          eq(sessions.userId, payload.userId),
+          eq(sessions.isActive, 1),
+          isNull(sessions.forceLogoutAt),
+          gt(sessions.expiresAt, new Date())
+        )
       )
-    )
-    .limit(1);
+      .limit(1);
 
-  if (!session) {
-    return null;
+    if (!session) continue; // No active session row — try next candidate (cookie fallback)
+
+    // Throttled lastActivityAt refresh — one write per session per 5 min.
+    const now = new Date();
+    const lastActivity = session.lastActivityAt ? new Date(session.lastActivityAt) : null;
+    if (!lastActivity || now.getTime() - lastActivity.getTime() > ACTIVITY_THROTTLE_MS) {
+      const sid = session.id;
+      db.update(sessions)
+        .set({ lastActivityAt: now })
+        .where(eq(sessions.id, sid))
+        .catch((e) => {
+          // Log once per session per throttle window to avoid flooding logs during DB degradation.
+          if (!recentActivityFailures.has(sid)) {
+            recentActivityFailures.add(sid);
+            console.error("[auth] lastActivityAt update failed:", e);
+            setTimeout(() => recentActivityFailures.delete(sid), ACTIVITY_THROTTLE_MS);
+          }
+        });
+    }
+
+    return {
+      userId: payload.userId,
+      email: payload.email,
+      role: payload.role,
+      sessionId: session.id,
+      teamContextId: session.teamContextId ?? null,
+    };
   }
 
-  return {
-    userId: payload.userId,
-    email: payload.email,
-    role: payload.role,
-    sessionId: session.id,
-    teamContextId: session.teamContextId ?? null,
-  };
+  return null;
 }
 
 export { verifyTokenFromRequestImpl as verifyToken, verifyTokenFromRequestImpl as verifyTokenFromRequest };
@@ -209,6 +278,12 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   if (!user) {
     const error: any = new Error("User not found");
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (user.accountStatus !== "active") {
+    const error: any = new Error("Account is not active");
+    error.statusCode = 401;
     throw error;
   }
 
@@ -289,6 +364,12 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
   if (!user) {
     const error: any = new Error("User not found");
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (user.accountStatus !== "active") {
+    const error: any = new Error("Account is not active");
+    error.statusCode = 401;
     throw error;
   }
 
@@ -398,6 +479,12 @@ export async function requireAuth(req: NextRequest): Promise<{ userId: number; t
   if (!user) {
     const error: any = new Error("User not found");
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (user.accountStatus !== "active") {
+    const error: any = new Error("Account is not active");
+    error.statusCode = 401;
     throw error;
   }
 

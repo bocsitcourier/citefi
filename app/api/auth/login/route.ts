@@ -3,14 +3,14 @@ import { db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
 import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
-import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
     // Rate limit by IP: 10 login attempts per 15 minutes
     const ip = getClientIp(req);
-    const limit = rateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+    const limit = await rateLimitDb(`login:${ip}`, 10, 15 * 60 * 1000);
     if (!limit.allowed) {
       return NextResponse.json(
         { error: "Too many login attempts. Please try again later." },

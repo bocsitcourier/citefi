@@ -39,11 +39,21 @@ export interface JWTPayload {
 }
 
 export function generateAccessToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  // jti (JWT ID) ensures each token is unique even when two are issued for the
+  // same user within the same second, preventing tokenHash unique-key collisions.
+  return jwt.sign(
+    { ...payload, jti: crypto.randomBytes(16).toString("hex") },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
 }
 
 export function generateRefreshToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRES_IN });
+  return jwt.sign(
+    { ...payload, jti: crypto.randomBytes(16).toString("hex") },
+    JWT_SECRET,
+    { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
+  );
 }
 
 export function verifyToken(token: string): JWTPayload | null {

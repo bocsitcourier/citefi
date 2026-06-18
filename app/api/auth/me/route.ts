@@ -1,17 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, teams, teamMembers } from "@/shared/schema";
-import { verifyToken } from "@/lib/api/auth";
+import { verifyToken, AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { eq, and, isNull } from "drizzle-orm";
+
+/** Clear the auth cookie from a response so stale/orphan tokens are wiped on the next 401. */
+function clearAuthCookie(res: NextResponse): NextResponse {
+  res.cookies.set(AUTH_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+    maxAge: 0,
+  });
+  return res;
+}
 
 export async function GET(req: NextRequest) {
   try {
     const authResult = await verifyToken(req);
 
     if (!authResult) {
-      return NextResponse.json(
-        { error: "Unauthorized - Invalid or expired session" },
-        { status: 401 }
+      return clearAuthCookie(
+        NextResponse.json(
+          { error: "Unauthorized - Invalid or expired session" },
+          { status: 401 }
+        )
       );
     }
 
