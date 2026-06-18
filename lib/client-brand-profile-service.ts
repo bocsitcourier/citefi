@@ -150,8 +150,71 @@ export interface ClientBrandProfileJson {
 // Gemini — prevents token waste and hallucination from injected content.
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// SSRF protection helpers
+// ---------------------------------------------------------------------------
+
+/** Returns true if the IPv4 string falls in a private/reserved range. */
+function isPrivateIpv4(ip: string): boolean {
+  const PRIVATE = [
+    /^127\./,                                          // loopback
+    /^0\./,                                            // "this" network
+    /^10\./,                                           // RFC 1918 class A
+    /^172\.(1[6-9]|2\d|3[01])\./,                     // RFC 1918 class B
+    /^192\.168\./,                                     // RFC 1918 class C
+    /^169\.254\./,                                     // link-local / AWS metadata
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,       // CGNAT RFC 6598
+    /^192\.0\.2\./,                                    // TEST-NET-1
+    /^198\.51\.100\./,                                 // TEST-NET-2
+    /^203\.0\.113\./,                                  // TEST-NET-3
+  ];
+  return PRIVATE.some((r) => r.test(ip));
+}
+
+/** Resolves the hostname via DNS and rejects if it resolves to a private address.
+ *  Returns true when the URL is safe to fetch, false otherwise. */
+async function isSsrfSafeUrl(rawUrl: string): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  // Only http/https
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+
+  // Direct IP literal checks (skip DNS for raw IPs)
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    return !isPrivateIpv4(hostname);
+  }
+  // IPv6 literals — block all internal (::1, fc00::/7, fe80::/10, etc.)
+  if (hostname.includes(":")) return false;
+
+  // Block reserved hostnames
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return false;
+  if (hostname.endsWith(".internal") || hostname.endsWith(".local")) return false;
+
+  // DNS resolution check to catch rebinding
+  try {
+    const dns = await import("dns");
+    const { address } = await new Promise<{ address: string; family: number }>(
+      (resolve, reject) => dns.lookup(hostname, { family: 4 }, (err, addr, fam) =>
+        err ? reject(err) : resolve({ address: addr, family: fam })
+      )
+    );
+    if (isPrivateIpv4(address)) return false;
+  } catch {
+    // DNS resolution failure — treat as unsafe
+    return false;
+  }
+  return true;
+}
+
 async function safeFetchPage(url: string): Promise<string | null> {
   try {
+    if (!(await isSsrfSafeUrl(url))) return null;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     const response = await fetch(url, {
@@ -329,6 +392,7 @@ Return a JSON object with EXACTLY this structure (all fields required):
 async function fetchCompetitorPageMeta(url: string): Promise<string> {
   if (!url) return "";
   try {
+    if (!(await isSsrfSafeUrl(url))) return "";
     const res = await fetch(url, {
       signal: AbortSignal.timeout(5000),
       headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentBot/1.0)" },

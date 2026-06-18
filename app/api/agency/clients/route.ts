@@ -11,30 +11,36 @@ const MAX_CLIENTS_PER_AGENCY = 25;
 
 async function getAgencyTeam(teamId: number) {
   const [team] = await db
-    .select({ id: teams.id, billingPlan: teams.billingPlan })
+    .select({ id: teams.id, name: teams.name, billingPlan: teams.billingPlan })
     .from(teams)
     .where(eq(teams.id, teamId));
   return team ?? null;
 }
 
-/** GET /api/agency/clients — list all active client teams for the current agency */
+/** GET /api/agency/clients — list all client teams (active + archived) for the current agency */
 export async function GET(req: NextRequest) {
   try {
     const { teamId } = await requireTeamAdmin(req);
 
-    const clients = await db
-      .select({
-        id: teams.id,
-        publicId: teams.publicId,
-        name: teams.name,
-        clientStatus: teams.clientStatus,
-        createdAt: teams.createdAt,
-      })
-      .from(teams)
-      .where(and(eq(teams.parentTeamId, teamId), eq(teams.clientStatus, "active"), isNull(teams.deletedAt)))
-      .orderBy(teams.createdAt);
+    const [agencyTeam, clients] = await Promise.all([
+      getAgencyTeam(teamId),
+      db
+        .select({
+          id: teams.id,
+          publicId: teams.publicId,
+          name: teams.name,
+          clientStatus: teams.clientStatus,
+          createdAt: teams.createdAt,
+        })
+        .from(teams)
+        .where(and(eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
+        .orderBy(teams.createdAt),
+    ]);
 
-    return NextResponse.json({ clients });
+    return NextResponse.json({
+      clients,
+      agencyTeam: agencyTeam ? { id: agencyTeam.id, name: agencyTeam.name } : null,
+    });
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {
       return NextResponse.json({ error: err.message }, { status: err.status });
