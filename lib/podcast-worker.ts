@@ -99,8 +99,28 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           requireJudge: false,
         });
         if (orchResult.qualityScore > 0) podcastQualityScore = orchResult.qualityScore;
-        if (orchResult.repairs > 0) {
-          console.log(`🔧 Podcast script critic: ${orchResult.repairs} repair(s), quality=${podcastQualityScore}`);
+        // Apply repaired content back to script segments, preserving voice assignments.
+        // Strategy: proportional redistribution by original segment character length,
+        // snapping to the nearest word boundary to avoid mid-word splits.
+        if (orchResult.repairs > 0 && orchResult.content.length > 50 && orchResult.orchestrated) {
+          const repaired = orchResult.content;
+          const totalOrigLen = script.segments.reduce((sum, s) => sum + s.text.length, 0);
+          let charOffset = 0;
+          script.segments = script.segments.map((seg, i) => {
+            const isLast = i === script.segments.length - 1;
+            const allocChars = isLast
+              ? repaired.length - charOffset
+              : Math.round((seg.text.length / (totalOrigLen || 1)) * repaired.length);
+            let segEnd = Math.min(charOffset + allocChars, repaired.length);
+            if (!isLast && segEnd < repaired.length) {
+              const spaceIdx = repaired.indexOf(' ', segEnd);
+              if (spaceIdx !== -1 && spaceIdx - segEnd < 40) segEnd = spaceIdx;
+            }
+            const newText = repaired.slice(charOffset, segEnd).trim() || seg.text;
+            charOffset = segEnd;
+            return { ...seg, text: newText };
+          });
+          console.log(`🔧 Podcast script critic: ${orchResult.repairs} repair(s), quality=${podcastQualityScore} — applied to ${script.segments.length} segments`);
         }
       } catch (orchErr) {
         console.warn('[Podcast Worker] Orchestrator failed, continuing:', (orchErr as Error).message);

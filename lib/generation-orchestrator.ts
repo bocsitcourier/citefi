@@ -16,9 +16,16 @@
  * Feature flags:
  *   DISABLE_CRITIC_LOOP=true              — bypass the critic entirely (global kill switch)
  *   ORCHESTRATOR_MODE_{CONTENTTYPE}       — per-type mode: active (default) | shadow | off
- *     shadow: run repairs AND log before/after diff (no content change suppressed)
  *     active: run repairs normally (default)
+ *     shadow: run critic internally for observability; return ORIGINAL content unchanged
+ *             (safe validation window before going live on a content type)
  *     off:    passthrough for this content type only
+ *
+ * Observability events (grep-able console tags):
+ *   [ORCHESTRATOR_WIRED]       — emitted at the start of every qualifying orchestrator call
+ *   [BRAND_POLICY_INJECTED]    — brand context successfully fetched; will be passed to repairs
+ *   [BRAND_POLICY_MISSING]     — brand context fetch returned empty; repairs run without it
+ *   [ORCHESTRATOR_SHADOW]      — shadow diff: original vs what would have been repaired
  */
 
 import { optimizedContentGenerator } from "./optimized-content-generator";
@@ -35,8 +42,7 @@ export interface OrchestratorInput {
   /**
    * Row id for the critic loop.
    * For articles: articleId.
-   * For social: socialPostId (NOT variant.id — content_review_service stores
-   * this as socialPostId when contentType === SOCIAL).
+   * For social: socialPostId (NOT variant.id).
    * For podcasts: articleId (podcasts are tied to articles).
    * For videos: videoIdeaId.
    */
@@ -63,8 +69,18 @@ export interface OrchestratorInput {
 export interface OrchestratorResult extends RepairResult {
   /** Pattern IDs that were fed into the critic loop */
   patternsInjected: number[];
-  /** false when DISABLE_CRITIC_LOOP or ORCHESTRATOR_MODE_*=off killed the path */
+  /**
+   * false when DISABLE_CRITIC_LOOP, ORCHESTRATOR_MODE_*=off, or shadow mode
+   * (shadow runs the critic internally but does not alter production output)
+   */
   orchestrated: boolean;
+  /**
+   * Decision arm ID for Bayesian A/B attribution.
+   * Always undefined until sampleArm() is implemented.
+   * Workers must pass this through to recordContentGenerated(opts.armId)
+   * so arm_id is populated in content_performance_metrics once ready.
+   */
+  armId?: number;
 }
 
 export async function runGenerationOrchestrator(
@@ -75,19 +91,22 @@ export async function runGenerationOrchestrator(
     return passthroughResult(input);
   }
 
-  // Per-content-type mode override
   const modeKey = `ORCHESTRATOR_MODE_${input.contentType.toUpperCase()}`;
   const mode = (process.env[modeKey] ?? "active") as "active" | "shadow" | "off";
   if (mode === "off") {
     return passthroughResult(input);
   }
 
-  // Auto-default requireJudge: true for ARTICLE/SOCIAL (cross-model scoring matters),
-  // false for PODCAST/VIDEO/IMAGE (cheaper; judge cost not justified for audio/video scripts)
   const requireJudge =
     input.requireJudge ??
     (input.contentType === ContentType.ARTICLE ||
       input.contentType === ContentType.SOCIAL);
+
+  // Observability: confirm this content type is wired through the orchestrator
+  console.log(
+    `[ORCHESTRATOR_WIRED] type=${input.contentType} id=${input.contentId} ` +
+      `mode=${mode} requireJudge=${requireJudge} patterns=${input.patternsUsed.length}`
+  );
 
   // Fetch brand policy context — non-blocking, missing context degrades gracefully
   let brandContext: string | undefined;
@@ -97,6 +116,10 @@ export async function runGenerationOrchestrator(
   } catch {
     // Non-fatal — brand context injection is best-effort
   }
+  console.log(
+    `[BRAND_POLICY_${brandContext ? "INJECTED" : "MISSING"}] ` +
+      `type=${input.contentType} id=${input.contentId}`
+  );
 
   let repairResult: RepairResult;
   try {
@@ -117,7 +140,8 @@ export async function runGenerationOrchestrator(
     return passthroughResult(input);
   }
 
-  // Shadow mode: log original vs repaired diff for observability without suppressing repairs
+  // Shadow mode: run critic internally for observability but return ORIGINAL content unchanged.
+  // Production output is never altered in shadow mode — this is a safe validation window.
   if (mode === "shadow") {
     const origExcerpt = input.content.slice(0, 250).replace(/\s+/g, " ");
     const repairedExcerpt = repairResult.content.slice(0, 250).replace(/\s+/g, " ");
@@ -127,8 +151,19 @@ export async function runGenerationOrchestrator(
         `status=${repairResult.status} requireJudge=${requireJudge} ` +
         `patterns=[${input.patternsUsed.join(",")}]\n` +
         `  ORIG:     ${origExcerpt}\n` +
-        `  REPAIRED: ${repairedExcerpt}`
+        `  WOULD_BE: ${repairedExcerpt}`
     );
+    // orchestrated=false signals that production output was NOT governed by the orchestrator
+    return {
+      content: input.content,
+      repairs: repairResult.repairs,
+      qualityScore: repairResult.qualityScore,
+      status: repairResult.status,
+      review: repairResult.review,
+      patternsInjected: input.patternsUsed,
+      orchestrated: false,
+      armId: undefined,
+    };
   }
 
   if (repairResult.repairs > 0 || requireJudge) {
@@ -144,6 +179,8 @@ export async function runGenerationOrchestrator(
     ...repairResult,
     patternsInjected: input.patternsUsed,
     orchestrated: true,
+    // armId: populated by sampleArm() once Bayesian A/B routing is implemented
+    armId: undefined,
   };
 }
 
@@ -156,5 +193,6 @@ function passthroughResult(input: OrchestratorInput): OrchestratorResult {
     review: null as any,
     patternsInjected: input.patternsUsed,
     orchestrated: false,
+    armId: undefined,
   };
 }

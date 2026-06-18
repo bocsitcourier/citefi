@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { socialPosts, socialPostVariants, socialPostLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
+import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
+import { recordContentGenerated } from "@/lib/learning-integration";
 
 const CHAR_LIMITS = {
   x: 280,
@@ -96,13 +98,43 @@ export async function POST(
 
     console.log(`✅ GPT-4 enhanced ${platform} post with ${gptResult.hashtags.length} hashtags`);
 
+    // Critic loop: wire orchestrator for quality scoring + repairs (mirrors social-worker.ts)
+    let finalCaption = gptResult.caption;
+    try {
+      const orchResult = await runGenerationOrchestrator({
+        teamId: post.teamId,
+        contentType: "SOCIAL",
+        contentId: post.id,
+        content: gptResult.caption,
+        patternsUsed: [],
+        brief: {
+          topic: post.topic ?? undefined,
+          location: post.location ?? undefined,
+        },
+        kind: "social",
+      });
+      if (orchResult.repairs > 0 && orchResult.content.length > 20 && orchResult.orchestrated) {
+        finalCaption = orchResult.content;
+        console.log(`🔧 Social variant ${variantIdNum} critic: ${orchResult.repairs} repair(s), quality=${orchResult.qualityScore}`);
+      }
+      await recordContentGenerated(
+        post.teamId,
+        [],
+        "SOCIAL",
+        post.id,
+        orchResult.qualityScore > 0 ? orchResult.qualityScore : 75
+      );
+    } catch (orchErr) {
+      console.warn(`[Social Regenerate] Orchestrator failed, continuing:`, (orchErr as Error).message);
+    }
+
     const hashtagsString = gptResult.hashtags.map(h => h.tag).join(" ");
 
     await db
       .update(socialPostVariants)
       .set({
-        caption: gptResult.caption,
-        characterCount: gptResult.caption.length,
+        caption: finalCaption,
+        characterCount: finalCaption.length,
         hashtags: hashtagsString,
         hashtagsJson: gptResult.hashtags,
         emojisJson: gptResult.emojis || [],
@@ -117,11 +149,11 @@ export async function POST(
       eventType: "VARIANT_REGENERATED",
       stage: "GPT4",
       severity: "info",
-      message: `Regenerated ${platform} variant (${gptResult.caption.length} chars, ${gptResult.hashtags.length} hashtags)`,
+      message: `Regenerated ${platform} variant (${finalCaption.length} chars, ${gptResult.hashtags.length} hashtags)`,
       payloadJson: {
         variantId: variantIdNum,
         platform,
-        characterCount: gptResult.caption.length,
+        characterCount: finalCaption.length,
         hashtagCount: gptResult.hashtags.length,
       },
     });
@@ -133,8 +165,8 @@ export async function POST(
       variant: {
         id: variantIdNum,
         platform,
-        caption: gptResult.caption,
-        characterCount: gptResult.caption.length,
+        caption: finalCaption,
+        characterCount: finalCaption.length,
         hashtags: gptResult.hashtags,
         emojis: gptResult.emojis || [],
         hyperlinks: gptResult.hyperlinks || [],

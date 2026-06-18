@@ -5,6 +5,7 @@ import { articles, jobBatches } from "@/shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { addImageGenerationJob } from "@/lib/queue";
 import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
+import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 
 interface ImagePromptGenerationResult {
   imagePrompts: string[];
@@ -150,15 +151,41 @@ export async function POST(
         );
 
         if (imagePrompts.length > 0) {
+          // Critic loop: review image prompt text for brand policy compliance.
+          // requireJudge=false — image prompts are short visual descriptors, not long-form content.
+          let finalPrompts = imagePrompts;
+          try {
+            const orchResult = await runGenerationOrchestrator({
+              teamId,
+              contentType: "IMAGE",
+              contentId: article.id,
+              content: imagePrompts.join('\n\n---\n\n'),
+              patternsUsed: [],
+              brief: { topic: article.chosenTitle ?? undefined },
+              kind: "script",
+              requireJudge: false,
+            });
+            if (orchResult.repairs > 0 && orchResult.orchestrated) {
+              // Re-split on the same separator to restore the prompt array
+              const repairedSplit = orchResult.content.split(/\n\n---\n\n/).map(p => p.trim()).filter(Boolean);
+              if (repairedSplit.length === imagePrompts.length) {
+                finalPrompts = repairedSplit;
+                console.log(`🔧 Image prompts critic: ${orchResult.repairs} repair(s) applied for article ${article.id}`);
+              }
+            }
+          } catch (orchErr) {
+            console.warn(`[Image Regen] Orchestrator failed, continuing:`, (orchErr as Error).message);
+          }
+
           await db
             .update(articles)
-            .set({ imagePromptsJson: imagePrompts })
+            .set({ imagePromptsJson: finalPrompts })
             .where(eq(articles.id, article.id));
 
           await addImageGenerationJob({
             articleId: article.id,
             batchId,
-            imagePrompts,
+            imagePrompts: finalPrompts,
             businessName,
           });
 

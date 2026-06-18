@@ -165,8 +165,36 @@ export async function orchestrateVideoIdeaGeneration(
             requireJudge: false,
           });
           if (orchResult.qualityScore > 0) capturedVideoQualityScore = orchResult.qualityScore;
-          if (orchResult.repairs > 0) {
-            console.log(`🔧 Video script critic: ${orchResult.repairs} repair(s), quality=${capturedVideoQualityScore}`);
+          // Apply repaired narration back to clips, preserving all other clip fields.
+          // First attempt: map repaired double-newline paragraphs back 1:1 to clips.
+          // Fallback: proportional redistribution by original narration character length.
+          if (orchResult.repairs > 0 && orchResult.content.length > 50 && orchResult.orchestrated) {
+            const repairedParagraphs = orchResult.content.split(/\n\n+/).filter(Boolean);
+            if (repairedParagraphs.length >= script.clips.length) {
+              script.clips = script.clips.map((clip, i) => ({
+                ...clip,
+                narration: repairedParagraphs[i]?.trim() || clip.narration,
+              }));
+            } else {
+              const repaired = orchResult.content;
+              const totalOrigLen = script.clips.reduce((sum, c) => sum + (c.narration?.length ?? 50), 0);
+              let charOffset = 0;
+              script.clips = script.clips.map((clip, i) => {
+                const isLast = i === script.clips.length - 1;
+                const allocChars = isLast
+                  ? repaired.length - charOffset
+                  : Math.round(((clip.narration?.length ?? 50) / (totalOrigLen || 1)) * repaired.length);
+                let segEnd = Math.min(charOffset + allocChars, repaired.length);
+                if (!isLast && segEnd < repaired.length) {
+                  const spaceIdx = repaired.indexOf(' ', segEnd);
+                  if (spaceIdx !== -1 && spaceIdx - segEnd < 40) segEnd = spaceIdx;
+                }
+                const newNarration = repaired.slice(charOffset, segEnd).trim() || clip.narration;
+                charOffset = segEnd;
+                return { ...clip, narration: newNarration };
+              });
+            }
+            console.log(`🔧 Video script critic: ${orchResult.repairs} repair(s), quality=${capturedVideoQualityScore} — applied to ${script.clips.length} clips`);
           }
         }
       } catch (orchErr) {
