@@ -1910,10 +1910,66 @@ export async function registerWorkers() {
         try {
           const { db: _db } = await import("./db");
           const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
-          const { eq, and, gte, count, avg, max, sql: drizzleSql, desc: drizzleDesc, isNotNull: drizzleIsNotNull } = await import("drizzle-orm");
+          const { eq, and, gte, count, avg, max, inArray, sql: drizzleSql, desc: drizzleDesc, isNotNull: drizzleIsNotNull } = await import("drizzle-orm");
 
           const allTeams = await _db.select({ id: teams.id }).from(teams);
           const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
+
+          // ── Phase 0: Derive fatigueSignal from cross-session behavior ────────
+          // Spec: a visitor is "fatigued" when they have viewed 5+ distinct content
+          // items from the same team in the last 7 days without any conversion.
+          // fatigueSignal cannot be determined client-side (requires cross-session data),
+          // so the labeler is the authoritative source. We mark the visitor's recent events
+          // BEFORE the aggregation loop so the aggregation picks up real fatigue rates.
+          const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+          let totalFatigueUpdates = 0;
+          for (const team of allTeams) {
+            try {
+              // One query to find visitors meeting the fatigue threshold
+              const result = await _db.execute(
+                drizzleSql`
+                  SELECT visitor_id
+                  FROM content_events
+                  WHERE team_id = ${team.id}
+                    AND created_at >= ${sevenDaysAgo}
+                    AND visitor_id IS NOT NULL
+                  GROUP BY visitor_id
+                  HAVING
+                    COUNT(DISTINCT COALESCE(article_id::text, social_post_id::text)) >= 5
+                    AND COUNT(CASE WHEN event_type = 'conversion' THEN 1 END) = 0
+                  LIMIT 2000
+                `
+              );
+              const fatigueIds = (result.rows as { visitor_id: string }[])
+                .map(r => r.visitor_id)
+                .filter(Boolean);
+
+              if (fatigueIds.length > 0) {
+                // Batch UPDATE: mark all matching recent events as fatigued
+                await _db
+                  .update(contentEvents)
+                  .set({ fatigueSignal: true })
+                  .where(and(
+                    eq(contentEvents.teamId, team.id),
+                    inArray(contentEvents.visitorId, fatigueIds),
+                    gte(contentEvents.createdAt, sevenDaysAgo)
+                  ));
+                totalFatigueUpdates += fatigueIds.length;
+                console.log(
+                  `[CONVERSION_LABEL] fatigueDerive teamId=${team.id} ` +
+                  `fatiguedVisitors=${fatigueIds.length} (marked 7d events as fatigued)`
+                );
+              }
+            } catch (fatigueErr) {
+              console.warn(
+                `[CONVERSION_LABEL] fatigueDerive teamId=${team.id} error:`,
+                (fatigueErr as Error).message
+              );
+            }
+          }
+          if (totalFatigueUpdates > 0) {
+            console.log(`[CONVERSION_LABEL] fatigueDerive complete: ${totalFatigueUpdates} fatigued visitors across all teams`);
+          }
 
           let labeledCount = 0;
           for (const team of allTeams) {
