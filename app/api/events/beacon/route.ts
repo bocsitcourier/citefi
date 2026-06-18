@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { contentEvents, articles, socialPosts } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -142,19 +142,51 @@ export async function POST(req: NextRequest) {
     // Normalise to array for uniform processing
     const events = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
 
-    // Verify ownership for each unique contentId (cached)
-    const ownedSet = new Map<string, boolean>();
+    // Batched ownership check — two IN queries (one per content type) instead of
+    // N sequential lookups. Cache hit avoids DB round-trip entirely.
+    const uncachedArticleIds: number[] = [];
+    const uncachedSocialIds: number[] = [];
+    const seenKeys = new Set<string>();
+
     for (const evt of events) {
       const key = `${evt.contentType}:${evt.contentId}`;
-      if (ownedSet.has(key)) continue;
-      const owned = await verifyOwnership(evt.contentType, evt.contentId, evt.teamId);
-      ownedSet.set(key, owned);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      const cached = ownershipCache.get(key);
+      if (cached && Date.now() < cached.expiresAt) continue; // already cached
+
+      if (evt.contentType === "article") {
+        if (!uncachedArticleIds.includes(evt.contentId)) uncachedArticleIds.push(evt.contentId);
+      } else {
+        if (!uncachedSocialIds.includes(evt.contentId)) uncachedSocialIds.push(evt.contentId);
+      }
+    }
+
+    const cacheExpiry = Date.now() + 5 * 60_000;
+    const [articleRows, socialRows] = await Promise.all([
+      uncachedArticleIds.length > 0
+        ? db.select({ id: articles.id, teamId: articles.teamId }).from(articles)
+            .where(inArray(articles.id, uncachedArticleIds))
+        : Promise.resolve([] as { id: number; teamId: number | null }[]),
+      uncachedSocialIds.length > 0
+        ? db.select({ id: socialPosts.id, teamId: socialPosts.teamId }).from(socialPosts)
+            .where(inArray(socialPosts.id, uncachedSocialIds))
+        : Promise.resolve([] as { id: number; teamId: number | null }[]),
+    ]);
+
+    for (const row of articleRows) {
+      if (row.teamId != null) ownershipCache.set(`article:${row.id}`, { teamId: row.teamId, expiresAt: cacheExpiry });
+    }
+    for (const row of socialRows) {
+      if (row.teamId != null) ownershipCache.set(`social_post:${row.id}`, { teamId: row.teamId, expiresAt: cacheExpiry });
     }
 
     // Filter to only owned events — always return 204 (no diagnostic leakage)
-    const validEvents = events.filter((evt) =>
-      ownedSet.get(`${evt.contentType}:${evt.contentId}`) === true
-    );
+    const validEvents = events.filter((evt) => {
+      const cached = ownershipCache.get(`${evt.contentType}:${evt.contentId}`);
+      return cached != null && cached.teamId === evt.teamId;
+    });
 
     if (validEvents.length === 0) {
       return new NextResponse(null, { status: 204, headers: CORS_HEADERS });

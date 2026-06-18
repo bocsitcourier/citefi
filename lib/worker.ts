@@ -1960,7 +1960,6 @@ export async function registerWorkers() {
               const totalConversions = Number(stat.conversions) || 0;
               const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
               const fatigueRate = totalViews > 0 ? Number(stat.fatigueSignals) / totalViews : 0;
-              // scrollDepth = max scroll pct reached (stored in readabilityScore — best proxy for content depth engagement)
               const scrollDepth = Math.round(Number(stat.maxScrollPct) || 0);
               // qualityScore: readComplete(40) + non-bounce(20) + CTA click rate(20) + conversion rate(20)
               // fatigue signals reduce quality: each 10% fatigue rate subtracts 5 points
@@ -1971,22 +1970,20 @@ export async function registerWorkers() {
                 conversionRate * 20 -
                 fatigueRate * 5
               ));
-              // eatScore: readComplete rate × 100 — measures E-E-A-T proxy (did reader trust content enough to finish?)
-              const eatScore = Math.round(readCompleteRate * 100);
-              // readabilityScore: max scroll depth reached — measures how far into the content readers get
-              const readabilityScore = scrollDepth;
               const engagementPayload = {
                 views: totalViews,
-                // clicks column stores CTA clicks (intentful engagement, not all outbound)
+                // clicks stores CTA clicks (intentful engagement, not all outbound)
                 clicks: totalCtaClicks,
                 shares: Number(stat.shares) || 0,
                 bounceRate: Math.round(bounceRateDecimal * 100),
                 timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0),
+                // Explicit beacon engagement signals (dedicated columns, not repurposed quality fields)
+                scrollDepth,                                     // max scroll pct reached (0-100)
+                readCompleteRate: Math.round(readCompleteRate * 100), // % sessions that fired read_complete (0-100)
                 qualityScore,
-                // eatScore = readCompleteRate × 100 (% of sessions that triggered read_complete)
-                eatScore,
-                // readabilityScore = max scroll depth reached in this window (0–100)
-                readabilityScore,
+                // eatScore and readabilityScore are intentionally left at DB defaults here.
+                // They are filled by the article critique pipeline (article-critique.ts),
+                // not by beacon engagement aggregation.
                 updatedAt: new Date(),
               };
 
@@ -2028,7 +2025,7 @@ export async function registerWorkers() {
                 `bounceRate=${bounceRateDecimal.toFixed(3)} scrollDepth=${scrollDepth}% ` +
                 `ctaRate=${ctaRate.toFixed(3)} fatigueRate=${fatigueRate.toFixed(3)} ` +
                 `convRate=${conversionRate.toFixed(4)} qualityScore=${qualityScore} ` +
-                `eatScore=${eatScore} scrollDepthStored=${readabilityScore} ` +
+                `storedScrollDepth=${scrollDepth} storedReadCompleteRate=${Math.round(readCompleteRate * 100)} ` +
                 `${existingRow ? "updated_attribution_row" : "inserted_standalone_snapshot"}`
               );
               labeledCount++;

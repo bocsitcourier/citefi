@@ -2,15 +2,19 @@
  * ApexContent Engine — Engagement Beacon v2
  * Spec: page_view, 15s heartbeat, scroll milestones (25/50/75/100%),
  *       cta_click, read_complete (75%+ scroll AND 60s+ engaged dwell),
- *       outbound clicks, bounce (<10% scroll at unload).
+ *       outbound clicks, bounce (<10% scroll AND <10s engaged at session end).
  *
- * Negative-signal fields computed client-side:
- *   isReturn    — visitor has seen this content before (_apex_seen_ key in localStorage)
- *   sessionCount — total sessions this visitor has had (incremented per new session)
- *   fatigueSignal — rapid scroll: reached 50%+ scroll depth within 5s of page load
+ * Client-side session signals:
+ *   isReturn     — visitor has engaged with any content from this team before
+ *   sessionCount — total sessions this visitor has had (incremented per session)
+ *
+ * Note: fatigueSignal (5+ pieces from team in 7d without conversion) is a
+ * cross-session server-side metric, computed nightly by the ConversionLabeler.
+ * It is NOT computed client-side.
  *
  * First-party visitor ID (_apex_vid cookie, 365d).
- * Batches events and flushes on pagehide/visibilitychange via sendBeacon.
+ * Batches events; flushes on pagehide (session-end summary) and on
+ * visibilitychange→hidden (interim flush in case page is killed while backgrounded).
  *
  * Usage (inject via beaconScriptUrl or add before </body>):
  *   <script
@@ -119,19 +123,6 @@
   var device = getDevice();
   var locale = (navigator.language || "").slice(0, 20) || undefined;
 
-  // ── fatigueSignal: rapid scroll — reached 50%+ within 5s of page load ────
-  var pageLoadTime = Date.now();
-  var fatigueSignalDetected = false;
-
-  function checkFatigueSignal(pct) {
-    if (!fatigueSignalDetected) {
-      var elapsedSec = (Date.now() - pageLoadTime) / 1000;
-      if (elapsedSec < 5 && pct >= 50) {
-        fatigueSignalDetected = true;
-      }
-    }
-  }
-
   // ── Event queue + flush ───────────────────────────────────────────────────
   var queue = [];
 
@@ -201,7 +192,7 @@
 
   // ── Scroll milestones (25, 50, 75, 100%) ─────────────────────────────────
   // read_complete = 75%+ scroll AND 60s+ engaged dwell (spec corrected)
-  // bounce        = unload with < 10% scroll (spec corrected)
+  // bounce        = unload with < 10% scroll AND < 10s engaged
   var milestones = [25, 50, 75, 100];
   var firedMilestones = {};
   var readCompleteFired = false;
@@ -220,9 +211,6 @@
   function onScroll() {
     var pct = getScrollPct();
 
-    // Fatigue detection: rapid scroll to 50%+ within 5s
-    checkFatigueSignal(pct);
-
     // Milestone events
     for (var i = 0; i < milestones.length; i++) {
       var m = milestones[i];
@@ -232,14 +220,13 @@
       }
     }
 
-    // read_complete: 75%+ scroll AND 60s+ engaged dwell (corrected from 90%/30s)
+    // read_complete: 75%+ scroll AND 60s+ engaged dwell
     if (!readCompleteFired && pct >= 75 && engagedSec >= 60) {
       readCompleteFired = true;
       send("read_complete", {
         scrollPct: pct,
         engagedSec: engagedSec,
         readComplete: true,
-        fatigueSignal: fatigueSignalDetected,
       });
     }
   }
@@ -271,26 +258,44 @@
     }
   }, { passive: true });
 
-  // ── Flush on page unload — bounce = <10% scroll (spec corrected) ─────────
-  var unloadFired = false;
-  function onUnload() {
-    if (unloadFired) return;
-    unloadFired = true;
+  // ── Session-end flush ────────────────────────────────────────────────────
+  // Two separate strategies:
+  //
+  // 1. pagehide (true navigation away / tab close / BFCache entry):
+  //    Emit a final page_view event with session summary (bounce flag, engaged time,
+  //    max scroll) then flush. This is the authoritative session-end record.
+  //
+  // 2. visibilitychange → hidden (tab switch / backgrounded):
+  //    Only flush any queued events so they survive if the browser kills the page
+  //    while backgrounded. Do NOT mark the session as ended — the user may return.
+  //
+  // This separation avoids the data-loss bug where tab-switch prematurely finalizes
+  // the session, preventing the real session-end event from ever being sent.
+
+  var sessionFinalized = false;
+
+  function onFinalUnload() {
+    if (sessionFinalized) return;
+    sessionFinalized = true;
     var pct = getScrollPct();
-    // Bounce: left with <10% scroll depth AND within 10s of page load
-    // Spec: shallow exit (no real read intent) + quick exit (not a brief scroll-check)
+    // Bounce: left with <10% scroll AND <10s engaged (spec: shallow + quick exit)
     var bounced = pct < 10 && engagedSec < 10;
-    enqueue("view", {
+    // Final page_view event carries session-end signals (bounced, scroll depth, engaged time)
+    enqueue("page_view", {
       bounced: bounced,
       engagedSec: engagedSec,
       scrollPct: pct,
-      fatigueSignal: fatigueSignalDetected,
     });
     flush();
   }
 
-  window.addEventListener("pagehide", onUnload);
+  window.addEventListener("pagehide", onFinalUnload);
+
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "hidden") onUnload();
+    if (document.visibilityState === "hidden") {
+      // Interim flush: preserve queued events in case browser kills the page
+      // while it is backgrounded. Do NOT finalize session.
+      flush();
+    }
   });
 })();

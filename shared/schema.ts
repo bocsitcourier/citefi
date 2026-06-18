@@ -1162,11 +1162,14 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   comments: integer("comments").notNull().default(0),
   timeOnPage: integer("time_on_page").notNull().default(0), // Seconds
   bounceRate: integer("bounce_rate").notNull().default(0), // 0-100
+  // Beacon engagement signals (set nightly by ConversionLabeler from content_events)
+  scrollDepth: integer("scroll_depth").notNull().default(0),           // 0-100: max scroll pct reached
+  readCompleteRate: integer("read_complete_rate").notNull().default(0), // 0-100: % sessions that fired read_complete
   
   // Quality Signals
-  qualityScore: integer("quality_score").notNull().default(0), // 0-100, from AI critique
-  eatScore: integer("eat_score").notNull().default(0), // 0-100, E-E-A-T score
-  readabilityScore: integer("readability_score").notNull().default(0), // 0-100
+  qualityScore: integer("quality_score").notNull().default(0), // 0-100, composite engagement quality score
+  eatScore: integer("eat_score").notNull().default(0), // 0-100, E-E-A-T score (from article critique)
+  readabilityScore: integer("readability_score").notNull().default(0), // 0-100 (from article critique)
   
   // Outcome
   isSuccess: integer("is_success"), // Boolean as 0/1/null (null = not yet determined)
