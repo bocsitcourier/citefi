@@ -29,6 +29,7 @@ import {
   socialPostVariants,
   clientBrandProfiles,
   contentPerformanceMetrics,
+  ContentType,
 } from "../shared/schema";
 import { eq, and, gte, desc } from "drizzle-orm";
 
@@ -437,7 +438,7 @@ export class OptimizedContentGenerator {
       for (const m of metrics) {
         try {
           if (
-            (contentType === "ARTICLE" || contentType === "PODCAST") &&
+            (contentType === ContentType.ARTICLE || contentType === ContentType.PODCAST) &&
             m.articleId
           ) {
             const [row] = await db
@@ -452,7 +453,7 @@ export class OptimizedContentGenerator {
                 .trim();
               if (text.length > 50) excerpts.push(text.slice(0, EXEMPLAR_MAX_CHARS));
             }
-          } else if (contentType === "SOCIAL" && m.socialPostId) {
+          } else if (contentType === ContentType.SOCIAL && m.socialPostId) {
             const [row] = await db
               .select({ caption: socialPostVariants.caption })
               .from(socialPostVariants)
@@ -476,17 +477,32 @@ export class OptimizedContentGenerator {
       }
 
       // ── 2. Seed exemplars from ClientBrandProfile ─────────────────────────
+      // Check both profileJson.seedExemplars (primary onboarding source) and
+      // manualOverridesJson.seedExemplars (manually curated override) and merge.
       const [profile] = await db
-        .select({ manualOverridesJson: clientBrandProfiles.manualOverridesJson })
+        .select({
+          profileJson: clientBrandProfiles.profileJson,
+          manualOverridesJson: clientBrandProfiles.manualOverridesJson,
+        })
         .from(clientBrandProfiles)
         .where(eq(clientBrandProfiles.teamId, teamId))
         .limit(1);
 
+      const profileData = profile?.profileJson as Record<string, unknown> | null;
       const overrides = profile?.manualOverridesJson as Record<string, unknown> | null;
-      const seedExemplars: string[] =
-        Array.isArray(overrides?.seedExemplars)
-          ? (overrides!.seedExemplars as string[]).filter((s) => typeof s === "string")
-          : [];
+
+      const fromProfile: string[] = Array.isArray(profileData?.seedExemplars)
+        ? (profileData!.seedExemplars as string[]).filter((s) => typeof s === "string")
+        : [];
+      const fromOverrides: string[] = Array.isArray(overrides?.seedExemplars)
+        ? (overrides!.seedExemplars as string[]).filter((s) => typeof s === "string")
+        : [];
+      // Merge, deduplicate, prefer profile-sourced exemplars first
+      const seen = new Set<string>();
+      const seedExemplars: string[] = [];
+      for (const s of [...fromProfile, ...fromOverrides]) {
+        if (!seen.has(s)) { seen.add(s); seedExemplars.push(s); }
+      }
 
       if (seedExemplars.length > 0) {
         console.log(

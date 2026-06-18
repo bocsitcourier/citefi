@@ -1414,9 +1414,43 @@ export async function registerWorkers() {
               }
               
               console.log(`🔒 [Worker ${workerNum}] Brand lock active: "${businessName}"`);
-              
+
+              // Orchestrator: critic loop + arm assignment for image prompt quality
+              let finalImagePrompts = imagePrompts;
+              if (batch?.teamId) {
+                try {
+                  const orchResult = await runGenerationOrchestrator({
+                    teamId: batch.teamId,
+                    contentType: ContentType.IMAGE,
+                    contentId: articleId,
+                    content: imagePrompts.join('\n\n---\n\n'),
+                    patternsUsed: [],
+                    brief: {},
+                    kind: "script",
+                    requireJudge: false,
+                  });
+                  if (orchResult.repairs > 0 && orchResult.orchestrated) {
+                    const repairedSplit = orchResult.content.split(/\n\n---\n\n/).map(p => p.trim()).filter(Boolean);
+                    if (repairedSplit.length === imagePrompts.length) {
+                      finalImagePrompts = repairedSplit;
+                      console.log(`🔧 [Worker ${workerNum}] Image prompts critic: ${orchResult.repairs} repair(s) for article ${articleId}`);
+                    }
+                  }
+                  await recordContentGenerated(
+                    batch.teamId,
+                    ContentType.IMAGE,
+                    articleId,
+                    [],
+                    orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
+                    { armId: orchResult.armId }
+                  ).catch(() => { /* non-fatal */ });
+                } catch (orchErr) {
+                  console.warn(`[Image Worker] Orchestrator failed, continuing:`, (orchErr as Error).message);
+                }
+              }
+
               const { generateImagesForArticle } = await import("@/lib/gemini-image-generator");
-              const imageResults = await generateImagesForArticle(articleId, imagePrompts, businessName, targetUrl);
+              const imageResults = await generateImagesForArticle(articleId, finalImagePrompts, businessName, targetUrl);
               console.log(`✅ [Worker ${workerNum}] Generated ${imageResults.length}/${imagePrompts.length} images for article ${articleId}`);
             } catch (error) {
               console.error(`❌ [Worker ${workerNum}] Image generation failed for article ${articleId}:`, error);
