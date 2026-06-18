@@ -37,7 +37,7 @@ import type { RepairResult } from "./optimized-content-generator";
 import { getClientBrandContext } from "./client-brand-profile-service";
 import { db } from "./db";
 import { ContentType, decisionArms } from "../shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 export type ContentKind = "article" | "social" | "podcast" | "script";
 
@@ -90,6 +90,17 @@ export interface OrchestratorResult extends RepairResult {
 }
 
 // ---------------------------------------------------------------------------
+// Content-type alias map
+// ---------------------------------------------------------------------------
+// The decisions API (app/api/decisions/) stores social arms with contentType
+// "social_post", while ContentType.SOCIAL = "social". sampleArm() resolves
+// both via inArray so active social experiments are always found.
+const CONTENT_TYPE_ALIASES: Record<string, string[]> = {
+  social: ["social", "social_post"],
+  social_post: ["social", "social_post"],
+};
+
+// ---------------------------------------------------------------------------
 // Thompson Sampling — Beta distribution sampler
 // ---------------------------------------------------------------------------
 
@@ -118,12 +129,16 @@ function betaSample(alpha: number, beta: number): number {
 
 /**
  * Decision policy hook: select a decision arm for this generation via Thompson Sampling.
- * Queries active arms for the team+contentType, samples each Beta(posteriorAlpha, posteriorBeta)
- * posterior, and returns the arm with the highest sample.
+ * Queries active arms for the team+contentType (with alias expansion so "social" also
+ * matches arms stored as "social_post" by the decisions API), samples each
+ * Beta(posteriorAlpha, posteriorBeta) posterior, and returns the arm with the highest draw.
  * Returns undefined when no active experiment exists for this team+contentType.
  */
 async function sampleArm(teamId: number, contentType: string): Promise<number | undefined> {
   try {
+    // Expand to all aliases — "social" must also match "social_post" (decisions API canonical)
+    const aliases = CONTENT_TYPE_ALIASES[contentType] ?? [contentType];
+
     const arms = await db
       .select({
         id: decisionArms.id,
@@ -134,12 +149,23 @@ async function sampleArm(teamId: number, contentType: string): Promise<number | 
       .where(
         and(
           eq(decisionArms.teamId, teamId),
-          eq(decisionArms.contentType, contentType),
+          aliases.length === 1
+            ? eq(decisionArms.contentType, aliases[0])
+            : inArray(decisionArms.contentType, aliases),
           eq(decisionArms.active, true)
         )
       );
 
-    if (arms.length === 0) return undefined;
+    if (arms.length === 0) {
+      // Telemetry: warn when aliases were expanded (likely misconfiguration if social arms exist)
+      if (aliases.length > 1) {
+        console.log(
+          `[ARM_SAMPLE] No active arm for team=${teamId} type=${contentType} ` +
+            `(searched aliases: [${aliases.join(", ")}])`
+        );
+      }
+      return undefined;
+    }
     if (arms.length === 1) return arms[0].id; // Only one arm — no sampling needed
 
     // Thompson Sampling: draw from each arm's Beta posterior, pick the highest
