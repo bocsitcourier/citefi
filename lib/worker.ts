@@ -641,7 +641,7 @@ export async function registerWorkers() {
 
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: currentArticle.teamId,
-              contentType: "ARTICLE",
+              contentType: ContentType.ARTICLE,
               contentId: articleId,
               content: geminiResult.rawContent,
               patternsUsed: articleEnhancement.patternsUsed,

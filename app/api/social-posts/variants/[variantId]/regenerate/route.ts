@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { socialPosts, socialPostVariants, socialPostLogs } from "@/shared/schema";
+import { socialPosts, socialPostVariants, socialPostLogs, ContentType } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
@@ -103,7 +103,7 @@ export async function POST(
     try {
       const orchResult = await runGenerationOrchestrator({
         teamId: post.teamId,
-        contentType: "SOCIAL",
+        contentType: ContentType.SOCIAL,
         contentId: post.id,
         content: gptResult.caption,
         patternsUsed: [],
@@ -119,7 +119,7 @@ export async function POST(
       }
       await recordContentGenerated(
         post.teamId,
-        "SOCIAL",
+        ContentType.SOCIAL,
         post.id,
         [],
         orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,

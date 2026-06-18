@@ -166,11 +166,15 @@ async function sampleArm(teamId: number, contentType: string): Promise<number | 
 export async function runGenerationOrchestrator(
   input: OrchestratorInput
 ): Promise<OrchestratorResult> {
+  // Normalize casing once — callers may pass "ARTICLE", "article", etc.
+  // All downstream comparisons use this normalized value.
+  const normalizedType = input.contentType.toLowerCase();
+
   // Arm assignment is independent of critic enable/disable — always attempt
-  const armId = await sampleArm(input.teamId, input.contentType);
+  const armId = await sampleArm(input.teamId, normalizedType);
   if (armId !== undefined) {
     console.log(
-      `[ARM_ASSIGNED] type=${input.contentType} id=${input.contentId} armId=${armId}`
+      `[ARM_ASSIGNED] type=${normalizedType} id=${input.contentId} armId=${armId}`
     );
   }
 
@@ -179,7 +183,8 @@ export async function runGenerationOrchestrator(
     return { ...passthroughResult(input), armId };
   }
 
-  const modeKey = `ORCHESTRATOR_MODE_${input.contentType.toUpperCase()}`;
+  // Env var key uses uppercase for readability (ORCHESTRATOR_MODE_ARTICLE etc.)
+  const modeKey = `ORCHESTRATOR_MODE_${normalizedType.toUpperCase()}`;
   const mode = (process.env[modeKey] ?? "active") as "active" | "shadow" | "off";
   if (mode === "off") {
     return { ...passthroughResult(input), armId };
@@ -187,12 +192,12 @@ export async function runGenerationOrchestrator(
 
   const requireJudge =
     input.requireJudge ??
-    (input.contentType === ContentType.ARTICLE ||
-      input.contentType === ContentType.SOCIAL);
+    (normalizedType === ContentType.ARTICLE ||
+      normalizedType === ContentType.SOCIAL);
 
   // Observability: confirm this content type is wired through the orchestrator
   console.log(
-    `[ORCHESTRATOR_WIRED] type=${input.contentType} id=${input.contentId} ` +
+    `[ORCHESTRATOR_WIRED] type=${normalizedType} id=${input.contentId} ` +
       `mode=${mode} requireJudge=${requireJudge} patterns=${input.patternsUsed.length}`
   );
 

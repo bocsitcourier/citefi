@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { articles, jobBatches } from "@/shared/schema";
+import { articles, jobBatches, ContentType } from "@/shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { addImageGenerationJob } from "@/lib/queue";
 import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
@@ -158,7 +158,7 @@ export async function POST(
           try {
             const orchResult = await runGenerationOrchestrator({
               teamId,
-              contentType: "IMAGE",
+              contentType: ContentType.IMAGE,
               contentId: article.id,
               content: imagePrompts.join('\n\n---\n\n'),
               patternsUsed: [],
@@ -177,7 +177,7 @@ export async function POST(
             // Record learning metrics for image generation path
             await recordContentGenerated(
               teamId,
-              "IMAGE",
+              ContentType.IMAGE,
               article.id,
               [],
               orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,

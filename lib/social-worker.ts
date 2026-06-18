@@ -246,7 +246,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           try {
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: postDetails.teamId,
-              contentType: "SOCIAL",
+              contentType: ContentType.SOCIAL,
               contentId: socialPostId,
               content: geminiResult.caption,
               patternsUsed: capturedPatternIds,
