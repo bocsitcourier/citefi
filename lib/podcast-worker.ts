@@ -1,7 +1,8 @@
 import { db } from "./db";
 import { articles, articleAssets, jobBatches, ContentType } from "../shared/schema";
 import { eq } from "drizzle-orm";
-import { recordContentGenerated } from "./learning-integration";
+import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
+import { runGenerationOrchestrator } from "./generation-orchestrator";
 import { logError, logCritical } from "./error-logger";
 import { generatePodcastScript, type PodcastScript } from "./podcast-generator";
 import { mergeAudioSegments, estimateAudioDuration } from "./openai-tts";
@@ -75,7 +76,37 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       }
       console.log(`✅ Podcast script brand name validation passed: "${companyName}"`);
     }
-    
+
+    // Critic loop on script text — best-effort; failure does not abort audio generation
+    // requireJudge=false: podcast scripts are audio artifacts; GPT judge cost not justified
+    let capturedPodcastPatternIds: number[] = [];
+    let podcastQualityScore = 75;
+    if (teamId) {
+      try {
+        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST)
+          .catch(() => ({ patternsUsed: [] as number[] }));
+        capturedPodcastPatternIds = podcastEnhancement.patternsUsed;
+
+        const scriptText = script.segments.map(s => s.text).join(' ');
+        const orchResult = await runGenerationOrchestrator({
+          teamId,
+          contentType: ContentType.PODCAST,
+          contentId: articleId,
+          content: scriptText,
+          patternsUsed: capturedPodcastPatternIds,
+          brief: { topic: article.chosenTitle },
+          kind: "podcast",
+          requireJudge: false,
+        });
+        if (orchResult.qualityScore > 0) podcastQualityScore = orchResult.qualityScore;
+        if (orchResult.repairs > 0) {
+          console.log(`🔧 Podcast script critic: ${orchResult.repairs} repair(s), quality=${podcastQualityScore}`);
+        }
+      } catch (orchErr) {
+        console.warn('[Podcast Worker] Orchestrator failed, continuing:', (orchErr as Error).message);
+      }
+    }
+
     console.log(`[Podcast Worker] Generating audio for article ${articleId}`);
     const audioSegments = script.segments.map(seg => ({
       voice: seg.voice,
@@ -172,7 +203,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // so the engagement scorer can label it and Wilson attribution can fire.
         const effectiveTeamId = teamId ?? article.teamId;
         if (effectiveTeamId) {
-          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, [], 0)
+          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore)
             .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
         }
       } catch (dbError) {

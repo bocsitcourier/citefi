@@ -11,9 +11,8 @@
  *  3. POST — record EXACTLY which pattern IDs were injected so the engagement
  *             labeler + review attribution can credit/blame the right patterns
  *
- * Workers call generate() for new content OR reviewAndRepairContent() to plug
- * the critic loop into an already-running pipeline (e.g. after Stage 1 Gemini,
- * before Stage 2 GPT review in the article pipeline).
+ * Workers call reviewAndRepairContent() to plug the critic loop into an
+ * already-running pipeline (e.g. after Stage 1 Gemini, before Stage 2 GPT).
  *
  * CONTRACT: injectedPatterns assembled in step 1 MUST equal IDs recorded in
  * step 3. Breaking this identity makes injection open-loop.
@@ -24,6 +23,14 @@ import { learningService } from "./learning-service";
 import { contentReviewService } from "./content-review-service";
 import { GEMINI_FLASH_MODEL, GPT_ENHANCEMENT_MODEL } from "./ai-config";
 import { callOpenAI } from "./openai-client";
+import { db } from "./db";
+import {
+  articles,
+  socialPostVariants,
+  clientBrandProfiles,
+  contentPerformanceMetrics,
+} from "../shared/schema";
+import { eq, and, gte, desc } from "drizzle-orm";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -49,6 +56,7 @@ const REPAIRABLE = new Set<string>([
 
 const MAX_REPAIRS = 2;           // bound critic-in-the-loop (cost control)
 const MAX_INJECTED_PATTERNS = 8; // cap prompt injection — more dilutes & conflicts
+const EXEMPLAR_MAX_CHARS = 600;  // trim excerpts to keep prompts lean
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -121,8 +129,14 @@ export class OptimizedContentGenerator {
   // ==========================================================================
   // PRIMARY API for EXISTING WORKERS
   // Call this AFTER your main generation step, BEFORE GPT enhancement.
-  // It runs the full critic-in-the-loop repair cycle on already-generated
+  // Runs the full critic-in-the-loop repair cycle on already-generated
   // content and writes the Wilson attribution to pattern_dimension_stats.
+  //
+  // opts.requireJudge — force a final GPT-4o-mini judge pass even when
+  //   the content has zero defects (auto-set by the orchestrator for
+  //   ARTICLE/SOCIAL; default false for PODCAST/VIDEO).
+  // opts.brandContext — brand policy prompt block from ClientBrandProfile;
+  //   injected into every repair call to prevent policy drift under revision.
   // ==========================================================================
   async reviewAndRepairContent(
     teamId: number,
@@ -130,7 +144,8 @@ export class OptimizedContentGenerator {
     contentId: number,
     content: string,
     patternsUsed: number[],
-    brief: Partial<Brief> = {}
+    brief: Partial<Brief> = {},
+    opts: { requireJudge?: boolean; brandContext?: string } = {}
   ): Promise<RepairResult> {
     const fullBrief: Brief = { topic: brief.topic ?? contentType, contentId, ...brief };
 
@@ -146,6 +161,8 @@ export class OptimizedContentGenerator {
     );
 
     let repairs = 0;
+    let judgeRan = false;
+
     while (!review.passed && repairs < MAX_REPAIRS) {
       const fixable = review.defects.filter((d) => REPAIRABLE.has(d.code));
       const factual = review.defects.filter((d) => d.dim === "factuality");
@@ -159,10 +176,11 @@ export class OptimizedContentGenerator {
         currentContent,
         fixable,
         fullBrief,
-        { model: GEMINI_FLASH_MODEL, temperature: 0.3 }
+        { model: GEMINI_FLASH_MODEL, temperature: 0.3 },
+        opts.brandContext
       );
 
-      // Use judge on final pass only (cost control)
+      // Use judge on final pass only (cost control) — also fires when few defects remain
       const useJudge = repairs + 1 >= MAX_REPAIRS || fixable.length <= 2;
       review = await contentReviewService.reviewContent(
         teamId,
@@ -172,9 +190,27 @@ export class OptimizedContentGenerator {
         fullBrief,
         { useJudge }
       );
+      if (useJudge) judgeRan = true;
       repairs++;
       console.log(
         `🔧 Critic repair pass ${repairs}/${MAX_REPAIRS}: ${fixable.length} defects addressed → passed=${review.passed}`
+      );
+    }
+
+    // Force a final judge pass when requireJudge=true and it hasn't run yet.
+    // This ensures quality scoring fires for ARTICLE/SOCIAL even on clean content.
+    if (opts.requireJudge && !judgeRan) {
+      review = await contentReviewService.reviewContent(
+        teamId,
+        contentId,
+        contentType,
+        currentContent,
+        fullBrief,
+        { useJudge: true }
+      );
+      judgeRan = true;
+      console.log(
+        `🔬 Final judge pass (${contentType} ${contentId}): quality=${this.computeQualityScore(review.dimensionScores)}`
       );
     }
 
@@ -192,9 +228,6 @@ export class OptimizedContentGenerator {
 
   // ==========================================================================
   // FULL ORCHESTRATION — generate() closes ALL three injection points.
-  // Use this when migrating a generator to call the orchestrator directly
-  // instead of calling the model directly.  Currently wired as a stub for
-  // callModel/persistContent — see comments below.
   // ==========================================================================
   async generate(
     teamId: number,
@@ -214,7 +247,6 @@ export class OptimizedContentGenerator {
       exemplars
     );
 
-    // Generate with the agent-selected model + temperature
     let content = await this.callModel(
       ctx.modelConfig?.model ?? GEMINI_FLASH_MODEL,
       prompt,
@@ -225,7 +257,7 @@ export class OptimizedContentGenerator {
     const repairResult = await this.reviewAndRepairContent(
       teamId,
       contentType,
-      0, // temp id; real id assigned in persistContent
+      0,
       content,
       injectedPatterns.map((p) => p.id),
       brief
@@ -257,8 +289,6 @@ export class OptimizedContentGenerator {
 
   // ==========================================================================
   // PROMPT ASSEMBLY
-  // [LEARNED] / [AVOID] lines come pre-formatted from the LearningService
-  // (buildPromptEnhancements + negative constraints).
   // ==========================================================================
   private assemblePrompt(
     brief: Brief,
@@ -274,7 +304,6 @@ export class OptimizedContentGenerator {
       ? `PROVEN TACTICS:\n${patterns.map((p) => `• [${p.patternType}] ${p.patternValue}`).join("\n")}`
       : "";
 
-    // The single biggest lever for human-quality output: show real past winners.
     const examples = exemplars.length
       ? `EXAMPLES OF YOUR BEST PAST WORK (match quality & voice, don't copy):\n${exemplars
           .map((ex, i) => `--- Example ${i + 1} ---\n${ex}`)
@@ -303,13 +332,16 @@ export class OptimizedContentGenerator {
   }
 
   // ==========================================================================
-  // REPAIR — targeted revision for the specific defects found
+  // REPAIR — targeted revision for the specific defects found.
+  // brandContext (from ClientBrandProfile) is injected when provided so the
+  // model cannot accidentally weaken brand policy during a structural fix.
   // ==========================================================================
   private async repair(
     content: string,
     defects: { code: string; evidence: string }[],
     brief: Brief,
-    modelConfig: { model: string; temperature: number }
+    modelConfig: { model: string; temperature: number },
+    brandContext?: string
   ): Promise<string> {
     const instructions = defects
       .map((d) => {
@@ -319,10 +351,15 @@ export class OptimizedContentGenerator {
       })
       .join("\n");
 
+    const brandBlock = brandContext
+      ? `\nBRAND POLICY (enforce throughout — do not weaken or remove during revision):\n${brandContext}\n`
+      : "";
+
     const prompt = [
       "Revise the following content. Fix ONLY these issues, keep everything else intact:",
       instructions,
       brief.location ? `Content is for: ${brief.location}` : "",
+      brandBlock,
       "",
       "CONTENT:",
       content,
@@ -340,7 +377,6 @@ export class OptimizedContentGenerator {
   }
 
   // Strip/flag unsupported claims rather than blindly regenerating them.
-  // Re-prompting a hallucination just produces a different hallucination.
   private handleFactuality(
     content: string,
     factual: { evidence: string }[]
@@ -361,30 +397,117 @@ export class OptimizedContentGenerator {
   }
 
   // ==========================================================================
-  // EXEMPLAR RETRIEVAL — real past winners, by similarity to this brief
+  // EXEMPLAR RETRIEVAL — real past winners for this team + content type.
   //
-  // TODO: embed the brief, vector-search generationMemory for top 1-3
-  // defect-free, high-engagement past pieces on similar topics, and return
-  // trimmed excerpts. Cap total tokens — exemplars are expensive.
+  // Priority order:
+  //  1. Historical: content_performance_metrics where isSuccess=1 AND qualityScore>=80
+  //     for the same team + contentType, joined to the actual content text.
+  //  2. Seed: clientBrandProfiles.manualOverridesJson.seedExemplars (manually curated).
+  //  3. None: return [] — orchestrator continues without exemplar injection.
   //
-  // This is the last major gap identified by the architect. When wired,
-  // this single change most directly produces "excellent, human" quality
-  // because the model imitates your proven past output rather than starting
-  // from nothing. Needs: embedding store, write path (capture winner),
-  // similarity retrieval.
+  // Logs EXEMPLAR_SOURCE: historical|seed|none for observability.
   // ==========================================================================
   private async retrieveExemplars(
-    _teamId: number,
-    _contentType: string,
+    teamId: number,
+    contentType: string,
     _brief: Brief
   ): Promise<string[]> {
-    return [];
+    try {
+      // ── 1. Historical exemplars from content_performance_metrics ─────────────
+      const metrics = await db
+        .select({
+          articleId: contentPerformanceMetrics.articleId,
+          socialPostId: contentPerformanceMetrics.socialPostId,
+          qualityScore: contentPerformanceMetrics.qualityScore,
+        })
+        .from(contentPerformanceMetrics)
+        .where(
+          and(
+            eq(contentPerformanceMetrics.teamId, teamId),
+            eq(contentPerformanceMetrics.contentType, contentType),
+            eq(contentPerformanceMetrics.isSuccess, 1),
+            gte(contentPerformanceMetrics.qualityScore, 80)
+          )
+        )
+        .orderBy(desc(contentPerformanceMetrics.qualityScore))
+        .limit(3);
+
+      const excerpts: string[] = [];
+
+      for (const m of metrics) {
+        try {
+          if (
+            (contentType === "ARTICLE" || contentType === "PODCAST") &&
+            m.articleId
+          ) {
+            const [row] = await db
+              .select({ finalHtmlContent: articles.finalHtmlContent })
+              .from(articles)
+              .where(eq(articles.id, m.articleId))
+              .limit(1);
+            if (row?.finalHtmlContent) {
+              const text = row.finalHtmlContent
+                .replace(/<[^>]*>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+              if (text.length > 50) excerpts.push(text.slice(0, EXEMPLAR_MAX_CHARS));
+            }
+          } else if (contentType === "SOCIAL" && m.socialPostId) {
+            const [row] = await db
+              .select({ caption: socialPostVariants.caption })
+              .from(socialPostVariants)
+              .where(eq(socialPostVariants.socialPostId, m.socialPostId))
+              .orderBy(desc(socialPostVariants.id))
+              .limit(1);
+            if (row?.caption && row.caption.length > 20) {
+              excerpts.push(row.caption.slice(0, 300));
+            }
+          }
+        } catch {
+          // Skip this metric — content may have been deleted
+        }
+      }
+
+      if (excerpts.length > 0) {
+        console.log(
+          `[exemplars] EXEMPLAR_SOURCE: historical (${excerpts.length} for ${contentType} team=${teamId})`
+        );
+        return excerpts;
+      }
+
+      // ── 2. Seed exemplars from ClientBrandProfile ─────────────────────────
+      const [profile] = await db
+        .select({ manualOverridesJson: clientBrandProfiles.manualOverridesJson })
+        .from(clientBrandProfiles)
+        .where(eq(clientBrandProfiles.teamId, teamId))
+        .limit(1);
+
+      const overrides = profile?.manualOverridesJson as Record<string, unknown> | null;
+      const seedExemplars: string[] =
+        Array.isArray(overrides?.seedExemplars)
+          ? (overrides!.seedExemplars as string[]).filter((s) => typeof s === "string")
+          : [];
+
+      if (seedExemplars.length > 0) {
+        console.log(
+          `[exemplars] EXEMPLAR_SOURCE: seed (${seedExemplars.length} for ${contentType} team=${teamId})`
+        );
+        return seedExemplars.slice(0, 3).map((s) => s.slice(0, EXEMPLAR_MAX_CHARS));
+      }
+
+      console.log(`[exemplars] EXEMPLAR_SOURCE: none for ${contentType} team=${teamId}`);
+      return [];
+    } catch (err) {
+      console.warn(
+        "[exemplars] retrieval failed — continuing without exemplars:",
+        (err as Error).message
+      );
+      return [];
+    }
   }
 
   // ==========================================================================
   // MODEL ROUTER
-  // Gemini models → Google GenAI SDK
-  // GPT models → OpenAI via rate-limited callOpenAI wrapper
   // ==========================================================================
   private async callModel(
     model: string,
@@ -429,12 +552,6 @@ export class OptimizedContentGenerator {
 
   // ==========================================================================
   // PERSIST CONTENT
-  // This codebase pre-allocates DB rows before generation; the job carries
-  // the content ID. When using generate() directly (not reviewAndRepair),
-  // pass brief.contentId as the pre-allocated row ID.
-  //
-  // TODO: for greenfield content types that INSERT on generate(), implement
-  // the appropriate table insert here and return the new ID.
   // ==========================================================================
   private async persistContent(
     _teamId: number,
@@ -469,24 +586,23 @@ export const optimizedContentGenerator = OptimizedContentGenerator.getInstance()
 ────────────────────────────────────────────────────────────────────────────────
 WHERE THIS SITS IN THE PIPELINE:
 
-EXISTING WORKERS (article, social, video):
+EXISTING WORKERS (article, social, podcast, video):
   1. Run your main generation (Gemini/GPT) — unchanged.
   2. Call reviewAndRepairContent() with the raw output.
   3. Use the repaired content going forward.
   4. Call recordContentGenerated() at completion — unchanged.
   → Adds critic loop without replacing the existing 4-stage pipeline.
 
-FULL MIGRATION (future):
-  Call generate() instead of the model directly.
-  The agent assembles the prompt, supervises the draft, gates the output,
-  and records the outcome so the next generation is smarter.
-  Per-stage: outline, draft, polish each pull their own patterns
-  (priorityDimension differs: structure for outline, humanness for polish).
-
 THE CONTRACT THAT MAKES IT LEARN:
   injectedPatterns (assembled in step 1) MUST equal the IDs recorded in step 3.
   That identity is what lets the engagement labeler and review attribution
   credit/blame the right patterns. Break it and the loop goes open.
+
+EXEMPLAR RETRIEVAL:
+  retrieveExemplars() now queries content_performance_metrics for high-quality
+  historical content (isSuccess=1, qualityScore>=80) before falling back to
+  seed exemplars from ClientBrandProfile.manualOverridesJson.seedExemplars.
+  Log EXEMPLAR_SOURCE: historical|seed|none for observability.
 
 THE HONEST LIMITS:
   - Factuality: cannot reliably fix hallucinations by re-prompting.
@@ -495,8 +611,5 @@ THE HONEST LIMITS:
     Epsilon-greedy exploration in Wilson ranking is the counterweight.
   - Prompt bloat: MAX_INJECTED_PATTERNS=8 is intentional.
     Dumping 20 tactics conflicts them and the model follows none well.
-  - Exemplars: retrieveExemplars() is a stub — this is the last real gap.
-    Wiring it (embedding store + similarity retrieval) most directly
-    produces "excellent, human" quality.
 ────────────────────────────────────────────────────────────────────────────────
 */

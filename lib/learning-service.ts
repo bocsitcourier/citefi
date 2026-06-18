@@ -320,7 +320,8 @@ export class LearningService {
     contentType: string,
     contentId: number,
     patternsUsed: number[],
-    qualityScore: number
+    qualityScore: number,
+    opts?: { variantId?: string; armId?: number }
   ): Promise<number> {
     const [metricRow] = await db
       .insert(contentPerformanceMetrics)
@@ -332,6 +333,8 @@ export class LearningService {
         videoIdeaId: contentType === ContentType.VIDEO ? contentId : null,
         patternsUsedJson: patternsUsed,
         qualityScore,
+        ...(opts?.variantId !== undefined ? { variantId: opts.variantId } : {}),
+        ...(opts?.armId !== undefined ? { armId: opts.armId } : {}),
       })
       .returning({ id: contentPerformanceMetrics.id });
     const metric = metricRow!;

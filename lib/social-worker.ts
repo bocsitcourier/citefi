@@ -233,6 +233,8 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
 
         console.log(`✅ Gemini generated ${platform} post (${geminiResult.caption.length} chars)${location ? ` for ${location}` : ''}`);
 
+        let platformQualityScore = 80;
+
         // STAGE 1.5: GenerationOrchestrator — critic-in-the-loop + patternsUsedJson attribution
         // Reviews the Gemini caption for structural / channel / humanness defects
         // and patches them before GPT enhancement. Bounded to 2 passes.
@@ -256,6 +258,10 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
               );
             } else if (orchestratorResult.orchestrated) {
               console.log(`✅ Stage 1.5: ${platform} caption passed critic review`);
+            }
+            // Capture quality score for cross-platform average at completion
+            if (orchestratorResult.orchestrated && orchestratorResult.qualityScore > 0) {
+              platformQualityScore = orchestratorResult.qualityScore;
             }
           } catch (criticError) {
             console.warn(`⚠️ Social orchestrator failed, continuing:`, (criticError as Error).message);
@@ -312,7 +318,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           },
         });
 
-        return { platform, success: true, variantId: variant.id };
+        return { platform, success: true, variantId: variant.id, qualityScore: platformQualityScore };
       } catch (error) {
         console.error(`❌ Failed to generate ${platform} post after all retries:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -342,6 +348,13 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
     const platformResults = await Promise.all(platformPromises);
     const successfulPlatforms = platformResults.filter(r => r.success);
     const failedPlatforms = platformResults.filter(r => !r.success);
+    // Average quality score across all platforms that ran the orchestrator
+    const avgQualityScore = successfulPlatforms.length > 0
+      ? Math.round(
+          successfulPlatforms.reduce((sum, r) => sum + ((r as any).qualityScore ?? 80), 0) /
+            successfulPlatforms.length
+        )
+      : 80;
 
     console.log(`✅ Generated ${successfulPlatforms.length}/${platforms.length} platform variants`);
     if (failedPlatforms.length > 0) {
@@ -519,7 +532,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           ContentType.SOCIAL,
           socialPostId,
           capturedPatternIds,
-          80
+          avgQualityScore
         );
         console.log(`📊 Recorded social post generation for AI Learning`);
       }

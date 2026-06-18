@@ -6,6 +6,7 @@ import { generateIdeaVideoScript, IdeaVideoScript } from "./veo-idea-script-gene
 import { generateVideoFromScript, generateIdeaVideoSlideshow } from "./veo-social-video-generator";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
+import { runGenerationOrchestrator } from "./generation-orchestrator";
 
 export interface VideoIdeaOrchestrationRequest {
   videoIdeaId: number;
@@ -70,7 +71,27 @@ export async function orchestrateVideoIdeaGeneration(
     if (onProgress) {
       await onProgress({ stage: "queued", progress: 2, message: "Job queued, preparing to process..." });
     }
-    
+
+    // Fetch teamId + patterns EARLY — before script generation — so the critic loop
+    // can inject the right brand context and record Wilson attribution accurately.
+    let videoTeamId: number | null = null;
+    let capturedVideoPatternIds: number[] = [];
+    let capturedVideoQualityScore = 80;
+    try {
+      const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
+        .from(videoIdeas)
+        .where(eq(videoIdeas.id, videoIdeaId))
+        .limit(1);
+      videoTeamId = ideaRow?.teamId ?? null;
+      if (videoTeamId) {
+        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO)
+          .catch(() => ({ patternsUsed: [] as number[] }));
+        capturedVideoPatternIds = enhancement.patternsUsed;
+      }
+    } catch (earlyFetchErr) {
+      console.warn('[VideoOrchestrator] Could not pre-fetch team/patterns:', (earlyFetchErr as Error).message);
+    }
+
     await updateVideoIdeaProgress(videoIdeaId, "EXPANDING", 5, "expand_idea");
     if (onProgress) {
       await onProgress({ stage: "expand_idea", progress: 5, message: "Expanding your idea into a video concept..." });
@@ -124,6 +145,34 @@ export async function orchestrateVideoIdeaGeneration(
     }
 
     console.log(`✅ Script generated: ${script.clips.length} clips`);
+
+    // Critic loop on script narration before Veo render (requireJudge=false — audio/video script)
+    if (videoTeamId) {
+      try {
+        const scriptNarration = script.clips
+          .map(c => c.narration)
+          .filter(Boolean)
+          .join('\n\n');
+        if (scriptNarration.length > 50) {
+          const orchResult = await runGenerationOrchestrator({
+            teamId: videoTeamId,
+            contentType: ContentType.VIDEO,
+            contentId: videoIdeaId,
+            content: scriptNarration,
+            patternsUsed: capturedVideoPatternIds,
+            brief: { topic: request.ideaTitle, location: request.location },
+            kind: "script",
+            requireJudge: false,
+          });
+          if (orchResult.qualityScore > 0) capturedVideoQualityScore = orchResult.qualityScore;
+          if (orchResult.repairs > 0) {
+            console.log(`🔧 Video script critic: ${orchResult.repairs} repair(s), quality=${capturedVideoQualityScore}`);
+          }
+        }
+      } catch (orchErr) {
+        console.warn('[VideoOrchestrator] Critic loop failed, continuing:', (orchErr as Error).message);
+      }
+    }
 
     await updateVideoIdeaProgress(videoIdeaId, "GENERATING", 35, "generate_clips");
     if (onProgress) {
@@ -200,24 +249,17 @@ export async function orchestrateVideoIdeaGeneration(
 
     console.log(`🎉 Video idea generation complete: ${videoUrl}`);
 
-    // Record generation for AI Learning System
+    // Record generation for AI Learning System (uses pre-captured team/patterns/quality)
     try {
-      const [idea] = await db.select({ teamId: videoIdeas.teamId })
-        .from(videoIdeas)
-        .where(eq(videoIdeas.id, videoIdeaId))
-        .limit(1);
-      
-      if (idea?.teamId) {
-        const videoEnhancement = await getPromptEnhancement(idea.teamId, ContentType.VIDEO)
-          .catch(() => ({ patternsUsed: [] as number[] }));
+      if (videoTeamId) {
         await recordContentGenerated(
-          idea.teamId,
+          videoTeamId,
           ContentType.VIDEO,
           videoIdeaId,
-          videoEnhancement.patternsUsed,
-          80
+          capturedVideoPatternIds,
+          capturedVideoQualityScore
         );
-        console.log(`📊 Recorded video generation for AI Learning`);
+        console.log(`📊 Recorded video generation for AI Learning (quality=${capturedVideoQualityScore})`);
       }
     } catch (learningError) {
       console.warn(`⚠️ Failed to record learning metrics:`, learningError);

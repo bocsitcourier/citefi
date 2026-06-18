@@ -1,5 +1,19 @@
+import { createHash } from "crypto";
 import { learningService, OptimizationContext } from "./learning-service";
 import { ContentType } from "../shared/schema";
+
+/**
+ * Compute a deterministic variant UUID from the sorted pattern IDs + contentType.
+ * This lets the Bayesian A/B measurement layer group content generated under
+ * identical learning-pattern combinations without requiring a separate table.
+ */
+function computeVariantId(patternsUsed: number[], contentType: string): string {
+  const sorted = [...patternsUsed].sort((a, b) => a - b);
+  const hash = createHash("sha256")
+    .update(`${contentType}:${sorted.join(",")}`)
+    .digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
 
 export interface PromptEnhancement {
   systemPromptAdditions: string[];
@@ -133,7 +147,8 @@ export async function recordContentGenerated(
   contentType: string,
   contentId: number,
   patternsUsed: number[],
-  qualityScore: number
+  qualityScore: number,
+  opts?: { armId?: number }
 ): Promise<number> {
   try {
     const agent = await learningService.getAgentForContentType(teamId, contentType);
@@ -142,13 +157,15 @@ export async function recordContentGenerated(
       return 0;
     }
 
+    const variantId = computeVariantId(patternsUsed, contentType);
     return await learningService.recordContentGeneration(
       teamId,
       agent.id,
       contentType,
       contentId,
       patternsUsed,
-      qualityScore
+      qualityScore,
+      { variantId, armId: opts?.armId }
     );
   } catch (error) {
     console.warn("Failed to record content generation:", error);

@@ -1173,7 +1173,13 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   // Learning Status
   feedbackProcessed: integer("feedback_processed").notNull().default(0), // Boolean as 0/1
   processedAt: timestamp("processed_at"),
-  
+
+  // Bayesian A/B measurement — wired by generation-orchestrator
+  // variantId: deterministic UUID derived from sorted patternsUsedJson + contentType hash
+  variantId: varchar("variant_id", { length: 36 }),
+  // armId: FK to decisionArms for content generated inside a Bayesian policy experiment (nullable)
+  armId: integer("arm_id").references(() => decisionArms.id, { onDelete: "set null" }),
+
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1185,6 +1191,8 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   videoIdeaIdIdx: index("content_performance_video_idea_id_idx").on(table.videoIdeaId),
   feedbackProcessedIdx: index("content_performance_feedback_processed_idx").on(table.feedbackProcessed),
   isSuccessIdx: index("content_performance_is_success_idx").on(table.isSuccess),
+  variantIdIdx: index("content_performance_variant_id_idx").on(table.variantId),
+  armIdIdx: index("content_performance_arm_id_idx").on(table.armId),
 }));
 
 // Agent Optimization Log - Tracks when agents are optimized
