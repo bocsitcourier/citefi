@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -2828,9 +2828,30 @@ export const contentEvents = pgTable("content_events", {
   contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
   articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
   socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
-  eventType: varchar("event_type", { length: 30 }).notNull(), // "view" | "click" | "share" | "conversion"
+  eventType: varchar("event_type", { length: 30 }).notNull(), // "view"|"click"|"share"|"conversion"|"page_view"|"heartbeat"|"scroll_milestone"|"cta_click"|"read_complete"
   sessionId: varchar("session_id", { length: 100 }), // anonymous client session token
+  visitorId: varchar("visitor_id", { length: 100 }), // first-party _apex_vid cookie value (UUID, 365d)
+  variantId: varchar("variant_id", { length: 100 }), // A/B variant identifier (string for polymorphism)
+  armId: integer("arm_id"), // decisionArms.id — Thompson Sampling arm that served this content
   ipHash: varchar("ip_hash", { length: 64 }), // SHA-256 of IP for dedup; never raw IP
+  // Engagement signals
+  scrollPct: smallint("scroll_pct"), // 0–100 scroll depth at time of event
+  engagedSec: integer("engaged_sec"), // focused dwell time in seconds (heartbeat accumulation)
+  readComplete: boolean("read_complete").default(false), // read_complete event fired (90%+ scroll + 30s dwell)
+  bounced: boolean("bounced").default(false), // session ended with no engagement past view
+  fatigueSignal: boolean("fatigue_signal").default(false), // negative UX signal (rapid scroll, immediate exit)
+  // Conversion fields
+  conversionType: varchar("conversion_type", { length: 50 }), // "lead"|"purchase"|"signup"|"download"|"contact"
+  conversionValue: real("conversion_value"), // monetary value of conversion
+  // Attribution / UTM
+  channel: varchar("channel", { length: 30 }), // "organic"|"social"|"paid"|"email"|"direct"
+  utmSource: varchar("utm_source", { length: 100 }),
+  utmMedium: varchar("utm_medium", { length: 100 }),
+  utmCampaign: varchar("utm_campaign", { length: 100 }),
+  utmContent: varchar("utm_content", { length: 100 }),
+  // Device / locale context
+  device: varchar("device", { length: 20 }), // "mobile"|"desktop"|"tablet"
+  locale: varchar("locale", { length: 20 }), // "en-US" etc
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
@@ -2839,6 +2860,8 @@ export const contentEvents = pgTable("content_events", {
   articleIdIdx: index("content_events_article_id_idx").on(table.articleId),
   socialPostIdIdx: index("content_events_social_post_id_idx").on(table.socialPostId),
   createdAtIdx: index("content_events_created_at_idx").on(table.createdAt),
+  visitorIdIdx: index("content_events_visitor_id_idx").on(table.visitorId),
+  armIdIdx: index("content_events_arm_id_idx").on(table.armId),
 }));
 
 export const insertContentEventSchema = createInsertSchema(contentEvents).omit({

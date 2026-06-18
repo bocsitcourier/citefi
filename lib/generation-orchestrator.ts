@@ -105,12 +105,18 @@ const CONTENT_TYPE_ALIASES: Record<string, string[]> = {
 // ---------------------------------------------------------------------------
 
 /** Minimal Beta(a, b) sampler using Joehnk's method (small params) or normal
- *  approximation (large params). Used for Thompson Sampling arm selection. */
+ *  approximation (large params). Used for Thompson Sampling arm selection.
+ *
+ *  Threshold lowered from >40 to >=20: Joehnk's acceptance probability drops
+ *  sharply when both params approach 10 (x+y ≈ 1 almost always), causing
+ *  near-infinite loops. Normal approx is accurate for a+b >= 20.
+ *  A 200-iteration safety guard further prevents any pathological case.
+ */
 function betaSample(alpha: number, beta: number): number {
   const a = Math.max(alpha, 0.01);
   const b = Math.max(beta, 0.01);
-  if (a + b > 40) {
-    // Normal approximation — accurate for large a+b
+  // Normal approximation — accurate and fast for a+b >= 20
+  if (a + b >= 20) {
     const mu = a / (a + b);
     const v = (a * b) / ((a + b) ** 2 * (a + b + 1));
     const u1 = Math.random();
@@ -118,11 +124,22 @@ function betaSample(alpha: number, beta: number): number {
     const z = Math.sqrt(-2 * Math.log(Math.max(u1, 1e-12))) * Math.cos(2 * Math.PI * u2);
     return Math.max(1e-6, Math.min(1 - 1e-6, mu + Math.sqrt(v) * z));
   }
-  // Joehnk's method — exact for all a, b > 0
+  // Joehnk's method — exact for small a, b
+  // Safety guard: fall back to normal approx after 200 rejections to prevent
+  // any pathological near-infinite loop (e.g. a=9, b=9 has low acceptance).
   let x: number, y: number;
+  let iters = 0;
   do {
     x = Math.pow(Math.random(), 1 / a);
     y = Math.pow(Math.random(), 1 / b);
+    if (++iters > 200) {
+      const mu = a / (a + b);
+      const v = (a * b) / ((a + b) ** 2 * (a + b + 1));
+      const z =
+        Math.sqrt(-2 * Math.log(Math.max(Math.random(), 1e-12))) *
+        Math.cos(2 * Math.PI * Math.random());
+      return Math.max(1e-6, Math.min(1 - 1e-6, mu + Math.sqrt(v) * z));
+    }
   } while (x + y > 1);
   return x / (x + y);
 }
@@ -313,4 +330,17 @@ function passthroughResult(input: OrchestratorInput): OrchestratorResult {
     orchestrated: false,
     armId: undefined,
   };
+}
+
+/**
+ * Exported thin wrapper around sampleArm for callers that need to pre-sample
+ * a single arm BEFORE launching concurrent generation tasks (e.g., social post
+ * platform variants). Allows all variants to share one consistent arm assignment
+ * rather than each drawing independently from the same posterior.
+ */
+export async function sampleArmForType(
+  teamId: number,
+  contentType: string
+): Promise<number | undefined> {
+  return sampleArm(teamId, contentType.toLowerCase());
 }

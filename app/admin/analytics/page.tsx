@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Loader2, TrendingUp, Users, FileText, Activity } from "lucide-react";
+import { Loader2, TrendingUp, Users, FileText, Activity, MousePointer, Zap } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -41,6 +42,35 @@ interface AnalyticsData {
   }>;
 }
 
+interface EventAnalyticsData {
+  last24h: {
+    total: number;
+    breakdown: Array<{ eventType: string; count: number }>;
+  };
+  lastConversions: Array<{
+    id: number;
+    contentType: string;
+    contentTitle: string;
+    conversionType: string;
+    conversionValue: number | null;
+    visitorId: string | null;
+    createdAt: string;
+  }>;
+  labelerLastRun: string | null;
+}
+
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  page_view: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  view: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  heartbeat: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  scroll_milestone: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  read_complete: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  cta_click: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  click: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  share: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  conversion: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+};
+
 export default function AdminAnalyticsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
@@ -55,6 +85,12 @@ export default function AdminAnalyticsPage() {
   const { data: analytics, isLoading } = useQuery<AnalyticsData>({
     queryKey: ["/api/admin/analytics", period],
     enabled: user?.role === "admin",
+  });
+
+  const { data: eventAnalytics, isLoading: isEventsLoading } = useQuery<EventAnalyticsData>({
+    queryKey: ["/api/admin/analytics/events"],
+    enabled: user?.role === "admin",
+    refetchInterval: 60_000,
   });
 
   if (isLoading || isAuthLoading) {
@@ -196,6 +232,167 @@ export default function AdminAnalyticsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Event Ingestion Panel */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold" data-testid="text-events-panel-title">Event Ingestion</h2>
+          <p className="text-muted-foreground">Beacon events collected from published content (last 24h)</p>
+        </div>
+
+        {/* Event summary cards */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Events Last 24h</CardTitle>
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {isEventsLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold" data-testid="text-events-total">
+                    {(eventAnalytics?.last24h.total ?? 0).toLocaleString()}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {eventAnalytics?.last24h.breakdown.length ?? 0} distinct event types
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Conversions Last 24h</CardTitle>
+              <Zap className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {isEventsLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold" data-testid="text-events-conversions">
+                    {(eventAnalytics?.last24h.breakdown.find(b => b.eventType === "conversion")?.count ?? 0).toLocaleString()}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    From beacon &amp; conversion endpoint
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">ConversionLabeler</CardTitle>
+              <MousePointer className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {isEventsLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-sm font-semibold" data-testid="text-labeler-last-run">
+                    {eventAnalytics?.labelerLastRun
+                      ? new Date(eventAnalytics.labelerLastRun).toLocaleString()
+                      : "Never run"}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Nightly 02:00 UTC — labels content_performance_metrics
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Event type breakdown */}
+        {!isEventsLoading && (eventAnalytics?.last24h.breakdown.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Event Type Breakdown</CardTitle>
+              <CardDescription>All event types ingested in the last 24 hours</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2" data-testid="event-breakdown">
+                {eventAnalytics!.last24h.breakdown.map((b) => (
+                  <div
+                    key={b.eventType}
+                    className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm font-medium ${EVENT_TYPE_COLORS[b.eventType] ?? "bg-muted text-muted-foreground"}`}
+                    data-testid={`event-type-${b.eventType}`}
+                  >
+                    <span>{b.eventType}</span>
+                    <span className="font-bold">{b.count.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Last 10 conversions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Conversions</CardTitle>
+            <CardDescription>Last 10 conversion events across all teams</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isEventsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (eventAnalytics?.lastConversions.length ?? 0) === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No conversions recorded yet
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Content</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead>Visitor</TableHead>
+                    <TableHead className="text-right">When</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {eventAnalytics!.lastConversions.map((conv) => (
+                    <TableRow key={conv.id} data-testid={`row-conversion-${conv.id}`}>
+                      <TableCell>
+                        <div className="font-medium truncate max-w-[220px]" title={conv.contentTitle}>
+                          {conv.contentTitle}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{conv.contentType}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-xs">
+                          {conv.conversionType}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {conv.conversionValue != null
+                          ? `$${conv.conversionValue.toFixed(2)}`
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {conv.visitorId ? conv.visitorId.slice(0, 8) + "…" : "—"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {new Date(conv.createdAt).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

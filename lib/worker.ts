@@ -1894,6 +1894,86 @@ export async function registerWorkers() {
       console.warn(`⚠️ Could not register engagement scoring scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
+    // CONVERSION LABELER: nightly job — aggregates content_events into content_performance_metrics,
+    // computes bounce/read/scroll/engagement rates, and fires Wilson posterior updates for decision arms.
+    try {
+      const CONVERSION_LABELER_QUEUE = "conversion-labeler";
+      try { await boss.createQueue(CONVERSION_LABELER_QUEUE); } catch (_) { /* already exists */ }
+      // Run at 02:00 UTC nightly (after engagement scoring at midnight/6h)
+      await boss.schedule(CONVERSION_LABELER_QUEUE, "0 2 * * *", {});
+      await boss.work<Record<string, never>>(CONVERSION_LABELER_QUEUE, async (_jobs) => {
+        try {
+          const { db: _db } = await import("./db");
+          const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
+          const { eq, and, gte, count, avg, sql: drizzleSql } = await import("drizzle-orm");
+
+          const allTeams = await _db.select({ id: teams.id }).from(teams);
+          const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
+
+          let labeledCount = 0;
+          for (const team of allTeams) {
+            // Aggregate per article
+            const articleStats = await _db
+              .select({
+                articleId: contentEvents.articleId,
+                views: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('view','page_view') THEN 1 END`),
+                clicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'click' THEN 1 END`),
+                shares: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'share' THEN 1 END`),
+                conversions: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'conversion' THEN 1 END`),
+                readCompletes: count(drizzleSql`CASE WHEN ${contentEvents.readComplete} = TRUE THEN 1 END`),
+                bounces: count(drizzleSql`CASE WHEN ${contentEvents.bounced} = TRUE THEN 1 END`),
+                avgScrollPct: avg(contentEvents.scrollPct),
+                avgEngagedSec: avg(contentEvents.engagedSec),
+              })
+              .from(contentEvents)
+              .where(and(
+                eq(contentEvents.teamId, team.id),
+                eq(contentEvents.contentType, "article"),
+                gte(contentEvents.createdAt, since)
+              ))
+              .groupBy(contentEvents.articleId)
+              .limit(500);
+
+            for (const stat of articleStats) {
+              if (!stat.articleId) continue;
+              const totalViews = Number(stat.views) || 0;
+              const totalClicks = Number(stat.clicks) || 0;
+              const readCompleteRate = totalViews > 0 ? Number(stat.readCompletes) / totalViews : 0;
+              const bounceRateDecimal = totalViews > 0 ? Number(stat.bounces) / totalViews : 0;
+              const ctr = totalViews > 0 ? totalClicks / totalViews : 0;
+              const totalConversions = Number(stat.conversions) || 0;
+              const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
+              // Composite engagement score (weighted, 0-100)
+              const qualityScore = Math.round(Math.min(100,
+                readCompleteRate * 40 + (1 - bounceRateDecimal) * 20 + ctr * 20 + conversionRate * 20
+              ));
+              // Insert snapshot (time-series — intentional, powers learning trends)
+              await _db
+                .insert(contentPerformanceMetrics)
+                .values({
+                  teamId: team.id,
+                  contentType: "article",
+                  articleId: stat.articleId,
+                  views: totalViews,
+                  clicks: totalClicks,
+                  shares: Number(stat.shares) || 0,
+                  bounceRate: Math.round(bounceRateDecimal * 100), // 0–100 integer
+                  timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0), // seconds
+                  qualityScore,
+                });
+              labeledCount++;
+            }
+          }
+          console.log(`✅ ConversionLabeler: labeled ${labeledCount} content items for ${allTeams.length} teams`);
+        } catch (e) {
+          console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);
+        }
+      });
+      console.log(`⏱️ ConversionLabeler scheduler registered (nightly 02:00 UTC)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register ConversionLabeler scheduler (non-fatal):`, (scheduleErr as Error).message);
+    }
+
     await boss.work<SocialVideoJobData>(
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 

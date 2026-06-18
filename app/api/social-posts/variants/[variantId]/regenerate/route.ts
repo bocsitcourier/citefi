@@ -4,7 +4,7 @@ import { socialPosts, socialPostVariants, socialPostLogs, ContentType } from "@/
 import { eq } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
-import { recordContentGenerated } from "@/lib/learning-integration";
+import { recordContentGenerated, getPromptEnhancement } from "@/lib/learning-integration";
 
 const CHAR_LIMITS = {
   x: 280,
@@ -99,6 +99,11 @@ export async function POST(
     console.log(`✅ GPT-4 enhanced ${platform} post with ${gptResult.hashtags.length} hashtags`);
 
     // Critic loop: wire orchestrator for quality scoring + repairs (mirrors social-worker.ts)
+    // Fetch learned patterns so Wilson/EMA attribution fires on regenerated content.
+    const socialEnhancement = await getPromptEnhancement(post.teamId, ContentType.SOCIAL)
+      .catch(() => ({ patternsUsed: [] as number[] }));
+    const patternsForRegen = socialEnhancement.patternsUsed;
+
     let finalCaption = gptResult.caption;
     try {
       const orchResult = await runGenerationOrchestrator({
@@ -106,7 +111,7 @@ export async function POST(
         contentType: ContentType.SOCIAL,
         contentId: post.id,
         content: gptResult.caption,
-        patternsUsed: [],
+        patternsUsed: patternsForRegen,
         brief: {
           topic: post.topic ?? undefined,
           location: post.location ?? undefined,
@@ -121,7 +126,7 @@ export async function POST(
         post.teamId,
         ContentType.SOCIAL,
         post.id,
-        [],
+        patternsForRegen,
         orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
         { armId: orchResult.armId }
       );

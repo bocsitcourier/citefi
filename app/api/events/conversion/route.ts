@@ -8,6 +8,13 @@ import { z } from "zod";
 const conversionSchema = z.object({
   contentType: z.enum(["article", "social_post"]),
   contentId: z.number().int().positive(),
+  visitorId: z.string().max(100).optional(),
+  conversionType: z.enum(["lead", "purchase", "signup", "download", "contact"]).optional(),
+  value: z.number().min(0).optional(),
+  utmSource: z.string().max(100).optional(),
+  utmMedium: z.string().max(100).optional(),
+  utmCampaign: z.string().max(100).optional(),
+  utmContent: z.string().max(100).optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -50,6 +57,13 @@ export async function POST(req: NextRequest) {
         articleId: data.contentType === "article" ? data.contentId : null,
         socialPostId: data.contentType === "social_post" ? data.contentId : null,
         eventType: "conversion",
+        visitorId: data.visitorId ?? null,
+        conversionType: data.conversionType ?? null,
+        conversionValue: data.value ?? null,
+        utmSource: data.utmSource ?? null,
+        utmMedium: data.utmMedium ?? null,
+        utmCampaign: data.utmCampaign ?? null,
+        utmContent: data.utmContent ?? null,
         metadata: data.metadata ?? null,
       })
       .returning({ id: contentEvents.id });

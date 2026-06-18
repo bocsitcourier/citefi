@@ -17,7 +17,7 @@ import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
-import { runGenerationOrchestrator } from "./generation-orchestrator";
+import { runGenerationOrchestrator, sampleArmForType } from "./generation-orchestrator";
 
 // Platform character limits
 const CHAR_LIMITS = {
@@ -169,9 +169,18 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           .catch(() => ({ patternsUsed: [] as number[] }))
       : { patternsUsed: [] as number[] };
     const capturedPatternIds = socialEnhancement.patternsUsed;
-    // Arm ID captured from first successful orchResult (all platforms share same team+contentType)
+
+    // Pre-sample a SINGLE arm BEFORE launching concurrent platform promises.
+    // All platforms belong to the same social post (same team+contentType), so
+    // they must share one arm assignment. Sampling inside Promise.all would give
+    // each platform a different random Thompson draw, and the ?= capture would
+    // record whichever platform resolved first — non-deterministic and wrong.
     let capturedSocialArmId: number | undefined;
-    
+    if (!disableCriticLoop && postDetails?.teamId) {
+      capturedSocialArmId = await sampleArmForType(postDetails.teamId, ContentType.SOCIAL)
+        .catch(() => undefined);
+    }
+
     // CONCURRENT PROCESSING: Generate posts for all platforms in parallel
     console.log(`🚀 Generating ${platforms.length} platform variants concurrently...`);
     
@@ -261,12 +270,10 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
             } else if (orchestratorResult.orchestrated) {
               console.log(`✅ Stage 1.5: ${platform} caption passed critic review`);
             }
-            // Capture quality score + arm ID for cross-platform aggregation at completion
+            // Capture quality score for cross-platform aggregation at completion.
+            // armId is pre-sampled above (shared for all platforms) — do NOT override.
             if (orchestratorResult.orchestrated && orchestratorResult.qualityScore > 0) {
               platformQualityScore = orchestratorResult.qualityScore;
-            }
-            if (orchestratorResult.armId !== undefined) {
-              capturedSocialArmId = capturedSocialArmId ?? orchestratorResult.armId;
             }
           } catch (criticError) {
             console.warn(`⚠️ Social orchestrator failed, continuing:`, (criticError as Error).message);

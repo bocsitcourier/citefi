@@ -1,11 +1,13 @@
 import { db, safeQuery } from "./db";
-import { socialPosts, socialPostAssets } from "@/shared/schema";
+import { socialPosts, socialPostAssets, ContentType } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { generateVideoScript } from "./gemini-video-script-generator";
 import { generateVideoImages } from "./social-video-image-generator";
 import { generateVideoTTS } from "./social-video-tts-generator";
 import { composeVideo, cleanupTempFiles } from "./social-video-compositor";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
+import { runGenerationOrchestrator } from "./generation-orchestrator";
+import { recordContentGenerated } from "./learning-integration";
 
 export interface GenerateSocialVideoRequest {
   socialPostId: number;
@@ -112,11 +114,50 @@ export async function generateSocialVideo(
     markTime("script_complete");
     console.log(`  ✅ Script generated: ${script.scenes.length} scenes`);
 
+    // STAGE 1.5: GenerationOrchestrator — critic-in-the-loop on video script.
+    // requireJudge=false: video scripts are short, quality scoring not critical.
+    // Pass script as compact JSON so the critic can inspect structure.
+    let reviewedScript = script;
+    try {
+      const orchResult = await runGenerationOrchestrator({
+        teamId: post.teamId,
+        contentType: ContentType.VIDEO,
+        contentId: socialPostId,
+        content: JSON.stringify(script, null, 0),
+        patternsUsed: [],
+        brief: { topic: post.topic, location: post.location ?? undefined },
+        kind: "script",
+        requireJudge: false,
+      });
+      if (orchResult.repairs > 0 && orchResult.orchestrated) {
+        try {
+          const parsed = JSON.parse(orchResult.content);
+          if (parsed?.scenes && Array.isArray(parsed.scenes)) {
+            reviewedScript = parsed;
+            console.log(`🔧 Video script critic: ${orchResult.repairs} repair(s) for post ${socialPostId}`);
+          }
+        } catch {
+          /* JSON parse failed — keep original script */
+        }
+      }
+      // Non-blocking — record arm + quality for the video content type
+      recordContentGenerated(
+        post.teamId,
+        ContentType.VIDEO,
+        socialPostId,
+        [],
+        orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
+        { armId: orchResult.armId }
+      ).catch(() => { /* non-fatal */ });
+    } catch (orchErr) {
+      console.warn(`[Video Orchestrator] Failed, continuing with original script:`, (orchErr as Error).message);
+    }
+
     // Brief progress save — connection acquired and released immediately
     await safeQuery(() =>
       db
         .update(socialPosts)
-        .set({ videoScriptJson: script as any, videoProgress: 20, videoStage: "script_complete" })
+        .set({ videoScriptJson: reviewedScript as any, videoProgress: 20, videoStage: "script_complete" })
         .where(eq(socialPosts.id, socialPostId))
     );
 
@@ -129,7 +170,7 @@ export async function generateSocialVideo(
         console.log(`🖼️ [Parallel] Generating 5 cinematic images...`);
         const result = await generateVideoImages({
           socialPostId,
-          scenes: script.scenes,
+          scenes: reviewedScript.scenes,
           industry: post.industry || "Business",
           companyName: post.companyName!,
           platform,
@@ -142,7 +183,7 @@ export async function generateSocialVideo(
         console.log(`🎙️ [Parallel] Generating voiceover with OpenAI TTS...`);
         const result = await generateVideoTTS({
           socialPostId,
-          scenes: script.scenes,
+          scenes: reviewedScript.scenes,
           tone: post.tone || "Professional",
           companyName: post.companyName!,
         });
@@ -166,7 +207,7 @@ export async function generateSocialVideo(
       await safeQuery(() =>
         db.insert(socialPostAssets).values(
           images.map((image) => {
-            const scene = script.scenes.find((s) => s.sceneNumber === image.sceneNumber);
+            const scene = reviewedScript.scenes.find((s) => s.sceneNumber === image.sceneNumber);
             return {
               socialPostId,
               platform,
@@ -217,7 +258,7 @@ export async function generateSocialVideo(
           socialPostId,
           images,
           audio,
-          scenes: script.scenes,
+          scenes: reviewedScript.scenes,
           companyLogoPath,
           companyName: post.companyName!,
           platform,
@@ -232,11 +273,11 @@ export async function generateSocialVideo(
         console.log(`🏷️ [Parallel] Generating SEO metadata with GPT-4...`);
         const result = await generateVideoSEOMetadata({
           topic: post.topic,
-          title: script.title,
+          title: reviewedScript.title,
           location: post.location,
           companyName: post.companyName!,
           industry: post.industry || "Business",
-          scriptHashtags: script.hashtags,
+          scriptHashtags: reviewedScript.hashtags,
           landingPageUrl: post.landingPageUrl,
         });
         console.log(`  ✅ SEO metadata ready`);
@@ -266,7 +307,7 @@ export async function generateSocialVideo(
         duration: video.duration,
         resolution: video.resolution,
         fileSize: video.fileSize,
-        scriptSummary: { title: script.title, scenes: script.scenes.length, hashtags: script.hashtags },
+        scriptSummary: { title: reviewedScript.title, scenes: reviewedScript.scenes.length, hashtags: reviewedScript.hashtags },
       };
     }
 
@@ -293,9 +334,9 @@ export async function generateSocialVideo(
         socialPostId,
         platform,
         assetType: "video",
-        promptUsed: `60-second video: ${script.title}`,
+        promptUsed: `60-second video: ${reviewedScript.title}`,
         storageUrl: video.videoUrl,
-        altText: script.title,
+        altText: reviewedScript.title,
         aspectRatio: video.resolution,
         fileFormat: "mp4",
         videoDuration: video.duration,
@@ -323,9 +364,9 @@ export async function generateSocialVideo(
       resolution: video.resolution,
       fileSize: video.fileSize,
       scriptSummary: {
-        title: script.title,
-        scenes: script.scenes.length,
-        hashtags: script.hashtags,
+        title: reviewedScript.title,
+        scenes: reviewedScript.scenes.length,
+        hashtags: reviewedScript.hashtags,
       },
     };
   } catch (error) {

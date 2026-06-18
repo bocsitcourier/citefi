@@ -1,0 +1,57 @@
+software running in a user's browser that watches their sessions, reads their logged-in platform accounts, or scrapes analytics by piggybacking on their authenticated session. There is a real, legitimate version of "something in the browser," and it's worth knowing the line: a browser extension the user explicitly installs, that operates only on their behalf, with clear consent, doing a specific helpful thing.
+
+The difference between this and a "bot" is consent, scope, and transparency:
+
+
+
+
+
+The user installs it deliberately and knows exactly what it does.
+
+
+
+It acts as them, with their knowledge, on pages they're actively on — not silently in the background harvesting.
+
+
+
+It's scoped to one clear purpose, not "read everything."
+
+Legitimate things such an extension could do:
+
+
+
+
+
+Capture analytics the user is already looking at — when they're on their own YouTube Studio or Meta Insights page, a "send these numbers to ApexContent" button. They're viewing their own data; the extension just ferries it over with one click. That's consented, user-initiated, and on their own data — fundamentally different from a bot silently reading it.
+
+
+
+Pre-publish advice in context — when they're drafting a post in the native composer, the extension surfaces your pattern-library suggestions ("weak hook, try this") right there. This is the advisor from last turn, delivered where they work. Pure value-add, no data extraction at all.
+
+
+
+One-click "import my export" — help them grab the CSV the platform already lets them download.
+
+Even here, be careful: extensions that read page content need clear permissions and honest disclosure, the platforms still have rules about what extensions can do on their pages, and you should verify current policy. But the category — explicit, consented, user-acting, scoped — is legitimate in a way "deploy a bot to view" is not.
+
+The honest framing of the whole problem
+
+The real issue you keep running into is that rich analytics for off-platform content is genuinely hard to get, and there's no trick that makes it easy without crossing a line. The legitimate toolkit is the one from the last two turns, and it's the complete list:
+
+
+
+
+
+OAuth account connection → read their own analytics via official APIs (best fidelity, YouTube richest).
+
+
+
+UTM links → capture click-through and conversion on your own analytics, no connection needed.
+
+
+
+CSV import / manual entry → the fallback for platforms with no usable API.
+
+
+
+A consented browser extension → can make 1–3 smoother (a "capture this" button on their own analytics pages, in-context advice), but it's a delivery mechanism for consented actions, not a way to bypass the consent requirement.
