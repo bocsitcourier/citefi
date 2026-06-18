@@ -325,6 +325,29 @@ Return a JSON object with EXACTLY this structure (all fields required):
 // inference from business type + location signals.
 // ============================================================================
 
+/** Fetch a competitor's homepage meta description + H1 to enrich positioning data */
+async function fetchCompetitorPageMeta(url: string): Promise<string> {
+  if (!url) return "";
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentBot/1.0)" },
+    });
+    if (!res.ok) return "";
+    const html = await res.text();
+    // Extract meta description (both attribute orderings)
+    const descMatch =
+      html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']{10,300})["']/i) ??
+      html.match(/<meta[^>]*content=["']([^"']{10,300})["'][^>]*name=["']description["']/i);
+    const h1Match = html.match(/<h1[^>]*>([^<]{10,150})<\/h1>/i);
+    const og = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']{10,300})["']/i);
+    const parts = [descMatch?.[1], og?.[1], h1Match?.[1]].filter(Boolean);
+    return parts.join(" | ").slice(0, 300);
+  } catch {
+    return "";
+  }
+}
+
 async function discoverCompetitors(
   companyName: string,
   positioning: Positioning,
@@ -335,24 +358,38 @@ async function discoverCompetitors(
   const braveApiKey = process.env.BRAVE_API_KEY;
   const businessType = positioning.coreServices[0]?.name ?? "professional services";
   const location = localNiche.locationSignals[0] ?? "";
+  const companySlug = companyName.toLowerCase().replace(/\s+/g, "");
 
   if (braveApiKey) {
-    const q = encodeURIComponent(`top ${businessType} companies${location ? ` in ${location}` : ""} competitors alternatives`);
-    try {
-      const res = await fetch(
-        `https://api.search.brave.com/res/v1/web/search?q=${q}&count=8`,
-        { headers: { Accept: "application/json", "X-Subscription-Token": braveApiKey } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const results: any[] = data.web?.results ?? [];
-        searchSnippets = results
-          .filter(r => r.url && !r.url.includes(companyName.toLowerCase().replace(/\s+/g, "")))
-          .slice(0, 6)
-          .map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.description}`)
-          .join("\n\n");
-      }
-    } catch { /* fall through */ }
+    // Two Brave queries: broad competitor discovery + review/alternative discovery
+    const queries = [
+      `top ${businessType} companies${location ? ` in ${location}` : ""} competitors alternatives`,
+      `best ${businessType} reviews vs alternatives 2024`,
+    ];
+    const allResults: any[] = [];
+    for (const q of queries) {
+      try {
+        const res = await fetch(
+          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8`,
+          { headers: { Accept: "application/json", "X-Subscription-Token": braveApiKey } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          allResults.push(...(data.web?.results ?? []));
+        }
+      } catch { /* fall through */ }
+    }
+    // Deduplicate by URL and exclude the client's own domain
+    const seen = new Set<string>();
+    const filtered = allResults.filter(r => {
+      if (!r.url || r.url.includes(companySlug) || seen.has(r.url)) return false;
+      seen.add(r.url);
+      return true;
+    });
+    searchSnippets = filtered
+      .slice(0, 8)
+      .map(r => `Title: ${r.title}\nURL: ${r.url}\nSnippet: ${r.description}`)
+      .join("\n\n");
   }
 
   const prompt = `You are a competitive intelligence analyst. Identify and profile 4-5 real competitors of "${companyName}".
@@ -385,7 +422,20 @@ Use real companies — not placeholder names. If Brave results are provided, pri
       config: { responseMimeType: "application/json" },
     });
     const parsed = JSON.parse(result.text ?? "{}");
-    return Array.isArray(parsed.competitors) ? parsed.competitors : [];
+    const rawCompetitors: Competitor[] = Array.isArray(parsed.competitors) ? parsed.competitors : [];
+
+    // Enrich each competitor with live page meta for more accurate positioning
+    const enriched = await Promise.allSettled(
+      rawCompetitors.map(async (c) => {
+        if (!c.url) return c;
+        const liveMeta = await fetchCompetitorPageMeta(c.url);
+        if (liveMeta) {
+          return { ...c, positioningStatement: liveMeta || c.positioningStatement };
+        }
+        return c;
+      })
+    );
+    return enriched.map(r => (r.status === "fulfilled" ? r.value : null)).filter(Boolean) as Competitor[];
   } catch (err) {
     console.error("discoverCompetitors Gemini error:", err);
     return [];
@@ -393,16 +443,55 @@ Use real companies — not placeholder names. If Brave results are provided, pri
 }
 
 // ============================================================================
+// STEP 2.5 — REDDIT PAIN-POINT SYNTHESIS
+// Fetches real customer complaints and questions from Reddit using the public
+// JSON API (no credentials needed). Results feed into analyzeGapsAndFailures
+// to ground the gap analysis in genuine customer language.
+// ============================================================================
+
+async function fetchRedditPainPoints(businessType: string): Promise<string[]> {
+  const painPoints: string[] = [];
+  const queries = [
+    `${businessType} problems complaints frustrated`,
+    `${businessType} worst experience bad reviews`,
+  ];
+
+  for (const q of queries) {
+    try {
+      const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=top&t=year&limit=8&type=link`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(8000),
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentBot/1.0; +research)" },
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const posts: any[] = data?.data?.children ?? [];
+      for (const post of posts) {
+        const title = (post?.data?.title ?? "").trim();
+        if (title.length > 20) painPoints.push(title);
+      }
+      // Polite rate limit between Reddit requests
+      await new Promise(r => setTimeout(r, 700));
+    } catch {
+      // Non-fatal — continue with empty pain points if Reddit is unavailable
+    }
+  }
+
+  return [...new Set(painPoints)].slice(0, 18);
+}
+
+// ============================================================================
 // STEP 3 — COMPETITIVE GAP + FAILURE ANALYSIS
-// Single Gemini call: client profile × competitor profiles → gaps, failures,
-// actual pain points, decision drivers, content opportunities.
+// Single Gemini call: client profile × competitor profiles × Reddit voice →
+// gaps, failures, actual pain points, decision drivers, content opportunities.
 // ============================================================================
 
 async function analyzeGapsAndFailures(
   companyName: string,
   positioning: Positioning,
   targetAudience: Partial<TargetAudience>,
-  competitors: Competitor[]
+  competitors: Competitor[],
+  redditPainPoints: string[]
 ): Promise<{
   competitiveGaps: CompetitiveGaps;
   failureAnalysis: FailureAnalysis;
@@ -413,6 +502,11 @@ async function analyzeGapsAndFailures(
   const competitorSummary = competitors
     .map(c => `- ${c.name} (${c.url}): ${c.positioningStatement}\n  Strengths: ${c.strengths.join(", ")}\n  Weaknesses vs client: ${c.weaknesses.join(", ")}`)
     .join("\n");
+
+  const redditSection = redditPainPoints.length > 0
+    ? `\nREDDIT VOICE-OF-CUSTOMER (real posts about "${businessType}" pain points):\n${redditPainPoints.map(p => `- "${p}"`).join("\n")}`
+    : "";
+  const businessType = positioning.coreServices[0]?.name ?? "this business type";
 
   const prompt = `You are a strategic marketing consultant. Perform a deep competitive gap and customer psychology analysis.
 
@@ -426,6 +520,7 @@ CONTENT GAPS ALREADY IDENTIFIED: ${positioning.contentGaps.join("; ")}
 
 COMPETITORS:
 ${competitorSummary || "No competitor data available — infer from business type."}
+${redditSection}
 
 Return a JSON object:
 {
@@ -445,7 +540,7 @@ Return a JSON object:
     "unansweredQuestions": ["specific buyer questions nobody answers well — up to 6"],
     "highValueKeywords": ["high buyer-intent search phrases to target — up to 8"]
   },
-  "actualPainPoints": ["real customer fears and frustrations NOT explicitly stated on the website — up to 6"],
+  "actualPainPoints": ["real customer fears/frustrations grounded in Reddit voice-of-customer — up to 8. Use verbatim language where possible."],
   "decisionDrivers": ["the real psychological triggers that move a prospect from research to purchase — up to 5"]
 }`;
 
@@ -600,7 +695,7 @@ export async function runIntelligenceResearch(
 
     // ── Step 2: Competitor discovery ──────────────────────────────────────
     await setProgress("competitors");
-    console.log(`🧠 [team:${teamId}] Step 2/5 — Discovering competitors`);
+    console.log(`🧠 [team:${teamId}] Step 2/6 — Discovering competitors`);
     const competitors = await discoverCompetitors(
       companyName,
       websiteData.positioning,
@@ -608,14 +703,22 @@ export async function runIntelligenceResearch(
       websiteData.rawText
     );
 
+    // ── Step 2.5: Reddit pain-point synthesis ─────────────────────────────
+    await setProgress("reddit");
+    const businessType = websiteData.positioning.coreServices[0]?.name ?? "professional services";
+    console.log(`🧠 [team:${teamId}] Step 3/6 — Mining Reddit pain points for "${businessType}"`);
+    const redditPainPoints = await fetchRedditPainPoints(businessType);
+    console.log(`🧠 [team:${teamId}] Reddit: ${redditPainPoints.length} pain points extracted`);
+
     // ── Step 3: Gap + failure analysis ────────────────────────────────────
     await setProgress("gaps");
-    console.log(`🧠 [team:${teamId}] Step 3/5 — Analyzing competitive gaps`);
+    console.log(`🧠 [team:${teamId}] Step 4/6 — Analyzing competitive gaps`);
     const gapAnalysis = await analyzeGapsAndFailures(
       companyName,
       websiteData.positioning,
       websiteData.targetAudience,
-      competitors
+      competitors,
+      redditPainPoints
     );
 
     // ── Step 4: Brand policy pack ─────────────────────────────────────────

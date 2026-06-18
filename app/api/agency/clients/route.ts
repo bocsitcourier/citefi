@@ -4,34 +4,23 @@ import { db } from "@/lib/db";
 import { teams, teamMembers } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { upsertClientBrandProfile } from "@/lib/client-brand-profile-service";
+import { addIntelligenceResearchJob } from "@/lib/queue";
 
 const MAX_CLIENTS_PER_AGENCY = 25;
 
 async function getAgencyTeam(teamId: number) {
   const [team] = await db
-    .select({ id: teams.id, name: teams.name, billingPlan: teams.billingPlan, parentTeamId: teams.parentTeamId })
+    .select({ id: teams.id, billingPlan: teams.billingPlan })
     .from(teams)
-    .where(and(eq(teams.id, teamId), isNull(teams.deletedAt)))
-    .limit(1);
+    .where(eq(teams.id, teamId));
   return team ?? null;
 }
 
-/** GET /api/agency/clients — list all client teams under the current agency team */
+/** GET /api/agency/clients — list all active client teams for the current agency */
 export async function GET(req: NextRequest) {
   try {
     const { teamId } = await requireTeamAdmin(req);
-    const agencyTeam = await getAgencyTeam(teamId);
-
-    if (!agencyTeam) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 });
-    }
-
-    if (agencyTeam.billingPlan !== "agency") {
-      return NextResponse.json(
-        { error: "Agency plan required to manage client teams", upgradeUrl: "/settings/billing" },
-        { status: 403 }
-      );
-    }
 
     const clients = await db
       .select({
@@ -39,25 +28,28 @@ export async function GET(req: NextRequest) {
         publicId: teams.publicId,
         name: teams.name,
         clientStatus: teams.clientStatus,
-        billingPlan: teams.billingPlan,
         createdAt: teams.createdAt,
       })
       .from(teams)
-      .where(and(eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
+      .where(and(eq(teams.parentTeamId, teamId), eq(teams.clientStatus, "active"), isNull(teams.deletedAt)))
       .orderBy(teams.createdAt);
 
-    return NextResponse.json({ clients, agencyTeam: { id: agencyTeam.id, name: agencyTeam.name } });
+    return NextResponse.json({ clients });
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     console.error("[agency/clients GET]", err);
-    return NextResponse.json({ error: "Failed to list clients" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load clients" }, { status: 500 });
   }
 }
 
 const createClientSchema = z.object({
   name: z.string().min(2).max(100).trim(),
+  /** Optional: if provided, intelligence research is auto-triggered on team creation */
+  websiteUrl: z.string().url().optional().or(z.literal("")),
+  /** Optional company name override (defaults to team name) */
+  companyName: z.string().max(255).optional(),
 });
 
 /** POST /api/agency/clients — create a new client team under the current agency */
@@ -119,7 +111,29 @@ export async function POST(req: NextRequest) {
       role: "admin",
     });
 
-    return NextResponse.json({ client: newTeam }, { status: 201 });
+    // Auto-trigger intelligence research if website URL was provided at creation time
+    let intelligenceJobId: string | null = null;
+    const websiteUrl = parsed.data.websiteUrl;
+    if (websiteUrl && websiteUrl.length > 0) {
+      const resolvedName = parsed.data.companyName?.trim() || parsed.data.name;
+      try {
+        await upsertClientBrandProfile(newTeam.id, websiteUrl, resolvedName);
+        intelligenceJobId = await addIntelligenceResearchJob({
+          teamId: newTeam.id,
+          websiteUrl,
+          companyName: resolvedName,
+        });
+        console.log(`🧠 Auto-triggered intelligence research for new client team ${newTeam.id} (${resolvedName}): job ${intelligenceJobId}`);
+      } catch (intelErr) {
+        // Non-fatal — client team is still created successfully
+        console.error(`[agency/clients] Intelligence auto-trigger failed for team ${newTeam.id}:`, intelErr);
+      }
+    }
+
+    return NextResponse.json(
+      { client: newTeam, intelligenceJobId },
+      { status: 201 }
+    );
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {
       return NextResponse.json({ error: err.message }, { status: err.status });

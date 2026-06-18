@@ -15,6 +15,10 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 
 interface TitlePoolData {
   titles: string[];
@@ -72,6 +76,9 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
   const [autoPublishEnabled, setAutoPublishEnabled] = useState(false);
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<Set<number>>(new Set());
 
+  // Intelligence gate state
+  const [showIntelGateDialog, setShowIntelGateDialog] = useState(false);
+
   interface Persona {
     id: number;
     publicId: string;
@@ -117,10 +124,13 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
       autoPublishEnabled?: boolean;
       autoPublishConnectionIds?: number[];
       personaId?: number;
+      skipIntelGate?: boolean;
     }) => {
+      const { skipIntelGate, ...body } = submitData;
       return await apiRequest("/api/jobs/batch-submit", {
         method: "POST",
-        body: JSON.stringify(submitData),
+        headers: skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {},
+        body: JSON.stringify(body),
       });
     },
     onSuccess: (responseData: any) => {
@@ -132,6 +142,11 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
       router.push(`/batches/${batchId}`);
     },
     onError: (error: Error) => {
+      const err = error as any;
+      if (err.status === 428 && err.data?.intelligenceGate) {
+        setShowIntelGateDialog(true);
+        return;
+      }
       toast({
         title: "Submission failed",
         description: error.message || "Failed to submit batch",
@@ -666,6 +681,37 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
           </CardContent>
         </Card>
       </div>
+
+      {/* Intelligence Gate Dialog */}
+      <Dialog open={showIntelGateDialog} onOpenChange={setShowIntelGateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set up Brand Intelligence first?</DialogTitle>
+            <DialogDescription>
+              Brand Intelligence researches your brand, competitors, and customer pain points so every article is on-brand and strategically targeted. This is a one-time setup that takes a few minutes.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowIntelGateDialog(false);
+                if (submitBatchMutation.variables) {
+                  submitBatchMutation.mutate({ ...submitBatchMutation.variables, skipIntelGate: true });
+                }
+              }}
+            >
+              Skip for now
+            </Button>
+            <Link href="/intelligence">
+              <Button>
+                <Sparkles className="w-4 h-4 mr-2" />
+                Set up Brand Intelligence
+              </Button>
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

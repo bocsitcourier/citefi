@@ -47,11 +47,12 @@ function getAuthHeaders(): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 const PROGRESS_STEPS = [
-  { key: "website",     label: "Analyzing website",       icon: BookOpen },
-  { key: "competitors", label: "Discovering competitors",  icon: Target },
-  { key: "gaps",        label: "Analyzing competitive gaps", icon: TrendingUp },
-  { key: "policy",      label: "Building brand policy",   icon: ShieldCheck },
-  { key: "assembling",  label: "Assembling profile",      icon: Sparkles },
+  { key: "website",     label: "Analyzing website",          icon: BookOpen },
+  { key: "competitors", label: "Discovering competitors",     icon: Target },
+  { key: "reddit",      label: "Mining Reddit pain points",  icon: MessageSquare },
+  { key: "gaps",        label: "Analyzing competitive gaps",  icon: TrendingUp },
+  { key: "policy",      label: "Building brand policy",      icon: ShieldCheck },
+  { key: "assembling",  label: "Assembling profile",         icon: Sparkles },
 ];
 
 function ProgressTracker({ step }: { step: string | null }) {

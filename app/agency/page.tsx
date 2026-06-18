@@ -128,6 +128,7 @@ export default function AgencyPage() {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newWebsiteUrl, setNewWebsiteUrl] = useState("");
   const [switchingTo, setSwitchingTo] = useState<number | null>(null);
 
   const { data, isLoading, error } = useQuery<AgencyData>({
@@ -149,11 +150,11 @@ export default function AgencyPage() {
   const intelStatuses = intelData?.statuses ?? {};
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, websiteUrl }: { name: string; websiteUrl?: string }) => {
       const res = await fetch("/api/agency/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, websiteUrl: websiteUrl || undefined }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -161,11 +162,19 @@ export default function AgencyPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/agency/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/intelligence/agency"] });
       setShowCreate(false);
       setNewName("");
-      toast({ title: "Client created", description: "New client team is ready." });
+      setNewWebsiteUrl("");
+      const hasIntel = Boolean(data?.intelligenceJobId);
+      toast({
+        title: "Client created",
+        description: hasIntel
+          ? "New client team created. Brand intelligence research has started automatically."
+          : "New client team is ready.",
+      });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -416,31 +425,53 @@ export default function AgencyPage() {
       )}
 
       {/* Create client dialog */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <Dialog open={showCreate} onOpenChange={(open) => {
+        setShowCreate(open);
+        if (!open) { setNewName(""); setNewWebsiteUrl(""); }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Client Team</DialogTitle>
             <DialogDescription>
-              Create a new client team. You will be added as an admin and can invite client users.
+              Create a new client team. Add a website URL to auto-start Brand Intelligence research.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label htmlFor="client-name">Client name</Label>
-            <Input
-              id="client-name"
-              placeholder="Acme Corp"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && newName.trim() && createMutation.mutate(newName.trim())}
-              data-testid="input-client-name"
-            />
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="client-name">Client name <span className="text-destructive">*</span></Label>
+              <Input
+                id="client-name"
+                placeholder="Acme Corp"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                data-testid="input-client-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="client-website">
+                Website URL <span className="text-muted-foreground text-xs">(optional — enables Brand Intelligence)</span>
+              </Label>
+              <Input
+                id="client-website"
+                placeholder="https://acmecorp.com"
+                value={newWebsiteUrl}
+                onChange={(e) => setNewWebsiteUrl(e.target.value)}
+                data-testid="input-client-website"
+              />
+              {newWebsiteUrl && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-primary" />
+                  Brand Intelligence research will start automatically after creation.
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => createMutation.mutate(newName.trim())}
+              onClick={() => createMutation.mutate({ name: newName.trim(), websiteUrl: newWebsiteUrl.trim() || undefined })}
               disabled={!newName.trim() || createMutation.isPending}
               data-testid="button-confirm-create-client"
             >

@@ -112,7 +112,9 @@ export async function registerWorkers() {
         });
 
         // Statuses that mean "work is done — don't re-run"
-        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED"];
+        // GEMINI_COMPLETE / CHATGPT_REVIEWED: work is preserved at those states;
+        // removing them would cause recovery jobs to re-process completed articles.
+        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
         // Statuses that mean "already queued — don't duplicate"
         const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
 

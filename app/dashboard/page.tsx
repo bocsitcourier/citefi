@@ -16,6 +16,10 @@ import { AdvancedOptions } from "./components/AdvancedOptions";
 import Link from "next/link";
 import { BrandConfirmationModal } from "@/components/BrandConfirmationModal";
 import { NotificationBell } from "@/components/NotificationBell";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 
 interface TitlePoolData {
   titles: string[];
@@ -66,6 +70,9 @@ export default function Dashboard() {
   // Brand Confirmation State
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [confirmedBrandName, setConfirmedBrandName] = useState("");
+
+  // Intelligence gate state
+  const [showIntelGateDialog, setShowIntelGateDialog] = useState(false);
   
   // Pillar/Cluster Strategy State
   const [showPillarStrategy, setShowPillarStrategy] = useState(false);
@@ -140,10 +147,13 @@ export default function Dashboard() {
       businessAddress?: string;
       businessPhone?: string;
       companyLogoUrl?: string;
+      skipIntelGate?: boolean;
     }) => {
+      const { skipIntelGate, ...body } = data;
       return await apiRequest("/api/jobs/batch-submit", {
         method: "POST",
-        body: JSON.stringify(data),
+        headers: skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {},
+        body: JSON.stringify(body),
       });
     },
     onSuccess: (data: any) => {
@@ -158,6 +168,11 @@ export default function Dashboard() {
       setTargetUrl("");
     },
     onError: (error: Error) => {
+      const err = error as any;
+      if (err.status === 428 && err.data?.intelligenceGate) {
+        setShowIntelGateDialog(true);
+        return;
+      }
       toast({
         title: "Submission failed",
         description: error.message || "Failed to submit batch",
@@ -917,6 +932,37 @@ export default function Dashboard() {
         title="Confirm Company Name for Content Generation"
         description="Please verify the exact spelling of your company name. This will be used across all generated articles, podcasts, and videos. The spelling cannot be changed after generation starts."
       />
+
+      {/* Intelligence Gate Dialog */}
+      <Dialog open={showIntelGateDialog} onOpenChange={setShowIntelGateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set up Brand Intelligence first?</DialogTitle>
+            <DialogDescription>
+              Brand Intelligence researches your brand, competitors, and customer pain points so every article is on-brand and strategically targeted. This is a one-time setup that takes a few minutes.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowIntelGateDialog(false);
+                if (submitBatchMutation.variables) {
+                  submitBatchMutation.mutate({ ...submitBatchMutation.variables, skipIntelGate: true });
+                }
+              }}
+            >
+              Skip for now
+            </Button>
+            <Link href="/intelligence">
+              <Button>
+                <Sparkles className="w-4 h-4 mr-2" />
+                Set up Brand Intelligence
+              </Button>
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
