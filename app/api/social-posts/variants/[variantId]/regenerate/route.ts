@@ -119,10 +119,11 @@ export async function POST(
       }
       await recordContentGenerated(
         post.teamId,
-        [],
         "SOCIAL",
         post.id,
-        orchResult.qualityScore > 0 ? orchResult.qualityScore : 75
+        [],
+        orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
+        { armId: orchResult.armId }
       );
     } catch (orchErr) {
       console.warn(`[Social Regenerate] Orchestrator failed, continuing:`, (orchErr as Error).message);

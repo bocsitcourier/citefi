@@ -169,6 +169,8 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           .catch(() => ({ patternsUsed: [] as number[] }))
       : { patternsUsed: [] as number[] };
     const capturedPatternIds = socialEnhancement.patternsUsed;
+    // Arm ID captured from first successful orchResult (all platforms share same team+contentType)
+    let capturedSocialArmId: number | undefined;
     
     // CONCURRENT PROCESSING: Generate posts for all platforms in parallel
     console.log(`🚀 Generating ${platforms.length} platform variants concurrently...`);
@@ -259,9 +261,12 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
             } else if (orchestratorResult.orchestrated) {
               console.log(`✅ Stage 1.5: ${platform} caption passed critic review`);
             }
-            // Capture quality score for cross-platform average at completion
+            // Capture quality score + arm ID for cross-platform aggregation at completion
             if (orchestratorResult.orchestrated && orchestratorResult.qualityScore > 0) {
               platformQualityScore = orchestratorResult.qualityScore;
+            }
+            if (orchestratorResult.armId !== undefined) {
+              capturedSocialArmId = capturedSocialArmId ?? orchestratorResult.armId;
             }
           } catch (criticError) {
             console.warn(`⚠️ Social orchestrator failed, continuing:`, (criticError as Error).message);
@@ -532,7 +537,8 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           ContentType.SOCIAL,
           socialPostId,
           capturedPatternIds,
-          avgQualityScore
+          avgQualityScore,
+          { armId: capturedSocialArmId }
         );
         console.log(`📊 Recorded social post generation for AI Learning`);
       }

@@ -666,9 +666,12 @@ export async function registerWorkers() {
             } else if (orchestratorResult.orchestrated) {
               console.log(`✅ Stage 1.6: Content passed critic review (no repairs needed)`);
             }
-            // Thread quality score forward to recordContentGenerated at article completion
+            // Thread quality score and arm ID forward to recordContentGenerated
             if (orchestratorResult.orchestrated && orchestratorResult.qualityScore > 0) {
               (currentArticle as any)._qualityScore = orchestratorResult.qualityScore;
+            }
+            if (orchestratorResult.armId !== undefined) {
+              (currentArticle as any)._armId = orchestratorResult.armId;
             }
           } catch (criticError) {
             console.warn(
@@ -1226,7 +1229,8 @@ export async function registerWorkers() {
               ContentType.ARTICLE,
               articleId,
               patternsUsed || [],
-              (currentArticle as any)._qualityScore ?? 80 // orchestrator quality; default updated by engagement labeler
+              (currentArticle as any)._qualityScore ?? 80, // orchestrator quality; default updated by engagement labeler
+              { armId: (currentArticle as any)._armId as number | undefined }
             );
             console.log(`📊 Recorded article generation for AI Learning`);
           }

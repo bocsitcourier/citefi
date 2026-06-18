@@ -81,6 +81,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     // requireJudge=false: podcast scripts are audio artifacts; GPT judge cost not justified
     let capturedPodcastPatternIds: number[] = [];
     let podcastQualityScore = 75;
+    let podcastArmId: number | undefined;
     if (teamId) {
       try {
         const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST)
@@ -99,6 +100,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           requireJudge: false,
         });
         if (orchResult.qualityScore > 0) podcastQualityScore = orchResult.qualityScore;
+        if (orchResult.armId !== undefined) podcastArmId = orchResult.armId;
         // Apply repaired content back to script segments, preserving voice assignments.
         // Strategy: proportional redistribution by original segment character length,
         // snapping to the nearest word boundary to avoid mid-word splits.
@@ -223,7 +225,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // so the engagement scorer can label it and Wilson attribution can fire.
         const effectiveTeamId = teamId ?? article.teamId;
         if (effectiveTeamId) {
-          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore)
+          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore, { armId: podcastArmId })
             .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
         }
       } catch (dbError) {

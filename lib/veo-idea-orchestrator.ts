@@ -77,6 +77,7 @@ export async function orchestrateVideoIdeaGeneration(
     let videoTeamId: number | null = null;
     let capturedVideoPatternIds: number[] = [];
     let capturedVideoQualityScore = 80;
+    let capturedVideoArmId: number | undefined;
     try {
       const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
         .from(videoIdeas)
@@ -165,6 +166,7 @@ export async function orchestrateVideoIdeaGeneration(
             requireJudge: false,
           });
           if (orchResult.qualityScore > 0) capturedVideoQualityScore = orchResult.qualityScore;
+          if (orchResult.armId !== undefined) capturedVideoArmId = orchResult.armId;
           // Apply repaired narration back to clips, preserving all other clip fields.
           // First attempt: map repaired double-newline paragraphs back 1:1 to clips.
           // Fallback: proportional redistribution by original narration character length.
@@ -285,7 +287,8 @@ export async function orchestrateVideoIdeaGeneration(
           ContentType.VIDEO,
           videoIdeaId,
           capturedVideoPatternIds,
-          capturedVideoQualityScore
+          capturedVideoQualityScore,
+          { armId: capturedVideoArmId }
         );
         console.log(`📊 Recorded video generation for AI Learning (quality=${capturedVideoQualityScore})`);
       }

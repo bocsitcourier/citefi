@@ -6,6 +6,7 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { addImageGenerationJob } from "@/lib/queue";
 import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
+import { recordContentGenerated } from "@/lib/learning-integration";
 
 interface ImagePromptGenerationResult {
   imagePrompts: string[];
@@ -173,6 +174,15 @@ export async function POST(
                 console.log(`🔧 Image prompts critic: ${orchResult.repairs} repair(s) applied for article ${article.id}`);
               }
             }
+            // Record learning metrics for image generation path
+            await recordContentGenerated(
+              teamId,
+              "IMAGE",
+              article.id,
+              [],
+              orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
+              { armId: orchResult.armId }
+            ).catch(() => { /* non-fatal */ });
           } catch (orchErr) {
             console.warn(`[Image Regen] Orchestrator failed, continuing:`, (orchErr as Error).message);
           }
