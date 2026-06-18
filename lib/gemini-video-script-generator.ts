@@ -4,6 +4,7 @@ import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding"
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizeVideoScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
+import { getClientBrandContext } from "./client-brand-profile-service";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -227,11 +228,22 @@ export async function generateVideoScript(
   console.log(`🎬 Generating 60-second video script for: ${title} (mode: ${dialogueMode})`);
   
   const brandLockContext = companyName ? createBrandLockPromptSegment(companyName) : "";
+
+  // Brand Intelligence context injection
+  let brandIntelligenceContext = "";
+  if (request.teamId) {
+    try {
+      brandIntelligenceContext = await getClientBrandContext(request.teamId);
+    } catch {
+      // non-fatal
+    }
+  }
   
   const dialogueModeInstructions = getDialogueModeInstructions(dialogueMode);
 
   const prompt = `You are a professional video script writer creating a 60-second social media video script.
 ${brandLockContext}
+${brandIntelligenceContext ? `\nBRAND INTELLIGENCE (apply this brand voice and positioning throughout):\n${brandIntelligenceContext}\n` : ""}
 
 ANTI-HALLUCINATION RULES (CRITICAL):
 - Do NOT include website URLs anywhere in the script

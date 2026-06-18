@@ -1,6 +1,6 @@
 ---
 name: Brand Intelligence Pipeline
-description: Architecture decisions for the Client Intelligence Engine (Task #15) — schema, service, injection, and UI.
+description: Architecture decisions for the Client Intelligence Engine — schema, service, injection, and UI.
 ---
 
 ## Key decisions
