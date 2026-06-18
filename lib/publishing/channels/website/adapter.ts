@@ -288,6 +288,15 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       console.log(`[PUBLISH] sanitize slug=${article.slug} title="${titleSanitized.slice(0,80)}" metaTitle="${metaTitleSanitized.slice(0,80)}" metaDesc="${metaDescSanitized.slice(0,80)}..."`);
     }
 
+    // Beacon script wiring — tells the receiver to inject the ApexContent Engine
+    // engagement tracking beacon. Required for conversion attribution and learning
+    // system feedback loop. All three fields must be set for injection to occur.
+    const beaconEngineUrl = (
+      process.env.NEXTAUTH_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.REPLIT_DOMAINS ? `https://${(process.env.REPLIT_DOMAINS.split(',')[0] ?? '').trim()}` : '')
+    ).replace(/\/$/, '');
+
     const payload = {
       id: article.publicId,
       title: titleSanitized,
@@ -328,6 +337,13 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       ...(inlineImages.length > 0 ? { inlineImages } : {}),
       
       hashtags,
+
+      // Beacon injection — receiver embeds the script tag when all three are present
+      ...(beaconEngineUrl && article.teamId && article.id ? {
+        beaconScriptUrl: `${beaconEngineUrl}/api/events/beacon.js`,
+        beaconTeamId: article.teamId,
+        beaconContentId: article.id,
+      } : {}),
     };
 
     return {

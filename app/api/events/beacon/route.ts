@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { contentEvents, articles, socialPosts } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, sql as drizzleSql } from "drizzle-orm";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -160,6 +160,39 @@ export async function POST(req: NextRequest) {
       return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // ── Server-side fatigueSignal: spec = visitor saw ≥5 distinct content items
+    // from this team in the last 7 days with no conversion. This is more reliable
+    // than the client's "rapid scroll <5s" heuristic which can't see cross-session data.
+    // Computed once per unique (teamId, visitorId) pair in this batch.
+    const fatiguePairs = new Map<string, boolean>(); // "teamId:visitorId" → should override
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    for (const evt of validEvents) {
+      if (!evt.visitorId) continue;
+      const pairKey = `${evt.teamId}:${evt.visitorId}`;
+      if (fatiguePairs.has(pairKey)) continue;
+      try {
+        const [stats] = await db
+          .select({
+            distinctContent: drizzleSql<number>`COUNT(DISTINCT COALESCE(article_id::text, social_post_id::text))`,
+            hasConversion: drizzleSql<number>`COUNT(CASE WHEN event_type = 'conversion' THEN 1 END)`,
+          })
+          .from(contentEvents)
+          .where(
+            and(
+              eq(contentEvents.teamId, evt.teamId),
+              eq(contentEvents.visitorId, evt.visitorId),
+              gte(contentEvents.createdAt, sevenDaysAgo)
+            )
+          );
+        const distinctCount = Number(stats?.distinctContent ?? 0);
+        const convCount = Number(stats?.hasConversion ?? 0);
+        fatiguePairs.set(pairKey, distinctCount >= 5 && convCount === 0);
+      } catch {
+        // Non-fatal: keep client-provided value if DB query fails
+        fatiguePairs.set(pairKey, false);
+      }
+    }
+
     // Bulk insert all valid events in one round-trip
     await db.insert(contentEvents).values(
       validEvents.map((evt) => ({
@@ -177,7 +210,13 @@ export async function POST(req: NextRequest) {
         engagedSec: evt.engagedSec ?? null,
         readComplete: evt.readComplete ?? false,
         bounced: evt.bounced ?? false,
-        fatigueSignal: evt.fatigueSignal ?? false,
+        // Server-side computed value takes precedence: OR with client signal so
+        // either the client's rapid-scroll heuristic OR the cross-session DB check
+        // can flag fatigue independently.
+        fatigueSignal: (
+          fatiguePairs.get(`${evt.teamId}:${evt.visitorId}`) === true ||
+          evt.fatigueSignal === true
+        ),
         // Return-visitor / journey signals from beacon.js client
         isReturn: evt.isReturn ?? false,
         sessionCount: evt.sessionCount ?? null,

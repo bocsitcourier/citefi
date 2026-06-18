@@ -64,10 +64,12 @@
     }
   }
 
-  // ── isReturn: visitor has seen this content before (localStorage key) ────
+  // ── isReturn: visitor has previously engaged with any content from this team ─
+  // Spec: team-scoped (any content from this team), not content-scoped.
+  // Uses a single team-level key so first visit to any team page sets it.
   function getIsReturn(vid) {
     try {
-      var key = "_apex_seen_" + contentType + "_" + contentId;
+      var key = "_apex_seen_team_" + teamId;
       var seen = localStorage.getItem(key);
       if (seen) return true;
       localStorage.setItem(key, "1");
@@ -275,8 +277,9 @@
     if (unloadFired) return;
     unloadFired = true;
     var pct = getScrollPct();
-    // Bounce: visitor left with less than 10% scroll depth
-    var bounced = pct < 10;
+    // Bounce: left with <10% scroll depth AND within 10s of page load
+    // Spec: shallow exit (no real read intent) + quick exit (not a brief scroll-check)
+    var bounced = pct < 10 && engagedSec < 10;
     enqueue("view", {
       bounced: bounced,
       engagedSec: engagedSec,

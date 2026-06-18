@@ -118,9 +118,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Third fallback: resolve via utmContent (canonical UTM marker for content).
+  // beacon.js sends utmContent = utm_content query param on every event, so CRM/checkout
+  // callbacks that only know the UTM tag can still attribute a conversion to the right piece.
+  if (!resolvedContentId && data.utmContent) {
+    const [utmEvent] = await db
+      .select({
+        contentType: contentEvents.contentType,
+        articleId: contentEvents.articleId,
+        socialPostId: contentEvents.socialPostId,
+      })
+      .from(contentEvents)
+      .where(
+        and(
+          eq(contentEvents.teamId, data.teamId),
+          eq(contentEvents.utmContent, data.utmContent)
+        )
+      )
+      .orderBy(desc(contentEvents.createdAt))
+      .limit(1);
+
+    if (utmEvent) {
+      resolvedContentType = utmEvent.contentType as "article" | "social_post";
+      resolvedContentId = (utmEvent.articleId ?? utmEvent.socialPostId) ?? undefined;
+    }
+  }
+
   if (!resolvedContentId) {
     return NextResponse.json(
-      { error: "Cannot resolve content: provide contentId or a visitorId with prior events" },
+      { error: "Cannot resolve content: provide contentId, a visitorId with prior events, or a utmContent value matching tracked events" },
       { status: 422 }
     );
   }
