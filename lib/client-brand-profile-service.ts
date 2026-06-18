@@ -832,6 +832,24 @@ export async function runIntelligenceResearch(
     await setProgress("assembling");
     console.log(`🧠 [team:${teamId}] Step 5/5 — Assembling profile`);
 
+    // Preserve human-provided exemplars: they live in manualOverridesJson (authoritative)
+    // and may also exist in a previous profileJson — merge both, dedup by source.
+    const [existingRow] = await db
+      .select({
+        overrides: clientBrandProfiles.manualOverridesJson,
+        prevProfile: clientBrandProfiles.profileJson,
+      })
+      .from(clientBrandProfiles)
+      .where(eq(clientBrandProfiles.teamId, teamId))
+      .limit(1);
+
+    const overrideExemplars =
+      ((existingRow?.overrides as Partial<ClientBrandProfileJson> | null)?.seedExemplars) ?? [];
+    const prevProfileExemplars =
+      ((existingRow?.prevProfile as ClientBrandProfileJson | null)?.seedExemplars) ?? [];
+    // manualOverridesJson is authoritative; fall back to profileJson for migration
+    const preservedExemplars = overrideExemplars.length > 0 ? overrideExemplars : prevProfileExemplars;
+
     const profileJson: ClientBrandProfileJson = {
       brandVoice: websiteData.brandVoice,
       positioning: websiteData.positioning,
@@ -848,7 +866,7 @@ export async function runIntelligenceResearch(
       contentOpportunities: gapAnalysis.contentOpportunities,
       localNicheIntelligence: websiteData.localNicheIntelligence,
       brandPolicyPack,
-      seedExemplars: [],
+      seedExemplars: preservedExemplars,
       generatedAt: new Date().toISOString(),
     };
 
@@ -992,21 +1010,38 @@ export async function updateManualOverrides(
 export async function addSeedExemplar(
   teamId: number,
   exemplar: SeedExemplar
-): Promise<void> {
+): Promise<{ action: "created" | "appended"; total: number }> {
+  // Ensure a row exists even before the first pipeline run so exemplars are never dropped
+  await db
+    .insert(clientBrandProfiles)
+    .values({ teamId, websiteUrl: "", companyName: "", status: "pending" })
+    .onConflictDoNothing();
+
+  // Exemplars are stored in manualOverridesJson so they survive every pipeline rerun
   const [row] = await db
-    .select({ profile: clientBrandProfiles.profileJson })
+    .select({
+      overrides: clientBrandProfiles.manualOverridesJson,
+      profile: clientBrandProfiles.profileJson,
+    })
     .from(clientBrandProfiles)
     .where(eq(clientBrandProfiles.teamId, teamId))
     .limit(1);
 
-  if (!row?.profile) return;
-  const profile = row.profile as ClientBrandProfileJson;
-  const updated = {
-    ...profile,
-    seedExemplars: [...(profile.seedExemplars ?? []), exemplar],
+  const existingOverrides = (row?.overrides ?? {}) as Partial<ClientBrandProfileJson>;
+  // Migrate any exemplars that were previously stored in profileJson
+  const legacyExemplars = (row?.profile as ClientBrandProfileJson | null)?.seedExemplars ?? [];
+  const existingExemplars = existingOverrides.seedExemplars ?? legacyExemplars;
+  const updated: Partial<ClientBrandProfileJson> = {
+    ...existingOverrides,
+    seedExemplars: [...existingExemplars, exemplar],
   };
 
   await db.update(clientBrandProfiles)
-    .set({ profileJson: updated as any, updatedAt: new Date() })
+    .set({ manualOverridesJson: updated as any, updatedAt: new Date() })
     .where(eq(clientBrandProfiles.teamId, teamId));
+
+  return {
+    action: existingExemplars.length === 0 ? "created" : "appended",
+    total: updated.seedExemplars!.length,
+  };
 }

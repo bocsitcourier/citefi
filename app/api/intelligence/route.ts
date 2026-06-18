@@ -46,7 +46,8 @@ export async function PATCH(req: NextRequest) {
     if (parsed.action === "overrides") {
       await updateManualOverrides(teamId, parsed.overrides as Partial<ClientBrandProfileJson>);
     } else if (parsed.action === "add_exemplar") {
-      await addSeedExemplar(teamId, parsed.exemplar as SeedExemplar);
+      const result = await addSeedExemplar(teamId, parsed.exemplar as SeedExemplar);
+      return NextResponse.json({ success: true, ...result });
     }
 
     return NextResponse.json({ success: true });

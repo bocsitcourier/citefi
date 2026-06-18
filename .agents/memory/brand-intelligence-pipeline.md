@@ -30,5 +30,14 @@ Single-row-per-team makes GET and UPDATE simple. Deep merge means manual correct
 - `PATCH /api/intelligence` — `action: "overrides"` or `action: "add_exemplar"`.
 - `GET /api/intelligence/agency` — bulk status map for all child teams under an agency; returns `{ statuses: Record<teamId, { status, companyName, lastRunAt }> }`.
 
+**Exemplar persistence architecture**
+- Seed exemplars are stored in `manualOverridesJson.seedExemplars`, NOT `profileJson.seedExemplars`.
+- `addSeedExemplar()` upserts a pending row (via `onConflictDoNothing`) so exemplars can be saved before the first pipeline run; writes to `manualOverridesJson` so they survive every rerun.
+- `runIntelligenceResearch()` reads existing `manualOverridesJson.seedExemplars` (+ legacy `profileJson.seedExemplars`) before assembling the new profileJson, copying them into `preservedExemplars`.
+- The deep-merge at read time (`mergeProfileWithOverrides`) means `manualOverridesJson.seedExemplars` always wins over `profileJson.seedExemplars`.
+- `PATCH /api/intelligence` `add_exemplar` returns `{ success, action: "created"|"appended", total }` — the UI uses this for explicit confirmation rather than a silent success.
+
+**Why:** Storing exemplars in `manualOverridesJson` is the only way they survive a pipeline re-run without any special coordination, since `runIntelligenceResearch` is allowed to overwrite `profileJson` freely.
+
 **How to apply**
 When adding new content generators, import `getClientBrandContext` from `lib/client-brand-profile-service` and inject it into the prompt. Do NOT call it inside a retry loop — it's a DB read, cache it per job.

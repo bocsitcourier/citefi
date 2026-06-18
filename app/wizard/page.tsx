@@ -83,12 +83,16 @@ export default function ContentWizard() {
           },
         }),
       });
-      if (!res.ok) throw new Error("Failed to save exemplar");
-      return res.json();
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error ?? "Failed to save exemplar");
+      return data as { success: boolean; action: "created" | "appended"; total: number };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setExemplarSaved(true);
-      toast({ title: "Exemplar saved", description: "Your content example will guide the AI's writing style." });
+      toast({
+        title: data.action === "created" ? "Style reference saved" : `Style reference updated (${data.total} total)`,
+        description: "The AI will use this as a writing style reference for every content batch.",
+      });
     },
     onError: () => {
       toast({ title: "Could not save exemplar", description: "You can add examples later from the Brand Intelligence page.", variant: "destructive" });
