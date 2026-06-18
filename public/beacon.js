@@ -1,13 +1,20 @@
 /**
  * ApexContent Engine — Engagement Beacon v2
  * Spec: page_view, 15s heartbeat, scroll milestones (25/50/75/100%),
- *       cta_click, read_complete (90% scroll + 30s dwell), outbound clicks.
+ *       cta_click, read_complete (75%+ scroll AND 60s+ engaged dwell),
+ *       outbound clicks, bounce (<10% scroll at unload).
+ *
+ * Negative-signal fields computed client-side:
+ *   isReturn    — visitor has seen this content before (_apex_seen_ key in localStorage)
+ *   sessionCount — total sessions this visitor has had (incremented per new session)
+ *   fatigueSignal — rapid scroll: reached 50%+ scroll depth within 5s of page load
+ *
  * First-party visitor ID (_apex_vid cookie, 365d).
  * Batches events and flushes on pagehide/visibilitychange via sendBeacon.
  *
- * Usage (add to <head> or before </body>):
+ * Usage (inject via beaconScriptUrl or add before </body>):
  *   <script
- *     src="https://YOUR_ENGINE_URL/beacon.js"
+ *     src="https://YOUR_ENGINE_URL/api/events/beacon.js"
  *     data-team-id="42"
  *     data-content-type="article"
  *     data-content-id="1234"
@@ -57,6 +64,28 @@
     }
   }
 
+  // ── isReturn: visitor has seen this content before (localStorage key) ────
+  function getIsReturn(vid) {
+    try {
+      var key = "_apex_seen_" + contentType + "_" + contentId;
+      var seen = localStorage.getItem(key);
+      if (seen) return true;
+      localStorage.setItem(key, "1");
+      return false;
+    } catch (e) { return false; }
+  }
+
+  // ── sessionCount: total sessions for this visitor (cross-content counter) ─
+  function getAndIncrementSessionCount(vid) {
+    try {
+      var key = "_apex_sc_" + vid;
+      var current = parseInt(localStorage.getItem(key) || "0", 10);
+      var newCount = current + 1;
+      localStorage.setItem(key, String(newCount));
+      return newCount;
+    } catch (e) { return 1; }
+  }
+
   // ── UTM extraction ────────────────────────────────────────────────────────
   function getUtm() {
     try {
@@ -82,9 +111,24 @@
   // ── Shared context ────────────────────────────────────────────────────────
   var visitorId = getOrCreateVisitorId();
   var sessionId = getSessionId();
+  var isReturn = getIsReturn(visitorId);
+  var sessionCount = getAndIncrementSessionCount(visitorId);
   var utm = getUtm();
   var device = getDevice();
   var locale = (navigator.language || "").slice(0, 20) || undefined;
+
+  // ── fatigueSignal: rapid scroll — reached 50%+ within 5s of page load ────
+  var pageLoadTime = Date.now();
+  var fatigueSignalDetected = false;
+
+  function checkFatigueSignal(pct) {
+    if (!fatigueSignalDetected) {
+      var elapsedSec = (Date.now() - pageLoadTime) / 1000;
+      if (elapsedSec < 5 && pct >= 50) {
+        fatigueSignalDetected = true;
+      }
+    }
+  }
 
   // ── Event queue + flush ───────────────────────────────────────────────────
   var queue = [];
@@ -98,6 +142,8 @@
       sessionId: sessionId,
       visitorId: visitorId,
       device: device,
+      isReturn: isReturn,
+      sessionCount: sessionCount,
     };
     if (locale) base.locale = locale;
     // merge UTM
@@ -151,7 +197,9 @@
     }
   }, 15000);
 
-  // ── Scroll milestones (25, 50, 75, 100%) + read_complete ─────────────────
+  // ── Scroll milestones (25, 50, 75, 100%) ─────────────────────────────────
+  // read_complete = 75%+ scroll AND 60s+ engaged dwell (spec corrected)
+  // bounce        = unload with < 10% scroll (spec corrected)
   var milestones = [25, 50, 75, 100];
   var firedMilestones = {};
   var readCompleteFired = false;
@@ -169,6 +217,11 @@
 
   function onScroll() {
     var pct = getScrollPct();
+
+    // Fatigue detection: rapid scroll to 50%+ within 5s
+    checkFatigueSignal(pct);
+
+    // Milestone events
     for (var i = 0; i < milestones.length; i++) {
       var m = milestones[i];
       if (!firedMilestones[m] && pct >= m) {
@@ -176,13 +229,26 @@
         send("scroll_milestone", { scrollPct: m });
       }
     }
-    if (!readCompleteFired && pct >= 90 && engagedSec >= 30) {
+
+    // read_complete: 75%+ scroll AND 60s+ engaged dwell (corrected from 90%/30s)
+    if (!readCompleteFired && pct >= 75 && engagedSec >= 60) {
       readCompleteFired = true;
-      send("read_complete", { scrollPct: pct, engagedSec: engagedSec, readComplete: true });
+      send("read_complete", {
+        scrollPct: pct,
+        engagedSec: engagedSec,
+        readComplete: true,
+        fatigueSignal: fatigueSignalDetected,
+      });
     }
   }
 
   window.addEventListener("scroll", onScroll, { passive: true });
+
+  // Also check read_complete on each heartbeat tick (handles slow readers
+  // who don't scroll after reaching 75%)
+  setInterval(function () {
+    if (!readCompleteFired) onScroll();
+  }, 5000);
 
   // ── CTA click tracking (data-apex-cta attribute) + outbound links ─────────
   document.addEventListener("click", function (e) {
@@ -203,14 +269,20 @@
     }
   }, { passive: true });
 
-  // ── Flush on page unload — mark bounce if minimal engagement ─────────────
+  // ── Flush on page unload — bounce = <10% scroll (spec corrected) ─────────
   var unloadFired = false;
   function onUnload() {
     if (unloadFired) return;
     unloadFired = true;
     var pct = getScrollPct();
-    var bounced = !firedMilestones[50] && engagedSec < 10;
-    enqueue("view", { bounced: bounced, engagedSec: engagedSec, scrollPct: pct });
+    // Bounce: visitor left with less than 10% scroll depth
+    var bounced = pct < 10;
+    enqueue("view", {
+      bounced: bounced,
+      engagedSec: engagedSec,
+      scrollPct: pct,
+      fatigueSignal: fatigueSignalDetected,
+    });
     flush();
   }
 

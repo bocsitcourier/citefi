@@ -27,6 +27,8 @@ export const teams = pgTable("teams", {
   // Agency hierarchy — a client team points to its parent agency team
   parentTeamId: integer("parent_team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
   clientStatus: varchar("client_status", { length: 20 }).notNull().default("active"), // active, archived
+  // Conversion webhook: HMAC-SHA256 secret for unauthenticated external conversion signals
+  conversionWebhookSecret: varchar("conversion_webhook_secret", { length: 100 }),
 }, (table) => ({
   publicIdIdx: index("teams_public_id_idx").on(table.publicId),
   nameIdx: index("teams_name_idx").on(table.name),
@@ -2852,6 +2854,11 @@ export const contentEvents = pgTable("content_events", {
   // Device / locale context
   device: varchar("device", { length: 20 }), // "mobile"|"desktop"|"tablet"
   locale: varchar("locale", { length: 20 }), // "en-US" etc
+  // Journey tracking (cross-session funnel attribution)
+  journeyId: varchar("journey_id", { length: 100 }), // UUID linking sessions in a conversion journey
+  journeyStep: smallint("journey_step"), // ordinal step within the journey (1-based)
+  isReturn: boolean("is_return").default(false), // visitor has seen this content before (from _apex_seen_ localStorage)
+  sessionCount: smallint("session_count"), // number of sessions this visitor has had across all content
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({

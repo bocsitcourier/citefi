@@ -43,6 +43,21 @@ export interface ArticlePayload {
     url: string;
     rel?: string;
   }>;
+
+  /**
+   * ApexContent Engine beacon script URL.
+   * When provided, the receiver injects:
+   *   <script src="{beaconScriptUrl}"
+   *     data-team-id="{beaconTeamId}"
+   *     data-content-type="article"
+   *     data-content-id="{beaconContentId}"
+   *     data-engine-url="{engineUrl}"
+   *   ></script>
+   * into the generated HTML page's <head> to enable engagement tracking.
+   */
+  beaconScriptUrl?: string;
+  beaconTeamId?: number;
+  beaconContentId?: number | string;
 }
 
 export interface MediaReference {

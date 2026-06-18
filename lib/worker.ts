@@ -1938,15 +1938,22 @@ export async function registerWorkers() {
               if (!stat.articleId) continue;
               const totalViews = Number(stat.views) || 0;
               const totalClicks = Number(stat.clicks) || 0;
-              const readCompleteRate = totalViews > 0 ? Number(stat.readCompletes) / totalViews : 0;
+              const readCompleteCount = Number(stat.readCompletes) || 0;
+              const readCompleteRate = totalViews > 0 ? readCompleteCount / totalViews : 0;
               const bounceRateDecimal = totalViews > 0 ? Number(stat.bounces) / totalViews : 0;
               const ctr = totalViews > 0 ? totalClicks / totalViews : 0;
               const totalConversions = Number(stat.conversions) || 0;
               const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
+              const avgScrollPct = Math.round(Number(stat.avgScrollPct) || 0);
               // Composite engagement score (weighted, 0-100)
               const qualityScore = Math.round(Math.min(100,
                 readCompleteRate * 40 + (1 - bounceRateDecimal) * 20 + ctr * 20 + conversionRate * 20
               ));
+              // eatScore encodes read-complete rate (0-100) — proxy for deep engagement quality
+              const eatScore = Math.round(readCompleteRate * 100);
+              // readabilityScore encodes average scroll depth (0-100) — proxy for content scannability
+              const readabilityScore = avgScrollPct;
+
               // Insert snapshot (time-series — intentional, powers learning trends)
               await _db
                 .insert(contentPerformanceMetrics)
@@ -1960,10 +1967,46 @@ export async function registerWorkers() {
                   bounceRate: Math.round(bounceRateDecimal * 100), // 0–100 integer
                   timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0), // seconds
                   qualityScore,
+                  eatScore,
+                  readabilityScore,
                 });
+
+              // Emit CONVERSION_LABEL log event for observability
+              console.log(
+                `[CONVERSION_LABEL] teamId=${team.id} articleId=${stat.articleId} ` +
+                `views=${totalViews} readCompleteRate=${readCompleteRate.toFixed(3)} ` +
+                `bounceRate=${bounceRateDecimal.toFixed(3)} avgScrollPct=${avgScrollPct} ` +
+                `convRate=${conversionRate.toFixed(4)} qualityScore=${qualityScore} ` +
+                `eatScore=${eatScore} readabilityScore=${readabilityScore}`
+              );
+
               labeledCount++;
             }
           }
+
+          // After snapshot aggregation, run engagement scoring to label matured content
+          // as success/fail based on Wilson posterior composites (uses the rows we just inserted).
+          const { EngagementScoringService } = await import("./engagement-scoring-service");
+          const engagementSvc = EngagementScoringService.getInstance();
+          const contentTypes = ["article", "social", "podcast", "video"];
+          for (const team of allTeams) {
+            for (const ct of contentTypes) {
+              try {
+                const result = await engagementSvc.labelMaturedContent(team.id, ct);
+                if (result.labeledSuccess > 0 || result.labeledFail > 0) {
+                  console.log(
+                    `[CONVERSION_LABEL] scoreAndLabel teamId=${team.id} contentType=${ct} ` +
+                    `cohort=${result.cohort} labeled=${result.labeledSuccess + result.labeledFail} ` +
+                    `success=${result.labeledSuccess} fail=${result.labeledFail} ` +
+                    `ambiguous=${result.skippedAmbiguous} lowReach=${result.skippedLowReach}`
+                  );
+                }
+              } catch (scoringErr) {
+                console.warn(`[CONVERSION_LABEL] scoring error teamId=${team.id} ct=${ct}:`, (scoringErr as Error).message);
+              }
+            }
+          }
+
           console.log(`✅ ConversionLabeler: labeled ${labeledCount} content items for ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);

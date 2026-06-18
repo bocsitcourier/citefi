@@ -341,6 +341,20 @@ function generateFullPage(
     ...(article.author ? { author: { '@type': 'Person', name: article.author.name } } : {}),
   };
 
+  // Beacon script injection — only when beaconScriptUrl, beaconTeamId, and beaconContentId
+  // are all provided by the ApexContent Engine in the publish payload.
+  // The engine auto-constructs the script URL as: {APEX_ENGINE_URL}/api/events/beacon.js
+  const beaconTag = (article.beaconScriptUrl && article.beaconTeamId && article.beaconContentId)
+    ? `\n  <script
+    src="${article.beaconScriptUrl}"
+    data-team-id="${article.beaconTeamId}"
+    data-content-type="article"
+    data-content-id="${article.beaconContentId}"
+    data-engine-url="${article.beaconScriptUrl.replace(/\/api\/events\/beacon\.js$/, '')}"
+    defer
+  ></script>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -362,7 +376,7 @@ function generateFullPage(
   ${article.author ? `<meta name="author" content="${escapeHtml(article.author.name)}">` : ''}
   <script type="application/ld+json">
 ${JSON.stringify(jsonLd, null, 2)}
-  </script>
+  </script>${beaconTag}
   <style>
     body{font-family:system-ui,-apple-system,sans-serif;line-height:1.6;max-width:800px;margin:0 auto;padding:20px}
     h1{font-size:2.5rem;margin-bottom:.5rem}
