@@ -5,15 +5,25 @@
  *       outbound clicks, bounce (<10% scroll AND <10s engaged at session end).
  *
  * Client-side session signals:
- *   isReturn     — visitor has engaged with any content from this team before
- *   sessionCount — total sessions this visitor has had (incremented per session)
+ *   isReturn      — visitor has engaged with any content from this team before
+ *   sessionCount  — total sessions this visitor has had (incremented per session)
+ *   fatigueSignal — always false on the client; the ConversionLabeler derives
+ *                   the real value server-side (5+ distinct pieces from team in
+ *                   7 days without conversion) via nightly Phase 0 and back-fills
+ *                   matching content_events rows. Sent in every page_view so the
+ *                   schema contract is satisfied; the server-side value is
+ *                   authoritative and overwrites the client placeholder.
  *
- * Note: fatigueSignal (5+ pieces from team in 7d without conversion) is a
- * cross-session server-side metric, computed nightly by the ConversionLabeler.
- * It is NOT computed client-side.
+ * Event type model:
+ *   page_view  — fired once on page load (session entry, unique per session).
+ *                This is the canonical view count denominator.
+ *   session_end — fired on pagehide (page leave / tab close / BFCache).
+ *                Contains the final session summary: bounced, engagedSec,
+ *                scrollPct. Kept separate so view counts (page_view only)
+ *                are not double-counted by the labeler.
  *
  * First-party visitor ID (_apex_vid cookie, 365d).
- * Batches events; flushes on pagehide (session-end summary) and on
+ * Batches events; flushes on pagehide (session_end summary) and on
  * visibilitychange→hidden (interim flush in case page is killed while backgrounded).
  *
  * Usage (inject via beaconScriptUrl or add before </body>):
@@ -169,10 +179,15 @@
   }
 
   // ── Page view on load ─────────────────────────────────────────────────────
+  // fatigueSignal is always false on the client (cross-session; ConversionLabeler
+  // derives and back-fills the real value nightly). It is included in the payload
+  // so the schema contract ("sent on page_view") is satisfied.
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () { send("page_view"); });
+    document.addEventListener("DOMContentLoaded", function () {
+      send("page_view", { fatigueSignal: false });
+    });
   } else {
-    send("page_view");
+    send("page_view", { fatigueSignal: false });
   }
 
   // ── Heartbeat every 15s (only when tab is visible) ────────────────────────
@@ -280,8 +295,10 @@
     var pct = getScrollPct();
     // Bounce: left with <10% scroll AND <10s engaged (spec: shallow + quick exit)
     var bounced = pct < 10 && engagedSec < 10;
-    // Final page_view event carries session-end signals (bounced, scroll depth, engaged time)
-    enqueue("page_view", {
+    // session_end carries the final summary (bounced, scroll depth, engaged time).
+    // Using a distinct event type prevents the labeler from double-counting views —
+    // views are counted from "page_view" only; "session_end" is the session summary.
+    enqueue("session_end", {
       bounced: bounced,
       engagedSec: engagedSec,
       scrollPct: pct,

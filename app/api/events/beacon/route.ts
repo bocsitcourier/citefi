@@ -16,6 +16,10 @@ const VALID_EVENT_TYPES = [
   "view", "click", "share",
   "page_view", "heartbeat", "scroll_milestone", "cta_click", "read_complete",
   "conversion",
+  // session_end: fired on pagehide; carries bounced/engagedSec/scrollPct summary.
+  // Kept separate from page_view so the labeler's view count (page_view only) is not
+  // double-counted when aggregating sessions.
+  "session_end",
 ] as const;
 
 const beaconEventSchema = z.object({

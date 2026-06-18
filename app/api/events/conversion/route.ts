@@ -18,8 +18,11 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 
 const conversionSchema = z.object({
-  teamId: z.number().int().positive(),
-  // contentId is optional — can be resolved via visitorId lookup
+  // teamId is optional when contentId is provided — the endpoint resolves it from the
+  // content record. Callers that know their teamId should still send it to skip the
+  // extra lookup. When neither teamId nor contentId is given, the request is rejected.
+  teamId: z.number().int().positive().optional(),
+  // contentId is optional — can be resolved via visitorId lookup or utmContent
   contentType: z.enum(["article", "social_post"]).optional(),
   contentId: z.number().int().positive().optional(),
   visitorId: z.string().max(100).optional(),
@@ -66,15 +69,63 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data;
 
-  // Look up the team's HMAC secret
+  // ── Resolve contentId + contentType ─────────────────────────────────────
+  // Supported payload patterns:
+  //   { teamId, contentId }                    — direct (fastest path)
+  //   { contentId }                            — teamId derived from content record
+  //   { teamId, visitorId }                    — contentId derived from last visitor event
+  //   { teamId, utmContent }                   — contentId derived from UTM-tagged event
+  //   { contentId, contentType? }              — teamId auto-resolved, contentType optional
+
+  let resolvedContentType = data.contentType; // may still be undefined at this point
+  let resolvedContentId = data.contentId;
+  let resolvedTeamId = data.teamId;
+
+  // Step 1: If teamId is missing, resolve it from contentId (across both tables)
+  if (!resolvedTeamId) {
+    if (!resolvedContentId) {
+      return NextResponse.json(
+        { error: "Provide teamId or contentId to identify the team" },
+        { status: 400 }
+      );
+    }
+    // Try article first (most common), then social_post
+    const contentTypesToTry = resolvedContentType
+      ? [resolvedContentType]
+      : (["article", "social_post"] as const);
+
+    for (const ct of contentTypesToTry) {
+      if (ct === "article") {
+        const [article] = await db
+          .select({ teamId: articles.teamId })
+          .from(articles)
+          .where(eq(articles.id, resolvedContentId))
+          .limit(1);
+        if (article) { resolvedTeamId = article.teamId; resolvedContentType = "article"; break; }
+      } else {
+        const [post] = await db
+          .select({ teamId: socialPosts.teamId })
+          .from(socialPosts)
+          .where(eq(socialPosts.id, resolvedContentId))
+          .limit(1);
+        if (post) { resolvedTeamId = post.teamId; resolvedContentType = "social_post"; break; }
+      }
+    }
+
+    if (!resolvedTeamId) {
+      // Silent 204 — content not found; avoid leaking existence
+      return new NextResponse(null, { status: 204 });
+    }
+  }
+
+  // Step 2: Look up the team's HMAC secret (teamId is now resolved)
   const [teamRow] = await db
     .select({ id: teams.id, conversionWebhookSecret: teams.conversionWebhookSecret })
     .from(teams)
-    .where(eq(teams.id, data.teamId))
+    .where(eq(teams.id, resolvedTeamId))
     .limit(1);
 
   if (!teamRow) {
-    // Return 204 to avoid leaking team existence
     return new NextResponse(null, { status: 204 });
   }
 
@@ -90,12 +141,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Resolve contentId via visitor attribution if not provided
-  let resolvedContentType = data.contentType ?? "article";
-  let resolvedContentId = data.contentId;
+  // Step 3: Resolve contentId via visitor attribution if still not known
+  const effectiveContentType = resolvedContentType ?? "article";
 
   if (!resolvedContentId && data.visitorId) {
-    // Find the last content the visitor interacted with
     const [lastEvent] = await db
       .select({
         contentType: contentEvents.contentType,
@@ -105,7 +154,7 @@ export async function POST(req: NextRequest) {
       .from(contentEvents)
       .where(
         and(
-          eq(contentEvents.teamId, data.teamId),
+          eq(contentEvents.teamId, resolvedTeamId),
           eq(contentEvents.visitorId, data.visitorId)
         )
       )
@@ -118,9 +167,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Third fallback: resolve via utmContent (canonical UTM marker for content).
-  // beacon.js sends utmContent = utm_content query param on every event, so CRM/checkout
-  // callbacks that only know the UTM tag can still attribute a conversion to the right piece.
+  // Step 4: Fallback — resolve via utmContent (CRM/checkout callbacks that only know UTM tag)
   if (!resolvedContentId && data.utmContent) {
     const [utmEvent] = await db
       .select({
@@ -131,7 +178,7 @@ export async function POST(req: NextRequest) {
       .from(contentEvents)
       .where(
         and(
-          eq(contentEvents.teamId, data.teamId),
+          eq(contentEvents.teamId, resolvedTeamId),
           eq(contentEvents.utmContent, data.utmContent)
         )
       )
@@ -151,15 +198,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Verify content belongs to team
-  if (resolvedContentType === "article") {
+  // Step 5: Verify resolved content belongs to the resolved team (anti-spoofing)
+  const finalContentType = resolvedContentType ?? effectiveContentType;
+  if (finalContentType === "article") {
     const [article] = await db
       .select({ teamId: articles.teamId })
       .from(articles)
       .where(eq(articles.id, resolvedContentId))
       .limit(1);
-    if (!article || article.teamId !== data.teamId) {
-      return new NextResponse(null, { status: 204 }); // Silent — no diagnostic leakage
+    if (!article || article.teamId !== resolvedTeamId) {
+      return new NextResponse(null, { status: 204 });
     }
   } else {
     const [post] = await db
@@ -167,7 +215,7 @@ export async function POST(req: NextRequest) {
       .from(socialPosts)
       .where(eq(socialPosts.id, resolvedContentId))
       .limit(1);
-    if (!post || post.teamId !== data.teamId) {
+    if (!post || post.teamId !== resolvedTeamId) {
       return new NextResponse(null, { status: 204 });
     }
   }
@@ -175,10 +223,10 @@ export async function POST(req: NextRequest) {
   const [row] = await db
     .insert(contentEvents)
     .values({
-      teamId: data.teamId,
-      contentType: resolvedContentType,
-      articleId: resolvedContentType === "article" ? resolvedContentId : null,
-      socialPostId: resolvedContentType === "social_post" ? resolvedContentId : null,
+      teamId: resolvedTeamId,
+      contentType: finalContentType,
+      articleId: finalContentType === "article" ? resolvedContentId : null,
+      socialPostId: finalContentType === "social_post" ? resolvedContentId : null,
       eventType: "conversion",
       visitorId: data.visitorId ?? null,
       conversionType: data.conversionType ?? null,
@@ -193,7 +241,7 @@ export async function POST(req: NextRequest) {
     })
     .returning({ id: contentEvents.id });
 
-  console.log(`[conversion] teamId=${data.teamId} contentId=${resolvedContentId} type=${data.conversionType ?? "—"} value=${data.value ?? "—"}`);
+  console.log(`[conversion] teamId=${resolvedTeamId} contentId=${resolvedContentId} type=${data.conversionType ?? "—"} value=${data.value ?? "—"}`);
 
   return NextResponse.json({ ok: true, id: row.id });
 }
