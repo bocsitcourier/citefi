@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/navigation/app-shell";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -21,6 +22,7 @@ export default function RootLayout({
       <body className={`${inter.variable} font-sans antialiased`}>
         <Providers>
           <AppShell>{children}</AppShell>
+          <UpgradeModal />
         </Providers>
       </body>
     </html>

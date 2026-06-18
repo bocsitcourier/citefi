@@ -33,7 +33,7 @@ import { validateBrandInOutput } from "./branding";
 import { applyKeywordHyperlinks, extractPhrasesFromHtml, safeApplyHyperlinks, stripShortBodyAnchorLinks } from "./keyword-hyperlink-pipeline";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
-import { optimizedContentGenerator } from "./optimized-content-generator";
+import { runGenerationOrchestrator } from "./generation-orchestrator";
 import { createNotification } from "./notification-service";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
@@ -616,11 +616,13 @@ export async function registerWorkers() {
           }
         }
 
-        // STAGE 1.6: Critic-in-the-loop repair (OptimizedContentGenerator)
+        // STAGE 1.6: GenerationOrchestrator — critic-in-the-loop + patternsUsedJson attribution
         // Runs structural, completeness, and humanness checks then patches
         // specific defects before content reaches GPT review. Bounded to 2 passes.
         // Factuality defects are flagged <mark data-unverified> for human review,
         // never blindly re-rolled into a different hallucination.
+        // Guard is kept here so pattern fetching + attribution are also skipped
+        // when the loop is disabled (prevents attributing patterns to a path they never ran in).
         const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
         if (!disableCriticLoop && currentArticle?.teamId) {
           try {
@@ -633,36 +635,36 @@ export async function registerWorkers() {
             // Store on the article object — read by recordContentGenerated below.
             (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
 
-            const criticBrief = {
-              topic: title,
-              location: geographicFocus || undefined,
-              targetWords: Math.round((wordCountMin + wordCountMax) / 2),
+            const orchestratorResult = await runGenerationOrchestrator({
+              teamId: currentArticle.teamId,
+              contentType: "ARTICLE",
               contentId: articleId,
-            };
-            const repairResult = await optimizedContentGenerator.reviewAndRepairContent(
-              currentArticle.teamId,
-              "ARTICLE",
-              articleId,
-              geminiResult.rawContent,
-              articleEnhancement.patternsUsed,
-              criticBrief
-            );
-            if (repairResult.repairs > 0) {
-              geminiResult.rawContent = repairResult.content;
+              content: geminiResult.rawContent,
+              patternsUsed: articleEnhancement.patternsUsed,
+              brief: {
+                topic: title,
+                location: geographicFocus || undefined,
+                targetWords: Math.round((wordCountMin + wordCountMax) / 2),
+              },
+              kind: "article",
+            });
+
+            if (orchestratorResult.repairs > 0) {
+              geminiResult.rawContent = orchestratorResult.content;
               // Persist repaired content so resume logic picks it up cleanly
               await db
                 .update(articles)
-                .set({ finalHtmlContent: repairResult.content })
+                .set({ finalHtmlContent: orchestratorResult.content })
                 .where(eq(articles.id, articleId));
               console.log(
-                `🔧 Stage 1.6: Critic applied ${repairResult.repairs} repair(s), quality=${repairResult.qualityScore}, status=${repairResult.status}`
+                `🔧 Stage 1.6: Critic applied ${orchestratorResult.repairs} repair(s), quality=${orchestratorResult.qualityScore}, status=${orchestratorResult.status}`
               );
-            } else {
+            } else if (orchestratorResult.orchestrated) {
               console.log(`✅ Stage 1.6: Content passed critic review (no repairs needed)`);
             }
           } catch (criticError) {
             console.warn(
-              `⚠️ Stage 1.6 critic loop failed, continuing with current content:`,
+              `⚠️ Stage 1.6 orchestrator failed, continuing with current content:`,
               (criticError as Error).message
             );
           }

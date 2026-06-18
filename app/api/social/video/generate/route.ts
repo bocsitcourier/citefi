@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPgBoss } from "@/lib/queue";
 import { debitCredits, refundCredits } from "@/lib/credits";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
@@ -79,6 +80,12 @@ export async function POST(request: NextRequest) {
     const isVeo = videoType === "veo";
     const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
     console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
+
+    // Paywall gate — read-only check before acquiring the generation lock
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
 
     // Atomically acquire GENERATING lock — this is both the duplicate-guard AND the state transition
     // force=true overrides the GENERATING guard for stuck jobs

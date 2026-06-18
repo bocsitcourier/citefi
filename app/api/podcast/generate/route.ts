@@ -5,6 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { generateArticlePodcast } from "@/lib/podcast-worker";
 import { requireTeamMember } from "@/lib/api/auth";
 import { debitCredits, refundCredits } from "@/lib/credits";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,6 +31,12 @@ export async function POST(request: NextRequest) {
         { error: "Article not found" },
         { status: 404 }
       );
+    }
+
+    // Paywall gate — read-only check before acquiring the generation lock
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
     // Atomically acquire generation lock — prevents concurrent double-debit

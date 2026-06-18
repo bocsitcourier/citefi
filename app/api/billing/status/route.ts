@@ -57,8 +57,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    if (err.status === 401 || err.status === 403) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[billing/status]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

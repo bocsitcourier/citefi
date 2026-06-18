@@ -109,8 +109,9 @@ export async function POST(req: NextRequest) {
     const session = await stripe.checkout.sessions.create(sessionParams);
     return NextResponse.json({ url: session.url, sessionId: session.id });
   } catch (err: any) {
-    if (err.status === 401 || err.status === 403) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[billing/checkout]", err);
     return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });

@@ -46,13 +46,20 @@ export async function apiRequest(url: string, options?: RequestInit) {
 
   if (!response.ok) {
     let errorMessage = `Request failed with status ${response.status}`;
+    let errorData: any = null;
     try {
-      const error = await response.json();
-      errorMessage = error.error || error.message || errorMessage;
+      errorData = await response.json();
+      errorMessage = errorData.error || errorData.message || errorMessage;
     } catch {
       errorMessage = `Server error (${response.status}): ${response.statusText || "Unknown error"}`;
     }
-    throw new Error(errorMessage);
+    if (response.status === 402 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("apex:paywall", { detail: errorData ?? { message: errorMessage } }));
+    }
+    const err = new Error(errorMessage) as any;
+    err.status = response.status;
+    err.data = errorData;
+    throw err;
   }
 
   return response.json();

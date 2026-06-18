@@ -16,7 +16,8 @@ import {
   Trash2,
   AlertTriangle,
   Send,
-  Coins
+  Coins,
+  ThumbsUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -94,6 +95,12 @@ const adminNavItems = [
     href: "/admin/error-logs",
     icon: AlertTriangle,
     description: "Generation & AI Failures"
+  },
+  {
+    title: "Content Feedback",
+    href: "/admin/feedback",
+    icon: ThumbsUp,
+    description: "User Ratings & Comments"
   },
   {
     title: "Analytics",

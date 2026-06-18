@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { socialPosts, articles, jobBatches } from "@/shared/schema";
 import { addSocialPostJob } from "@/lib/queue";
 import { debitCredits, refundCredits } from "@/lib/credits";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -236,6 +237,12 @@ export async function POST(request: NextRequest) {
         message: "Social post queued (resumed)",
         platforms: validatedData.platforms,
       });
+    }
+
+    // Paywall gate — plan-level check before credit debit
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
     // Debit FIRST — key is team-scoped to prevent cross-tenant collision

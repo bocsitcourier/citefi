@@ -19,6 +19,7 @@ import {
   KeyRound,
   CreditCard,
   Building2,
+  BarChart2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -63,6 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: "Agency Clients", href: "/agency", icon: Building2 },
       { title: "Client Dashboard", href: "/client-dashboard", icon: LayoutDashboard },
+      { title: "My Dashboard", href: "/client/usage", icon: BarChart2 },
     ],
   },
   {
@@ -123,11 +125,16 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   "site-map": "Site Maps",
   agency: "Agency Clients",
   "client-dashboard": "Client Dashboard",
+  client: "My Dashboard",
+  usage: "Usage",
+  billing: "Billing",
+  team: "Team",
   admin: "Admin",
   users: "Users",
   analytics: "Analytics",
   "activity-logs": "Activity Logs",
   "error-logs": "Error Logs",
+  feedback: "Content Feedback",
   "login-history": "Login History",
   sessions: "Sessions",
   health: "Health",

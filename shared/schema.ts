@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -2776,6 +2776,187 @@ export const rateLimitWindows = pgTable("rate_limit_windows", {
 }));
 
 export type RateLimitWindow = typeof rateLimitWindows.$inferSelect;
+
+// ============================================================================
+// Content Feedback — user thumbs-up / thumbs-down on generated content.
+// Hooks into the AI learning system via recordContentFeedback() when metricId
+// is provided (contentPerformanceMetrics row id from the generation event).
+// ============================================================================
+
+export const contentFeedback = pgTable("content_feedback", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
+  articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
+  socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  rating: varchar("rating", { length: 10 }).notNull(), // "up" | "down"
+  comment: text("comment"),
+  metricId: integer("metric_id"), // contentPerformanceMetrics.id for learning attribution
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index("content_feedback_team_id_idx").on(table.teamId),
+  contentTypeIdx: index("content_feedback_content_type_idx").on(table.contentType),
+  ratingIdx: index("content_feedback_rating_idx").on(table.rating),
+  createdAtIdx: index("content_feedback_created_at_idx").on(table.createdAt),
+}));
+
+export const insertContentFeedbackSchema = createInsertSchema(contentFeedback).omit({
+  id: true,
+  createdAt: true,
+});
+export type ContentFeedback = typeof contentFeedback.$inferSelect;
+export type InsertContentFeedback = z.infer<typeof insertContentFeedbackSchema>;
+
+// ============================================================================
+// Content Events — high-volume engagement + conversion event stream.
+// Ingested via public beacon (no auth) or authenticated conversion endpoint.
+// Stored with hashed IP — no raw PII.
+// ============================================================================
+
+export const contentEvents = pgTable("content_events", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
+  articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
+  socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  eventType: varchar("event_type", { length: 30 }).notNull(), // "view" | "click" | "share" | "conversion"
+  sessionId: varchar("session_id", { length: 100 }), // anonymous client session token
+  ipHash: varchar("ip_hash", { length: 64 }), // SHA-256 of IP for dedup; never raw IP
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index("content_events_team_id_idx").on(table.teamId),
+  eventTypeIdx: index("content_events_event_type_idx").on(table.eventType),
+  articleIdIdx: index("content_events_article_id_idx").on(table.articleId),
+  socialPostIdIdx: index("content_events_social_post_id_idx").on(table.socialPostId),
+  createdAtIdx: index("content_events_created_at_idx").on(table.createdAt),
+}));
+
+export const insertContentEventSchema = createInsertSchema(contentEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type ContentEvent = typeof contentEvents.$inferSelect;
+export type InsertContentEvent = z.infer<typeof insertContentEventSchema>;
+
+// ============================================================================
+// Client Intelligence — pre-computed engagement score snapshots derived from
+// content_events. One row per content item per team per window.
+// Recomputed on-demand by lib/client-intelligence-service.ts.
+// ============================================================================
+
+export const clientIntelligence = pgTable("client_intelligence", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
+  articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
+  socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  windowDays: integer("window_days").notNull().default(30),
+  // Raw event counts
+  views: integer("views").notNull().default(0),
+  clicks: integer("clicks").notNull().default(0),
+  shares: integer("shares").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  uniqueSessions: integer("unique_sessions").notNull().default(0),
+  // Derived metrics (0–1 ratios, 0–100 score)
+  ctr: real("ctr").notNull().default(0),
+  conversionRate: real("conversion_rate").notNull().default(0),
+  engagementScore: real("engagement_score").notNull().default(0),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index("client_intelligence_team_id_idx").on(table.teamId),
+  engagementIdx: index("client_intelligence_engagement_idx").on(table.engagementScore),
+  articleIdIdx: index("client_intelligence_article_id_idx").on(table.articleId),
+  socialPostIdIdx: index("client_intelligence_social_post_id_idx").on(table.socialPostId),
+}));
+
+export const insertClientIntelligenceSchema = createInsertSchema(clientIntelligence).omit({
+  id: true,
+  computedAt: true,
+});
+export type ClientIntelligence = typeof clientIntelligence.$inferSelect;
+export type InsertClientIntelligence = z.infer<typeof insertClientIntelligenceSchema>;
+
+// ============================================================================
+// Bayesian Decisioning — T016
+// Three tables: policies, arms (content variants), holdout assignments
+// ============================================================================
+
+export const decisionPolicies = pgTable("decision_policies", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 20 }).notNull().default("article"),
+  objective: varchar("objective", { length: 50 }).notNull().default("maximize_conversions"),
+  explorationRate: real("exploration_rate").notNull().default(0.1),
+  holdoutPercent: real("holdout_percent").notNull().default(0.1),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  dpTeamIdx: index("decision_policies_team_id_idx").on(table.teamId),
+}));
+
+export const insertDecisionPolicySchema = createInsertSchema(decisionPolicies).omit({
+  id: true,
+  createdAt: true,
+});
+export type DecisionPolicy = typeof decisionPolicies.$inferSelect;
+export type InsertDecisionPolicy = z.infer<typeof insertDecisionPolicySchema>;
+
+// ============================================================================
+
+export const decisionArms = pgTable("decision_arms", {
+  id: serial("id").primaryKey(),
+  policyId: integer("policy_id").notNull().references(() => decisionPolicies.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 20 }).notNull(),
+  articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
+  socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  label: varchar("label", { length: 100 }),
+  priorAlpha: real("prior_alpha").notNull().default(1.0),
+  priorBeta: real("prior_beta").notNull().default(1.0),
+  posteriorAlpha: real("posterior_alpha").notNull().default(1.0),
+  posteriorBeta: real("posterior_beta").notNull().default(1.0),
+  impressions: integer("impressions").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  lastUpdated: timestamp("last_updated").notNull().defaultNow(),
+}, (table) => ({
+  daPolIdx: index("decision_arms_policy_id_idx").on(table.policyId),
+  daTeamIdx: index("decision_arms_team_id_idx").on(table.teamId),
+}));
+
+export const insertDecisionArmSchema = createInsertSchema(decisionArms).omit({
+  id: true,
+  lastUpdated: true,
+});
+export type DecisionArm = typeof decisionArms.$inferSelect;
+export type InsertDecisionArm = z.infer<typeof insertDecisionArmSchema>;
+
+// ============================================================================
+
+export const holdoutAssignments = pgTable("holdout_assignments", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  policyId: integer("policy_id").notNull().references(() => decisionPolicies.id, { onDelete: "cascade" }),
+  visitorHash: varchar("visitor_hash", { length: 64 }).notNull(),
+  isHoldout: boolean("is_holdout").notNull().default(false),
+  armId: integer("arm_id").references(() => decisionArms.id, { onDelete: "set null" }),
+  // Outcome state machine for idempotent posterior updates:
+  // null → "impression" → "conversion" (one-way, no downgrade)
+  outcome: varchar("outcome", { length: 20 }),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+}, (table) => ({
+  haPolVisIdx: uniqueIndex("holdout_assignments_policy_visitor_idx").on(table.policyId, table.visitorHash),
+  haTeamIdx: index("holdout_assignments_team_id_idx").on(table.teamId),
+}));
+
+export const insertHoldoutAssignmentSchema = createInsertSchema(holdoutAssignments).omit({
+  id: true,
+  assignedAt: true,
+});
+export type HoldoutAssignment = typeof holdoutAssignments.$inferSelect;
+export type InsertHoldoutAssignment = z.infer<typeof insertHoldoutAssignmentSchema>;
 
 // ============================================================================
 

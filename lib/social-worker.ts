@@ -17,7 +17,7 @@ import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
-import { optimizedContentGenerator } from "./optimized-content-generator";
+import { runGenerationOrchestrator } from "./generation-orchestrator";
 
 // Platform character limits
 const CHAR_LIMITS = {
@@ -161,9 +161,10 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       })
       .where(eq(socialPosts.id, socialPostId));
 
-    // Fetch learned patterns once (shared across all platform variants) so that
-    // EMA/Wilson updates fire on the real patterns that influenced generation.
-    const socialEnhancement = postDetails?.teamId
+    // Fetch learned patterns once — only when critic loop is active so we never
+    // attribute patterns that didn't actually influence the generation run.
+    const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
+    const socialEnhancement = (!disableCriticLoop && postDetails?.teamId)
       ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL)
           .catch(() => ({ patternsUsed: [] as number[] }))
       : { patternsUsed: [] as number[] };
@@ -232,28 +233,32 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
 
         console.log(`✅ Gemini generated ${platform} post (${geminiResult.caption.length} chars)${location ? ` for ${location}` : ''}`);
 
-        // STAGE 1.5: Critic-in-the-loop repair
+        // STAGE 1.5: GenerationOrchestrator — critic-in-the-loop + patternsUsedJson attribution
         // Reviews the Gemini caption for structural / channel / humanness defects
         // and patches them before GPT enhancement. Bounded to 2 passes.
-        const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
-        if (!disableCriticLoop && postDetails?.teamId) {
+        // Controlled by DISABLE_CRITIC_LOOP=true env var (orchestrator handles flag internally).
+        // contentId=socialPostId so content_review_service.socialPostId field is set correctly.
+        if (postDetails?.teamId) {
           try {
-            const repairResult = await optimizedContentGenerator.reviewAndRepairContent(
-              postDetails.teamId,
-              "SOCIAL",
-              variant.id,
-              geminiResult.caption,
-              capturedPatternIds,
-              { topic: topic || prompt, location: location || undefined }
-            );
-            if (repairResult.repairs > 0) {
-              geminiResult.caption = repairResult.content;
+            const orchestratorResult = await runGenerationOrchestrator({
+              teamId: postDetails.teamId,
+              contentType: "SOCIAL",
+              contentId: socialPostId,
+              content: geminiResult.caption,
+              patternsUsed: capturedPatternIds,
+              brief: { topic: topic || prompt, location: location || undefined },
+              kind: "social",
+            });
+            if (orchestratorResult.repairs > 0) {
+              geminiResult.caption = orchestratorResult.content;
               console.log(
-                `🔧 Stage 1.5: Critic applied ${repairResult.repairs} repair(s) to ${platform} caption`
+                `🔧 Stage 1.5: Critic applied ${orchestratorResult.repairs} repair(s) to ${platform} caption`
               );
+            } else if (orchestratorResult.orchestrated) {
+              console.log(`✅ Stage 1.5: ${platform} caption passed critic review`);
             }
           } catch (criticError) {
-            console.warn(`⚠️ Social critic loop failed, continuing:`, (criticError as Error).message);
+            console.warn(`⚠️ Social orchestrator failed, continuing:`, (criticError as Error).message);
           }
         }
 
