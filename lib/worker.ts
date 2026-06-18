@@ -10,6 +10,7 @@ import {
   CLEANUP_QUEUE,
   SITE_CRAWL_QUEUE,
   CONTENT_PUBLISHING_QUEUE,
+  INTELLIGENCE_RESEARCH_QUEUE,
   type BatchJobData,
   type ArticleJobData,
   type SocialPostJobData,
@@ -19,6 +20,7 @@ import {
   type CleanupJobData,
   type SiteCrawlJobData,
   type PublishingJobData,
+  type IntelligenceResearchJobData,
   addArticleJob,
   addSocialPostJob,
   addImageGenerationJob,
@@ -110,7 +112,7 @@ export async function registerWorkers() {
         });
 
         // Statuses that mean "work is done — don't re-run"
-        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "CHATGPT_REVIEWED", "GEMINI_COMPLETE"];
+        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED"];
         // Statuses that mean "already queued — don't duplicate"
         const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
 
@@ -2169,6 +2171,37 @@ export async function registerWorkers() {
     console.log("✅ Content publishing worker registered (4 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register content publishing worker:", error);
+    throw error;
+  }
+
+  // ============================================================================
+  // INTELLIGENCE RESEARCH WORKER
+  // ============================================================================
+
+  console.log("🧠 Registering intelligence research worker for queue:", INTELLIGENCE_RESEARCH_QUEUE);
+  try {
+    try { await boss.createQueue(INTELLIGENCE_RESEARCH_QUEUE); } catch (_) { /* already exists */ }
+    console.log(`✅ Queue created/verified: ${INTELLIGENCE_RESEARCH_QUEUE}`);
+    await boss.work<IntelligenceResearchJobData>(
+      INTELLIGENCE_RESEARCH_QUEUE,
+      { batchSize: 1, teamSize: 2 } as any,
+      async (jobs) => {
+        for (const job of jobs) {
+          console.log(`🧠 Processing intelligence research job ${job.id}: team ${job.data.teamId} (${job.data.companyName})`);
+          try {
+            const { runIntelligenceResearch } = await import("./client-brand-profile-service");
+            await runIntelligenceResearch(job.data.teamId, job.data.websiteUrl, job.data.companyName);
+            console.log(`✅ Intelligence research job ${job.id} completed for team ${job.data.teamId}`);
+          } catch (error) {
+            console.error(`❌ Intelligence research job ${job.id} failed:`, error);
+            throw error;
+          }
+        }
+      }
+    );
+    console.log("✅ Intelligence research worker registered (2 concurrent workers)");
+  } catch (error) {
+    console.error("❌ CRITICAL: Failed to register intelligence research worker:", error);
     throw error;
   }
 

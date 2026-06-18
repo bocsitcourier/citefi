@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, ChevronLeft, Sparkles, Users } from "lucide-react";
+import { ChevronRight, ChevronLeft, Sparkles, Users, CheckCircle2, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Persona {
@@ -18,6 +18,11 @@ interface Persona {
   description: string | null;
   preferredTone: string;
   isDefault: number;
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export default function ContentWizard() {
@@ -40,6 +45,16 @@ export default function ContentWizard() {
   });
   const personas = personasData?.personas;
 
+  const { data: intelligenceData } = useQuery<{ profile: { status: string } | null }>({
+    queryKey: ["/api/intelligence"],
+    queryFn: async () => {
+      const res = await fetch("/api/intelligence", { headers: getAuthHeaders() });
+      if (!res.ok) return { profile: null };
+      return res.json();
+    },
+  });
+  const intelligenceActive = intelligenceData?.profile?.status === "complete";
+
   const steps = [
     { id: 1, title: "Topic & URL", description: "Define your content topic" },
     { id: 2, title: "Competitor Analysis", description: "Add competitor URLs" },
@@ -56,7 +71,6 @@ export default function ContentWizard() {
   };
 
   const handleGenerate = () => {
-    // Store in sessionStorage and redirect to dashboard
     sessionStorage.setItem("wizardData", JSON.stringify(formData));
     router.push("/dashboard");
   };
@@ -248,6 +262,39 @@ export default function ContentWizard() {
 
             {step === 4 && (
               <div className="space-y-4">
+                {/* Brand Intelligence awareness banner */}
+                {intelligenceActive ? (
+                  <div
+                    className="flex items-center gap-2 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800/40 rounded-md px-3 py-2 text-sm"
+                    data-testid="banner-intelligence-active"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                    <span className="text-green-800 dark:text-green-300 font-medium">Brand Intelligence active</span>
+                    <span className="text-green-700 dark:text-green-400 text-xs">— brand voice, policy, and competitive gaps will be injected automatically.</span>
+                  </div>
+                ) : (
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-2 bg-primary/5 border border-primary/10 rounded-md px-3 py-2 text-sm"
+                    data-testid="banner-intelligence-setup"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                      <span className="font-medium">Brand Intelligence not set up</span>
+                      <span className="text-muted-foreground text-xs hidden sm:inline">— set it up to inject brand voice into every article.</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => router.push("/intelligence")}
+                      data-testid="button-setup-intelligence-wizard"
+                    >
+                      Set up
+                      <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </div>
+                )}
+
                 <h3 className="font-semibold">Review Your Configuration</h3>
                 <div className="grid gap-3 p-4 bg-muted rounded-lg">
                   <div>

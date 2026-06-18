@@ -26,6 +26,7 @@ import {
   HumanizationConfig,
   HumanizationResult 
 } from "./deterministic-humanizer";
+import { getClientBrandContext } from "./client-brand-profile-service";
 
 const EMA_ALPHA = 0.1;
 const MIN_CONFIDENCE_SAMPLES = 5;
@@ -254,16 +255,24 @@ export class LearningService {
       confidence: Math.min(100, Math.round((s.trials / MIN_CONFIDENCE_SAMPLES) * 100)),
     }));
 
-    // Collect negative constraints from the content review ledger
-    const negativeConstraints = await this.collectNegativeConstraints(agent.teamId!, agent.contentType);
+    // Collect negative constraints + brand intelligence context in parallel
+    const [negativeConstraints, brandContext] = await Promise.all([
+      this.collectNegativeConstraints(agent.teamId!, agent.contentType),
+      getClientBrandContext(agent.teamId!),
+    ]);
 
     const promptEnhancements = this.buildPromptEnhancements(learnedPatterns);
+    // Prepend brand intelligence as the first enhancement so it takes
+    // precedence over pattern-based enhancements in the prompt.
+    const allEnhancements = brandContext
+      ? [brandContext, ...promptEnhancements]
+      : promptEnhancements;
 
     return {
       agentId: agent.id,
       contentType: agent.contentType,
       patterns: learnedPatterns,
-      promptEnhancements,
+      promptEnhancements: allEnhancements,
       negativeConstraints,
       modelConfig: {
         model: agent.primaryModel,

@@ -18,6 +18,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Loader2,
   Building2,
   Plus,
@@ -26,6 +31,9 @@ import {
   Users,
   ArrowRight,
   AlertTriangle,
+  Sparkles,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 
 interface ClientTeam {
@@ -42,6 +50,12 @@ interface AgencyData {
   agencyTeam: { id: number; name: string };
 }
 
+interface IntelligenceStatus {
+  status: string;
+  companyName: string;
+  lastRunAt: string | null;
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -56,6 +70,60 @@ async function fetchClients(): Promise<AgencyData> {
   return res.json();
 }
 
+function IntelBadge({ status, lastRunAt }: { status: string | undefined; lastRunAt: string | null | undefined }) {
+  if (!status) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className="text-xs gap-1 text-muted-foreground" data-testid="badge-intel-none">
+            <Sparkles className="w-3 h-3" />
+            No Intel
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>Brand Intelligence not set up for this client</TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (status === "complete") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className="text-xs gap-1 text-green-600 border-green-600/40 bg-green-50 dark:bg-green-950/20" data-testid="badge-intel-complete">
+            <CheckCircle2 className="w-3 h-3" />
+            Intel Active
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          Brand Intelligence active
+          {lastRunAt && ` · Updated ${new Date(lastRunAt).toLocaleDateString()}`}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (status === "running") {
+    return (
+      <Badge variant="outline" className="text-xs gap-1 text-primary border-primary/40" data-testid="badge-intel-running">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Researching…
+      </Badge>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <Badge variant="outline" className="text-xs gap-1 text-destructive border-destructive/40" data-testid="badge-intel-failed">
+        <AlertTriangle className="w-3 h-3" />
+        Intel Failed
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-xs gap-1 text-muted-foreground" data-testid="badge-intel-pending">
+      <Clock className="w-3 h-3" />
+      Pending
+    </Badge>
+  );
+}
+
 export default function AgencyPage() {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
@@ -67,6 +135,18 @@ export default function AgencyPage() {
     queryFn: fetchClients,
     retry: false,
   });
+
+  const { data: intelData } = useQuery<{ statuses: Record<number, IntelligenceStatus> }>({
+    queryKey: ["/api/intelligence/agency"],
+    queryFn: async () => {
+      const res = await fetch("/api/intelligence/agency", { headers: getAuthHeaders() });
+      if (!res.ok) return { statuses: {} };
+      return res.json();
+    },
+    enabled: !isLoading && !error && (data?.clients?.length ?? 0) > 0,
+  });
+
+  const intelStatuses = intelData?.statuses ?? {};
 
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -126,7 +206,6 @@ export default function AgencyPage() {
         throw new Error(err.error ?? "Failed to switch team");
       }
       toast({ title: "Team switched", description: `Now managing: ${clientName}` });
-      // Reload the page to apply the new team context
       window.location.href = "/home";
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -178,6 +257,8 @@ export default function AgencyPage() {
   const activeClients = data?.clients.filter((c) => c.clientStatus === "active") ?? [];
   const archivedClients = data?.clients.filter((c) => c.clientStatus === "archived") ?? [];
 
+  const intelActiveCount = activeClients.filter((c) => intelStatuses[c.id]?.status === "complete").length;
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -211,6 +292,18 @@ export default function AgencyPage() {
             <p className="text-2xl font-bold mt-1">{archivedClients.length}</p>
           </CardContent>
         </Card>
+        {activeClients.length > 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                Intel Active
+              </p>
+              <p className="text-2xl font-bold mt-1">{intelActiveCount}</p>
+              <p className="text-xs text-muted-foreground">of {activeClients.length} clients</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Active clients */}
@@ -232,50 +325,56 @@ export default function AgencyPage() {
         <div className="space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Active</h2>
           <div className="grid gap-3">
-            {activeClients.map((client) => (
-              <Card key={client.id} data-testid={`card-client-${client.id}`}>
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 text-primary" />
+            {activeClients.map((client) => {
+              const intel = intelStatuses[client.id];
+              return (
+                <Card key={client.id} data-testid={`card-client-${client.id}`}>
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                          <Building2 className="w-4 h-4 text-primary" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium">{client.name}</p>
+                            <IntelBadge status={intel?.status} lastRunAt={intel?.lastRunAt} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Created {new Date(client.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{client.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Created {new Date(client.createdAt).toLocaleDateString()}
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => archiveMutation.mutate({ id: client.id, status: "archived" })}
+                          disabled={archiveMutation.isPending}
+                          data-testid={`button-archive-client-${client.id}`}
+                        >
+                          <Archive className="w-3 h-3 mr-1" />
+                          Archive
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSwitchTeam(client.id, client.name)}
+                          disabled={switchingTo === client.id}
+                          data-testid={`button-switch-client-${client.id}`}
+                        >
+                          {switchingTo === client.id ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          ) : (
+                            <ArrowRight className="w-3 h-3 mr-1" />
+                          )}
+                          Manage
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => archiveMutation.mutate({ id: client.id, status: "archived" })}
-                        disabled={archiveMutation.isPending}
-                        data-testid={`button-archive-client-${client.id}`}
-                      >
-                        <Archive className="w-3 h-3 mr-1" />
-                        Archive
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => handleSwitchTeam(client.id, client.name)}
-                        disabled={switchingTo === client.id}
-                        data-testid={`button-switch-client-${client.id}`}
-                      >
-                        {switchingTo === client.id ? (
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        ) : (
-                          <ArrowRight className="w-3 h-3 mr-1" />
-                        )}
-                        Manage
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}

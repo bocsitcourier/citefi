@@ -2959,6 +2959,39 @@ export type HoldoutAssignment = typeof holdoutAssignments.$inferSelect;
 export type InsertHoldoutAssignment = z.infer<typeof insertHoldoutAssignmentSchema>;
 
 // ============================================================================
+// Client Brand Profiles — Task #15 Client Intelligence Engine
+// One row per team. Stores the full 8-dimension brand research profile used to
+// inject persistent brand intelligence into every content generation call.
+// ============================================================================
+
+export const clientBrandProfiles = pgTable("client_brand_profiles", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().unique().references(() => teams.id, { onDelete: "cascade" }),
+  websiteUrl: text("website_url").notNull(),
+  companyName: varchar("company_name", { length: 255 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | complete | failed
+  progressStep: varchar("progress_step", { length: 50 }), // website | competitors | gaps | painpoints | assembling
+  profileJson: jsonb("profile_json"),        // ClientBrandProfileJson — 8 dimensions + policyPack + exemplars
+  rawResearchJson: jsonb("raw_research_json"), // Raw Gemini/Brave output for debug/refresh
+  manualOverridesJson: jsonb("manual_overrides_json"), // Client corrections; deepMerged at read time (overrides win)
+  errorMessage: text("error_message"),
+  lastRunAt: timestamp("last_run_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  cbpTeamIdIdx: index("cbp_team_id_idx").on(table.teamId),
+  cbpStatusIdx: index("cbp_status_idx").on(table.status),
+}));
+
+export const insertClientBrandProfileSchema = createInsertSchema(clientBrandProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ClientBrandProfile = typeof clientBrandProfiles.$inferSelect;
+export type InsertClientBrandProfile = z.infer<typeof insertClientBrandProfileSchema>;
+
+// ============================================================================
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

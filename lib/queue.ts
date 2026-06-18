@@ -104,6 +104,13 @@ export const VIDEO_IDEA_GENERATION_QUEUE = "video-idea-generation";
 export const CLEANUP_QUEUE = "cleanup";
 export const SITE_CRAWL_QUEUE = "site-crawl";
 export const CONTENT_PUBLISHING_QUEUE = "content-publishing";
+export const INTELLIGENCE_RESEARCH_QUEUE = "intelligence-research";
+
+export interface IntelligenceResearchJobData {
+  teamId: number;
+  websiteUrl: string;
+  companyName: string;
+}
 
 export interface PublishingJobData {
   dbJobId: number;
@@ -208,6 +215,7 @@ async function createPgBoss(): Promise<PgBoss> {
     CLEANUP_QUEUE,
     SITE_CRAWL_QUEUE,
     CONTENT_PUBLISHING_QUEUE,
+    INTELLIGENCE_RESEARCH_QUEUE,
   ];
   for (const queueName of ALL_QUEUES) {
     try {
@@ -475,6 +483,24 @@ export async function addPublishingJob(data: PublishingJobData) {
     return jobId;
   } catch (error) {
     console.error(`❌ Failed to queue publishing job ${data.dbJobId}:`, error);
+    throw error;
+  }
+}
+
+export async function addIntelligenceResearchJob(data: IntelligenceResearchJobData) {
+  try {
+    const boss = await getPgBoss();
+    try { await boss.createQueue(INTELLIGENCE_RESEARCH_QUEUE); } catch { /* already exists */ }
+    const jobId = await boss.send(INTELLIGENCE_RESEARCH_QUEUE, data, {
+      retryLimit: 2,
+      retryDelay: 30,
+      retryBackoff: true,
+      expireInSeconds: 600, // 10 minutes — Gemini + Brave research pipeline
+    });
+    console.log(`🧠 Intelligence research job queued: ${jobId} for team ${data.teamId} (${data.companyName})`);
+    return jobId;
+  } catch (error) {
+    console.error(`❌ Failed to queue intelligence research for team ${data.teamId}:`, error);
     throw error;
   }
 }

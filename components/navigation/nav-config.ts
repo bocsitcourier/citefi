@@ -20,6 +20,7 @@ import {
   CreditCard,
   Building2,
   BarChart2,
+  Sparkles,
 } from "lucide-react";
 
 export interface NavItem {
@@ -55,6 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: "Audience & AI",
     items: [
+      { title: "Brand Intelligence", href: "/intelligence", icon: Sparkles },
       { title: "Personas", href: "/personas", icon: Users },
       { title: "AI Learning", href: "/learning", icon: Brain },
     ],
@@ -123,6 +125,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   job: "Job Detail",
   schedules: "Schedules",
   "site-map": "Site Maps",
+  intelligence: "Brand Intelligence",
   agency: "Agency Clients",
   "client-dashboard": "Client Dashboard",
   client: "My Dashboard",
