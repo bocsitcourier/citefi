@@ -503,10 +503,10 @@ async function analyzeGapsAndFailures(
     .map(c => `- ${c.name} (${c.url}): ${c.positioningStatement}\n  Strengths: ${c.strengths.join(", ")}\n  Weaknesses vs client: ${c.weaknesses.join(", ")}`)
     .join("\n");
 
+  const businessType = positioning.coreServices[0]?.name ?? "this business type";
   const redditSection = redditPainPoints.length > 0
     ? `\nREDDIT VOICE-OF-CUSTOMER (real posts about "${businessType}" pain points):\n${redditPainPoints.map(p => `- "${p}"`).join("\n")}`
     : "";
-  const businessType = positioning.coreServices[0]?.name ?? "this business type";
 
   const prompt = `You are a strategic marketing consultant. Perform a deep competitive gap and customer psychology analysis.
 

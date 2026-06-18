@@ -107,32 +107,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(paywallErrorBody(paywallCheck), { status: 402 });
     }
 
-    // Intelligence onboarding gate — block first batch if no Brand Intelligence profile exists.
-    // Teams with existing completed articles are assumed to be past onboarding and are not gated.
-    // Pass header X-Skip-Intelligence-Gate: 1 to proceed without a profile.
+    // Intelligence onboarding gate — block first batch until Brand Intelligence is complete.
+    // Teams with existing articles are assumed past onboarding and are not gated.
+    // Pass header X-Skip-Intelligence-Gate: 1 to proceed without a completed profile.
     const skipIntelGate = request.headers.get("X-Skip-Intelligence-Gate") === "1";
     if (!skipIntelGate) {
-      const [intelRow] = await db
-        .select({ status: clientBrandProfiles.status })
-        .from(clientBrandProfiles)
-        .where(eq(clientBrandProfiles.teamId, teamId))
-        .limit(1);
+      // Only gate teams with no previous articles (true first-batch scenario)
+      const [articleCountRow] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(articles)
+        .where(eq(articles.teamId, teamId));
+      const isFirstBatch = !articleCountRow || (articleCountRow.count ?? 0) === 0;
 
-      if (!intelRow) {
-        // Only gate teams that have no previously completed articles (true first-batch scenario)
-        const [articleCountRow] = await db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(articles)
-          .where(eq(articles.teamId, teamId));
-        const isFirstBatch = !articleCountRow || (articleCountRow.count ?? 0) === 0;
+      if (isFirstBatch) {
+        const [intelRow] = await db
+          .select({ status: clientBrandProfiles.status })
+          .from(clientBrandProfiles)
+          .where(eq(clientBrandProfiles.teamId, teamId))
+          .limit(1);
 
-        if (isFirstBatch) {
+        // Block if no profile exists OR profile exists but hasn't reached "complete"
+        const intelComplete = intelRow?.status === "complete";
+        if (!intelComplete) {
           await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+          const intelStatus = intelRow?.status ?? "not_started";
           return NextResponse.json({
-            error: "Brand Intelligence not configured",
+            error: "Brand Intelligence not ready",
             intelligenceGate: true,
+            intelligenceStatus: intelStatus,
             intelligenceUrl: "/intelligence",
-            message: "Set up Brand Intelligence to get brand-aware content. To proceed without it, resend with the X-Skip-Intelligence-Gate: 1 header.",
+            message: intelStatus === "running"
+              ? "Brand Intelligence research is still running — please wait a few minutes before submitting."
+              : intelStatus === "failed"
+              ? "Brand Intelligence research failed. Please retry from /intelligence or skip to proceed without it."
+              : "Set up Brand Intelligence to get brand-aware content. To proceed without it, resend with the X-Skip-Intelligence-Gate: 1 header.",
           }, { status: 428 }); // 428 Precondition Required
         }
       }

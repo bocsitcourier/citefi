@@ -6,7 +6,8 @@ import { eq, and, isNull, inArray } from "drizzle-orm";
 
 /**
  * GET /api/intelligence/agency
- * Returns brand-intelligence statuses for all client teams under the current agency.
+ * Returns brand-intelligence statuses + top competitive gap preview
+ * for all client teams under the current agency.
  * The caller must be an admin of the parent agency team.
  */
 export async function GET(req: NextRequest) {
@@ -31,16 +32,32 @@ export async function GET(req: NextRequest) {
         status: clientBrandProfiles.status,
         companyName: clientBrandProfiles.companyName,
         lastRunAt: clientBrandProfiles.lastRunAt,
+        profileJson: clientBrandProfiles.profileJson,
       })
       .from(clientBrandProfiles)
       .where(inArray(clientBrandProfiles.teamId, clientIds));
 
-    const statuses: Record<number, { status: string; companyName: string; lastRunAt: string | null }> = {};
+    const statuses: Record<number, {
+      status: string;
+      companyName: string;
+      lastRunAt: string | null;
+      topGaps: string[];
+    }> = {};
+
     for (const p of profiles) {
+      // Extract top 3 competitive opportunity topics from the completed profile
+      let topGaps: string[] = [];
+      if (p.status === "complete" && p.profileJson) {
+        const json = p.profileJson as any;
+        const opportunityTopics: string[] = json?.competitiveGaps?.opportunityTopics ?? [];
+        topGaps = opportunityTopics.slice(0, 3);
+      }
+
       statuses[p.teamId] = {
         status: p.status,
         companyName: p.companyName,
         lastRunAt: p.lastRunAt ? p.lastRunAt.toISOString() : null,
+        topGaps,
       };
     }
 
