@@ -6,3 +6,4 @@
 - [T004 auth test patterns](t004-auth-tests.md) — node --env-file + tsx/esm runner; jti fix for concurrent logins; TEST-NET-1/2 IP separation; /api/auth/me nests under body.user; waitForServer() required.
 - [Public routes config](public-routes.md) — PUBLIC_ROUTES in components/navigation/nav-config.ts controls client-side auth redirect; add every marketing/public page here or it redirects to login.
 - [Journey orchestrator auth pattern](journey-orchestrator-auth.md) — requireTeamMember gives team-membership role; cross-team admin must call requireAdmin(req) separately; inline tx inserts in bootstrap; db.execute dual-driver row access.
+- [Turbopack PostCSS ESM fix](turbopack-postcss-esm.md) — require() in tailwind.config.ts hangs Turbopack's ESM worker; use ESM imports + explicit config path in postcss.config.js.
