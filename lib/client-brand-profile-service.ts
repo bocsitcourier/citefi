@@ -212,21 +212,56 @@ async function isSsrfSafeUrl(rawUrl: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Fetches a URL with manual redirect following, validating each hop against
+ * the SSRF denylist so a public URL cannot redirect to an internal target.
+ * Max 5 hops; aborts after 12 s per hop.
+ */
+async function safeFetchPageWithRedirects(
+  url: string,
+  maxRedirects = 5
+): Promise<Response | null> {
+  let current = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (!(await isSsrfSafeUrl(current))) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12_000);
+    let res: Response;
+    try {
+      res = await fetch(current, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "ApexContentBot/1.0 (Brand Intelligence Analyzer)",
+          "Accept": "text/html,application/xhtml+xml",
+        },
+        redirect: "manual", // never let the runtime follow redirects silently
+      });
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+    clearTimeout(timer);
+
+    // Follow 3xx explicitly after validating the destination
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) return null;
+      try {
+        current = new URL(location, current).href;
+      } catch {
+        return null;
+      }
+      continue; // will SSRF-check the new URL at the top of the loop
+    }
+    return res;
+  }
+  return null; // exceeded max redirect hops
+}
+
 async function safeFetchPage(url: string): Promise<string | null> {
   try {
-    if (!(await isSsrfSafeUrl(url))) return null;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "ApexContentBot/1.0 (Brand Intelligence Analyzer)",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-    });
-    clearTimeout(timeout);
-    if (!response.ok) return null;
+    const response = await safeFetchPageWithRedirects(url);
+    if (!response || !response.ok) return null;
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("text/html")) return null;
     const text = await response.text();
@@ -392,12 +427,8 @@ Return a JSON object with EXACTLY this structure (all fields required):
 async function fetchCompetitorPageMeta(url: string): Promise<string> {
   if (!url) return "";
   try {
-    if (!(await isSsrfSafeUrl(url))) return "";
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(5000),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentBot/1.0)" },
-    });
-    if (!res.ok) return "";
+    const res = await safeFetchPageWithRedirects(url);
+    if (!res || !res.ok) return "";
     const html = await res.text();
     // Extract meta description (both attribute orderings)
     const descMatch =

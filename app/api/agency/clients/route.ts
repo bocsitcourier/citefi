@@ -22,24 +22,30 @@ export async function GET(req: NextRequest) {
   try {
     const { teamId } = await requireTeamAdmin(req);
 
-    const [agencyTeam, clients] = await Promise.all([
-      getAgencyTeam(teamId),
-      db
-        .select({
-          id: teams.id,
-          publicId: teams.publicId,
-          name: teams.name,
-          clientStatus: teams.clientStatus,
-          createdAt: teams.createdAt,
-        })
-        .from(teams)
-        .where(and(eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
-        .orderBy(teams.createdAt),
-    ]);
+    const agencyTeam = await getAgencyTeam(teamId);
+    if (!agencyTeam) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    if (agencyTeam.billingPlan !== "agency") {
+      return NextResponse.json(
+        { error: "Agency plan required to access client teams", upgradeUrl: "/settings/billing" },
+        { status: 403 }
+      );
+    }
+
+    const clients = await db
+      .select({
+        id: teams.id,
+        publicId: teams.publicId,
+        name: teams.name,
+        clientStatus: teams.clientStatus,
+        createdAt: teams.createdAt,
+      })
+      .from(teams)
+      .where(and(eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
+      .orderBy(teams.createdAt);
 
     return NextResponse.json({
       clients,
-      agencyTeam: agencyTeam ? { id: agencyTeam.id, name: agencyTeam.name } : null,
+      agencyTeam: { id: agencyTeam.id, name: agencyTeam.name },
     });
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {

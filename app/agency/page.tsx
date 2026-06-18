@@ -54,6 +54,7 @@ interface IntelligenceStatus {
   status: string;
   companyName: string;
   lastRunAt: string | null;
+  topGaps: string[];
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -352,6 +353,15 @@ export default function AgencyPage() {
                           <p className="text-xs text-muted-foreground">
                             Created {new Date(client.createdAt).toLocaleDateString()}
                           </p>
+                          {intel?.topGaps && intel.topGaps.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {intel.topGaps.map((gap, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs font-normal" data-testid={`badge-gap-${client.id}-${i}`}>
+                                  {gap}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
