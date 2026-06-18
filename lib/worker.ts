@@ -1910,7 +1910,7 @@ export async function registerWorkers() {
         try {
           const { db: _db } = await import("./db");
           const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
-          const { eq, and, gte, count, avg, sql: drizzleSql, desc: drizzleDesc, isNotNull: drizzleIsNotNull } = await import("drizzle-orm");
+          const { eq, and, gte, count, avg, max, sql: drizzleSql, desc: drizzleDesc, isNotNull: drizzleIsNotNull } = await import("drizzle-orm");
 
           const allTeams = await _db.select({ id: teams.id }).from(teams);
           const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
@@ -1921,13 +1921,21 @@ export async function registerWorkers() {
             const articleStats = await _db
               .select({
                 articleId: contentEvents.articleId,
+                // views = page_view + view events (all entry points)
                 views: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('view','page_view') THEN 1 END`),
-                clicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('click','cta_click') THEN 1 END`),
+                // ctaClicks = intentful CTA clicks (most valuable engagement signal)
+                ctaClicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'cta_click' THEN 1 END`),
+                // outboundClicks = all link-out clicks including non-CTA
+                outboundClicks: count(drizzleSql`CASE WHEN ${contentEvents.eventType} IN ('click','cta_click') THEN 1 END`),
                 shares: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'share' THEN 1 END`),
                 conversions: count(drizzleSql`CASE WHEN ${contentEvents.eventType} = 'conversion' THEN 1 END`),
+                // readComplete: sessions where visitor scrolled to end and read_complete fired
                 readCompletes: count(drizzleSql`CASE WHEN ${contentEvents.readComplete} = TRUE THEN 1 END`),
                 bounces: count(drizzleSql`CASE WHEN ${contentEvents.bounced} = TRUE THEN 1 END`),
-                avgScrollPct: avg(contentEvents.scrollPct),
+                // fatigueSignals: sessions where visitor showed content-fatigue behaviour
+                fatigueSignals: count(drizzleSql`CASE WHEN ${contentEvents.fatigueSignal} = TRUE THEN 1 END`),
+                // maxScrollPct: best scroll depth reached (not average) — spec requirement
+                maxScrollPct: max(contentEvents.scrollPct),
                 avgEngagedSec: avg(contentEvents.engagedSec),
               })
               .from(contentEvents)
@@ -1942,27 +1950,42 @@ export async function registerWorkers() {
             for (const stat of articleStats) {
               if (!stat.articleId) continue;
               const totalViews = Number(stat.views) || 0;
-              const totalClicks = Number(stat.clicks) || 0;
+              const totalClicks = Number(stat.outboundClicks) || 0;
+              const totalCtaClicks = Number(stat.ctaClicks) || 0;
+              // readComplete flag: rate of sessions that fired the read_complete beacon event
               const readCompleteCount = Number(stat.readCompletes) || 0;
               const readCompleteRate = totalViews > 0 ? readCompleteCount / totalViews : 0;
               const bounceRateDecimal = totalViews > 0 ? Number(stat.bounces) / totalViews : 0;
-              const ctr = totalViews > 0 ? totalClicks / totalViews : 0;
+              const ctaRate = totalViews > 0 ? totalCtaClicks / totalViews : 0;
               const totalConversions = Number(stat.conversions) || 0;
               const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
-              const avgScrollPct = Math.round(Number(stat.avgScrollPct) || 0);
+              const fatigueRate = totalViews > 0 ? Number(stat.fatigueSignals) / totalViews : 0;
+              // scrollDepth = max scroll pct reached (stored in readabilityScore — best proxy for content depth engagement)
+              const scrollDepth = Math.round(Number(stat.maxScrollPct) || 0);
+              // qualityScore: readComplete(40) + non-bounce(20) + CTA click rate(20) + conversion rate(20)
+              // fatigue signals reduce quality: each 10% fatigue rate subtracts 5 points
               const qualityScore = Math.round(Math.min(100,
-                readCompleteRate * 40 + (1 - bounceRateDecimal) * 20 + ctr * 20 + conversionRate * 20
+                readCompleteRate * 40 +
+                (1 - bounceRateDecimal) * 20 +
+                ctaRate * 20 +
+                conversionRate * 20 -
+                fatigueRate * 5
               ));
+              // eatScore: readComplete rate × 100 — measures E-E-A-T proxy (did reader trust content enough to finish?)
               const eatScore = Math.round(readCompleteRate * 100);
-              const readabilityScore = avgScrollPct;
+              // readabilityScore: max scroll depth reached — measures how far into the content readers get
+              const readabilityScore = scrollDepth;
               const engagementPayload = {
                 views: totalViews,
-                clicks: totalClicks,
+                // clicks column stores CTA clicks (intentful engagement, not all outbound)
+                clicks: totalCtaClicks,
                 shares: Number(stat.shares) || 0,
                 bounceRate: Math.round(bounceRateDecimal * 100),
                 timeOnPage: Math.round(Number(stat.avgEngagedSec) || 0),
                 qualityScore,
+                // eatScore = readCompleteRate × 100 (% of sessions that triggered read_complete)
                 eatScore,
+                // readabilityScore = max scroll depth reached in this window (0–100)
                 readabilityScore,
                 updatedAt: new Date(),
               };
@@ -2002,9 +2025,10 @@ export async function registerWorkers() {
               console.log(
                 `[CONVERSION_LABEL] teamId=${team.id} articleId=${stat.articleId} ` +
                 `views=${totalViews} readCompleteRate=${readCompleteRate.toFixed(3)} ` +
-                `bounceRate=${bounceRateDecimal.toFixed(3)} avgScrollPct=${avgScrollPct} ` +
+                `bounceRate=${bounceRateDecimal.toFixed(3)} scrollDepth=${scrollDepth}% ` +
+                `ctaRate=${ctaRate.toFixed(3)} fatigueRate=${fatigueRate.toFixed(3)} ` +
                 `convRate=${conversionRate.toFixed(4)} qualityScore=${qualityScore} ` +
-                `eatScore=${eatScore} readabilityScore=${readabilityScore} ` +
+                `eatScore=${eatScore} scrollDepthStored=${readabilityScore} ` +
                 `${existingRow ? "updated_attribution_row" : "inserted_standalone_snapshot"}`
               );
               labeledCount++;
