@@ -196,7 +196,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   
   if (!authResult) {
     const error: any = new Error("Authentication required");
-    error.status = 401;
+    error.statusCode = 401;
     throw error;
   }
 
@@ -208,7 +208,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
 
   if (!user) {
     const error: any = new Error("User not found");
-    error.status = 404;
+    error.statusCode = 404;
     throw error;
   }
 
@@ -248,7 +248,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     // teamContextId is set but the user no longer has access — hard-fail with 403.
     // Do NOT fall through to a different team; the caller explicitly targeted this context.
     const error: any = new Error("Access denied: team context is no longer authorized");
-    error.status = 403;
+    error.statusCode = 403;
     throw error;
   }
 
@@ -261,7 +261,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
   
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: User must be assigned to a team");
-    error.status = 403;
+    error.statusCode = 403;
     throw error;
   }
   
@@ -281,14 +281,14 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
 
   if (!authResult) {
     const error: any = new Error("Authentication required");
-    error.status = 401;
+    error.statusCode = 401;
     throw error;
   }
 
   const [user] = await db.select().from(users).where(eq(users.id, authResult.userId)).limit(1);
   if (!user) {
     const error: any = new Error("User not found");
-    error.status = 404;
+    error.statusCode = 404;
     throw error;
   }
 
@@ -331,7 +331,7 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
 
     // teamContextId set but not admin — hard-fail, do not fall through
     const ctxError: any = new Error("Access denied: insufficient privileges for requested team context");
-    ctxError.status = 403;
+    ctxError.statusCode = 403;
     throw ctxError;
   }
 
@@ -344,7 +344,7 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
       .limit(1);
     if (!teamMembership?.teamId) {
       const error: any = new Error("Access denied: No team membership");
-      error.status = 403;
+      error.statusCode = 403;
       throw error;
     }
     return { userId: user.id, teamId: teamMembership.teamId };
@@ -359,13 +359,13 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
 
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: No team membership");
-    error.status = 403;
+    error.statusCode = 403;
     throw error;
   }
 
   if (teamMembership.role !== "admin") {
     const error: any = new Error("Access denied: Only team admins can manage this resource");
-    error.status = 403;
+    error.statusCode = 403;
     throw error;
   }
 

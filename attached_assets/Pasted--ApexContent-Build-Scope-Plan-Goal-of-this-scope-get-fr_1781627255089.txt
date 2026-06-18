@@ -1,0 +1,113 @@
+# ApexContent Build Scope & Plan
+
+**Goal of this scope:** get from "content generator with bugs" to "self-improving content engine that learns from real conversions and tells you what's working." Three milestones. Everything past them is explicitly deferred.
+
+**Sizing:** S ≈ hours, M ≈ a day or two, L ≈ several days. Calendar time depends on team size — a solo dev runs these mostly serially; 2–3 people parallelize the three tracks (Stabilize / Signal / Surface).
+
+**The critical path long pole is B2 (conversion ingestion).** Start scoping it early even though it lands later.
+
+---
+
+## MILESTONE A — Stabilize & Wire
+*Make the app reliably usable and turn on the learning loop that's already designed.*
+
+**Why first:** open bugs block usage; the Creative Agent's self-improvement is designed but not wired.
+
+| # | Ticket | Why | Size | Depends on |
+|---|---|---|---|---|
+| A1 | Fix login loop (cookie `SameSite=None;Secure` conditional in prod vs preview; confirm via standalone-tab test) | Can't use the app in the Replit preview otherwise | S | — |
+| A2 | Separate worker process from HTTP server (`npm run workers`, drop `shell:true`, fix port release on shutdown) | A crashing worker currently takes down the API | M | — |
+| A3 | Integrate SmartOpenAIClient (30s timeout, 15 concurrent, retries, circuit breaker) across all model calls | Stops 3-min hangs + rate-limit backlog | M | — |
+| A4 | Add `/api/health` (DB + queue + OpenAI checks, unauthenticated) | Fastest way to diagnose outages | S | A2, A3 |
+| A5 | Migrations: `contentReviews` + `patternDimensionStats` | Tables the review/learning loop writes to | S | — |
+| A6 | Wire `callModel` (generator) + `callJudgeModel` (cross-model: Gemini generates → GPT judges) | Review pipeline + generator are stubbed without these | M | A3 |
+| A7 | Rewrite `buildOptimizationContext` (Wilson per-dimension ranking, exploration slot, `[AVOID]` negative constraints) | Fixes fake-confidence + cold-start deadlock; injects learnings | M | A5 |
+| A8 | Route `article-generator`/`social-generator` through `OptimizedContentGenerator` (the injection point + record `patternsUsedJson`) | Without this, agents decorate but never learn | M | A6, A7 |
+
+**Definition of done:** You can log in. Workers can't crash the API. Generation runs *through* the agent → content gets reviewed → patterns score per-dimension → avoid-constraints inject → the exact patterns used are recorded. The Creative Agent is now real and self-improving on the *judge* signal.
+
+---
+
+## MILESTONE B — The Conversion Signal *(Phase 0 of the super tool)*
+*Make the system learn from reality, not just its own opinion.*
+
+**Why second:** every strategic conversation came back to this. Until conversion data flows in, it's a content tool, not a marketing tool.
+
+| # | Ticket | Why | Size | Depends on |
+|---|---|---|---|---|
+| B1 | **Decision:** pick ONE channel with clean attribution (recommend: a newsletter/email layer, or paid social if ad budget exists) | Decisioning only works where distribution is controllable + outcome attributable | S | — |
+| B2 | **Conversion event ingestion** — webhook/pixel/CRM/analytics integration that ties a conversion back to the content that drove it | **The spine.** This is what makes "marketing tool" true | **L** | B1 |
+| B3 | Upgrade `EngagementScoringService` → `ConversionLabeler` (outcome = conversion; keep maturity + reach gates; percentile/threshold cut) | Turns raw outcomes into per-pattern success labels | M | B2 |
+| B4 | Backfill run: label matured content, populate the engagement/conversion dimension in `patternDimensionStats` | Seeds the engagement dimension with real data | S | B3, A5 |
+| B5 | Run `mineCorpus` (deterministic + factuality only, no judge) over the backlog | Cheaply seeds the *quality* dimensions from existing content | S | A6, A5 |
+
+**Definition of done:** Real conversion outcomes flow into pattern scores. The engagement dimension is owned by reality; the quality dimensions are seeded from your existing corpus. The loop now learns from outcomes.
+
+**⚠️ B2 is the highest-risk, highest-effort item in this whole scope.** Scope it early. If the integration or attribution proves hard on the chosen channel, that's a signal to pick a simpler channel (email > organic) — not to skip the milestone.
+
+---
+
+## MILESTONE C — Data Agent Surface *(Phase 1 of the super tool)*
+*Make it demoable as a marketing tool — "what's working, for whom, what to do next."*
+
+**Why third:** mostly built (the monitor exists); this is the surface that makes it sellable beyond "a generator."
+
+| # | Ticket | Why | Size | Depends on |
+|---|---|---|---|---|
+| C1 | Insights API: expose `LearningMonitorService.snapshot()` (leaderboards, drift, top defects) | The data layer for the UI | M | A7, B4 |
+| C2 | "Next best action" recommendation logic (rules over leaderboards/drift/defects → concrete suggestions) | Mirrors the "Compass / next best action" pattern; the agentic feel | M | C1 |
+| C3 | Dashboard UI: per-dimension leaderboards, drift alerts, active defects, what's-working | Where users *see* the system learning | M | C1 |
+| C4 | *(optional, bridges to Phase 2)* per-cohort cut of leaderboards, if conversion data supports it | Early WHO dimension; de-risks Strategy Agent later | M | C1, B3 |
+
+**Definition of done:** A user sees what content patterns are winning, where quality is drifting, what mistakes keep recurring, and what to do next. The product is now a *marketing intelligence* tool, not a content generator. **Demoable.**
+
+---
+
+## Explicitly OUT of scope (defer to Phase 2+)
+
+Do **not** build these yet — they're gated on A/B/C shipping and on having volume + a trustworthy signal:
+
+- **Decisioning Agent / live bandit** (Thompson sampling, real-time traffic reallocation) — needs an owned/paid channel live with volume first.
+- **Strategy Agent / full cohort prediction** — C4 is the lightweight bridge; the full version waits.
+- **Additional channels, localization, cadence/timing (WHEN)** — Phase 4 expansion.
+- **`generationMemory` / few-shot exemplars** — improves quality but is *not* on the critical path. Defer; revisit after C.
+- **Security-utils / entity-service / API-refactor** from the earlier audit — real but not blocking; fold in opportunistically, not as milestone work.
+
+**Phase 2 entry gate:** A, B, C all shipped + conversion signal validated against human spot-checks + one owned channel live with enough volume to run bandits.
+
+---
+
+## Critical path & parallelization
+
+```
+A1 ─┐
+A2 ─┼─→ A4
+A3 ─┘        ╲
+A5 ──→ A7 ──→ A8 ──→ (Milestone A done)
+A6 ──────────┘        ╲
+                       C1 ─→ C2 ─→ C3   (Milestone C)
+B1 ─→ B2 ─→ B3 ─→ B4 ─┘
+              └─→ (Milestone B done)
+A6,A5 ─→ B5 ─┘
+```
+
+- **Solo dev:** A → B → C, roughly serial. Within A, do A1–A4 (stabilize) before A5–A8 (wire).
+- **2–3 people:** one owns Stabilize (A1–A4), one owns the learning wiring (A5–A8 + B5), one starts the B2 integration immediately (the long pole). C waits on A7 + B4.
+
+---
+
+## Risks & gates
+
+1. **B2 (conversion ingestion) is the make-or-break.** If you can't cleanly attribute conversion on any channel, the "marketing tool" thesis stalls — fall back to a simpler channel rather than a murkier signal. Gate everything in C on B working.
+2. **Signal quality before sophistication.** Once B4 lands, spot-check the conversion labels against your own judgment before trusting any leaderboard. A confident dashboard on a bad signal is worse than no dashboard.
+3. **Scope creep toward Phase 2.** The pull to build the "cool" live-bandit decisioning before the signal is solid will be strong. Resist. The bandit on a bad signal optimizes toward garbage faster.
+4. **Don't let the stubs linger.** `callModel`, `persistContent`, `retrieveExemplars` are wire-to-existing tasks (A6/A8). Leaving them stubbed silently breaks the whole loop.
+
+---
+
+## Where to start (the first concrete moves)
+
+1. **A1** — run the standalone-tab login test; if it loops only in preview, ship the cookie fix. (Hours, unblocks everything.)
+2. **A5** — generate + run the two migrations. (Trivial, unblocks the learning writes.)
+3. **B1** — decide the conversion channel *now* and start scoping **B2**, because it's the long pole.
+4. Then **A2/A3** (stabilize) → **A6/A7/A8** (wire the loop).
