@@ -8,11 +8,13 @@
  * Also handles locale-aware context injection (Gap P):
  * When journey.locale is set and journey.localeConfig is populated, injects
  * market pricing, regulatory disclaimers, and locale-specific claims.
+ *
+ * Security: all DB lookups are scoped by teamId to prevent cross-team data leaks.
  */
 
 import { db } from "./db";
 import { journeys, journeySteps, articles, audiencePersonas } from "../shared/schema";
-import { eq, and, lt, isNotNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export interface JourneyContextResult {
   promptSegment: string;
@@ -26,21 +28,29 @@ export interface JourneyContextResult {
  *
  * @param journeyId - ID of the journey
  * @param stepIndex - which step is being generated (0 = pillar)
- * @returns formatted prompt segment, or null if journey not found
+ * @param teamId - owning team (used to scope all sub-lookups, prevents cross-team leaks)
+ * @returns formatted prompt segment, or null if journey not found / not owned
  */
 export async function getJourneyContext(
   journeyId: number,
-  stepIndex: number
+  stepIndex: number,
+  teamId?: number
 ): Promise<JourneyContextResult | null> {
   try {
-    // Load journey row
+    // Load journey row — always scope by teamId when provided
+    const journeyCondition = teamId
+      ? and(eq(journeys.id, journeyId), eq(journeys.teamId, teamId))
+      : eq(journeys.id, journeyId);
+
     const [journey] = await db
       .select()
       .from(journeys)
-      .where(eq(journeys.id, journeyId))
+      .where(journeyCondition)
       .limit(1);
 
     if (!journey) return null;
+
+    const resolvedTeamId = teamId ?? journey.teamId;
 
     // Find the pillar step (step 0) and its generated article
     const [pillarStep] = await db
@@ -59,25 +69,26 @@ export async function getJourneyContext(
           bodyText: articles.bodyText,
         })
         .from(articles)
-        .where(eq(articles.id, pillarStep.articleId))
+        // Scope article lookup by teamId to prevent cross-team leaks
+        .where(and(eq(articles.id, pillarStep.articleId), eq(articles.teamId, resolvedTeamId)))
         .limit(1);
 
       if (pillarArticle) {
         pillarTitle = pillarArticle.chosenTitle ?? "";
-        // Extract first 600 chars of body text as a brief summary
         const raw = pillarArticle.bodyText ?? "";
         pillarSummary = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600);
         if (pillarSummary.length === 600) pillarSummary += "...";
       }
     }
 
-    // Load persona info if journey was triggered from a batch with a persona
+    // Load persona info if journey was triggered from an article with a persona
     let personaGuidance = "";
     if (journey.triggerArticleId) {
       const [art] = await db
         .select({ batchId: articles.batchId })
         .from(articles)
-        .where(eq(articles.id, journey.triggerArticleId))
+        // Scope by teamId — prevents reading another team's article
+        .where(and(eq(articles.id, journey.triggerArticleId), eq(articles.teamId, resolvedTeamId)))
         .limit(1);
 
       if (art?.batchId) {
@@ -85,14 +96,16 @@ export async function getJourneyContext(
         const [batch] = await db
           .select({ personaId: jobBatches.personaId })
           .from(jobBatches)
-          .where(eq(jobBatches.id, art.batchId))
+          // Scope batch by teamId as well
+          .where(and(eq(jobBatches.id, art.batchId), eq(jobBatches.teamId, resolvedTeamId)))
           .limit(1);
 
         if (batch?.personaId) {
           const [persona] = await db
             .select({ name: audiencePersonas.name, psychographicProfile: audiencePersonas.psychographicProfile })
             .from(audiencePersonas)
-            .where(eq(audiencePersonas.id, batch.personaId))
+            // Scope persona by teamId
+            .where(and(eq(audiencePersonas.id, batch.personaId), eq(audiencePersonas.teamId, resolvedTeamId)))
             .limit(1);
 
           if (persona) {
@@ -169,7 +182,10 @@ ${stepIndex > 0 ? "CROSS-CONTENT RULE: Link back to the pillar article naturally
 
 /**
  * Checks whether a journey's pillar step (step 0) has been generated.
- * Used by the scheduler to gate downstream steps that need a pillar article.
+ * Used by the scheduler to gate downstream podcast/video steps.
+ *
+ * Note: checks `articleId` IS NOT NULL as the definitive pillar-ready signal —
+ * the step must have an actual article linked, not just status=generated.
  */
 export async function isPillarGenerated(journeyId: number): Promise<boolean> {
   const [step] = await db
@@ -178,5 +194,6 @@ export async function isPillarGenerated(journeyId: number): Promise<boolean> {
     .where(and(eq(journeySteps.journeyId, journeyId), eq(journeySteps.stepIndex, 0)))
     .limit(1);
 
-  return !!step && (step.status === "generated" || step.status === "published");
+  // Pillar is ready only if it has a generated article linked
+  return !!step && (step.status === "generated" || step.status === "published") && !!step.articleId;
 }

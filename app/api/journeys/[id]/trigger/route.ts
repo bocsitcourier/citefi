@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { journeys, journeySteps } from "@/shared/schema";
+import { journeys, journeySteps, articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
@@ -48,13 +48,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .where(eq(journeySteps.id, step.id));
     }
 
+    // Validate triggerArticleId ownership — must belong to the same team
+    const { triggerArticleId } = parsed.data;
+    if (triggerArticleId) {
+      const [ownedArticle] = await db
+        .select({ id: articles.id })
+        .from(articles)
+        .where(and(eq(articles.id, triggerArticleId), eq(articles.teamId, teamId)))
+        .limit(1);
+
+      if (!ownedArticle) {
+        return NextResponse.json({ error: "Article not found or not owned by this team" }, { status: 404 });
+      }
+    }
+
     // Activate journey
     const [updated] = await db
       .update(journeys)
       .set({
         status: "active",
         triggeredAt: now,
-        triggerArticleId: parsed.data.triggerArticleId ?? null,
+        triggerArticleId: triggerArticleId ?? null,
       })
       .where(and(eq(journeys.id, journeyId), eq(journeys.teamId, teamId)))
       .returning();

@@ -2809,6 +2809,141 @@ export async function registerWorkers() {
 
           const now = new Date();
 
+          // ── PHASE 0: Completion check ─────────────────────────────────────
+          // Scan all `queued` steps in active journeys. If the backing content
+          // (batch article / social post / podcast / video) has finished
+          // generating, mark the step `generated` and link `articleId`.
+          // Then auto-complete any journey where all steps are done.
+          try {
+            const queuedSteps = await _db
+              .select({ step: jSteps, journey: jTable })
+              .from(jSteps)
+              .innerJoin(jTable, eq(jTable.id, jSteps.journeyId))
+              .where(
+                and(
+                  eq(jSteps.status, "queued"),
+                  eq(jTable.status, "active")
+                )
+              );
+
+            for (const { step, journey } of queuedSteps) {
+              try {
+                const ct = step.contentType;
+
+                if (ct === "article" && step.batchId) {
+                  // Find a completed article from the batch
+                  const [finishedArticle] = await _db
+                    .select({ id: artsTable.id })
+                    .from(artsTable)
+                    .where(
+                      and(
+                        eq(artsTable.batchId, step.batchId),
+                        eq(artsTable.articleStatus, "COMPLETE"),
+                        eq(artsTable.teamId, journey.teamId)
+                      )
+                    )
+                    .limit(1);
+
+                  if (finishedArticle) {
+                    await _db
+                      .update(jSteps)
+                      .set({ status: "generated", articleId: finishedArticle.id, publishedAt: new Date() })
+                      .where(eq(jSteps.id, step.id));
+                    console.log(`[JOURNEY_SCHEDULER] Article step ${step.id} → generated (article ${finishedArticle.id})`);
+                  }
+
+                } else if (ct === "social" && step.articleId) {
+                  // step.articleId holds the social_post id (by convention)
+                  const [post] = await _db
+                    .select({ status: socialPostsTable.status })
+                    .from(socialPostsTable)
+                    .where(
+                      and(
+                        eq(socialPostsTable.id, step.articleId),
+                        eq(socialPostsTable.teamId, journey.teamId)
+                      )
+                    )
+                    .limit(1);
+
+                  if (post?.status === "READY") {
+                    await _db
+                      .update(jSteps)
+                      .set({ status: "generated", publishedAt: new Date() })
+                      .where(eq(jSteps.id, step.id));
+                    console.log(`[JOURNEY_SCHEDULER] Social step ${step.id} → generated`);
+                  }
+
+                } else if (ct === "podcast" && step.articleId) {
+                  // step.articleId holds the pillar article id for podcast steps
+                  const [art] = await _db
+                    .select({ podcastStatus: artsTable.podcastStatus })
+                    .from(artsTable)
+                    .where(
+                      and(
+                        eq(artsTable.id, step.articleId),
+                        eq(artsTable.teamId, journey.teamId)
+                      )
+                    )
+                    .limit(1);
+
+                  if (art?.podcastStatus === "ready") {
+                    await _db
+                      .update(jSteps)
+                      .set({ status: "generated", publishedAt: new Date() })
+                      .where(eq(jSteps.id, step.id));
+                    console.log(`[JOURNEY_SCHEDULER] Podcast step ${step.id} → generated`);
+                  }
+
+                } else if (ct === "video" && step.articleId) {
+                  // step.articleId holds the social_post id for video steps
+                  const [post] = await _db
+                    .select({ videoStatus: socialPostsTable.videoStatus })
+                    .from(socialPostsTable)
+                    .where(
+                      and(
+                        eq(socialPostsTable.id, step.articleId),
+                        eq(socialPostsTable.teamId, journey.teamId)
+                      )
+                    )
+                    .limit(1);
+
+                  if (post?.videoStatus === "READY") {
+                    await _db
+                      .update(jSteps)
+                      .set({ status: "generated", publishedAt: new Date() })
+                      .where(eq(jSteps.id, step.id));
+                    console.log(`[JOURNEY_SCHEDULER] Video step ${step.id} → generated`);
+                  }
+                }
+              } catch (completionStepErr) {
+                console.warn(`[JOURNEY_SCHEDULER] Completion check step ${step.id}:`, (completionStepErr as Error).message);
+              }
+            }
+
+            // Auto-complete journeys where every step is generated or published
+            const activeJourneyIds = [...new Set(queuedSteps.map((r) => r.journey.id))];
+            for (const jid of activeJourneyIds) {
+              const allSteps = await _db
+                .select({ status: jSteps.status })
+                .from(jSteps)
+                .where(eq(jSteps.journeyId, jid));
+
+              const allDone = allSteps.length > 0 && allSteps.every(
+                (s) => s.status === "generated" || s.status === "published"
+              );
+              if (allDone) {
+                await _db
+                  .update(jTable)
+                  .set({ status: "completed", completedAt: new Date() })
+                  .where(eq(jTable.id, jid));
+                console.log(`[JOURNEY_SCHEDULER] Journey ${jid} auto-completed`);
+              }
+            }
+          } catch (completionPhaseErr) {
+            console.warn(`[JOURNEY_SCHEDULER] Completion phase error (non-fatal):`, (completionPhaseErr as Error).message);
+          }
+
+          // ── PHASE 1: Enqueue pending due steps ───────────────────────────
           // Find all pending steps due for generation
           const dueSteps = await _db
             .select({
@@ -2853,17 +2988,19 @@ export async function registerWorkers() {
 
           for (const { step, journey } of dueSteps) {
             try {
-              // For step > 0, verify pillar (step 0) has been generated
-              if (step.stepIndex > 0) {
+              // Podcast and video steps MUST wait for the pillar article to exist.
+              // Article and social steps follow their dayOffset schedule only — no pillar gate.
+              const contentType = step.contentType;
+              if (contentType === "podcast" || contentType === "video") {
                 const pillarReady = await isPillarGenerated(journey.id);
                 if (!pillarReady) {
-                  console.log(`[JOURNEY_SCHEDULER] Step ${step.id} (journey ${journey.id}) waiting for pillar`);
+                  console.log(`[JOURNEY_SCHEDULER] Step ${step.id} type=${contentType} (journey ${journey.id}) waiting for pillar article`);
                   continue;
                 }
               }
 
               // Build journey context prompt segment for injection
-              const ctx = await getJourneyContext(journey.id, step.stepIndex);
+              const ctx = await getJourneyContext(journey.id, step.stepIndex, journey.teamId);
 
               // Mark step as queued first to prevent double-enqueue
               await _db
@@ -2882,7 +3019,7 @@ export async function registerWorkers() {
                 localeConfig: journey.localeConfig ?? null,
               };
 
-              const contentType = step.contentType;
+              // contentType already declared above (gating section)
               const topicAngle = step.topicAngle ?? `${journey.name} — step ${step.stepIndex + 1}`;
               const teamInfo = await getTeamInfo(journey.teamId);
 
