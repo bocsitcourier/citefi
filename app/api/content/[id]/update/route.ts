@@ -29,8 +29,8 @@ export async function PATCH(
       updatedAt: new Date(),
     };
 
-    if (htmlContent !== undefined) updateData.htmlContent = htmlContent;
-    if (title !== undefined) updateData.title = title;
+    if (htmlContent !== undefined) updateData.finalHtmlContent = htmlContent;
+    if (title !== undefined) updateData.chosenTitle = title;
     if (seoTitle !== undefined) updateData.seoTitle = seoTitle;
     if (metaDescription !== undefined) updateData.metaDescription = metaDescription;
     if (slug !== undefined) updateData.slug = slug;

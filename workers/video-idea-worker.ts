@@ -69,8 +69,15 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
         });
 
         console.log(`✅ Video idea generation complete: ${result.videoUrl}`);
-        
+
+        // Record content generation metrics so Thompson Sampling can learn for video
         if (idea.teamId) {
+          try {
+            const { recordContentGenerated } = await import("@/lib/learning-integration");
+            await recordContentGenerated(idea.teamId, "video", videoIdeaId, [], 75);
+          } catch (metricsErr) {
+            console.warn("[VIDEO_WORKER] Could not record learning metrics (non-fatal):", metricsErr);
+          }
           await notifyVideoComplete(idea.teamId, videoIdeaId, idea.ideaTitle);
         }
         

@@ -6,8 +6,9 @@ import {
   learningPatterns,
   patternDimensionStats,
   contentPerformanceMetrics,
+  cohortInsights,
 } from "@/shared/schema";
-import { eq, and, gte, lt, count, sql } from "drizzle-orm";
+import { eq, and, gte, lt, count, sql, gt } from "drizzle-orm";
 import { thompsonSample } from "@/lib/learning-service";
 
 // ── Statistical helpers ────────────────────────────────────────────────────────
@@ -90,6 +91,29 @@ export async function POST(
 
     const cpm = contentPerformanceMetrics;
     const now = Date.now();
+
+    // ── Guardrail Conflict Pre-Check (T17 cohort safety gate) ─────────────────
+    // Block promotion if CohortMiningJob has flagged an unresolved guardrail_conflict
+    // for this team/contentType within the last 30 days.
+    const thirtyDaysAgo = new Date(now - 30 * 86_400_000);
+    const [guardConflict] = await db
+      .select({ id: cohortInsights.id, recommendationText: cohortInsights.recommendationText })
+      .from(cohortInsights)
+      .where(and(
+        eq(cohortInsights.teamId, teamId),
+        eq(cohortInsights.insightType, "guardrail_conflict"),
+        eq(cohortInsights.contentTypeBlocked, arm.contentType),
+        gt(cohortInsights.computedAt, thirtyDaysAgo)
+      ))
+      .limit(1);
+
+    if (guardConflict) {
+      return NextResponse.json({
+        error: "Promotion blocked by cohort guardrail conflict",
+        reason: guardConflict.recommendationText ?? "An unresolved cohort conflict was detected for this content type. Run CohortMiningJob again after resolving the underlying issue.",
+        insightId: guardConflict.id,
+      }, { status: 409 });
+    }
 
     // ── Gate A: Minimum 200 treatment-tagged observations ─────────────────────
     const [obsResult] = await db

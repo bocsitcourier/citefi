@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articleAssets } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { deleteFromStorage } from "@/lib/storage";
 import { z } from "zod";
 import { requireTeamMember } from "@/lib/api/auth";
@@ -11,7 +11,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -22,11 +22,11 @@ export async function DELETE(
       );
     }
 
-    // Get asset details before deleting
+    // TEAM ISOLATION: only fetch asset belonging to authenticated team
     const [asset] = await db
       .select()
       .from(articleAssets)
-      .where(eq(articleAssets.id, id));
+      .where(and(eq(articleAssets.id, id), eq(articleAssets.teamId, teamId)));
 
     if (!asset) {
       return NextResponse.json(
@@ -37,20 +37,18 @@ export async function DELETE(
 
     // Extract key from storage URL
     const urlParts = asset.storageUrl.split('/');
-    const key = urlParts.slice(-3).join('/'); // Get last 3 parts: articleId/type/filename
+    const key = urlParts.slice(-3).join('/');
 
     try {
-      // Delete from object storage
       await deleteFromStorage(key);
     } catch (storageError) {
       console.warn("⚠️  Failed to delete from storage (may not exist):", storageError);
-      // Continue with database deletion even if storage deletion fails
     }
 
-    // Delete from database
+    // TEAM ISOLATION: double-filter on delete
     await db
       .delete(articleAssets)
-      .where(eq(articleAssets.id, id));
+      .where(and(eq(articleAssets.id, id), eq(articleAssets.teamId, teamId)));
 
     console.log(`🗑️  Deleted asset ${id}: ${asset.assetType}`);
 
@@ -62,7 +60,7 @@ export async function DELETE(
   } catch (error) {
     console.error("❌ Media delete error:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to delete media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },
@@ -76,7 +74,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -87,10 +85,11 @@ export async function GET(
       );
     }
 
+    // TEAM ISOLATION: filter by both id and teamId
     const [asset] = await db
       .select()
       .from(articleAssets)
-      .where(eq(articleAssets.id, id));
+      .where(and(eq(articleAssets.id, id), eq(articleAssets.teamId, teamId)));
 
     if (!asset) {
       return NextResponse.json(
@@ -107,7 +106,7 @@ export async function GET(
   } catch (error) {
     console.error("❌ Media get error:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to fetch media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },
@@ -126,7 +125,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -140,11 +139,11 @@ export async function PATCH(
     const body = await request.json();
     const validatedData = updateAssetSchema.parse(body);
 
-    // Check if asset exists
+    // TEAM ISOLATION: check ownership before update
     const [existingAsset] = await db
       .select()
       .from(articleAssets)
-      .where(eq(articleAssets.id, id));
+      .where(and(eq(articleAssets.id, id), eq(articleAssets.teamId, teamId)));
 
     if (!existingAsset) {
       return NextResponse.json(
@@ -153,13 +152,11 @@ export async function PATCH(
       );
     }
 
-    // Update asset
+    // TEAM ISOLATION: double-filter on update
     const [updatedAsset] = await db
       .update(articleAssets)
-      .set({
-        ...validatedData,
-      })
-      .where(eq(articleAssets.id, id))
+      .set({ ...validatedData })
+      .where(and(eq(articleAssets.id, id), eq(articleAssets.teamId, teamId)))
       .returning();
 
     console.log(`✅ Updated asset ${id}`);
@@ -172,7 +169,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
+        {
           error: "Invalid request data",
           details: error.errors
         },
@@ -182,7 +179,7 @@ export async function PATCH(
 
     console.error("❌ Media update error:", error);
     return NextResponse.json(
-      { 
+      {
         error: "Failed to update media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },

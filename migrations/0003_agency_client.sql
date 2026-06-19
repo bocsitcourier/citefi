@@ -73,3 +73,15 @@ ALTER TABLE cohort_insights ADD COLUMN IF NOT EXISTS content_type_blocked VARCHA
 
 -- Task #17: audience_personas — behavioral enrichment notes from CohortMiningJob
 ALTER TABLE audience_personas ADD COLUMN IF NOT EXISTS performance_notes TEXT;
+
+-- ============================================================================
+-- Architect Review Fixes: missing index + IDOR hardening
+-- ============================================================================
+
+-- Missing index on content_performance_metrics.variant_arm_id
+-- Required for lift analytics and declare-winner Gate B arm grouping queries.
+CREATE INDEX IF NOT EXISTS "cpm_variant_arm_id_idx" ON "content_performance_metrics" ("variant_arm_id");
+
+-- Compound index for declare-winner Gate A/B/C and ConversionLabeler lookups
+-- (team_id + content_type + variant_id is the most common filter combination)
+CREATE INDEX IF NOT EXISTS "cpm_team_content_variant_idx" ON "content_performance_metrics" ("team_id", "content_type", "variant_id");

@@ -216,6 +216,12 @@ async function createPgBoss(): Promise<PgBoss> {
     SITE_CRAWL_QUEUE,
     CONTENT_PUBLISHING_QUEUE,
     INTELLIGENCE_RESEARCH_QUEUE,
+    // Scheduled internal queues (nightly/hourly — must be registered at startup)
+    "video-orphan-sweeper",
+    "engagement-scoring",
+    "conversion-labeler",
+    "underperformer-archiving",
+    "cohort-mining",
   ];
   for (const queueName of ALL_QUEUES) {
     try {

@@ -1912,6 +1912,7 @@ export async function registerWorkers() {
           console.log(`✅ Engagement scoring sweep done for ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 Engagement scoring job failed:`, (e as Error).message);
+          throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
       });
       console.log(`⏱️ Engagement scoring scheduler registered (every 6h)`);
@@ -2189,6 +2190,7 @@ export async function registerWorkers() {
           console.log(`✅ ConversionLabeler: labeled ${labeledCount} content items for ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);
+          throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
       });
       console.log(`⏱️ ConversionLabeler scheduler registered (nightly 02:00 UTC)`);
@@ -2216,6 +2218,7 @@ export async function registerWorkers() {
           console.log(`✅ Underperformer archiving: archived ${totalArchived} patterns across ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 Underperformer archiving job failed:`, (e as Error).message);
+          throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
       });
       console.log(`⏱️ Underperformer archiving scheduler registered (weekly Monday 03:00 UTC)`);
@@ -2236,7 +2239,7 @@ export async function registerWorkers() {
           const { db: _db } = await import("./db");
           const {
             teams, contentPerformanceMetrics: cpm, cohortInsights,
-            contentEvents: ce, articles: arts, audiencePersonas,
+            contentEvents: ce, articles: arts, audiencePersonas, jobBatches,
           } = await import("../shared/schema");
           const {
             eq, and, gte, lt, count, sql: drizzleSql, avg, not, isNull,
@@ -2614,6 +2617,7 @@ export async function registerWorkers() {
                   .where(and(eq(audiencePersonas.teamId, team.id), eq(audiencePersonas.isActive, 1)));
 
                 for (const persona of personas) {
+                  // Join via jobBatches — articles carry batchId, not personaId directly
                   const metricsRows = await _db
                     .select({
                       total: count(),
@@ -2621,9 +2625,10 @@ export async function registerWorkers() {
                     })
                     .from(cpm)
                     .innerJoin(arts, eq(arts.id, cpm.articleId))
+                    .innerJoin(jobBatches, eq(jobBatches.id, arts.batchId))
                     .where(and(
                       eq(cpm.teamId, team.id),
-                      eq((arts as any).personaId, persona.id),
+                      eq(jobBatches.personaId, persona.id),
                       gte(cpm.createdAt, cutoff30d)
                     ));
 
@@ -2656,6 +2661,7 @@ export async function registerWorkers() {
           console.log(`✅ Cohort mining complete: ${totalInsights} insights across ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
+          throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
       });
       console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);

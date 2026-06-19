@@ -1588,17 +1588,23 @@ export default function LearningDashboard() {
               </div>
 
               {/* ── Next Best Actions (NBA) ────────────────────────────────────── */}
-              {(strategyData.nextBestActions?.length ?? 0) > 0 && (
-                <Card data-testid="section-nba">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-yellow-500" />
-                      Next Best Actions
-                    </CardTitle>
-                    <CardDescription>Up to 5 concrete, prioritised recommendations for this week.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {strategyData.nextBestActions.map((action, idx) => {
+              <Card data-testid="section-nba">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-yellow-500" />
+                    Next Best Actions
+                  </CardTitle>
+                  <CardDescription>Up to 5 concrete, prioritised recommendations for this week.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(strategyData.nextBestActions?.length ?? 0) === 0 ? (
+                    <div className="py-6 text-center text-muted-foreground">
+                      <Zap className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No actions available yet.</p>
+                      <p className="text-xs mt-1">Actions appear once cohort insights accumulate across content types.</p>
+                    </div>
+                  ) : (
+                    strategyData.nextBestActions.map((action, idx) => {
                       const iconMap: Record<string, { Icon: any; color: string }> = {
                         pause_guardrail: { Icon: AlertTriangle, color: "text-red-500" },
                         link_primer:     { Icon: Link2,         color: "text-blue-500" },
@@ -1607,7 +1613,16 @@ export default function LearningDashboard() {
                         review:          { Icon: FlaskConical,  color: "text-yellow-500" },
                         monitor:         { Icon: Activity,      color: "text-muted-foreground" },
                       };
+                      const ctaHrefMap: Record<string, string> = {
+                        pause_guardrail: "/intelligence",
+                        link_primer:     "/content",
+                        scale_up:        "/wizard",
+                        cover_gap:       "/wizard",
+                        review:          "/learning?tab=experiments",
+                        monitor:         "/monitoring",
+                      };
                       const { Icon, color } = iconMap[action.actionType] ?? iconMap.monitor;
+                      const ctaHref = ctaHrefMap[action.actionType] ?? "/learning";
                       const priorityColor = action.priority === 1 ? "destructive"
                         : action.priority === 2 ? "default"
                         : "secondary";
@@ -1632,37 +1647,52 @@ export default function LearningDashboard() {
                               </div>
                             </div>
                             <p className="text-xs text-muted-foreground">{action.rationale}</p>
-                            <div className="flex items-center gap-2 pt-0.5">
-                              <Badge variant="outline" className="text-xs">n={action.sampleSize}</Badge>
-                              <Badge
-                                variant={action.vsBaselineMultiplier >= 120 ? "default" : action.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
-                                className="text-xs"
+                            <div className="flex items-center justify-between gap-2 pt-0.5 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">n={action.sampleSize}</Badge>
+                                <Badge
+                                  variant={action.vsBaselineMultiplier >= 120 ? "default" : action.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
+                                  className="text-xs"
+                                >
+                                  {action.vsBaselineMultiplier}% vs baseline
+                                </Badge>
+                              </div>
+                              <a
+                                href={ctaHref}
+                                className="text-xs font-medium text-primary hover:underline shrink-0"
+                                data-testid={`nba-cta-${idx}`}
                               >
-                                {action.vsBaselineMultiplier}% vs baseline
-                              </Badge>
+                                Take action →
+                              </a>
                             </div>
                           </div>
                         </div>
                       );
-                    })}
-                  </CardContent>
-                </Card>
-              )}
+                    })
+                  )}
+                </CardContent>
+              </Card>
 
               {/* ── Pre-Conversion Primers ─────────────────────────────────────── */}
-              {(strategyData.primers?.length ?? 0) > 0 && (
-                <Card data-testid="section-primers">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Link2 className="w-4 h-4 text-blue-500" />
-                      Pre-Conversion Primers
-                    </CardTitle>
-                    <CardDescription>
-                      Articles that appear disproportionately in reader paths within 72h before a conversion — amplify with internal links and CTAs.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {strategyData.primers.map((p) => (
+              <Card data-testid="section-primers">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Link2 className="w-4 h-4 text-blue-500" />
+                    Pre-Conversion Primers
+                  </CardTitle>
+                  <CardDescription>
+                    Articles that appear disproportionately in reader paths within 72h before a conversion — amplify with internal links and CTAs.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {(strategyData.primers?.length ?? 0) === 0 ? (
+                    <div className="py-5 text-center text-muted-foreground">
+                      <Link2 className="w-7 h-7 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No primer articles identified yet.</p>
+                      <p className="text-xs mt-1">Primers appear once conversion event tracking accumulates sufficient data.</p>
+                    </div>
+                  ) : (
+                    strategyData.primers.map((p) => (
                       <div
                         key={p.id}
                         className="flex items-start justify-between gap-3 p-3 rounded-md bg-muted/40 flex-wrap"
@@ -1681,25 +1711,31 @@ export default function LearningDashboard() {
                           </Badge>
                         </div>
                       </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
+                    ))
+                  )}
+                </CardContent>
+              </Card>
 
               {/* ── Untapped Segments ─────────────────────────────────────────── */}
-              {(strategyData.untapped?.length ?? 0) > 0 && (
-                <Card data-testid="section-untapped">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Compass className="w-4 h-4 text-orange-500" />
-                      Untapped Segments
-                    </CardTitle>
-                    <CardDescription>
-                      High-potential topics with zero or thin coverage — competitors are ranking here.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {strategyData.untapped.map((u) => (
+              <Card data-testid="section-untapped">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Compass className="w-4 h-4 text-orange-500" />
+                    Untapped Segments
+                  </CardTitle>
+                  <CardDescription>
+                    High-potential topics with zero or thin coverage — competitors are ranking here.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {(strategyData.untapped?.length ?? 0) === 0 ? (
+                    <div className="py-5 text-center text-muted-foreground">
+                      <Compass className="w-7 h-7 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No untapped segments found yet.</p>
+                      <p className="text-xs mt-1">Segments appear once content coverage analysis runs and gaps are identified.</p>
+                    </div>
+                  ) : (
+                    strategyData.untapped.map((u) => (
                       <div
                         key={u.id}
                         className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/40 flex-wrap"
@@ -1713,10 +1749,10 @@ export default function LearningDashboard() {
                         </div>
                         <Badge variant="secondary" className="text-xs shrink-0">Untapped</Badge>
                       </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
+                    ))
+                  )}
+                </CardContent>
+              </Card>
 
               {/* ── Cohort Breakdown table ─────────────────────────────────────── */}
               <Card>
