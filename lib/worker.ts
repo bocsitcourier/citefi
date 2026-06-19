@@ -1430,11 +1430,14 @@ export async function registerWorkers() {
               if (batch?.teamId) {
                 try {
                   // Fetch learned patterns for attribution so Wilson/EMA updates fire.
+                  // stableId = String(articleId) ensures deterministic arm assignment
+                  // (same article always maps to same arm — no holdout contamination).
                   // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
                   const imageTerminalKpi = (batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
-                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE, { terminalKpi: imageTerminalKpi })
-                    .catch(() => ({ patternsUsed: [] as number[] }));
+                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE, { stableId: String(articleId), terminalKpi: imageTerminalKpi })
+                    .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
                   const capturedImagePatternIds = imageEnhancement.patternsUsed;
+                  const imageVariantArmId = imageEnhancement.variantArmId;
 
                   const orchResult = await runGenerationOrchestrator({
                     teamId: batch.teamId,
@@ -1459,7 +1462,12 @@ export async function registerWorkers() {
                     articleId,
                     capturedImagePatternIds,
                     orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
-                    { armId: orchResult.armId }
+                    {
+                      armId: orchResult.armId,
+                      // variantArmId persists va-{id} tagging on the CPM row so image
+                      // observations are attributed to treatment vs holdout correctly.
+                      variantArmId: imageVariantArmId,
+                    }
                   ).catch(() => { /* non-fatal */ });
                 } catch (orchErr) {
                   console.warn(`[Image Worker] Orchestrator failed, continuing:`, (orchErr as Error).message);
