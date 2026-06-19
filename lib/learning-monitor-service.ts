@@ -9,6 +9,17 @@ import {
 } from "../shared/schema";
 import type { Dimension } from "./content-review-service";
 
+// Wilson lower-bound helper (95% CI) for archiving gate.
+function _wilsonLB(successes: number, trials: number): number {
+  if (trials === 0) return 0;
+  const z = 1.96;
+  const p = successes / trials;
+  const denom = 1 + (z * z) / trials;
+  const center = p + (z * z) / (2 * trials);
+  const margin = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * trials)) / trials);
+  return Math.max(0, ((center - margin) / denom) * 100);
+}
+
 const ALL_DIMS: Dimension[] = ["completeness", "factuality", "structure", "humanness", "engagement"];
 const DRIFT_WARN_POINTS = 6;
 const MIN_WINDOW_SAMPLES = 10;
@@ -212,6 +223,53 @@ export class LearningMonitorService {
         };
       })
       .sort((a, b) => a.gap - b.gap);
+  }
+
+  // ============================================================================
+  // Task #16: Underperformer archiving
+  // Patterns with >50 trials whose Wilson lower-bound stays below 10 are
+  // permanently excluded from Thompson Sampling by setting isArchived=true.
+  // Scheduled weekly (Monday 03:00 UTC) by the worker.
+  // ============================================================================
+  async archiveUnderperformers(teamId: number): Promise<{ archived: number }> {
+    try {
+      const candidates = await db
+        .select({
+          patternId: learningPatterns.id,
+          totalTrials: sql<number>`coalesce(sum(${patternDimensionStats.trials}), 0)`,
+          totalSuccesses: sql<number>`coalesce(sum(${patternDimensionStats.successes}), 0)`,
+        })
+        .from(learningPatterns)
+        .leftJoin(patternDimensionStats, eq(patternDimensionStats.patternId, learningPatterns.id))
+        .where(
+          and(
+            eq(learningPatterns.teamId, teamId),
+            eq(learningPatterns.isArchived, false),
+            gte(learningPatterns.timesUsed, 50)
+          )
+        )
+        .groupBy(learningPatterns.id);
+
+      const toArchive = candidates.filter(c => {
+        const trials    = Number(c.totalTrials ?? 0);
+        const successes = Number(c.totalSuccesses ?? 0);
+        return trials >= 50 && _wilsonLB(successes, trials) < 10;
+      });
+
+      if (toArchive.length === 0) return { archived: 0 };
+
+      const ids = toArchive.map(c => c.patternId);
+      await db
+        .update(learningPatterns)
+        .set({ isArchived: true, updatedAt: new Date() })
+        .where(inArray(learningPatterns.id, ids));
+
+      console.log(`[UNDERPERFORMER_ARCHIVING] teamId=${teamId} archived=${ids.length} patterns`);
+      return { archived: ids.length };
+    } catch (e) {
+      console.error(`[UNDERPERFORMER_ARCHIVING] teamId=${teamId} error:`, (e as Error).message);
+      return { archived: 0 };
+    }
   }
 
   async snapshot(teamId: number, contentType?: string) {

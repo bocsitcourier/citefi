@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireTeamAdmin } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { decisionPolicies } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    const { teamId } = await requireTeamAdmin(req);
     const body = await req.json().catch(() => ({}));
     const parsed = createPolicySchema.safeParse(body);
     if (!parsed.success) {

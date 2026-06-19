@@ -30,7 +30,6 @@ import { getClientBrandContext } from "./client-brand-profile-service";
 
 const EMA_ALPHA = 0.1;
 const MIN_CONFIDENCE_SAMPLES = 5;
-const EPSILON = 0.15; // exploration fraction for epsilon-greedy
 
 // Wilson lower-bound (95% CI) — same formula as content-review-service
 function wilsonLowerBound(successes: number, trials: number, z = 1.96): number {
@@ -41,6 +40,70 @@ function wilsonLowerBound(successes: number, trials: number, z = 1.96): number {
   const margin = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * trials)) / trials);
   return Math.max(0, Math.round(((center - margin) / denom) * 100));
 }
+
+// ============================================================================
+// Thompson Sampling utilities — Task #16 Bayesian Decisioning Engine
+// ============================================================================
+
+/** Standard normal sample via Box-Muller. */
+function _randn(): number {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/** Marsaglia-Tsang Gamma(α, 1) sample. Works for α ≥ 1; recurses for α < 1. */
+function _gammaSample(alpha: number): number {
+  if (alpha < 1) return _gammaSample(1 + alpha) * Math.random() ** (1 / alpha);
+  const d = alpha - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+  for (;;) {
+    let x: number, v: number;
+    do { x = _randn(); v = 1 + c * x; } while (v <= 0);
+    v = v * v * v;
+    const u = Math.random();
+    if (u < 1 - 0.0331 * (x * x) * (x * x)) return d * v;
+    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+  }
+}
+
+/**
+ * Thompson sample from Beta(α, β).
+ * α = successes + 1, β = (trials − successes) + 1.
+ * Returns a probability in [0, 1].
+ */
+export function thompsonSample(alpha: number, beta: number): number {
+  const x = _gammaSample(Math.max(alpha, 1e-9));
+  const y = _gammaSample(Math.max(beta, 1e-9));
+  if (x + y === 0) return 0.5;
+  return x / (x + y);
+}
+
+/**
+ * Multi-metric weights per content type.
+ * Keys: quality, engagement, conversion.
+ * Used to multiply the Thompson score by the metric that governs the pattern's dimension.
+ */
+export const METRIC_WEIGHTS: Record<string, Record<string, number>> = {
+  article:     { quality: 0.40, engagement: 0.35, conversion: 0.25 },
+  social:      { engagement: 0.50, conversion: 0.35, quality: 0.15 },
+  social_post: { engagement: 0.50, conversion: 0.35, quality: 0.15 },
+  podcast:     { engagement: 0.55, quality: 0.30, conversion: 0.15 },
+  video:       { engagement: 0.60, quality: 0.25, conversion: 0.15 },
+  image:       { quality: 0.50, engagement: 0.40, conversion: 0.10 },
+};
+
+/** Maps each patternDimensionStats dimension to its metric bucket. */
+const DIM_TO_METRIC: Record<string, string> = {
+  completeness: "quality",
+  factuality:   "quality",
+  structure:    "quality",
+  humanness:    "engagement",
+  engagement:   "engagement",
+  eeat_signal:  "quality",
+  conversion:   "conversion",
+};
 
 export interface LearnedPattern {
   id: number;
@@ -162,6 +225,7 @@ export class LearningService {
       audience?: string;
       patternTypes?: string[];
       priorityDimension?: Dimension;
+      terminalKpi?: string; // 'conversion' | 'engagement' | 'awareness' — overrides metric weights
     }
   ): Promise<OptimizationContext | null> {
     const agent = await this.getAgentForContentType(teamId, contentType);
@@ -183,10 +247,11 @@ export class LearningService {
       audience?: string;
       patternTypes?: string[];
       priorityDimension?: Dimension;
+      terminalKpi?: string;
     }
   ): Promise<OptimizationContext> {
-    // Fetch ALL patterns for this agent — no confidence gate here.
-    // Seeded patterns start at confidence=0 but are still valid for exploration.
+    // Fetch ALL non-archived patterns for this agent.
+    // Archived patterns were underperformers flagged by the weekly archiving job.
     // Defense-in-depth: scope by both agentId AND teamId so a spoofed agentId
     // cannot leak patterns across team boundaries.
     const allPatterns = await db
@@ -195,7 +260,8 @@ export class LearningService {
       .where(
         and(
           eq(learningPatterns.agentId, agent.id),
-          eq(learningPatterns.teamId, agent.teamId)
+          eq(learningPatterns.teamId, agent.teamId),
+          eq(learningPatterns.isArchived, false)
         )
       )
       .limit(100);
@@ -223,28 +289,42 @@ export class LearningService {
     const statMap = new Map<string, typeof patternDimensionStats.$inferSelect>();
     for (const s of dimStats) statMap.set(statKey(s.patternId, s.dimension), s);
 
-    // Score each pattern by Wilson in its governing dimension.
+    // Data-maturity check → determines prior strength for Thompson Sampling.
+    const maturity = await this.teamDataMaturity(agent.teamId!, agent.contentType);
+    console.log(
+      `[DECISIONING_MATURITY] type=${agent.contentType} maturity=${maturity} patterns=${allPatterns.length}`
+    );
+
+    // Effective metric weights — content-type defaults, overridden by terminalKpi if set.
+    const weights = this.effectiveWeights(agent.contentType, options?.terminalKpi);
+
+    // Thompson Sampling — replaces epsilon-greedy.
+    //   α = successes + 1,  β = (trials − successes) + 1
+    // Sparse maturity → Beta(1,1) equal priors for all patterns (pure exploration).
+    // Thompson naturally balances explore/exploit — no explicit epsilon needed.
     const scored = allPatterns.map(p => {
       const dim = options?.priorityDimension ?? PATTERN_DIMENSION[p.patternType] ?? "engagement";
       const stat = statMap.get(statKey(p.id, dim));
-      return { pattern: p, dim, wilson: stat?.wilsonScore ?? 0, trials: stat?.trials ?? 0 };
+      const rawSuccesses = maturity === "sparse" ? 0 : (stat?.successes ?? 0);
+      const rawTrials    = maturity === "sparse" ? 0 : (stat?.trials    ?? 0);
+      const alpha = rawSuccesses + 1;
+      const beta  = Math.max(1, rawTrials - rawSuccesses + 1);
+      const metricKey = DIM_TO_METRIC[dim] ?? "engagement";
+      const dimWeight = (weights[metricKey] ?? weights["engagement"] ?? 0.35);
+      const thompsonScore = thompsonSample(alpha, beta) * dimWeight;
+      return {
+        pattern: p,
+        dim,
+        wilson: stat?.wilsonScore ?? 0,
+        trials: rawTrials,
+        thompsonScore,
+      };
     });
 
-    // Separate proven (≥MIN_CONFIDENCE_SAMPLES trials) from untested (exploratory).
-    const proven = scored
-      .filter(s => s.trials >= MIN_CONFIDENCE_SAMPLES)
-      .sort((a, b) => b.wilson - a.wilson);
-    const untested = scored.filter(s => s.trials < MIN_CONFIDENCE_SAMPLES);
-
-    // Epsilon-greedy: exploit proven patterns + explore untested ones.
-    // Cold start: if nothing is proven yet, fall back to all patterns as-is.
-    const totalSlots = 8;
-    const exploreSlots = Math.max(1, Math.round(totalSlots * EPSILON));
-    const exploitSlots = totalSlots - exploreSlots;
-
-    const exploited = proven.length > 0 ? proven.slice(0, exploitSlots) : scored.slice(0, exploitSlots);
-    const explored = untested.sort(() => Math.random() - 0.5).slice(0, exploreSlots);
-    const selected = [...exploited, ...explored];
+    // Sort by weighted Thompson score desc; take top 8 slots.
+    const selected = scored
+      .sort((a, b) => b.thompsonScore - a.thompsonScore)
+      .slice(0, 8);
 
     const learnedPatterns: LearnedPattern[] = selected.map(s => ({
       id: s.pattern.id,
@@ -279,6 +359,70 @@ export class LearningService {
         temperature: agent.temperature / 100,
       },
     };
+  }
+
+  // ============================================================================
+  // Task #16: Thompson Sampling support methods
+  // ============================================================================
+
+  /**
+   * Determine data maturity for a team × content-type combination.
+   * Drives Thompson prior strength: sparse → Beta(1,1), learning/mature → real counts.
+   */
+  async teamDataMaturity(
+    teamId: number,
+    contentType: string
+  ): Promise<"sparse" | "learning" | "mature"> {
+    try {
+      const [result] = await db
+        .select({ total: sql<number>`coalesce(sum(${patternDimensionStats.trials}), 0)` })
+        .from(patternDimensionStats)
+        .innerJoin(learningPatterns, eq(learningPatterns.id, patternDimensionStats.patternId))
+        .where(
+          and(
+            eq(learningPatterns.teamId, teamId),
+            eq(learningPatterns.contentType, contentType),
+            eq(learningPatterns.isArchived, false)
+          )
+        );
+      const total = Number(result?.total ?? 0);
+      if (total < 20) return "sparse";
+      if (total < 100) return "learning";
+      return "mature";
+    } catch {
+      return "sparse";
+    }
+  }
+
+  /**
+   * Compute effective metric weights for a given content type.
+   * If terminalKpi is provided, the corresponding metric is boosted to 0.7
+   * and the remaining weight is distributed proportionally.
+   */
+  private effectiveWeights(
+    contentType: string,
+    terminalKpi?: string
+  ): Record<string, number> {
+    const base = METRIC_WEIGHTS[contentType] ?? METRIC_WEIGHTS["article"]!;
+    if (!terminalKpi) return base;
+
+    const kpiMetric =
+      terminalKpi === "conversion" ? "conversion"
+      : terminalKpi === "engagement" ? "engagement"
+      : terminalKpi === "awareness"  ? "engagement"
+      : "quality";
+
+    const boostedWeight = 0.7;
+    const remainder = 1 - boostedWeight;
+    const otherKeys = Object.keys(base).filter(k => k !== kpiMetric);
+    const otherTotal = otherKeys.reduce((s, k) => s + (base[k] ?? 0), 0);
+    const result: Record<string, number> = { ...base, [kpiMetric]: boostedWeight };
+    for (const k of otherKeys) {
+      result[k] = otherTotal > 0
+        ? ((base[k] ?? 0) / otherTotal) * remainder
+        : remainder / otherKeys.length;
+    }
+    return result;
   }
 
   private async collectNegativeConstraints(teamId: number, contentType: string): Promise<string[]> {

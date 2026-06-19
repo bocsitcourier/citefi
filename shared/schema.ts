@@ -1127,6 +1127,10 @@ export const learningPatterns = pgTable("learning_patterns", {
   timesUsed: integer("times_used").notNull().default(0),
   timesSuccessful: integer("times_successful").notNull().default(0),
   lastUsedAt: timestamp("last_used_at"),
+
+  // Archival — set true by underperformer archiving job (Task #16)
+  // Archived patterns are excluded from Thompson Sampling selection pools.
+  isArchived: boolean("is_archived").notNull().default(false),
   
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1137,6 +1141,7 @@ export const learningPatterns = pgTable("learning_patterns", {
   teamIdContentTypeIdx: index("learning_patterns_team_content_type_idx").on(table.teamId, table.contentType),
   patternTypeIdx: index("learning_patterns_pattern_type_idx").on(table.patternType),
   successRateIdx: index("learning_patterns_success_rate_idx").on(table.successRate),
+  archivedIdx: index("learning_patterns_archived_idx").on(table.isArchived),
 }));
 
 // Content Performance Metrics - Tracks engagement for learning feedback
@@ -3000,6 +3005,35 @@ export type HoldoutAssignment = typeof holdoutAssignments.$inferSelect;
 export type InsertHoldoutAssignment = z.infer<typeof insertHoldoutAssignmentSchema>;
 
 // ============================================================================
+// VARIANT ARMS — Task #16 Bayesian Decisioning Engine
+// Pattern-level arm assignment for Thompson Sampling holdout/treatment splits.
+// Distinct from decisionArms (visitor-level A/B content testing): these arms
+// control WHICH pattern pools the Thompson sampler draws from at generation time.
+// ============================================================================
+export const variantArms = pgTable("variant_arms", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  armName: varchar("arm_name", { length: 50 }).notNull().default("treatment"),
+  // 'treatment' | 'holdout' | 'exploration'
+  allocationPct: integer("allocation_pct").notNull().default(90), // 0-100
+  isActive: boolean("is_active").notNull().default(true),
+  // JSON array of learningPatterns.id values committed to this arm's baseline
+  baselinePatternIds: jsonb("baseline_pattern_ids").$type<number[]>().default([]),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  vaTeamContentIdx: index("va_team_content_idx").on(t.teamId, t.contentType),
+  vaActiveIdx: index("va_active_idx").on(t.isActive),
+}));
+
+export const insertVariantArmSchema = createInsertSchema(variantArms).omit({
+  id: true,
+  createdAt: true,
+});
+export type VariantArm = typeof variantArms.$inferSelect;
+export type InsertVariantArm = z.infer<typeof insertVariantArmSchema>;
+
+// ============================================================================
 // Client Brand Profiles — Task #15 Client Intelligence Engine
 // One row per team. Stores the full 8-dimension brand research profile used to
 // inject persistent brand intelligence into every content generation call.
@@ -3031,6 +3065,40 @@ export const insertClientBrandProfileSchema = createInsertSchema(clientBrandProf
 });
 export type ClientBrandProfile = typeof clientBrandProfiles.$inferSelect;
 export type InsertClientBrandProfile = z.infer<typeof insertClientBrandProfileSchema>;
+
+// ============================================================================
+// COHORT INSIGHTS — Task #17 Cohort Strategy Intelligence
+// Stores segment-level performance cohorts mined by CohortMiningJob (3am daily).
+// GUARDRAIL_CONFLICT rows feed the Task #16 declare-winner gate check.
+// ============================================================================
+export const cohortInsights = pgTable("cohort_insights", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  cohortDimension: varchar("cohort_dimension", { length: 100 }).notNull(),
+  // e.g. 'contentType' | 'topic_cluster' | 'audience' | 'geographic'
+  cohortValue: varchar("cohort_value", { length: 255 }).notNull(),
+  conversionRate: integer("conversion_rate").notNull().default(0), // basis points (0-10000)
+  engagementScore: integer("engagement_score").notNull().default(0), // 0-100
+  sampleSize: integer("sample_size").notNull().default(0),
+  vsBaselineMultiplier: integer("vs_baseline_multiplier").notNull().default(100),
+  // 100 = baseline (1×); 150 = 1.5× above baseline; 80 = 0.8× below baseline
+  insightType: varchar("insight_type", { length: 50 }).notNull().default("converter_cohort"),
+  // 'converter_cohort'|'non_converter'|'untapped_segment'|'pre_conversion_primer'|'guardrail_conflict'
+  recommendationText: text("recommendation_text"),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (t) => ({
+  ciTeamIdx: index("ci_team_idx").on(t.teamId),
+  ciInsightTypeIdx: index("ci_insight_type_idx").on(t.insightType),
+  ciComputedAtIdx: index("ci_computed_at_idx").on(t.computedAt),
+  ciTeamTypeIdx: index("ci_team_type_idx").on(t.teamId, t.insightType),
+}));
+
+export const insertCohortInsightSchema = createInsertSchema(cohortInsights).omit({
+  id: true,
+  computedAt: true,
+});
+export type CohortInsight = typeof cohortInsights.$inferSelect;
+export type InsertCohortInsight = z.infer<typeof insertCohortInsightSchema>;
 
 // ============================================================================
 

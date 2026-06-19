@@ -31,9 +31,16 @@ import {
   BarChart2,
   FlaskConical,
   Trophy,
+  Target,
+  Layers,
+  GitBranch,
+  Award,
+  Users,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface LearnedPattern {
   id: number;
@@ -184,6 +191,18 @@ export default function LearningDashboard() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const [decisioningCt, setDecisioningCt] = useState("article");
+  const { data: decisioningSummary, isLoading: decisioningLoading, refetch: refetchDecisioning } = useQuery<any>({
+    queryKey: ["/api/decisioning/summary", decisioningCt],
+    queryFn: () => apiRequest(`/api/decisioning/summary?contentType=${decisioningCt}`),
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const { data: strategyData, isLoading: strategyLoading } = useQuery<any>({
+    queryKey: ["/api/learning/strategy"],
+    staleTime: 10 * 60 * 1000,
+  });
+
   const mineCorpusMutation = useMutation({
     mutationFn: async (contentType: string) => {
       return apiRequest("/api/learning/monitor/mine-corpus", {
@@ -289,6 +308,20 @@ export default function LearningDashboard() {
         </div>
       </div>
 
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="decisioning" data-testid="tab-decisioning">
+            <Target className="w-4 h-4 mr-1.5" />
+            Decisioning
+          </TabsTrigger>
+          <TabsTrigger value="strategy" data-testid="tab-strategy">
+            <Users className="w-4 h-4 mr-1.5" />
+            Strategy
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
       {/* Top stats row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
@@ -906,6 +939,310 @@ export default function LearningDashboard() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        {/* ================================================================
+            DECISIONING TAB — Thompson Sampling / Variant Arms (Task #16)
+            ================================================================ */}
+        <TabsContent value="decisioning" className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Target className="w-5 h-5" />
+                Thompson Sampling Decisioning
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Pattern-level Bayesian arm scores — the system promotes winners automatically when 3 statistical gates pass.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={decisioningCt} onValueChange={setDecisioningCt}>
+                <SelectTrigger className="w-36" data-testid="select-content-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["article", "social", "podcast", "video", "image"].map(ct => (
+                    <SelectItem key={ct} value={ct}>{ct}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => refetchDecisioning()} data-testid="button-refresh-decisioning">
+                <RefreshCw className="w-4 h-4 mr-1.5" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          {decisioningLoading ? (
+            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Loading decisioning data...
+            </div>
+          ) : !decisioningSummary ? (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                No decisioning data yet. Generate content to populate pattern arms.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-primary/10">
+                        <Layers className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold capitalize" data-testid="text-maturity">{decisioningSummary.maturity}</p>
+                        <p className="text-xs text-muted-foreground">Data maturity</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-green-500/10">
+                        <GitBranch className="w-5 h-5 text-green-500" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold" data-testid="text-arm-count">{decisioningSummary.arms?.length ?? 0}</p>
+                        <p className="text-xs text-muted-foreground">Variant arms</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-blue-500/10">
+                        <Award className="w-5 h-5 text-blue-500" />
+                      </div>
+                      <div>
+                        <p className="text-xl font-bold" data-testid="text-readiness">{decisioningSummary.readinessScore ?? 0}%</p>
+                        <p className="text-xs text-muted-foreground">Promotion readiness</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy className="w-4 h-4" />
+                    Thompson-Sampled Pattern Leaderboard
+                  </CardTitle>
+                  <CardDescription>
+                    Patterns ranked by their current Thompson sample score. Archived patterns are greyed out and excluded from selection.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {!decisioningSummary.patterns || decisioningSummary.patterns.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No patterns yet for {decisioningCt}.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {[...decisioningSummary.patterns]
+                        .sort((a: any, b: any) => b.thompsonScore - a.thompsonScore)
+                        .map((p: any) => (
+                          <div
+                            key={p.id}
+                            className={`flex items-center justify-between p-3 rounded-md gap-2 flex-wrap ${p.isArchived ? "opacity-40 bg-muted/20" : "bg-muted/40"}`}
+                            data-testid={`pattern-arm-${p.id}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate">{p.patternName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {p.alpha - 1} successes / {p.alpha + p.beta - 2} trials
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {p.isArchived && (
+                                <Badge variant="secondary" className="text-xs">Archived</Badge>
+                              )}
+                              <Badge variant="outline" className="text-xs">{p.patternType}</Badge>
+                              <Badge
+                                variant={p.thompsonScore >= 70 ? "default" : "secondary"}
+                                className="text-xs"
+                                data-testid={`score-${p.id}`}
+                              >
+                                {p.thompsonScore}% TS
+                              </Badge>
+                              <div className="w-16">
+                                <Progress value={p.thompsonScore} className="h-1.5" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {decisioningSummary.arms && decisioningSummary.arms.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <GitBranch className="w-4 h-4" />
+                      Variant Arms
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {decisioningSummary.arms.map((arm: any) => (
+                      <div
+                        key={arm.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
+                        data-testid={`arm-${arm.id}`}
+                      >
+                        <div>
+                          <p className="text-sm font-medium capitalize">{arm.armName}</p>
+                          <p className="text-xs text-muted-foreground">{arm.allocationPct}% allocation</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={arm.isActive ? "default" : "secondary"} className="text-xs">
+                            {arm.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          {arm.baselinePatternIds?.length > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              {arm.baselinePatternIds.length} baseline patterns
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ================================================================
+            STRATEGY TAB — Cohort Intelligence (Task #17)
+            ================================================================ */}
+        <TabsContent value="strategy" className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Strategy Intelligence
+            </h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Cohort-level conversion patterns mined nightly — surfaces which content types and segments over- or under-perform baseline.
+            </p>
+          </div>
+
+          {strategyLoading ? (
+            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Loading cohort insights...
+            </div>
+          ) : !strategyData || strategyData.insights?.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center">
+                <Users className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-50" />
+                <p className="text-sm text-muted-foreground">No cohort insights yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Insights are computed nightly from content performance data. Come back after your first full day of tracking.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-5 pb-4">
+                    <p className="text-2xl font-bold" data-testid="text-insights-total">{strategyData.summary?.total ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Total insights</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-5 pb-4">
+                    <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="text-converter-cohorts">{strategyData.summary?.converterCohorts ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Converter cohorts</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-5 pb-4">
+                    <p className="text-2xl font-bold text-orange-500" data-testid="text-untapped">{strategyData.summary?.untapped ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Untapped segments</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-5 pb-4">
+                    <p className="text-2xl font-bold text-red-500" data-testid="text-guardrail-conflicts">{strategyData.summary?.guardrailConflicts ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Guardrail conflicts</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {strategyData.nextBestActions?.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-green-500" />
+                      Next Best Actions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {strategyData.nextBestActions.map((action: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-md bg-muted/40 space-y-1" data-testid={`action-${idx}`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="text-sm font-medium capitalize">{action.cohortValue}</p>
+                          <Badge
+                            variant={action.vsBaselineMultiplier >= 120 ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {action.vsBaselineMultiplier}% of baseline
+                          </Badge>
+                        </div>
+                        {action.recommendationText && (
+                          <p className="text-xs text-muted-foreground">{action.recommendationText}</p>
+                        )}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">All Cohort Insights</CardTitle>
+                  <CardDescription>
+                    Nightly cohort mining results — each row is a segment with its conversion vs. baseline multiplier.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {strategyData.insights.slice(0, 30).map((insight: any) => (
+                      <div
+                        key={insight.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
+                        data-testid={`insight-${insight.id}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium capitalize">{insight.cohortValue}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{insight.insightType?.replace(/_/g, " ")}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-xs">n={insight.sampleSize}</Badge>
+                          <Badge
+                            className="text-xs"
+                            variant={insight.vsBaselineMultiplier >= 120 ? "default" : insight.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
+                          >
+                            {insight.vsBaselineMultiplier}% vs baseline
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+
+      </Tabs>
     </div>
   );
 }

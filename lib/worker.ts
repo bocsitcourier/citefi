@@ -2157,6 +2157,116 @@ export async function registerWorkers() {
       console.warn(`⚠️ Could not register ConversionLabeler scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
+    // UNDERPERFORMER ARCHIVING: weekly Monday 03:00 UTC — archives patterns whose
+    // Wilson lower-bound stays below 10 after ≥50 trials.
+    try {
+      const ARCHIVE_QUEUE = "underperformer-archiving";
+      try { await boss.createQueue(ARCHIVE_QUEUE); } catch (_) { /* already exists */ }
+      await boss.schedule(ARCHIVE_QUEUE, "0 3 * * 1", {});
+      await boss.work<Record<string, never>>(ARCHIVE_QUEUE, async (_jobs) => {
+        try {
+          const { db: _db } = await import("./db");
+          const { teams } = await import("../shared/schema");
+          const { learningMonitorService } = await import("./learning-monitor-service");
+          const allTeams = await _db.select({ id: teams.id }).from(teams);
+          let totalArchived = 0;
+          for (const team of allTeams) {
+            const { archived } = await learningMonitorService.archiveUnderperformers(team.id);
+            totalArchived += archived;
+          }
+          console.log(`✅ Underperformer archiving: archived ${totalArchived} patterns across ${allTeams.length} teams`);
+        } catch (e) {
+          console.error(`🚨 Underperformer archiving job failed:`, (e as Error).message);
+        }
+      });
+      console.log(`⏱️ Underperformer archiving scheduler registered (weekly Monday 03:00 UTC)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register underperformer archiving scheduler (non-fatal):`, (scheduleErr as Error).message);
+    }
+
+    // COHORT MINING: nightly 03:00 UTC — mines content_events into cohort_insights
+    // for the Strategy Intelligence dashboard (Task #17).
+    try {
+      const COHORT_MINING_QUEUE = "cohort-mining";
+      try { await boss.createQueue(COHORT_MINING_QUEUE); } catch (_) { /* already exists */ }
+      await boss.schedule(COHORT_MINING_QUEUE, "0 3 * * *", {});
+      await boss.work<Record<string, never>>(COHORT_MINING_QUEUE, async (_jobs) => {
+        try {
+          const { db: _db } = await import("./db");
+          const { teams, contentPerformanceMetrics: cpm, cohortInsights } = await import("../shared/schema");
+          const { eq, and, gte, count, sql: drizzleSql, desc: drizzleDesc } = await import("drizzle-orm");
+          const allTeams = await _db.select({ id: teams.id }).from(teams);
+          const cutoff = new Date(Date.now() - 30 * 86400_000);
+          let totalInsights = 0;
+
+          for (const team of allTeams) {
+            try {
+              // Compute per-contentType conversion rates
+              const rows = await _db
+                .select({
+                  contentType: cpm.contentType,
+                  total: count(),
+                  successes: drizzleSql<number>`sum(case when ${cpm.isSuccess} = 1 then 1 else 0 end)`,
+                })
+                .from(cpm)
+                .where(and(eq(cpm.teamId, team.id), gte(cpm.createdAt, cutoff)))
+                .groupBy(cpm.contentType);
+
+              if (rows.length === 0) continue;
+
+              // Compute team baseline conversion rate
+              const totalAll = rows.reduce((s, r) => s + Number(r.total), 0);
+              const successAll = rows.reduce((s, r) => s + Number(r.successes), 0);
+              const baselineRate = totalAll > 0 ? (successAll / totalAll) : 0;
+
+              for (const row of rows) {
+                const n = Number(row.total ?? 0);
+                if (n < 10) continue;
+                const successes = Number(row.successes ?? 0);
+                const rate = n > 0 ? successes / n : 0;
+                const rateBasePts = Math.round(rate * 10000);
+                const multiplier = baselineRate > 0
+                  ? Math.round((rate / baselineRate) * 100)
+                  : 100;
+                const insightType = rate > baselineRate * 1.2 ? "converter_cohort"
+                  : rate < baselineRate * 0.7 ? "non_converter"
+                  : "converter_cohort";
+
+                await _db
+                  .insert(cohortInsights)
+                  .values({
+                    teamId: team.id,
+                    cohortDimension: "contentType",
+                    cohortValue: row.contentType,
+                    conversionRate: rateBasePts,
+                    engagementScore: Math.round(rate * 100),
+                    sampleSize: n,
+                    vsBaselineMultiplier: multiplier,
+                    insightType,
+                    recommendationText: multiplier > 120
+                      ? `${row.contentType} converts at ${multiplier}% of baseline — scale up production.`
+                      : multiplier < 80
+                      ? `${row.contentType} underperforms baseline by ${100 - multiplier}% — review content quality.`
+                      : null,
+                  })
+                  .onConflictDoNothing();
+
+                totalInsights++;
+              }
+            } catch (teamErr) {
+              console.warn(`[COHORT_MINING] team ${team.id} error:`, (teamErr as Error).message);
+            }
+          }
+          console.log(`✅ Cohort mining: inserted ${totalInsights} insights for ${allTeams.length} teams`);
+        } catch (e) {
+          console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
+        }
+      });
+      console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register cohort mining scheduler (non-fatal):`, (scheduleErr as Error).message);
+    }
+
     await boss.work<SocialVideoJobData>(
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 
