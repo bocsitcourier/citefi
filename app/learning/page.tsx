@@ -36,6 +36,9 @@ import {
   GitBranch,
   Award,
   Users,
+  Flag,
+  Info,
+  TrendingUp as TrendingUpIcon,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Progress } from "@/components/ui/progress";
@@ -251,6 +254,36 @@ export default function LearningDashboard() {
     },
     onError: (error: any) => {
       toast({ title: "Seeding failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [declareWinnerResult, setDeclareWinnerResult] = useState<any>(null);
+
+  const declareWinnerMutation = useMutation({
+    mutationFn: async (armId: number) => {
+      return apiRequest(`/api/decisioning/arms/${armId}/declare-winner`, {
+        method: "POST",
+      });
+    },
+    onSuccess: (data: any) => {
+      setDeclareWinnerResult(data);
+      toast({
+        title: "Winner declared",
+        description: `Arm ${data?.arm?.armName ?? "treatment"} promoted with readiness ${data?.readinessScore}%.`,
+      });
+      refetchDecisioning();
+    },
+    onError: (error: any) => {
+      const body = (error as any)?.body ?? error;
+      setDeclareWinnerResult(body);
+      const isPremature = body?.error === "PREMATURE_PROMOTION";
+      toast({
+        title: isPremature ? "Gates not satisfied" : "Promotion failed",
+        description: isPremature
+          ? `Readiness score ${body?.readinessScore ?? 0}% — gates not yet fully passed.`
+          : (error.message ?? "Unknown error"),
+        variant: "destructive",
+      });
     },
   });
 
@@ -1015,15 +1048,36 @@ export default function LearningDashboard() {
                 </Card>
                 <Card>
                   <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 mb-2">
                       <div className="p-2 rounded-full bg-blue-500/10">
-                        <Award className="w-5 h-5 text-blue-500" />
+                        <Award className="w-4 h-4 text-blue-500" />
                       </div>
                       <div>
                         <p className="text-xl font-bold" data-testid="text-readiness">{decisioningSummary.readinessScore ?? 0}%</p>
                         <p className="text-xs text-muted-foreground">Promotion readiness</p>
                       </div>
                     </div>
+                    {decisioningSummary.readinessGates && (
+                      <div className="space-y-1 mt-1">
+                        {(["gateA", "gateB", "gateC"] as const).map(key => {
+                          const g = decisioningSummary.readinessGates[key];
+                          if (!g) return null;
+                          return (
+                            <div key={key} className="flex items-start gap-1.5 text-xs">
+                              {g.passed
+                                ? <CheckCircle2 className="w-3 h-3 mt-0.5 text-green-500 shrink-0" />
+                                : <XCircle className="w-3 h-3 mt-0.5 text-red-400 shrink-0" />}
+                              <span className={g.passed ? "text-muted-foreground" : "text-muted-foreground/70"}>
+                                {g.label}
+                                {!g.passed && g.value != null && ` (${g.value}/${g.required})`}
+                                {!g.passed && g.pValue != null && ` (p=${g.pValue})`}
+                              </span>
+                              <Badge variant="outline" className="text-[10px] ml-auto shrink-0">{g.weight}pt</Badge>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1087,30 +1141,217 @@ export default function LearningDashboard() {
                       <GitBranch className="w-4 h-4" />
                       Variant Arms
                     </CardTitle>
+                    <CardDescription>
+                      Tag <code className="text-[11px] bg-muted px-1 rounded">contentPerformanceMetrics.variantId = "va-&#123;armId&#125;"</code> on every generation to feed lift analysis.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {decisioningSummary.arms.map((arm: any) => (
-                      <div
-                        key={arm.id}
-                        className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
-                        data-testid={`arm-${arm.id}`}
-                      >
-                        <div>
-                          <p className="text-sm font-medium capitalize">{arm.armName}</p>
-                          <p className="text-xs text-muted-foreground">{arm.allocationPct}% allocation</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={arm.isActive ? "default" : "secondary"} className="text-xs">
-                            {arm.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                          {arm.baselinePatternIds?.length > 0 && (
-                            <Badge variant="outline" className="text-xs">
-                              {arm.baselinePatternIds.length} baseline patterns
+                    {decisioningSummary.arms.map((arm: any) => {
+                      const isTreatment = arm.armName === "treatment";
+                      const isRunning = declareWinnerMutation.isPending && declareWinnerMutation.variables === arm.id;
+                      return (
+                        <div
+                          key={arm.id}
+                          className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
+                          data-testid={`arm-${arm.id}`}
+                        >
+                          <div>
+                            <p className="text-sm font-medium capitalize">{arm.armName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {arm.allocationPct}% allocation · tag: <code className="text-[10px]">va-{arm.id}</code>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant={arm.isActive ? "default" : "secondary"} className="text-xs">
+                              {arm.isActive ? "Active" : "Inactive"}
                             </Badge>
-                          )}
+                            {arm.baselinePatternIds?.length > 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                {arm.baselinePatternIds.length} baseline patterns
+                              </Badge>
+                            )}
+                            {isTreatment && arm.isActive && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => declareWinnerMutation.mutate(arm.id)}
+                                disabled={isRunning}
+                                data-testid={`button-declare-winner-${arm.id}`}
+                              >
+                                {isRunning
+                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                                  : <Flag className="w-3.5 h-3.5 mr-1" />}
+                                Declare Winner
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ── Gate details from last declare-winner attempt ─────────────── */}
+              {declareWinnerResult?.gateDetails && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      Promotion Gate Details
+                      <Badge
+                        variant={declareWinnerResult.readinessScore >= 100 ? "default" : "secondary"}
+                        className="text-xs ml-1"
+                      >
+                        {declareWinnerResult.readinessScore ?? 0}% readiness
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>Results from the last "Declare Winner" check</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {/* Gate A */}
+                    {declareWinnerResult.gateDetails.gateA && (() => {
+                      const g = declareWinnerResult.gateDetails.gateA;
+                      return (
+                        <div className="flex items-start gap-2 text-sm">
+                          {g.passed
+                            ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
+                            : <XCircle className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium">{g.label}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {g.value} / {g.required} observations
+                              {!g.passed && g.etaObs != null && ` — need ~${g.etaObs} more`}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">30pt</Badge>
+                        </div>
+                      );
+                    })()}
+                    {/* Gate B — two windows */}
+                    {declareWinnerResult.gateDetails.gateB && (() => {
+                      const g = declareWinnerResult.gateDetails.gateB;
+                      return (
+                        <div className="flex items-start gap-2 text-sm">
+                          {g.passed
+                            ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
+                            : <XCircle className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium">{g.label}</p>
+                            {[g.w1, g.w2].map((w: any, i: number) => w && (
+                              <div key={i} className="mt-1 flex gap-2 text-xs text-muted-foreground flex-wrap">
+                                <span className="font-mono">{w.window}:</span>
+                                <span>treat={w.treatN}obs @{(w.treatRate * 100).toFixed(1)}%</span>
+                                <span>hold={w.holdN}obs @{(w.holdRate * 100).toFixed(1)}%</span>
+                                <span>lift={w.lift >= 0 ? "+" : ""}{(w.lift * 100).toFixed(1)}pp</span>
+                                <span className={w.significant ? "text-green-600" : "text-amber-500"}>
+                                  p={w.pValue}
+                                  {!w.significant && w.eta != null && ` (~${w.eta} more)`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">40pt</Badge>
+                        </div>
+                      );
+                    })()}
+                    {/* Gate C */}
+                    {declareWinnerResult.gateDetails.gateC && (() => {
+                      const g = declareWinnerResult.gateDetails.gateC;
+                      return (
+                        <div className="flex items-start gap-2 text-sm">
+                          {g.passed
+                            ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
+                            : <XCircle className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium">{g.label}</p>
+                            {!g.passed && (
+                              <p className="text-xs text-muted-foreground">{g.recentConflicts} guardrail conflict(s) in last 14 days</p>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-xs shrink-0">30pt</Badge>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ── Treatment vs Holdout Lift Table ──────────────────────────── */}
+              {decisioningSummary.liftSummary && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <TrendingUpIcon className="w-4 h-4" />
+                      Treatment vs Holdout Lift
+                    </CardTitle>
+                    <CardDescription>
+                      Aggregated success rates across all tagged observations (variantId = "va-&#123;armId&#125;")
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const ls = decisioningSummary.liftSummary;
+                      const hasData = ls.treatN > 0 || ls.holdN > 0;
+                      if (!hasData) {
+                        return (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                            <Info className="w-4 h-4 shrink-0" />
+                            No tagged observations yet. Tag generations with <code className="text-[11px] bg-muted px-1 rounded ml-1">va-&#123;armId&#125;</code>.
+                          </div>
+                        );
+                      }
+                      const liftColor = ls.liftPct > 0 ? "text-green-600" : ls.liftPct < 0 ? "text-red-500" : "text-muted-foreground";
+                      return (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-3 rounded-md bg-muted/40">
+                              <p className="text-xs text-muted-foreground mb-0.5">Treatment rate</p>
+                              <p className="text-lg font-bold">{(ls.treatRate * 100).toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">{ls.treatN} obs</p>
+                            </div>
+                            <div className="p-3 rounded-md bg-muted/40">
+                              <p className="text-xs text-muted-foreground mb-0.5">Holdout rate</p>
+                              <p className="text-lg font-bold">{(ls.holdRate * 100).toFixed(1)}%</p>
+                              <p className="text-xs text-muted-foreground">{ls.holdN} obs</p>
+                            </div>
+                            <div className="p-3 rounded-md bg-muted/40">
+                              <p className="text-xs text-muted-foreground mb-0.5">Absolute lift</p>
+                              <p className={`text-lg font-bold ${liftColor}`}>
+                                {ls.liftPct >= 0 ? "+" : ""}{(ls.liftPct * 100).toFixed(1)}pp
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {ls.significant ? "Significant" : `p=${ls.pValue}`}
+                              </p>
+                            </div>
+                            <div className="p-3 rounded-md bg-muted/40">
+                              <p className="text-xs text-muted-foreground mb-0.5">ETA to significance</p>
+                              <p className="text-lg font-bold">
+                                {ls.significant
+                                  ? "—"
+                                  : ls.etaObs == null
+                                    ? "N/A"
+                                    : `~${ls.etaObs}`}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {ls.significant ? "Already significant" : "more treatment obs"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {ls.significant
+                              ? <Badge variant="default" className="text-xs" data-testid="badge-lift-significant">Significant (p&lt;0.05)</Badge>
+                              : <Badge variant="secondary" className="text-xs" data-testid="badge-lift-not-significant">Not yet significant (p={ls.pValue})</Badge>
+                            }
+                            {!ls.significant && ls.etaObs != null && (
+                              <span className="text-xs text-muted-foreground">
+                                Collect ~{ls.etaObs} more treatment observations to reach p&lt;0.05
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               )}

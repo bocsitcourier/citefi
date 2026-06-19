@@ -231,11 +231,16 @@ export class LearningMonitorService {
   // permanently excluded from Thompson Sampling by setting isArchived=true.
   // Scheduled weekly (Monday 03:00 UTC) by the worker.
   // ============================================================================
+  // ── 3-consecutive-week gate ─────────────────────────────────────────────────
+  // Requirements (Task #16): Wilson LB < 0.10 for 3 **consecutive** weekly checks
+  // (not one aggregate snapshot). Each Monday the job increments weakWeekCount if
+  // the pattern is still underperforming; resets to 0 if it recovers; archives at 3.
   async archiveUnderperformers(teamId: number): Promise<{ archived: number }> {
     try {
       const candidates = await db
         .select({
           patternId: learningPatterns.id,
+          weakWeekCount: learningPatterns.weakWeekCount,
           totalTrials: sql<number>`coalesce(sum(${patternDimensionStats.trials}), 0)`,
           totalSuccesses: sql<number>`coalesce(sum(${patternDimensionStats.successes}), 0)`,
         })
@@ -244,28 +249,53 @@ export class LearningMonitorService {
         .where(
           and(
             eq(learningPatterns.teamId, teamId),
-            eq(learningPatterns.isArchived, false),
-            gte(learningPatterns.timesUsed, 50)
+            eq(learningPatterns.isArchived, false)
           )
         )
-        .groupBy(learningPatterns.id);
+        .groupBy(learningPatterns.id, learningPatterns.weakWeekCount);
 
-      const toArchive = candidates.filter(c => {
+      let archived = 0;
+      const now = new Date();
+
+      for (const c of candidates) {
         const trials    = Number(c.totalTrials ?? 0);
         const successes = Number(c.totalSuccesses ?? 0);
-        return trials >= 50 && _wilsonLB(successes, trials) < 10;
-      });
+        const curWeak   = c.weakWeekCount ?? 0;
 
-      if (toArchive.length === 0) return { archived: 0 };
+        if (trials >= 50 && _wilsonLB(successes, trials) < 10) {
+          const newWeak = curWeak + 1;
+          if (newWeak >= 3) {
+            // 3 consecutive weekly checks below threshold → permanently archive
+            await db
+              .update(learningPatterns)
+              .set({ isArchived: true, weakWeekCount: 0, updatedAt: now })
+              .where(eq(learningPatterns.id, c.patternId));
+            archived++;
+          } else {
+            await db
+              .update(learningPatterns)
+              .set({ weakWeekCount: newWeak, updatedAt: now })
+              .where(eq(learningPatterns.id, c.patternId));
+            if (newWeak === 2) {
+              console.log(
+                `[UNDERPERFORMER_WARNING] teamId=${teamId} patternId=${c.patternId} ` +
+                `weakWeeks=2 — will archive next week if still below Wilson LB 10`
+              );
+            }
+          }
+        } else if (curWeak > 0) {
+          // Pattern recovered → reset consecutive-weak counter
+          await db
+            .update(learningPatterns)
+            .set({ weakWeekCount: 0, updatedAt: now })
+            .where(eq(learningPatterns.id, c.patternId));
+        }
+      }
 
-      const ids = toArchive.map(c => c.patternId);
-      await db
-        .update(learningPatterns)
-        .set({ isArchived: true, updatedAt: new Date() })
-        .where(inArray(learningPatterns.id, ids));
-
-      console.log(`[UNDERPERFORMER_ARCHIVING] teamId=${teamId} archived=${ids.length} patterns`);
-      return { archived: ids.length };
+      if (archived > 0) {
+        console.log(`[UNDERPERFORMER_ARCHIVING] teamId=${teamId} archived=${archived} patterns`);
+      }
+      return { archived };
     } catch (e) {
       console.error(`[UNDERPERFORMER_ARCHIVING] teamId=${teamId} error:`, (e as Error).message);
       return { archived: 0 };

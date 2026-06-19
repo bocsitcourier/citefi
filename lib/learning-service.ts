@@ -7,6 +7,7 @@ import {
   contentPerformanceMetrics,
   agentOptimizationLogs,
   aiLearningLedger,
+  variantArms,
   ContentType,
 } from "../shared/schema";
 import {
@@ -125,6 +126,10 @@ export interface OptimizationContext {
     model: string;
     temperature: number;
   };
+  /** variantArms.id of the arm selected for this generation (if an experiment is active). */
+  selectedArmId?: number;
+  /** true when this generation was routed to the holdout arm (baseline patterns served). */
+  isHoldout?: boolean;
 }
 
 export class LearningService {
@@ -326,7 +331,7 @@ export class LearningService {
       .sort((a, b) => b.thompsonScore - a.thompsonScore)
       .slice(0, 8);
 
-    const learnedPatterns: LearnedPattern[] = selected.map(s => ({
+    let learnedPatterns: LearnedPattern[] = selected.map(s => ({
       id: s.pattern.id,
       patternType: s.pattern.patternType,
       patternName: s.pattern.patternName,
@@ -334,6 +339,57 @@ export class LearningService {
       successRate: s.wilson,
       confidence: Math.min(100, Math.round((s.trials / MIN_CONFIDENCE_SAMPLES) * 100)),
     }));
+
+    // ── Variant Arm Assignment (Task #16 holdout/treatment routing) ─────────────
+    // If an active experiment exists for this team × contentType, route each
+    // generation to treatment (Thompson-sampled patterns, computed above) or
+    // holdout (committed baseline patterns). Callers tag
+    // contentPerformanceMetrics.variantId = `va-${selectedArmId}` to enable
+    // treatment-vs-holdout lift analysis at declare-winner gate time.
+    let selectedArmId: number | undefined;
+    let isHoldout = false;
+    try {
+      const activeArms = await db
+        .select()
+        .from(variantArms)
+        .where(and(
+          eq(variantArms.teamId, agent.teamId!),
+          eq(variantArms.contentType, agent.contentType),
+          eq(variantArms.isActive, true)
+        ));
+
+      const treatmentArm = activeArms.find(a => a.armName === "treatment");
+      const holdoutArm   = activeArms.find(a => a.armName === "holdout");
+
+      if (treatmentArm || holdoutArm) {
+        const holdoutPct = holdoutArm?.allocationPct ?? 10;
+        const roll = Math.random() * 100;
+        if (holdoutArm && roll < holdoutPct) {
+          // Holdout arm: serve committed baseline patterns only
+          isHoldout = true;
+          selectedArmId = holdoutArm.id;
+          const bids: number[] = holdoutArm.baselinePatternIds ?? [];
+          if (bids.length > 0) {
+            const holdoutSubset = allPatterns
+              .filter(p => bids.includes(p.id))
+              .slice(0, 8);
+            learnedPatterns = holdoutSubset.map(p => ({
+              id: p.id,
+              patternType: p.patternType,
+              patternName: p.patternName,
+              patternValue: p.patternValue,
+              successRate: 0,
+              confidence: 0,
+            }));
+          }
+        } else if (treatmentArm) {
+          // Treatment arm: Thompson-sampled patterns already computed above
+          selectedArmId = treatmentArm.id;
+        }
+      }
+    } catch {
+      // Arm assignment is best-effort; fall back to Thompson selection silently
+    }
 
     // Collect negative constraints + brand intelligence context in parallel
     const [negativeConstraints, brandContext] = await Promise.all([
@@ -358,6 +414,8 @@ export class LearningService {
         model: agent.primaryModel,
         temperature: agent.temperature / 100,
       },
+      selectedArmId,
+      isHoldout,
     };
   }
 
@@ -409,10 +467,12 @@ export class LearningService {
     const kpiMetric =
       terminalKpi === "conversion" ? "conversion"
       : terminalKpi === "engagement" ? "engagement"
-      : terminalKpi === "awareness"  ? "engagement"
+      : terminalKpi === "awareness"  ? "quality"   // awareness is a brand KPI → quality
       : "quality";
 
-    const boostedWeight = 0.7;
+    // awareness → boost quality to 0.6 (brand/E-E-A-T KPI)
+    // conversion/engagement → boost to 0.7 (performance KPI)
+    const boostedWeight = terminalKpi === "awareness" ? 0.6 : 0.7;
     const remainder = 1 - boostedWeight;
     const otherKeys = Object.keys(base).filter(k => k !== kpiMetric);
     const otherTotal = otherKeys.reduce((s, k) => s + (base[k] ?? 0), 0);

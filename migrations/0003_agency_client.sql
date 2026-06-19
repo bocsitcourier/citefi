@@ -50,3 +50,6 @@ CREATE INDEX IF NOT EXISTS "ci_team_idx" ON "cohort_insights" ("team_id");
 CREATE INDEX IF NOT EXISTS "ci_insight_type_idx" ON "cohort_insights" ("insight_type");
 CREATE INDEX IF NOT EXISTS "ci_computed_at_idx" ON "cohort_insights" ("computed_at");
 CREATE INDEX IF NOT EXISTS "ci_team_type_idx" ON "cohort_insights" ("team_id", "insight_type");
+
+-- Task #16: 3-consecutive-week gate for underperformer archiving
+ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weak_week_count SMALLINT NOT NULL DEFAULT 0;

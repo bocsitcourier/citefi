@@ -1131,6 +1131,9 @@ export const learningPatterns = pgTable("learning_patterns", {
   // Archival — set true by underperformer archiving job (Task #16)
   // Archived patterns are excluded from Thompson Sampling selection pools.
   isArchived: boolean("is_archived").notNull().default(false),
+  // Consecutive weekly check counter for 3-week gate: incremented each Monday when
+  // Wilson LB < 10 with ≥50 trials; reset to 0 when pattern recovers; archived at 3.
+  weakWeekCount: smallint("weak_week_count").notNull().default(0),
   
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
