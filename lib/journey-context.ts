@@ -13,7 +13,7 @@
  */
 
 import { db } from "./db";
-import { journeys, journeySteps, articles, audiencePersonas } from "../shared/schema";
+import { journeys, journeySteps, articles, audiencePersonas, batchSeoCache } from "../shared/schema";
 import { eq, and } from "drizzle-orm";
 
 export interface JourneyContextResult {
@@ -84,8 +84,9 @@ export async function getJourneyContext(
       }
     }
 
-    // Load persona info if journey was triggered from an article with a persona
+    // Load persona info + competitor differentiation signals (Task #15 batchSeoCache)
     let personaGuidance = "";
+    let competitorDifferentiation = "";
     if (journey.triggerArticleId) {
       const [art] = await db
         .select({ batchId: articles.batchId })
@@ -117,6 +118,35 @@ export async function getJourneyContext(
               ? `Key pain points: ${(profile.painPoints as string[]).slice(0, 3).join("; ")}`
               : "";
             personaGuidance = `Target persona: ${persona.name}. ${painPoints}`.trim();
+          }
+        }
+
+        // Pull competitor differentiation signals from Task #15 Smart Topic Research cache
+        const [seoCache] = await db
+          .select({
+            competitorInsightsJson: batchSeoCache.competitorInsightsJson,
+            competitorKeywordsJson: batchSeoCache.competitorKeywordsJson,
+          })
+          .from(batchSeoCache)
+          .where(eq(batchSeoCache.batchId, art.batchId))
+          .limit(1);
+
+        if (seoCache) {
+          const insights = seoCache.competitorInsightsJson as Record<string, unknown> | null;
+          const keywords = seoCache.competitorKeywordsJson as string[] | null;
+
+          const parts: string[] = [];
+          if (insights?.patterns) {
+            parts.push(`Avoid competitor patterns: ${String(insights.patterns).slice(0, 300)}`);
+          }
+          if (insights?.gaps) {
+            parts.push(`Exploit coverage gaps competitors miss: ${String(insights.gaps).slice(0, 300)}`);
+          }
+          if (keywords && Array.isArray(keywords) && keywords.length > 0) {
+            parts.push(`Competitor keyword opportunities: ${keywords.slice(0, 8).join(", ")}`);
+          }
+          if (parts.length > 0) {
+            competitorDifferentiation = parts.join(" ");
           }
         }
       }
@@ -168,6 +198,7 @@ ${stepContext}
 ${pillarSection}
 ${personaGuidance ? `\nAUDIENCE:\n${personaGuidance}` : ""}
 CONVERSION GOAL: ${journey.terminalKpi.toUpperCase()} — ${kpiInstruction}
+${competitorDifferentiation ? `\nCOMPETITOR DIFFERENTIATION (from Smart Topic Research):\n${competitorDifferentiation}` : ""}
 ${stepIndex > 0 ? "CROSS-CONTENT RULE: Link back to the pillar article naturally in the content. Maintain consistent messaging, terminology, and brand voice across all journey steps." : ""}${localeSection}
 === END JOURNEY CONTEXT ===`.trim();
 

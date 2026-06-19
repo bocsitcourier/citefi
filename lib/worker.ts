@@ -3125,7 +3125,7 @@ export async function registerWorkers() {
                 // Podcast generation is invoked via the generateArticlePodcast worker function.
                 // Fire-and-forget in background — step status updated to generated on completion.
                 const { generateArticlePodcast } = await import("./podcast-worker");
-                generateArticlePodcast(pillarArticleId, journey.teamId, "Conversational", 120)
+                generateArticlePodcast({ articleId: pillarArticleId, teamId: journey.teamId, tone: "Conversational", duration: "120" })
                   .then(async () => {
                     await _db
                       .update(jSteps)
