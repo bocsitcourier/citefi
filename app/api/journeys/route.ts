@@ -43,7 +43,35 @@ export async function GET(req: NextRequest) {
       .where(conditions)
       .orderBy(desc(journeys.createdAt));
 
-    return NextResponse.json({ journeys: rows });
+    // Enrich each journey with step summary so the dashboard can show
+    // accurate progress (% complete) and next-due step without a second request.
+    const enriched = await Promise.all(
+      rows.map(async (j) => {
+        const steps = await db
+          .select()
+          .from(journeySteps)
+          .where(eq(journeySteps.journeyId, j.id))
+          .orderBy(journeySteps.stepIndex);
+
+        const totalSteps = steps.length;
+        const completedSteps = steps.filter(
+          (s) => s.status === "generated" || s.status === "published"
+        ).length;
+        const nextDueStep = steps.find(
+          (s) => s.status === "pending" || s.status === "queued"
+        ) ?? null;
+
+        return {
+          ...j,
+          steps,
+          totalSteps,
+          completedSteps,
+          nextDueStep,
+        };
+      })
+    );
+
+    return NextResponse.json({ journeys: enriched });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

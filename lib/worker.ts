@@ -2800,10 +2800,12 @@ export async function registerWorkers() {
         try {
           const { db: _db } = await import("./db");
           const {
-            journeySteps: jSteps, journeys: jTable, articles: artsTable, jobBatches: batchTable,
+            journeySteps: jSteps, journeys: jTable, articles: artsTable,
+            jobBatches: batchTable, socialPosts: socialPostsTable,
+            teams: teamsTable,
           } = await import("../shared/schema");
-          const { eq, and, lte, isNotNull: _isNotNull } = await import("drizzle-orm");
-          const { getJourneyContext } = await import("./journey-context");
+          const { eq, and, lte } = await import("drizzle-orm");
+          const { getJourneyContext, isPillarGenerated } = await import("./journey-context");
 
           const now = new Date();
 
@@ -2831,11 +2833,28 @@ export async function registerWorkers() {
           console.log(`[JOURNEY_SCHEDULER] Processing ${dueSteps.length} due step(s)`);
           let queued = 0;
 
+          // Cache team info (userId + businessName) per teamId to avoid redundant queries
+          const teamInfoCache = new Map<number, { userId: number; businessName: string }>();
+
+          async function getTeamInfo(teamId: number) {
+            if (teamInfoCache.has(teamId)) return teamInfoCache.get(teamId)!;
+            const [team] = await _db
+              .select({ id: teamsTable.id, name: teamsTable.name, createdBy: teamsTable.createdBy })
+              .from(teamsTable)
+              .where(eq(teamsTable.id, teamId))
+              .limit(1);
+            const info = {
+              userId: team?.createdBy ?? 1,
+              businessName: (team?.name ?? "Content Team").trim() || "Content Team",
+            };
+            teamInfoCache.set(teamId, info);
+            return info;
+          }
+
           for (const { step, journey } of dueSteps) {
             try {
               // For step > 0, verify pillar (step 0) has been generated
               if (step.stepIndex > 0) {
-                const { isPillarGenerated } = await import("./journey-context");
                 const pillarReady = await isPillarGenerated(journey.id);
                 if (!pillarReady) {
                   console.log(`[JOURNEY_SCHEDULER] Step ${step.id} (journey ${journey.id}) waiting for pillar`);
@@ -2852,7 +2871,7 @@ export async function registerWorkers() {
                 .set({ status: "queued" })
                 .where(eq(jSteps.id, step.id));
 
-              // Enqueue the appropriate generation job with journeyContext
+              // Journey metadata passed through the pg-boss job payload — NOT persisted to DB columns
               const journeyMeta = {
                 journeyId: journey.id,
                 journeyStepId: step.id,
@@ -2865,21 +2884,23 @@ export async function registerWorkers() {
 
               const contentType = step.contentType;
               const topicAngle = step.topicAngle ?? `${journey.name} — step ${step.stepIndex + 1}`;
+              const teamInfo = await getTeamInfo(journey.teamId);
 
               if (contentType === "article") {
-                // For article steps, we create a minimal batch to drive generation.
-                // The journeyContext is embedded in the batch metadata for the article worker.
+                // Create a minimal but valid job_batch row — only real schema columns.
+                // journeyMeta travels in the pg-boss payload, not in the DB row.
                 const [batch] = await _db
                   .insert(batchTable)
                   .values({
+                    userId: teamInfo.userId,
                     teamId: journey.teamId,
                     coreTopic: topicAngle,
                     targetUrl: "",
                     status: "pending" as const,
-                    journeyId: journey.id,
-                    journeyStepId: step.id,
-                    journeyContext: ctx?.promptSegment ?? null,
-                  } as any)
+                    numArticlesRequested: 1,
+                    businessName: teamInfo.businessName,
+                    generationParams: { journeyStepId: step.id, journeyId: journey.id } as any,
+                  })
                   .returning();
 
                 await _db
@@ -2887,59 +2908,138 @@ export async function registerWorkers() {
                   .set({ batchId: batch.id })
                   .where(eq(jSteps.id, step.id));
 
-                // Send to batch-generation queue
-                const { addBatchJob } = await import("./queue");
-                await addBatchJob({
+                const { addBatchGenerationJob } = await import("./queue");
+                await addBatchGenerationJob({
                   batchId: batch.id,
-                  userId: 0, // System-generated
+                  userId: teamInfo.userId,
                   teamId: journey.teamId,
                   selectedTitles: [topicAngle],
                   targetUrl: "",
-                  journeyMeta: journeyMeta as any,
-                } as any);
+                  businessName: teamInfo.businessName,
+                  ...(journeyMeta as any),
+                });
 
               } else if (contentType === "social") {
-                // For social steps, create a social post with journey context
-                const { socialPosts } = await import("../shared/schema");
+                const platforms: string[] = step.channel
+                  ? [step.channel]
+                  : ["facebook", "instagram", "linkedin"];
+
+                // Insert social_post with only real schema columns.
+                // journeyMeta travels in the pg-boss payload only.
                 const [post] = await _db
-                  .insert(socialPosts)
+                  .insert(socialPostsTable)
                   .values({
+                    userId: teamInfo.userId,
                     teamId: journey.teamId,
-                    userId: 0,
-                    prompt: topicAngle,
-                    platforms: step.channel ? [step.channel] : ["facebook", "instagram", "linkedin"],
-                    status: "pending" as const,
-                    journeyId: journey.id,
-                    journeyStepId: step.id,
-                    journeyContext: ctx?.promptSegment ?? null,
-                  } as any)
+                    topic: topicAngle,
+                    title: topicAngle,
+                    location: journey.locale ?? "Local",
+                    prompt: ctx?.promptSegment
+                      ? `${topicAngle}\n\n${ctx.promptSegment}`
+                      : topicAngle,
+                    platformsJson: platforms as any,
+                    status: "PENDING" as const,
+                    companyName: teamInfo.businessName,
+                  })
                   .returning();
 
                 await _db
                   .update(jSteps)
-                  .set({ articleId: post.id }) // reuse articleId for cross-reference
+                  .set({ articleId: post.id })
                   .where(eq(jSteps.id, step.id));
 
                 const { addSocialPostJob } = await import("./queue");
                 await addSocialPostJob({
                   socialPostId: post.id,
-                  userId: 0,
-                  prompt: topicAngle,
-                  platforms: step.channel ? [step.channel] : ["facebook", "instagram", "linkedin"],
-                  journeyMeta: journeyMeta as any,
-                } as any);
+                  userId: teamInfo.userId,
+                  prompt: journeyMeta.journeyContext
+                    ? `${topicAngle}\n\n${journeyMeta.journeyContext}`
+                    : topicAngle,
+                  platforms,
+                  tone: "Professional",
+                });
 
-              } else if (contentType === "podcast" || contentType === "video") {
-                // Podcast and video steps: log intent, mark as queued for now.
-                // Full integration is wired once an article exists in the journey.
-                console.log(
-                  `[JOURNEY_SCHEDULER] Step ${step.id} type=${contentType}: requires pillar article — will generate when pillar is ready`
-                );
+              } else if (contentType === "podcast") {
+                // Podcast steps: require the pillar article to exist in journey_steps.
+                // Pillar gate already passed above, so we can look up the article.
+                const [pillarStep] = await _db
+                  .select({ articleId: jSteps.articleId, batchId: jSteps.batchId })
+                  .from(jSteps)
+                  .where(and(eq(jSteps.journeyId, journey.id), eq(jSteps.stepIndex, 0)))
+                  .limit(1);
+
+                const pillarArticleId = pillarStep?.articleId;
+                if (!pillarArticleId) {
+                  // Pillar article not yet linked — revert and wait
+                  await _db.update(jSteps).set({ status: "pending" }).where(eq(jSteps.id, step.id));
+                  console.log(`[JOURNEY_SCHEDULER] Step ${step.id} podcast: pillar articleId not yet set, will retry`);
+                  continue;
+                }
+
+                // Mark article as needing podcast generation
+                await _db
+                  .update(artsTable)
+                  .set({ podcastStatus: "pending" } as any)
+                  .where(and(
+                    eq(artsTable.id, pillarArticleId),
+                    eq(artsTable.teamId, journey.teamId)
+                  ));
+
                 await _db
                   .update(jSteps)
-                  .set({ status: "pending" }) // revert to pending
+                  .set({ articleId: pillarArticleId })
                   .where(eq(jSteps.id, step.id));
-                continue;
+
+                // Podcast generation is invoked via the generateArticlePodcast worker function.
+                // Fire-and-forget in background — step status updated to generated on completion.
+                const { generateArticlePodcast } = await import("./podcast-worker");
+                generateArticlePodcast(pillarArticleId, journey.teamId, "Conversational", 120)
+                  .then(async () => {
+                    await _db
+                      .update(jSteps)
+                      .set({ status: "generated", publishedAt: new Date() })
+                      .where(eq(jSteps.id, step.id))
+                      .catch(() => {});
+                    console.log(`[JOURNEY_SCHEDULER] Podcast step ${step.id} generated from article ${pillarArticleId}`);
+                  })
+                  .catch(async (podcastErr: Error) => {
+                    console.error(`[JOURNEY_SCHEDULER] Podcast step ${step.id} failed:`, podcastErr.message);
+                    await _db.update(jSteps).set({ status: "pending" }).where(eq(jSteps.id, step.id)).catch(() => {});
+                  });
+
+              } else if (contentType === "video") {
+                // Video steps: create a social post with video enabled and queue social-video-generation.
+                const platforms = ["facebook", "instagram", "linkedin"];
+                const [post] = await _db
+                  .insert(socialPostsTable)
+                  .values({
+                    userId: teamInfo.userId,
+                    teamId: journey.teamId,
+                    topic: topicAngle,
+                    title: topicAngle,
+                    location: journey.locale ?? "Local",
+                    prompt: ctx?.promptSegment
+                      ? `${topicAngle}\n\n${ctx.promptSegment}`
+                      : topicAngle,
+                    platformsJson: platforms as any,
+                    status: "PENDING" as const,
+                    companyName: teamInfo.businessName,
+                    includeVideo: 1,
+                    videoType: "slideshow",
+                  })
+                  .returning();
+
+                await _db
+                  .update(jSteps)
+                  .set({ articleId: post.id })
+                  .where(eq(jSteps.id, step.id));
+
+                const boss = await (await import("./queue")).getPgBoss();
+                await boss.send("social-video-generation", {
+                  socialPostId: post.id,
+                  platform: step.channel ?? "instagram",
+                  journeyStepId: step.id,
+                });
               }
 
               queued++;

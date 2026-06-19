@@ -52,6 +52,11 @@ interface Journey {
   triggeredAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  // Enriched by list API for dashboard progress/next-due display
+  steps?: JourneyStep[];
+  totalSteps?: number;
+  completedSteps?: number;
+  nextDueStep?: JourneyStep | null;
 }
 
 interface JourneyTemplate {
@@ -665,7 +670,13 @@ export default function JourneysPage() {
                 <JourneyCard
                   key={journey.id}
                   journey={journey}
-                  steps={journey.id === selectedJourneyId ? selectedSteps : []}
+                  steps={
+                    journey.id === selectedJourneyId
+                      ? selectedSteps.length > 0
+                        ? selectedSteps
+                        : (journey.steps ?? [])
+                      : (journey.steps ?? [])
+                  }
                   onSelect={() =>
                     setSelectedJourneyId(journey.id === selectedJourneyId ? null : journey.id)
                   }
