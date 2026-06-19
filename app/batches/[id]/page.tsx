@@ -5,7 +5,7 @@ import { use, Suspense, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, ExternalLink, Sparkles, Home, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle, Square } from "lucide-react";
+import { Loader2, FileText, ExternalLink, Sparkles, Home, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle, Square, GitBranch } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -316,6 +316,25 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
     },
   });
 
+  const launchJourneyMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest(`/api/batches/${batchId}/launch-journey`, { method: "POST" });
+    },
+    onSuccess: (res: any) => {
+      toast({
+        title: "Journey launched",
+        description: res?.message ?? "Local SEO Journey created and activated.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Launch failed",
+        description: error instanceof Error ? error.message : "Failed to launch journey",
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -377,6 +396,20 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                   Select Titles to Generate
                 </Button>
               </Link>
+            )}
+            {(batch.status === "COMPLETE" || batch.status === "PARTIAL_COMPLETE") && summary.completed > 0 && (
+              <Button
+                onClick={() => launchJourneyMutation.mutate()}
+                disabled={launchJourneyMutation.isPending}
+                data-testid="button-launch-journey"
+              >
+                {launchJourneyMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <GitBranch className="w-4 h-4 mr-2" />
+                )}
+                Launch Journey
+              </Button>
             )}
             {batch.status === "RUNNING" && (
               <AlertDialog>

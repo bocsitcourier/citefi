@@ -4053,6 +4053,96 @@ async function checkBatchCompletion(batchId: number) {
       const PUBLISHABLE_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "CHATGPT_REVIEWED"];
       await triggerAutoPublishing(batchId, batchArticles.filter(a => PUBLISHABLE_STATUSES.includes(a.articleStatus || "")));
     }
+
+    // AUTO-SPAWN: trigger any draft journeys with triggerType='on_publish' for this team
+    if (completedArticles > 0) {
+      // Use teamId from the first batchArticle (all articles share the same teamId)
+      const teamIdForJourneys = batchArticles[0]?.teamId ?? null;
+      if (teamIdForJourneys) {
+        await triggerOnPublishJourneys(batchId, teamIdForJourneys, batchArticles).catch((err: Error) => {
+          console.warn(`[checkBatchCompletion] on_publish journey spawn failed (non-fatal):`, err.message);
+        });
+      }
+    }
+  }
+}
+
+/**
+ * triggerOnPublishJourneys
+ *
+ * Called when a batch reaches COMPLETE/PARTIAL_COMPLETE.  Finds every draft
+ * journey for the team with triggerType = 'on_publish', schedules its steps
+ * relative to now using dayOffset, then activates it — passing the top
+ * completed article from the batch as the anchor (triggerArticleId).
+ */
+async function triggerOnPublishJourneys(
+  batchId: number,
+  teamId: number,
+  batchArticles: typeof articles.$inferSelect[]
+): Promise<void> {
+  try {
+    const { journeys: jTable, journeySteps: jSteps } = await import("../shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+
+    // Draft journeys awaiting a publish event for this team
+    const pendingJourneys = await db
+      .select()
+      .from(jTable)
+      .where(
+        and(
+          eq(jTable.teamId, teamId),
+          eq(jTable.triggerType, "on_publish"),
+          eq(jTable.status, "draft")
+        )
+      );
+
+    if (pendingJourneys.length === 0) return;
+
+    // Top completed article from this batch (anchor for all journeys)
+    const topArticle = batchArticles.find(
+      (a) => a.articleStatus === "COMPLETE" || a.articleStatus === "GPT4_ENHANCED"
+    );
+
+    const now = new Date();
+
+    for (const journey of pendingJourneys) {
+      try {
+        const steps = await db
+          .select()
+          .from(jSteps)
+          .where(eq(jSteps.journeyId, journey.id));
+
+        // Schedule each step relative to now
+        for (const step of steps) {
+          const scheduledFor = new Date(now.getTime() + step.dayOffset * 24 * 60 * 60 * 1000);
+          await db
+            .update(jSteps)
+            .set({ scheduledFor, status: "pending" })
+            .where(eq(jSteps.id, step.id));
+        }
+
+        // Activate the journey, anchoring to the top article if available
+        await db
+          .update(jTable)
+          .set({
+            status: "active",
+            triggeredAt: now,
+            ...(topArticle ? { triggerArticleId: topArticle.id } : {}),
+          })
+          .where(eq(jTable.id, journey.id));
+
+        console.log(
+          `[on_publish] Auto-activated journey ${journey.id} ("${journey.name}") ` +
+          `for team ${teamId} via batch ${batchId}` +
+          (topArticle ? ` anchored to article ${topArticle.id}` : "")
+        );
+      } catch (innerErr) {
+        console.warn(`[on_publish] Failed to activate journey ${journey.id}:`, innerErr);
+      }
+    }
+  } catch (err) {
+    console.error("[triggerOnPublishJourneys] fatal:", err);
+    throw err;
   }
 }
 

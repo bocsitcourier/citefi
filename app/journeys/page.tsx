@@ -20,10 +20,22 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   GitBranch, Plus, Play, Pause, CheckCircle2, Clock, Circle,
-  ChevronRight, Layers, RefreshCw, AlertCircle, Zap, Globe,
+  ChevronRight, Layers, RefreshCw, AlertCircle, Zap, Globe, ExternalLink, Mic, Video,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+interface StepContentPreview {
+  title?: string;
+  slug?: string;
+  wordCount?: number;
+  url?: string;
+  text?: string;
+  podcastStatus?: string;
+  podcastUrl?: string;
+  videoStatus?: string;
+  videoUrl?: string;
+}
 
 interface JourneyStep {
   id: number;
@@ -38,6 +50,7 @@ interface JourneyStep {
   batchId: number | null;
   scheduledFor: string | null;
   publishedAt: string | null;
+  contentPreview?: StepContentPreview | null;
 }
 
 interface Journey {
@@ -191,6 +204,81 @@ function JourneyCard({
 
 // ─── Step Timeline ────────────────────────────────────────────────────────────
 
+function StepContentLink({ step }: { step: JourneyStep }) {
+  const p = step.contentPreview;
+  if (!p) return null;
+
+  if (step.contentType === "article" && p.title) {
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        {p.url ? (
+          <a
+            href={p.url}
+            className="text-xs text-primary underline-offset-2 hover:underline flex items-center gap-1 truncate max-w-[260px]"
+            data-testid={`link-step-article-${step.id}`}
+          >
+            <ExternalLink className="w-3 h-3 shrink-0" />
+            {p.title}
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground truncate max-w-[260px]">{p.title}</span>
+        )}
+        {p.wordCount && (
+          <span className="text-xs text-muted-foreground shrink-0">{p.wordCount.toLocaleString()} words</span>
+        )}
+      </div>
+    );
+  }
+
+  if (step.contentType === "social" && p.title) {
+    return (
+      <p className="text-xs text-muted-foreground mt-1 truncate max-w-[300px]" data-testid={`text-step-social-${step.id}`}>
+        {p.title}
+      </p>
+    );
+  }
+
+  if (step.contentType === "podcast") {
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        <Mic className="w-3 h-3 text-muted-foreground shrink-0" />
+        {p.podcastUrl ? (
+          <a
+            href={p.podcastUrl}
+            className="text-xs text-primary underline-offset-2 hover:underline truncate max-w-[240px]"
+            data-testid={`link-step-podcast-${step.id}`}
+          >
+            {p.title ?? "Listen"}
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground">{p.podcastStatus ?? "Pending"}</span>
+        )}
+      </div>
+    );
+  }
+
+  if (step.contentType === "video") {
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        <Video className="w-3 h-3 text-muted-foreground shrink-0" />
+        {p.videoUrl ? (
+          <a
+            href={p.videoUrl}
+            className="text-xs text-primary underline-offset-2 hover:underline truncate max-w-[240px]"
+            data-testid={`link-step-video-${step.id}`}
+          >
+            {p.title ?? "Watch"}
+          </a>
+        ) : (
+          <span className="text-xs text-muted-foreground">{p.videoStatus ?? "Pending"}</span>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function StepTimeline({ steps }: { steps: JourneyStep[] }) {
   return (
     <div className="space-y-1">
@@ -221,6 +309,7 @@ function StepTimeline({ steps }: { steps: JourneyStep[] }) {
             {step.topicAngle && (
               <p className="text-xs text-muted-foreground mt-0.5 truncate">{step.topicAngle}</p>
             )}
+            <StepContentLink step={step} />
             {step.scheduledFor && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 Scheduled: {formatDate(step.scheduledFor)}
