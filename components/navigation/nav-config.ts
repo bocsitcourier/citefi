@@ -21,6 +21,7 @@ import {
   Building2,
   BarChart2,
   Sparkles,
+  GitBranch,
 } from "lucide-react";
 
 export interface NavItem {
@@ -59,6 +60,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: "Brand Intelligence", href: "/intelligence", icon: Sparkles },
       { title: "Personas", href: "/personas", icon: Users },
       { title: "AI Learning", href: "/learning", icon: Brain },
+      { title: "Journeys", href: "/journeys", icon: GitBranch },
     ],
   },
   {
@@ -118,6 +120,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   media: "Media Manager",
   personas: "Personas",
   learning: "AI Learning",
+  journeys: "Content Journeys",
   settings: "Account Settings",
   billing: "Billing & Credits",
   publishing: "Publishing",

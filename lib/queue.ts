@@ -222,6 +222,8 @@ async function createPgBoss(): Promise<PgBoss> {
     "conversion-labeler",
     "underperformer-archiving",
     "cohort-mining",
+    // Task #18: Journey Orchestrator — 15-min scheduler
+    "journey-scheduler",
   ];
   for (const queueName of ALL_QUEUES) {
     try {

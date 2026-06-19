@@ -3123,6 +3123,113 @@ export type CohortInsight = typeof cohortInsights.$inferSelect;
 export type InsertCohortInsight = z.infer<typeof insertCohortInsightSchema>;
 
 // ============================================================================
+// JOURNEY ORCHESTRATOR — Task #18
+// ============================================================================
+
+// journey_templates — prebuilt and custom sequence blueprints.
+// stepsConfig is a JSONB array of { stepIndex, contentType, dayOffset, topicAngle, channel }.
+export const journeyTemplates = pgTable("journey_templates", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  templateType: varchar("template_type", { length: 50 }).notNull(),
+  // 'local_seo'|'product_launch'|'thought_leadership'|'evergreen_seo'|'churn_rescue'|'custom'
+  stepsConfig: jsonb("steps_config").notNull().default("[]"),
+  isBuiltin: boolean("is_builtin").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  jtTypeIdx: index("jt_type_idx").on(t.templateType),
+  jtBuiltinIdx: index("jt_builtin_idx").on(t.isBuiltin),
+}));
+
+export const insertJourneyTemplateSchema = createInsertSchema(journeyTemplates).omit({ id: true, createdAt: true });
+export type JourneyTemplate = typeof journeyTemplates.$inferSelect;
+export type InsertJourneyTemplate = z.infer<typeof insertJourneyTemplateSchema>;
+
+// journeys — one row per named content sequence for a team.
+// terminalKpi is NOT nullable (Gap L): every journey must declare its KPI before activation.
+export const journeys = pgTable("journeys", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  templateType: varchar("template_type", { length: 50 }),
+  templateId: integer("template_id").references(() => journeyTemplates.id, { onDelete: "set null" }),
+  triggerType: varchar("trigger_type", { length: 20 }).notNull().default("manual"),
+  // 'manual'|'on_publish'|'scheduled'
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  // 'draft'|'active'|'completed'|'paused'
+  terminalKpi: varchar("terminal_kpi", { length: 50 }).notNull(),
+  // 'conversion'|'engagement'|'awareness'|'subscription' — mandatory (Gap L)
+  locale: varchar("locale", { length: 20 }),
+  // e.g. "en-US", "es-MX" — nullable; defaults to team's primary locale
+  localeConfig: jsonb("locale_config"),
+  // Gap P: { pricingReferences, regulatoryDisclaimers, localeSpecificClaims }
+  triggerArticleId: integer("trigger_article_id"),
+  triggeredAt: timestamp("triggered_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  jTeamIdx: index("j_team_idx").on(t.teamId),
+  jStatusIdx: index("j_status_idx").on(t.status),
+  jTeamStatusIdx: index("j_team_status_idx").on(t.teamId, t.status),
+}));
+
+export const insertJourneySchema = createInsertSchema(journeys).omit({ id: true, createdAt: true });
+export type Journey = typeof journeys.$inferSelect;
+export type InsertJourney = z.infer<typeof insertJourneySchema>;
+
+// journey_steps — one row per content piece within a journey.
+export const journeySteps = pgTable("journey_steps", {
+  id: serial("id").primaryKey(),
+  journeyId: integer("journey_id").notNull().references(() => journeys.id, { onDelete: "cascade" }),
+  stepIndex: integer("step_index").notNull(),
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  // 'article'|'social'|'podcast'|'video'
+  dayOffset: integer("day_offset").notNull().default(0),
+  topicAngle: text("topic_angle"),
+  channel: varchar("channel", { length: 50 }),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  // 'pending'|'queued'|'generated'|'published'
+  articleId: integer("article_id"),
+  batchId: integer("batch_id"),
+  scheduledFor: timestamp("scheduled_for"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  jsJourneyIdx: index("js_journey_idx").on(t.journeyId),
+  jsStatusIdx: index("js_status_idx").on(t.status),
+  jsScheduledIdx: index("js_scheduled_idx").on(t.scheduledFor),
+  jsStatusScheduledIdx: index("js_status_scheduled_idx").on(t.status, t.scheduledFor),
+}));
+
+export const insertJourneyStepSchema = createInsertSchema(journeySteps).omit({ id: true, createdAt: true });
+export type JourneyStep = typeof journeySteps.$inferSelect;
+export type InsertJourneyStep = z.infer<typeof insertJourneyStepSchema>;
+
+// cadence_performance — weekly cadence analysis results per team/content type.
+// Written by CohortMiningJob; surfaced as Next Best Action recommendations.
+export const cadencePerformance = pgTable("cadence_performance", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  weeklyFrequency: integer("weekly_frequency").notNull(),
+  avgEngagementScore: integer("avg_engagement_score").notNull().default(0), // 0-100
+  avgConversionRate: integer("avg_conversion_rate").notNull().default(0), // basis points
+  sampleSize: integer("sample_size").notNull().default(0),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (t) => ({
+  cpTeamIdx: index("cp_team_idx").on(t.teamId),
+  cpTeamContentIdx: index("cp_team_content_idx").on(t.teamId, t.contentType),
+  cpComputedAtIdx: index("cp_computed_at_idx").on(t.computedAt),
+}));
+
+export const insertCadencePerformanceSchema = createInsertSchema(cadencePerformance).omit({ id: true, computedAt: true });
+export type CadencePerformance = typeof cadencePerformance.$inferSelect;
+export type InsertCadencePerformance = z.infer<typeof insertCadencePerformanceSchema>;
+
+// ============================================================================
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

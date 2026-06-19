@@ -2658,6 +2658,123 @@ export async function registerWorkers() {
             }
           }
 
+          // ── CADENCE ANALYSIS — Task #18 ──────────────────────────────────
+          // Groups content_performance_metrics by team + content_type + week,
+          // counts weekly publishing frequency, averages performance metrics,
+          // and writes optimal cadence recommendations to cadence_performance.
+          try {
+            const { cadencePerformance } = await import("../shared/schema");
+            const cutoff8w = new Date(now.getTime() - 56 * 86400_000); // 8 weeks
+
+            for (const team of allTeams) {
+              try {
+                // Aggregate weekly performance by content type
+                const cadenceRows = await _db.execute(drizzleSql`
+                  SELECT
+                    content_type,
+                    DATE_TRUNC('week', created_at) AS week_start,
+                    COUNT(*)::int AS weekly_count,
+                    AVG(engagement_score)::int AS avg_eng,
+                    AVG(conversion_rate)::int AS avg_conv
+                  FROM content_performance_metrics
+                  WHERE team_id = ${team.id}
+                    AND created_at >= ${cutoff8w}
+                    AND engagement_score > 0
+                  GROUP BY content_type, DATE_TRUNC('week', created_at)
+                  ORDER BY content_type, week_start
+                `);
+
+                if (!cadenceRows.rows || cadenceRows.rows.length === 0) continue;
+
+                // Aggregate by (content_type, weekly_frequency bucket)
+                type CadenceAcc = Record<string, Record<number, { engScores: number[]; convRates: number[]; count: number }>>;
+                const byTypeFreq: CadenceAcc = {};
+
+                for (const row of cadenceRows.rows as Array<{ content_type: string; weekly_count: number; avg_eng: number; avg_conv: number }>) {
+                  const ct = row.content_type;
+                  const freq = row.weekly_count;
+                  if (!byTypeFreq[ct]) byTypeFreq[ct] = {};
+                  if (!byTypeFreq[ct][freq]) byTypeFreq[ct][freq] = { engScores: [], convRates: [], count: 0 };
+                  byTypeFreq[ct][freq].engScores.push(row.avg_eng ?? 0);
+                  byTypeFreq[ct][freq].convRates.push(row.avg_conv ?? 0);
+                  byTypeFreq[ct][freq].count++;
+                }
+
+                // Write cadence_performance rows and check for recommendations
+                const periodStart = cutoff8w;
+                const periodEnd = now;
+
+                for (const [contentType, freqMap] of Object.entries(byTypeFreq)) {
+                  // Delete stale cadence rows for this team/contentType
+                  await _db.delete(cadencePerformance).where(
+                    and(
+                      eq(cadencePerformance.teamId, team.id),
+                      eq(cadencePerformance.contentType, contentType)
+                    )
+                  );
+
+                  const freqEntries = Object.entries(freqMap).map(([freq, data]) => ({
+                    freq: parseInt(freq),
+                    avgEng: Math.round(data.engScores.reduce((a, b) => a + b, 0) / data.engScores.length),
+                    avgConv: Math.round(data.convRates.reduce((a, b) => a + b, 0) / data.convRates.length),
+                    sampleSize: data.count,
+                  }));
+
+                  for (const entry of freqEntries) {
+                    await _db.insert(cadencePerformance).values({
+                      teamId: team.id,
+                      contentType,
+                      weeklyFrequency: entry.freq,
+                      avgEngagementScore: entry.avgEng,
+                      avgConversionRate: entry.avgConv,
+                      sampleSize: entry.sampleSize,
+                      periodStart,
+                      periodEnd,
+                    });
+                  }
+
+                  // Write NBA recommendation if top frequency is 40%+ better
+                  if (freqEntries.length >= 2 && freqEntries.some((e) => e.sampleSize >= 3)) {
+                    const best = freqEntries.reduce((a, b) =>
+                      (a.avgEng + a.avgConv) > (b.avgEng + b.avgConv) ? a : b
+                    );
+                    const overall = freqEntries.reduce((a, b) => ({
+                      freq: 0, sampleSize: 0,
+                      avgEng: a.avgEng + b.avgEng,
+                      avgConv: a.avgConv + b.avgConv,
+                    }));
+                    const avgScore = (overall.avgEng + overall.avgConv) / (freqEntries.length * 2);
+                    const bestScore = best.avgEng + best.avgConv;
+                    const improvement = avgScore > 0 ? ((bestScore / 2 - avgScore / 2) / (avgScore / 2)) * 100 : 0;
+
+                    if (improvement >= 40) {
+                      const label = contentType === "social" ? "social posts" : `${contentType}s`;
+                      const rec = `Posting ${best.freq}x/week for ${label} achieves ${Math.round(improvement)}% better engagement+conversion vs. your average cadence. Consider standardizing to ${best.freq}x weekly.`;
+                      await _db.insert(cohortInsights).values({
+                        teamId: team.id,
+                        cohortDimension: "cadence",
+                        cohortValue: `${contentType}:${best.freq}x_week`,
+                        conversionRate: best.avgConv,
+                        engagementScore: best.avgEng,
+                        sampleSize: best.sampleSize,
+                        vsBaselineMultiplier: Math.round((bestScore / 2) / Math.max(avgScore / 2, 1) * 100),
+                        insightType: "cadence_optimization",
+                        recommendationText: rec,
+                        terminalKpi: null,
+                      });
+                      totalInsights++;
+                    }
+                  }
+                }
+              } catch (cadenceTeamErr) {
+                console.warn(`[CADENCE] team ${team.id} error:`, (cadenceTeamErr as Error).message);
+              }
+            }
+            console.log(`[CADENCE] Cadence analysis complete`);
+          } catch (cadenceErr) {
+            console.warn(`[CADENCE] Cadence analysis skipped:`, (cadenceErr as Error).message);
+          }
+
           console.log(`✅ Cohort mining complete: ${totalInsights} insights across ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
@@ -2667,6 +2784,187 @@ export async function registerWorkers() {
       console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register cohort mining scheduler (non-fatal):`, (scheduleErr as Error).message);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // JOURNEY SCHEDULER — Task #18
+    // Runs every 15 minutes. Queries journey_steps where scheduledFor <= now
+    // and status = 'pending', then enqueues generation jobs with journeyContext
+    // injected into every downstream step prompt.
+    // ═══════════════════════════════════════════════════════════════════════
+    try {
+      const JOURNEY_SCHEDULER_QUEUE = "journey-scheduler";
+      try { await boss.createQueue(JOURNEY_SCHEDULER_QUEUE); } catch (_) { /* already exists */ }
+      await boss.schedule(JOURNEY_SCHEDULER_QUEUE, "*/15 * * * *", {});
+      await boss.work<Record<string, never>>(JOURNEY_SCHEDULER_QUEUE, async (_jobs) => {
+        try {
+          const { db: _db } = await import("./db");
+          const {
+            journeySteps: jSteps, journeys: jTable, articles: artsTable, jobBatches: batchTable,
+          } = await import("../shared/schema");
+          const { eq, and, lte, isNotNull: _isNotNull } = await import("drizzle-orm");
+          const { getJourneyContext } = await import("./journey-context");
+
+          const now = new Date();
+
+          // Find all pending steps due for generation
+          const dueSteps = await _db
+            .select({
+              step: jSteps,
+              journey: jTable,
+            })
+            .from(jSteps)
+            .innerJoin(jTable, eq(jTable.id, jSteps.journeyId))
+            .where(
+              and(
+                eq(jSteps.status, "pending"),
+                lte(jSteps.scheduledFor, now),
+                eq(jTable.status, "active")
+              )
+            );
+
+          if (dueSteps.length === 0) {
+            console.log(`[JOURNEY_SCHEDULER] No due steps at ${now.toISOString()}`);
+            return;
+          }
+
+          console.log(`[JOURNEY_SCHEDULER] Processing ${dueSteps.length} due step(s)`);
+          let queued = 0;
+
+          for (const { step, journey } of dueSteps) {
+            try {
+              // For step > 0, verify pillar (step 0) has been generated
+              if (step.stepIndex > 0) {
+                const { isPillarGenerated } = await import("./journey-context");
+                const pillarReady = await isPillarGenerated(journey.id);
+                if (!pillarReady) {
+                  console.log(`[JOURNEY_SCHEDULER] Step ${step.id} (journey ${journey.id}) waiting for pillar`);
+                  continue;
+                }
+              }
+
+              // Build journey context prompt segment for injection
+              const ctx = await getJourneyContext(journey.id, step.stepIndex);
+
+              // Mark step as queued first to prevent double-enqueue
+              await _db
+                .update(jSteps)
+                .set({ status: "queued" })
+                .where(eq(jSteps.id, step.id));
+
+              // Enqueue the appropriate generation job with journeyContext
+              const journeyMeta = {
+                journeyId: journey.id,
+                journeyStepId: step.id,
+                journeyContext: ctx?.promptSegment ?? null,
+                journeyName: journey.name,
+                terminalKpi: journey.terminalKpi,
+                locale: journey.locale ?? null,
+                localeConfig: journey.localeConfig ?? null,
+              };
+
+              const contentType = step.contentType;
+              const topicAngle = step.topicAngle ?? `${journey.name} — step ${step.stepIndex + 1}`;
+
+              if (contentType === "article") {
+                // For article steps, we create a minimal batch to drive generation.
+                // The journeyContext is embedded in the batch metadata for the article worker.
+                const [batch] = await _db
+                  .insert(batchTable)
+                  .values({
+                    teamId: journey.teamId,
+                    coreTopic: topicAngle,
+                    targetUrl: "",
+                    status: "pending" as const,
+                    journeyId: journey.id,
+                    journeyStepId: step.id,
+                    journeyContext: ctx?.promptSegment ?? null,
+                  } as any)
+                  .returning();
+
+                await _db
+                  .update(jSteps)
+                  .set({ batchId: batch.id })
+                  .where(eq(jSteps.id, step.id));
+
+                // Send to batch-generation queue
+                const { addBatchJob } = await import("./queue");
+                await addBatchJob({
+                  batchId: batch.id,
+                  userId: 0, // System-generated
+                  teamId: journey.teamId,
+                  selectedTitles: [topicAngle],
+                  targetUrl: "",
+                  journeyMeta: journeyMeta as any,
+                } as any);
+
+              } else if (contentType === "social") {
+                // For social steps, create a social post with journey context
+                const { socialPosts } = await import("../shared/schema");
+                const [post] = await _db
+                  .insert(socialPosts)
+                  .values({
+                    teamId: journey.teamId,
+                    userId: 0,
+                    prompt: topicAngle,
+                    platforms: step.channel ? [step.channel] : ["facebook", "instagram", "linkedin"],
+                    status: "pending" as const,
+                    journeyId: journey.id,
+                    journeyStepId: step.id,
+                    journeyContext: ctx?.promptSegment ?? null,
+                  } as any)
+                  .returning();
+
+                await _db
+                  .update(jSteps)
+                  .set({ articleId: post.id }) // reuse articleId for cross-reference
+                  .where(eq(jSteps.id, step.id));
+
+                const { addSocialPostJob } = await import("./queue");
+                await addSocialPostJob({
+                  socialPostId: post.id,
+                  userId: 0,
+                  prompt: topicAngle,
+                  platforms: step.channel ? [step.channel] : ["facebook", "instagram", "linkedin"],
+                  journeyMeta: journeyMeta as any,
+                } as any);
+
+              } else if (contentType === "podcast" || contentType === "video") {
+                // Podcast and video steps: log intent, mark as queued for now.
+                // Full integration is wired once an article exists in the journey.
+                console.log(
+                  `[JOURNEY_SCHEDULER] Step ${step.id} type=${contentType}: requires pillar article — will generate when pillar is ready`
+                );
+                await _db
+                  .update(jSteps)
+                  .set({ status: "pending" }) // revert to pending
+                  .where(eq(jSteps.id, step.id));
+                continue;
+              }
+
+              queued++;
+              console.log(
+                `[JOURNEY_SCHEDULER] Queued step ${step.id} (journey ${journey.id}, type=${contentType}, index=${step.stepIndex})`
+              );
+            } catch (stepErr) {
+              console.error(`[JOURNEY_SCHEDULER] Step ${step.id} failed:`, (stepErr as Error).message);
+              // Revert to pending so it retries next run
+              await _db
+                .update(jSteps)
+                .set({ status: "pending" })
+                .where(eq(jSteps.id, step.id)).catch(() => {});
+            }
+          }
+
+          console.log(`[JOURNEY_SCHEDULER] ✅ Queued ${queued}/${dueSteps.length} steps`);
+        } catch (e) {
+          console.error(`🚨 Journey scheduler job failed:`, (e as Error).message);
+          throw e; // rethrow so pg-boss marks job failed
+        }
+      });
+      console.log(`⏱️ Journey scheduler registered (every 15 min)`);
+    } catch (scheduleErr) {
+      console.warn(`⚠️ Could not register journey scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
     await boss.work<SocialVideoJobData>(
