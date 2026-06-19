@@ -27,6 +27,9 @@ export interface BatchJobData {
   serpFeatureTarget?: string;
   // Psychographic targeting
   personaId?: number;
+  // Journey Orchestrator — passed through to article workers for narrative coherence
+  journeyContext?: string | null;
+  journeyName?: string | null;
 }
 
 export interface ArticleJobData {
@@ -51,6 +54,17 @@ export interface ArticleJobData {
   // Psychographic targeting
   teamId?: number;
   personaId?: number;
+  // Journey Orchestrator — shared narrative context injected into article generation prompt
+  journeyContext?: string | null;
+  journeyName?: string | null;
+}
+
+export interface PodcastJobData {
+  articleId: number;
+  teamId: number;
+  tone?: string;
+  duration?: string;
+  journeyStepId?: number;
 }
 
 export interface SocialPostJobData {
@@ -105,6 +119,7 @@ export const CLEANUP_QUEUE = "cleanup";
 export const SITE_CRAWL_QUEUE = "site-crawl";
 export const CONTENT_PUBLISHING_QUEUE = "content-publishing";
 export const INTELLIGENCE_RESEARCH_QUEUE = "intelligence-research";
+export const PODCAST_GENERATION_QUEUE = "article-podcast";
 
 export interface IntelligenceResearchJobData {
   teamId: number;
@@ -222,8 +237,10 @@ async function createPgBoss(): Promise<PgBoss> {
     "conversion-labeler",
     "underperformer-archiving",
     "cohort-mining",
-    // Task #18: Journey Orchestrator — 15-min scheduler
+    // Journey Orchestrator — 15-min scheduler
     "journey-scheduler",
+    // Journey Orchestrator — durable podcast generation (replaces fire-and-forget)
+    PODCAST_GENERATION_QUEUE,
   ];
   for (const queueName of ALL_QUEUES) {
     try {
@@ -509,6 +526,28 @@ export async function addIntelligenceResearchJob(data: IntelligenceResearchJobDa
     return jobId;
   } catch (error) {
     console.error(`❌ Failed to queue intelligence research for team ${data.teamId}:`, error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// PODCAST GENERATION QUEUE
+// ============================================================================
+
+export async function addPodcastGenerationJob(data: PodcastJobData) {
+  try {
+    const boss = await getPgBoss();
+    try { await boss.createQueue(PODCAST_GENERATION_QUEUE); } catch { /* already exists */ }
+    const jobId = await boss.send(PODCAST_GENERATION_QUEUE, data, {
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
+      expireInSeconds: 900, // 15 minutes — TTS + audio assembly can be slow
+    });
+    console.log(`🎙️ Podcast generation job queued: ${jobId} for article ${data.articleId}`);
+    return jobId;
+  } catch (error) {
+    console.error(`❌ Failed to queue podcast generation for article ${data.articleId}:`, error);
     throw error;
   }
 }

@@ -25,6 +25,9 @@ import {
   addSocialPostJob,
   addImageGenerationJob,
   addPublishingJob,
+  addPodcastGenerationJob,
+  PODCAST_GENERATION_QUEUE,
+  type PodcastJobData,
 } from "./queue";
 import { db } from "./db";
 import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas } from "@/shared/schema";
@@ -89,7 +92,7 @@ export async function registerWorkers() {
     async (jobs) => {
       for (const job of jobs) {
         console.log(`📦 Processing batch generation job ${job.id}`);
-        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId } = job.data;
+        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName } = job.data;
 
       try {
         await db
@@ -179,6 +182,8 @@ export async function registerWorkers() {
               serpFeatureTarget,
               teamId,
               personaId,
+              journeyContext,
+              journeyName,
             });
             retried++;
             continue;
@@ -218,6 +223,8 @@ export async function registerWorkers() {
             serpFeatureTarget,
             teamId,
             personaId,
+            journeyContext,
+            journeyName,
           });
           spawned++;
         }
@@ -299,7 +306,7 @@ export async function registerWorkers() {
       // Process each job sequentially
       for (const job of jobs) {
         console.log(`📝 Processing article generation job ${job.id}`);
-        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId } = job.data;
+        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName } = job.data;
 
       try {
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
@@ -443,7 +450,14 @@ export async function registerWorkers() {
           // generateArticleContent() (lib/gemini.ts) as a dedicated prompt section.
           // Do NOT fetch them here — that would cause a duplicate DB query and
           // double-inject the same warnings into the same prompt.
-          const effectiveCustomInstructions = customInstructions || "";
+          // Journey Orchestrator: prepend shared narrative context to custom instructions
+          // so Gemini knows this article is part of a larger content sequence.
+          const effectiveCustomInstructions = [
+            articleJourneyContext
+              ? `JOURNEY CONTEXT (${articleJourneyName ?? "Content Journey"}):\n${articleJourneyContext}`
+              : null,
+            customInstructions || null,
+          ].filter(Boolean).join("\n\n");
 
           // THUNDERING HERD PREVENTION: When a large batch starts, all 20 workers
           // grab jobs within milliseconds of each other and simultaneously hammer
@@ -3122,22 +3136,18 @@ export async function registerWorkers() {
                   .set({ articleId: pillarArticleId })
                   .where(eq(jSteps.id, step.id));
 
-                // Podcast generation is invoked via the generateArticlePodcast worker function.
-                // Fire-and-forget in background — step status updated to generated on completion.
-                const { generateArticlePodcast } = await import("./podcast-worker");
-                generateArticlePodcast({ articleId: pillarArticleId, teamId: journey.teamId, tone: "Conversational", duration: "120" })
-                  .then(async () => {
-                    await _db
-                      .update(jSteps)
-                      .set({ status: "generated", publishedAt: new Date() })
-                      .where(eq(jSteps.id, step.id))
-                      .catch(() => {});
-                    console.log(`[JOURNEY_SCHEDULER] Podcast step ${step.id} generated from article ${pillarArticleId}`);
-                  })
-                  .catch(async (podcastErr: Error) => {
-                    console.error(`[JOURNEY_SCHEDULER] Podcast step ${step.id} failed:`, podcastErr.message);
-                    await _db.update(jSteps).set({ status: "pending" }).where(eq(jSteps.id, step.id)).catch(() => {});
-                  });
+                // Enqueue podcast generation as a durable pg-boss job so that
+                // worker crashes / restarts do not orphan the step in "queued" state.
+                // The podcast worker resolves step status to "generated" on success.
+                const { addPodcastGenerationJob: enqueuePodcast } = await import("./queue");
+                await enqueuePodcast({
+                  articleId: pillarArticleId,
+                  teamId: journey.teamId,
+                  tone: "Conversational",
+                  duration: "120",
+                  journeyStepId: step.id,
+                });
+                console.log(`[JOURNEY_SCHEDULER] Podcast step ${step.id} enqueued via pg-boss for article ${pillarArticleId}`);
 
               } else if (contentType === "video") {
                 // Video steps: create a social post with video enabled and queue social-video-generation.
@@ -3551,6 +3561,57 @@ export async function registerWorkers() {
     console.log("✅ Intelligence research worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register intelligence research worker:", error);
+    throw error;
+  }
+
+  // ============================================================================
+  // PODCAST GENERATION WORKER (Journey Orchestrator)
+  // Replaces the previous fire-and-forget pattern so pg-boss handles retries.
+  // journeyStepId (optional) is used to mark the step "generated" on success.
+  // ============================================================================
+
+  console.log("🎙️ Registering podcast generation worker for queue:", PODCAST_GENERATION_QUEUE);
+  try {
+    try { await boss.createQueue(PODCAST_GENERATION_QUEUE); } catch (_) { /* already exists */ }
+    console.log(`✅ Queue created/verified: ${PODCAST_GENERATION_QUEUE}`);
+    await boss.work<PodcastJobData>(
+      PODCAST_GENERATION_QUEUE,
+      { batchSize: 1, teamSize: 2 } as any,
+      async (jobs) => {
+        for (const job of jobs) {
+          const { articleId, teamId, tone, duration, journeyStepId } = job.data;
+          console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
+          try {
+            const { generateArticlePodcast } = await import("./podcast-worker");
+            await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120" });
+
+            if (journeyStepId) {
+              const { journeySteps: jStepsTable } = await import("@/shared/schema");
+              const { eq: eqOp } = await import("drizzle-orm");
+              await db.update(jStepsTable)
+                .set({ status: "generated", publishedAt: new Date() })
+                .where(eqOp(jStepsTable.id, journeyStepId))
+                .catch(() => {});
+            }
+            console.log(`✅ Podcast job ${job.id} completed for article ${articleId}`);
+          } catch (error) {
+            console.error(`❌ Podcast job ${job.id} failed for article ${articleId}:`, error);
+            if (journeyStepId) {
+              const { journeySteps: jStepsTable } = await import("@/shared/schema");
+              const { eq: eqOp } = await import("drizzle-orm");
+              await db.update(jStepsTable)
+                .set({ status: "pending" })
+                .where(eqOp(jStepsTable.id, journeyStepId))
+                .catch(() => {});
+            }
+            throw error; // Let pg-boss retry
+          }
+        }
+      }
+    );
+    console.log("✅ Podcast generation worker registered (2 concurrent workers)");
+  } catch (error) {
+    console.error("❌ CRITICAL: Failed to register podcast generation worker:", error);
     throw error;
   }
 
