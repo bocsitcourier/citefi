@@ -10,10 +10,11 @@ import { eq, and } from "drizzle-orm";
  * Creates a Local SEO Journey from the batch's top completed article and immediately
  * triggers it. This is the "Launch Journey" one-click flow from completed batch pages.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { teamId } = await requireTeamMember(req);
-    const batchId = parseInt(params.id);
+    const batchId = parseInt(id);
     if (isNaN(batchId)) return NextResponse.json({ error: "Invalid batch id" }, { status: 400 });
 
     // Validate batch ownership

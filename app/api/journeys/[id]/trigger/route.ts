@@ -9,10 +9,11 @@ const triggerSchema = z.object({
   triggerArticleId: z.number().int().positive().optional(),
 });
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { teamId } = await requireTeamMember(req);
-    const journeyId = parseInt(params.id);
+    const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));

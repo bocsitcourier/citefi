@@ -15,12 +15,13 @@ const updateStepSchema = z.object({
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string; stepId: string } }
+  { params }: { params: Promise<{ id: string; stepId: string }> }
 ) {
   try {
+    const { id, stepId: stepIdStr } = await params;
     const { teamId } = await requireTeamMember(req);
-    const journeyId = parseInt(params.id);
-    const stepId = parseInt(params.stepId);
+    const journeyId = parseInt(id);
+    const stepId = parseInt(stepIdStr);
     if (isNaN(journeyId) || isNaN(stepId))
       return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 

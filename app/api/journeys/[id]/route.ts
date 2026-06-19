@@ -12,10 +12,11 @@ const updateJourneySchema = z.object({
   localeConfig: z.record(z.unknown()).nullable().optional(),
 });
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { teamId } = await requireTeamMember(req);
-    const journeyId = parseInt(params.id);
+    const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
     const [journey] = await db
@@ -119,10 +120,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const { teamId } = await requireTeamMember(req);
-    const journeyId = parseInt(params.id);
+    const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
