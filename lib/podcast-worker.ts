@@ -85,7 +85,9 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     let podcastVariantArmId: number | undefined;
     if (teamId) {
       try {
-        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, { stableId: String(articleId) })
+        // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
+        const podcastTerminalKpi = (article.batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
+        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, { stableId: String(articleId), terminalKpi: podcastTerminalKpi })
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedPodcastPatternIds = podcastEnhancement.patternsUsed;
         podcastVariantArmId = podcastEnhancement.variantArmId;

@@ -1123,8 +1123,34 @@ export default function LearningDashboard() {
                               >
                                 {p.thompsonScore}% TS
                               </Badge>
-                              <div className="w-16">
+                              <div className="w-16 space-y-0.5">
                                 <Progress value={p.thompsonScore} className="h-1.5" />
+                                {/* Beta distribution 95% CI bar */}
+                                {(() => {
+                                  const a = p.alpha ?? 1, b = p.beta ?? 1;
+                                  const mean = a / (a + b);
+                                  const variance = (a * b) / ((a + b) ** 2 * (a + b + 1));
+                                  const std = Math.sqrt(variance);
+                                  const lo = Math.max(0, mean - 1.96 * std) * 100;
+                                  const hi = Math.min(100, (mean + 1.96 * std) * 100);
+                                  const meanPct = mean * 100;
+                                  return (
+                                    <div
+                                      className="relative w-full h-1.5 bg-muted rounded-full overflow-hidden"
+                                      title={`β 95% CI: ${lo.toFixed(1)}%–${hi.toFixed(1)}% (mean ${meanPct.toFixed(1)}%)`}
+                                    >
+                                      <div
+                                        className="absolute top-0 h-full bg-blue-400/50 rounded-full"
+                                        style={{ left: `${lo}%`, width: `${Math.max(1, hi - lo)}%` }}
+                                      />
+                                      <div
+                                        className="absolute top-0 h-full w-px bg-blue-500"
+                                        style={{ left: `${meanPct}%` }}
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                                <p className="text-[9px] text-muted-foreground/60 text-right leading-none">β 95% CI</p>
                               </div>
                             </div>
                           </div>
@@ -1137,9 +1163,40 @@ export default function LearningDashboard() {
               {decisioningSummary.arms && decisioningSummary.arms.length > 0 && (
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
+                    <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                       <GitBranch className="w-4 h-4" />
                       Variant Arms
+                      {/* Arm allocation donut — proportional SVG showing allocation split */}
+                      {(() => {
+                        const arms: any[] = decisioningSummary.arms ?? [];
+                        const total = arms.reduce((s: number, a: any) => s + (a.allocationPct ?? 0), 0) || 100;
+                        const r = 13, cx = 16, cy = 16;
+                        const circ = 2 * Math.PI * r;
+                        const COLORS = ['hsl(var(--primary))', 'hsl(200 65% 52%)', 'hsl(var(--muted-foreground))'];
+                        let cumLen = 0;
+                        return (
+                          <span title={arms.map((a: any) => `${a.armName}: ${a.allocationPct}%`).join(' / ')}>
+                            <svg width="32" height="32" viewBox="0 0 32 32" style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+                              {arms.map((arm: any, i: number) => {
+                                const seg = ((arm.allocationPct ?? 0) / total) * circ;
+                                const dashOffset = -cumLen;
+                                cumLen += seg;
+                                return (
+                                  <circle
+                                    key={arm.id}
+                                    cx={cx} cy={cy} r={r}
+                                    fill="none"
+                                    stroke={COLORS[i % COLORS.length]}
+                                    strokeWidth="6"
+                                    strokeDasharray={`${seg} ${circ}`}
+                                    strokeDashoffset={dashOffset}
+                                  />
+                                );
+                              })}
+                            </svg>
+                          </span>
+                        );
+                      })()}
                     </CardTitle>
                     <CardDescription>
                       Tag <code className="text-[11px] bg-muted px-1 rounded">contentPerformanceMetrics.variantId = "va-&#123;armId&#125;"</code> on every generation to feed lift analysis.
@@ -1265,9 +1322,26 @@ export default function LearningDashboard() {
                             : <XCircle className="w-4 h-4 mt-0.5 text-red-400 shrink-0" />}
                           <div className="flex-1 min-w-0">
                             <p className="font-medium">{g.label}</p>
-                            {!g.passed && (
-                              <p className="text-xs text-muted-foreground">{g.recentConflicts} guardrail conflict(s) in last 14 days</p>
-                            )}
+                            {(!g.passed || g.note) && (
+                            <div className="text-xs text-muted-foreground space-y-0.5 mt-0.5">
+                              {g.holdQN != null && g.holdQN < 10 && g.note ? (
+                                <p className="italic">{g.note}</p>
+                              ) : (
+                                <>
+                                  <p>
+                                    Bounce: treat {g.treatAvgBounce ?? "—"}% vs hold {g.holdAvgBounce ?? "—"}%
+                                    {g.bounceOK === false && <span className="text-red-400 ml-1">↑ &gt;10% worse</span>}
+                                    {g.bounceOK === true  && <span className="text-green-500 ml-1">✓</span>}
+                                  </p>
+                                  <p>
+                                    Session-return: treat {g.treatAvgReturn ?? "—"}% vs hold {g.holdAvgReturn ?? "—"}%
+                                    {g.returnOK === false && <span className="text-red-400 ml-1">↓ &gt;10% worse</span>}
+                                    {g.returnOK === true  && <span className="text-green-500 ml-1">✓</span>}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          )}
                           </div>
                           <Badge variant="outline" className="text-xs shrink-0">30pt</Badge>
                         </div>

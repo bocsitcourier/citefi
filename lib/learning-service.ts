@@ -325,9 +325,14 @@ export class LearningService {
         eq(variantArms.isActive, true)
       ));
     const treatmentArmConfig = activeArms.find(a => a.armName === "treatment");
-    // Resolve terminalKpi: arm's persisted config → caller hint → undefined (content-type default)
+    // Resolve terminalKpi with explicit precedence:
+    //   1. Caller-provided (per-batch/per-journey override) — highest priority
+    //   2. Arm's persisted config (experiment-level default for this content type)
+    //   3. undefined → falls back to content-type default weights
+    // This ensures a batch with terminalKpi='conversion' always wins over the arm's
+    // default, allowing the same content type to use different weights across journeys.
     const resolvedTerminalKpi: string | undefined =
-      treatmentArmConfig?.terminalKpi ?? options?.terminalKpi;
+      options?.terminalKpi ?? treatmentArmConfig?.terminalKpi;
 
     console.log(
       `[DECISIONING_MATURITY] type=${agent.contentType} maturity=${maturity} patterns=${allPatterns.length} terminalKpi=${resolvedTerminalKpi ?? 'default'}`

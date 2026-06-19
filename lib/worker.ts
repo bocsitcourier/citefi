@@ -1430,7 +1430,9 @@ export async function registerWorkers() {
               if (batch?.teamId) {
                 try {
                   // Fetch learned patterns for attribution so Wilson/EMA updates fire.
-                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE)
+                  // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
+                  const imageTerminalKpi = (batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
+                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE, { terminalKpi: imageTerminalKpi })
                     .catch(() => ({ patternsUsed: [] as number[] }));
                   const capturedImagePatternIds = imageEnhancement.patternsUsed;
 
