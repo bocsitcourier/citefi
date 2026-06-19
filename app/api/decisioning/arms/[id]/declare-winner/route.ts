@@ -139,36 +139,42 @@ export async function POST(
     const w2Sig = w2Stat.pValue < 0.05 && w2Stat.lift > 0;
     const gateB = w1Sig && w2Sig;
 
-    // ── Gate C: No >10% quality deterioration in treatment vs holdout (14d) ───
-    // Direct counter-metric check: if treatment avg quality score drops >10%
-    // below holdout avg quality, the experiment may be harming content quality.
+    // ── Gate C: No >10% counter-metric deterioration (bounce/read-complete, 14d) ──
+    // bounce_rate (↑ bad) and read_complete_rate (↓ bad) are the required guardrails.
+    // Promotion is blocked if either metric deteriorates >10% vs holdout baseline.
     const win14Gte = new Date(now - 14 * 86_400_000);
-    const [tQRes, hQRes] = await Promise.all([
-      db.select({ avgQ: sql<number>`avg(${cpm.qualityScore})`, n: count() })
-        .from(cpm)
-        .where(and(
-          eq(cpm.teamId, teamId),
-          eq(cpm.contentType, arm.contentType),
-          eq(cpm.variantId, treatTag),
-          gte(cpm.createdAt, win14Gte)
-        )),
+    type CtrRow = { avgBounce: number; avgRead: number; n: number };
+    const ctrQuery = (tag: string) => db
+      .select({
+        avgBounce: sql<number>`avg(${cpm.bounceRate})`,
+        avgRead:   sql<number>`avg(${cpm.readCompleteRate})`,
+        n: count(),
+      })
+      .from(cpm)
+      .where(and(
+        eq(cpm.teamId, teamId),
+        eq(cpm.contentType, arm.contentType),
+        eq(cpm.variantId, tag),
+        gte(cpm.createdAt, win14Gte)
+      ));
+    const [tCRows, hCRows] = await Promise.all([
+      ctrQuery(treatTag),
       holdTag
-        ? db.select({ avgQ: sql<number>`avg(${cpm.qualityScore})`, n: count() })
-            .from(cpm)
-            .where(and(
-              eq(cpm.teamId, teamId),
-              eq(cpm.contentType, arm.contentType),
-              eq(cpm.variantId, holdTag),
-              gte(cpm.createdAt, win14Gte)
-            ))
-        : Promise.resolve([{ avgQ: 0, n: 0 }] as { avgQ: number; n: number }[]),
+        ? ctrQuery(holdTag)
+        : Promise.resolve([{ avgBounce: 0, avgRead: 0, n: 0 }] as CtrRow[]),
     ]);
-    const treatAvgQ = Number(tQRes[0]?.avgQ ?? 0);
-    const holdAvgQ  = Number(hQRes[0]?.avgQ ?? 0);
-    const holdQN    = Number(hQRes[0]?.n ?? 0);
-    // Gate C passes when holdout has <10 observations (insufficient baseline)
-    // OR when treatment quality ≥ 90% of holdout quality (no >10% deterioration)
-    const gateC = holdQN < 10 || holdAvgQ === 0 || treatAvgQ >= holdAvgQ * 0.9;
+    const tCtr = tCRows[0];
+    const hCtr = hCRows[0];
+    const treatAvgBounce = Number(tCtr?.avgBounce ?? 0);
+    const treatAvgRead   = Number(tCtr?.avgRead   ?? 0);
+    const holdAvgBounce  = Number(hCtr?.avgBounce ?? 0);
+    const holdAvgRead    = Number(hCtr?.avgRead   ?? 0);
+    const holdQN         = Number(hCtr?.n         ?? 0);
+    // bounce_rate: higher is worse — treatment must not exceed holdout × 1.1
+    // read_complete_rate: higher is better — treatment must not fall below holdout × 0.9
+    const bounceOK = holdAvgBounce === 0 || treatAvgBounce <= holdAvgBounce * 1.1;
+    const readOK   = holdAvgRead   === 0 || treatAvgRead   >= holdAvgRead   * 0.9;
+    const gateC = holdQN < 10 || (bounceOK && readOK);
 
     // ── Readiness score: A=30, B=40, C=30 ────────────────────────────────────
     const readinessScore = (gateA ? 30 : 0) + (gateB ? 40 : 0) + (gateC ? 30 : 0);
@@ -208,12 +214,15 @@ export async function POST(
         },
       },
       gateC: {
-        label: "No >10% quality deterioration vs holdout (14d)",
+        label: "No >10% counter-metric deterioration vs holdout (bounce/read-complete, 14d)",
         passed: gateC,
-        treatAvgQ: Math.round(treatAvgQ * 10) / 10,
-        holdAvgQ: Math.round(holdAvgQ * 10) / 10,
+        treatAvgBounce: Math.round(treatAvgBounce * 10) / 10,
+        holdAvgBounce: Math.round(holdAvgBounce * 10) / 10,
+        treatAvgRead: Math.round(treatAvgRead * 10) / 10,
+        holdAvgRead: Math.round(holdAvgRead * 10) / 10,
         holdQN,
-        threshold: "treatment avgQ ≥ holdout avgQ × 0.9",
+        bounceOK,
+        readOK,
         note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
       },
     };

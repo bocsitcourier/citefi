@@ -36,6 +36,8 @@ export async function getPromptEnhancement(
     industry?: string;
     audience?: string;
     stableId?: string;
+    /** Override metric weights for this generation: 'conversion' | 'engagement' | 'awareness' */
+    terminalKpi?: string;
   }
 ): Promise<PromptEnhancement> {
   try {
@@ -169,7 +171,8 @@ export async function recordContentGenerated(
     const variantId = opts?.variantArmId
       ? `va-${opts.variantArmId}`
       : computeVariantId(patternsUsed, contentType);
-    const armId = opts?.variantArmId ?? opts?.armId;
+    // Pass armId (→ decision_arms) and variantArmId (→ variant_arms) separately so
+    // the correct FK column is written for each and no FK violation can occur.
     return await learningService.recordContentGeneration(
       teamId,
       agent.id,
@@ -177,7 +180,7 @@ export async function recordContentGenerated(
       contentId,
       patternsUsed,
       qualityScore,
-      { variantId, armId }
+      { variantId, armId: opts?.armId, variantArmId: opts?.variantArmId }
     );
   } catch (error) {
     console.warn("Failed to record content generation:", error);

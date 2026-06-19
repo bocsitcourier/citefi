@@ -545,7 +545,7 @@ export class LearningService {
     contentId: number,
     patternsUsed: number[],
     qualityScore: number,
-    opts?: { variantId?: string; armId?: number }
+    opts?: { variantId?: string; armId?: number; variantArmId?: number }
   ): Promise<number> {
     const [metricRow] = await db
       .insert(contentPerformanceMetrics)
@@ -557,8 +557,9 @@ export class LearningService {
         videoIdeaId: contentType === ContentType.VIDEO ? contentId : null,
         patternsUsedJson: patternsUsed,
         qualityScore,
-        ...(opts?.variantId !== undefined ? { variantId: opts.variantId } : {}),
-        ...(opts?.armId !== undefined ? { armId: opts.armId } : {}),
+        ...(opts?.variantId    !== undefined ? { variantId:    opts.variantId    } : {}),
+        ...(opts?.armId        !== undefined ? { armId:        opts.armId        } : {}),
+        ...(opts?.variantArmId !== undefined ? { variantArmId: opts.variantArmId } : {}),
       })
       .returning({ id: contentPerformanceMetrics.id });
     const metric = metricRow!;
@@ -1113,6 +1114,7 @@ export class LearningService {
       audience?: string;
       patternTypes?: string[];
       stableId?: string;
+      terminalKpi?: string;
     }
   ): Promise<OptimizationContext & { humanizationGuidelines: string[] }> {
     const baseContext = await this.getOptimizationContext(teamId, contentType, options);

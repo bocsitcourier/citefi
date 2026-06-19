@@ -53,3 +53,7 @@ CREATE INDEX IF NOT EXISTS "ci_team_type_idx" ON "cohort_insights" ("team_id", "
 
 -- Task #16: 3-consecutive-week gate for underperformer archiving
 ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weak_week_count SMALLINT NOT NULL DEFAULT 0;
+
+-- Task #16: Separate variant_arm_id column (FK → variant_arms) in content_performance_metrics.
+-- Keeps arm_id pointing to decision_arms and avoids FK violations when writing variant_arms.id.
+ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS variant_arm_id INTEGER REFERENCES variant_arms(id) ON DELETE SET NULL;

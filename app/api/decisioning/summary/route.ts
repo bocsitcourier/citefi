@@ -7,7 +7,7 @@ import {
   variantArms,
   contentPerformanceMetrics,
 } from "@/shared/schema";
-import { eq, and, inArray, count, sql, gte } from "drizzle-orm";
+import { eq, and, inArray, count, sql, gte, lt } from "drizzle-orm";
 import { learningService, thompsonSample, METRIC_WEIGHTS } from "@/lib/learning-service";
 
 // ── Statistical helpers (mirrored in declare-winner route) ────────────────────
@@ -171,49 +171,92 @@ export async function GET(req: NextRequest) {
     // ── Readiness gate decomposition (mirrors declare-winner gates) ───────────
     const totalTrials = enrichedPatterns.reduce((s, p) => s + (p.alpha + p.beta - 2), 0);
     const gateA = totalTrials >= 200;
-    const gateB = liftSummary?.significant === true;
-    // ── Gate C: No >10% quality deterioration in treatment vs holdout (14d) ──
-    // Direct counter-metric check using qualityScore from content_performance_metrics.
+    // ── Gate B: Two non-overlapping 14-day windows — z-test p<0.05 each ─────
+    // Mirrors declare-winner Gate B exactly so readiness score predicts promotion.
+    const summaryNow = Date.now();
+    let gateB = false;
+    let gateBMeta: Record<string, unknown> = {};
+    if (treatM && holdM) {
+      const treatTagB = `va-${treatM.armId}`;
+      const holdTagB  = `va-${holdM.armId}`;
+      const w1Gte = new Date(summaryNow - 28 * 86_400_000);
+      const w1Lt_ = new Date(summaryNow - 14 * 86_400_000);
+      const w2Gte = new Date(summaryNow - 14 * 86_400_000);
+      const winObs = async (gteD: Date, ltD: Date | null, tag: string) => {
+        const cond = ltD
+          ? and(
+              eq(contentPerformanceMetrics.teamId, teamId), eq(contentPerformanceMetrics.contentType, contentType),
+              eq(contentPerformanceMetrics.variantId, tag), gte(contentPerformanceMetrics.createdAt, gteD),
+              lt(contentPerformanceMetrics.createdAt, ltD)
+            )
+          : and(
+              eq(contentPerformanceMetrics.teamId, teamId), eq(contentPerformanceMetrics.contentType, contentType),
+              eq(contentPerformanceMetrics.variantId, tag), gte(contentPerformanceMetrics.createdAt, gteD)
+            );
+        const [r] = await db.select({
+          successes: sql<number>`sum(case when ${contentPerformanceMetrics.isSuccess} = 1 then 1 else 0 end)`,
+          total: count(),
+        }).from(contentPerformanceMetrics).where(cond);
+        return { successes: Number(r?.successes ?? 0), total: Number(r?.total ?? 0) };
+      };
+      const [w1T, w1H, w2T, w2H] = await Promise.all([
+        winObs(w1Gte, w1Lt_, treatTagB),
+        winObs(w1Gte, w1Lt_, holdTagB),
+        winObs(w2Gte, null,  treatTagB),
+        winObs(w2Gte, null,  holdTagB),
+      ]);
+      const w1S = twoProportionZ(w1T.successes, w1T.total, w1H.successes, w1H.total);
+      const w2S = twoProportionZ(w2T.successes, w2T.total, w2H.successes, w2H.total);
+      const w1Sig = w1S.pValue < 0.05 && w1S.lift > 0;
+      const w2Sig = w2S.pValue < 0.05 && w2S.lift > 0;
+      gateB = w1Sig && w2Sig;
+      gateBMeta = {
+        w1: { significant: w1Sig, pValue: Math.round(w1S.pValue * 1e3) / 1e3, lift: Math.round(w1S.lift * 1e3) / 1e3, treatN: w1T.total, holdN: w1H.total },
+        w2: { significant: w2Sig, pValue: Math.round(w2S.pValue * 1e3) / 1e3, lift: Math.round(w2S.lift * 1e3) / 1e3, treatN: w2T.total, holdN: w2H.total },
+      };
+    }
+    // ── Gate C: No >10% counter-metric deterioration (bounce/read-complete, 14d) ──
+    // bounce_rate (↑ bad) and read_complete_rate (↓ bad) are the required guardrails.
+    // Mirrors declare-winner Gate C exactly.
     let gateC = true;
     let gateCMeta: Record<string, unknown> = {};
     if (treatM && holdM) {
-      const fourteenDaysAgo = new Date(Date.now() - 14 * 86_400_000);
+      const fourteenDaysAgo = new Date(summaryNow - 14 * 86_400_000);
       const treatTag14 = `va-${treatM.armId}`;
       const holdTag14  = `va-${holdM.armId}`;
-      const [[tQRow], [hQRow]] = await Promise.all([
-        db.select({
-          avgQ: sql<number>`avg(${contentPerformanceMetrics.qualityScore})`,
+      type CtrRow = { avgBounce: number; avgRead: number; n: number };
+      const ctrQ = (tag: string) => db
+        .select({
+          avgBounce: sql<number>`avg(${contentPerformanceMetrics.bounceRate})`,
+          avgRead:   sql<number>`avg(${contentPerformanceMetrics.readCompleteRate})`,
           n: count(),
         })
         .from(contentPerformanceMetrics)
         .where(and(
           eq(contentPerformanceMetrics.teamId, teamId),
           eq(contentPerformanceMetrics.contentType, contentType),
-          eq(contentPerformanceMetrics.variantId, treatTag14),
+          eq(contentPerformanceMetrics.variantId, tag),
           gte(contentPerformanceMetrics.createdAt, fourteenDaysAgo)
-        )),
-        db.select({
-          avgQ: sql<number>`avg(${contentPerformanceMetrics.qualityScore})`,
-          n: count(),
-        })
-        .from(contentPerformanceMetrics)
-        .where(and(
-          eq(contentPerformanceMetrics.teamId, teamId),
-          eq(contentPerformanceMetrics.contentType, contentType),
-          eq(contentPerformanceMetrics.variantId, holdTag14),
-          gte(contentPerformanceMetrics.createdAt, fourteenDaysAgo)
-        )),
-      ]);
-      const treatAvgQ = Number(tQRow?.avgQ ?? 0);
-      const holdAvgQ  = Number(hQRow?.avgQ ?? 0);
-      const holdQN    = Number(hQRow?.n ?? 0);
-      // Gate passes when holdout has <10 obs (insufficient baseline) or no deterioration
-      gateC = holdQN < 10 || holdAvgQ === 0 || treatAvgQ >= holdAvgQ * 0.9;
+        ));
+      const [tCRows, hCRows] = await Promise.all([ctrQ(treatTag14), ctrQ(holdTag14)]);
+      const tCtr = tCRows[0];
+      const hCtr = hCRows[0];
+      const treatAvgBounce = Number(tCtr?.avgBounce ?? 0);
+      const treatAvgRead   = Number(tCtr?.avgRead   ?? 0);
+      const holdAvgBounce  = Number(hCtr?.avgBounce ?? 0);
+      const holdAvgRead    = Number(hCtr?.avgRead   ?? 0);
+      const holdQN         = Number(hCtr?.n         ?? 0);
+      const bounceOK = holdAvgBounce === 0 || treatAvgBounce <= holdAvgBounce * 1.1;
+      const readOK   = holdAvgRead   === 0 || treatAvgRead   >= holdAvgRead   * 0.9;
+      gateC = holdQN < 10 || (bounceOK && readOK);
       gateCMeta = {
-        treatAvgQ: Math.round(treatAvgQ * 10) / 10,
-        holdAvgQ: Math.round(holdAvgQ * 10) / 10,
+        treatAvgBounce: Math.round(treatAvgBounce * 10) / 10,
+        holdAvgBounce: Math.round(holdAvgBounce * 10) / 10,
+        treatAvgRead: Math.round(treatAvgRead * 10) / 10,
+        holdAvgRead: Math.round(holdAvgRead * 10) / 10,
         holdQN,
-        threshold: "treatment avgQ ≥ holdout avgQ × 0.9",
+        bounceOK,
+        readOK,
         note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
       };
     }
@@ -228,16 +271,13 @@ export async function GET(req: NextRequest) {
         weight: 30,
       },
       gateB: {
-        label: "Significant lift (p<0.05, treatment > holdout)",
+        label: "Both non-overlapping 14-day windows significant (p<0.05, treatment > holdout)",
         passed: gateB,
-        pValue: liftSummary?.pValue ?? null,
-        liftPct: liftSummary?.liftPct ?? null,
-        etaObs: liftSummary?.etaObs ?? null,
         weight: 40,
-        note: "Requires both treatment + holdout arms with tagged observations",
+        ...gateBMeta,
       },
       gateC: {
-        label: "No >10% quality deterioration vs holdout (14d)",
+        label: "No >10% counter-metric deterioration vs holdout (bounce/read-complete, 14d)",
         passed: gateC,
         weight: 30,
         ...gateCMeta,

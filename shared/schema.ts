@@ -1192,6 +1192,9 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   variantId: varchar("variant_id", { length: 36 }),
   // armId: FK to decisionArms for content generated inside a Bayesian policy experiment (nullable)
   armId: integer("arm_id").references(() => decisionArms.id, { onDelete: "set null" }),
+  // variantArmId: FK to variantArms for holdout/treatment arm tagging.
+  // Kept separate from armId so writing a variantArms.id never violates the decisionArms FK.
+  variantArmId: integer("variant_arm_id").references(() => variantArms.id, { onDelete: "set null" }),
 
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
