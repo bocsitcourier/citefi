@@ -38,6 +38,8 @@ import {
   Users,
   Flag,
   Info,
+  Link2,
+  Compass,
   TrendingUp as TrendingUpIcon,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -143,6 +145,53 @@ interface MonitorSnapshot {
   engineDrift: Array<{ patternId: number; name: string; lifetimeWilson: number; recentRate: number; recentSamples: number; gap: number; drifting: boolean }>;
 }
 
+interface CohortInsightRow {
+  id: number;
+  cohortDimension: string;
+  cohortValue: string;
+  conversionRate: number;
+  engagementScore: number;
+  sampleSize: number;
+  vsBaselineMultiplier: number;
+  insightType: string;
+  recommendationText: string | null;
+  terminalKpi: string | null;
+  contentTypeBlocked: string | null;
+  computedAt: string;
+}
+
+interface NBARecommendationRow {
+  priority: number;
+  actionType: "scale_up" | "review" | "link_primer" | "cover_gap" | "pause_guardrail" | "monitor";
+  headline: string;
+  rationale: string;
+  cohortDimension: string;
+  cohortValue: string;
+  vsBaselineMultiplier: number;
+  insightType: string;
+  terminalKpi: string | null;
+  contentTypeBlocked: string | null;
+  sampleSize: number;
+}
+
+interface StrategyData {
+  insights: CohortInsightRow[];
+  summary: {
+    total: number;
+    guardrailConflicts: number;
+    converterCohorts: number;
+    nonConverters: number;
+    primers: number;
+    untapped: number;
+  };
+  guardrailConflicts: CohortInsightRow[];
+  converterCohorts: CohortInsightRow[];
+  nonConverters: CohortInsightRow[];
+  primers: CohortInsightRow[];
+  untapped: CohortInsightRow[];
+  nextBestActions: NBARecommendationRow[];
+}
+
 const CONTENT_TYPE_ICONS: Record<string, any> = {
   article: FileText,
   video: Video,
@@ -201,7 +250,7 @@ export default function LearningDashboard() {
     staleTime: 2 * 60 * 1000,
   });
 
-  const { data: strategyData, isLoading: strategyLoading } = useQuery<any>({
+  const { data: strategyData, isLoading: strategyLoading, refetch: refetchStrategy } = useQuery<StrategyData>({
     queryKey: ["/api/learning/strategy"],
     staleTime: 10 * 60 * 1000,
   });
@@ -1437,14 +1486,26 @@ export default function LearningDashboard() {
             STRATEGY TAB — Cohort Intelligence (Task #17)
             ================================================================ */}
         <TabsContent value="strategy" className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Strategy Intelligence
-            </h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Cohort-level conversion patterns mined nightly — surfaces which content types and segments over- or under-perform baseline.
-            </p>
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Strategy Intelligence
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Cohort-level conversion patterns mined nightly — surfaces which segments over- or under-perform, pre-conversion primers, and Next Best Actions.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchStrategy()}
+              disabled={strategyLoading}
+              data-testid="button-refresh-strategy"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
           </div>
 
           {strategyLoading ? (
@@ -1464,6 +1525,41 @@ export default function LearningDashboard() {
             </Card>
           ) : (
             <div className="space-y-4">
+
+              {/* ── Guardrail Conflicts (Gap N) — prominent red alert ─────────── */}
+              {(strategyData.guardrailConflicts?.length ?? 0) > 0 && (
+                <div className="space-y-2" data-testid="section-guardrail-conflicts">
+                  <h3 className="text-sm font-semibold flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <AlertTriangle className="w-4 h-4" />
+                    Guardrail Conflicts — Resolve Before Scaling
+                  </h3>
+                  {strategyData.guardrailConflicts.map((c) => (
+                    <div
+                      key={c.id}
+                      className="border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 rounded-md p-3 space-y-1"
+                      data-testid={`guardrail-${c.id}`}
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                          <span className="text-sm font-medium capitalize">{c.cohortValue}</span>
+                          {c.contentTypeBlocked && (
+                            <Badge variant="destructive" className="text-xs">Blocks declare-winner</Badge>
+                          )}
+                        </div>
+                        {c.terminalKpi && (
+                          <Badge variant="outline" className="text-xs">KPI: {c.terminalKpi}</Badge>
+                        )}
+                      </div>
+                      {c.recommendationText && (
+                        <p className="text-xs text-red-700 dark:text-red-300 ml-6">{c.recommendationText}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Summary stat cards ─────────────────────────────────────────── */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card>
                   <CardContent className="pt-5 pb-4">
@@ -1491,65 +1587,179 @@ export default function LearningDashboard() {
                 </Card>
               </div>
 
-              {strategyData.nextBestActions?.length > 0 && (
-                <Card>
+              {/* ── Next Best Actions (NBA) ────────────────────────────────────── */}
+              {(strategyData.nextBestActions?.length ?? 0) > 0 && (
+                <Card data-testid="section-nba">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-green-500" />
+                      <Zap className="w-4 h-4 text-yellow-500" />
                       Next Best Actions
                     </CardTitle>
+                    <CardDescription>Up to 5 concrete, prioritised recommendations for this week.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {strategyData.nextBestActions.map((action, idx) => {
+                      const iconMap: Record<string, { Icon: any; color: string }> = {
+                        pause_guardrail: { Icon: AlertTriangle, color: "text-red-500" },
+                        link_primer:     { Icon: Link2,         color: "text-blue-500" },
+                        scale_up:        { Icon: TrendingUp,    color: "text-green-500" },
+                        cover_gap:       { Icon: Compass,       color: "text-orange-500" },
+                        review:          { Icon: FlaskConical,  color: "text-yellow-500" },
+                        monitor:         { Icon: Activity,      color: "text-muted-foreground" },
+                      };
+                      const { Icon, color } = iconMap[action.actionType] ?? iconMap.monitor;
+                      const priorityColor = action.priority === 1 ? "destructive"
+                        : action.priority === 2 ? "default"
+                        : "secondary";
+
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-3 p-3 rounded-md bg-muted/40"
+                          data-testid={`nba-${idx}`}
+                        >
+                          <div className="shrink-0 mt-0.5">
+                            <Icon className={`w-4 h-4 ${color}`} />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <p className="text-sm font-medium">{action.headline}</p>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Badge variant={priorityColor as any} className="text-xs">P{action.priority}</Badge>
+                                {action.terminalKpi && (
+                                  <Badge variant="outline" className="text-xs">KPI: {action.terminalKpi}</Badge>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{action.rationale}</p>
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <Badge variant="outline" className="text-xs">n={action.sampleSize}</Badge>
+                              <Badge
+                                variant={action.vsBaselineMultiplier >= 120 ? "default" : action.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
+                                className="text-xs"
+                              >
+                                {action.vsBaselineMultiplier}% vs baseline
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ── Pre-Conversion Primers ─────────────────────────────────────── */}
+              {(strategyData.primers?.length ?? 0) > 0 && (
+                <Card data-testid="section-primers">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Link2 className="w-4 h-4 text-blue-500" />
+                      Pre-Conversion Primers
+                    </CardTitle>
+                    <CardDescription>
+                      Articles that appear disproportionately in reader paths within 72h before a conversion — amplify with internal links and CTAs.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {strategyData.nextBestActions.map((action: any, idx: number) => (
-                      <div key={idx} className="p-3 rounded-md bg-muted/40 space-y-1" data-testid={`action-${idx}`}>
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <p className="text-sm font-medium capitalize">{action.cohortValue}</p>
-                          <Badge
-                            variant={action.vsBaselineMultiplier >= 120 ? "default" : "secondary"}
-                            className="text-xs"
-                          >
-                            {action.vsBaselineMultiplier}% of baseline
+                    {strategyData.primers.map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex items-start justify-between gap-3 p-3 rounded-md bg-muted/40 flex-wrap"
+                        data-testid={`primer-${p.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{p.cohortValue}</p>
+                          {p.recommendationText && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{p.recommendationText}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-xs">n={p.sampleSize}</Badge>
+                          <Badge variant="default" className="text-xs">
+                            {(p.vsBaselineMultiplier / 100).toFixed(1)}× in converter paths
                           </Badge>
                         </div>
-                        {action.recommendationText && (
-                          <p className="text-xs text-muted-foreground">{action.recommendationText}</p>
-                        )}
                       </div>
                     ))}
                   </CardContent>
                 </Card>
               )}
 
+              {/* ── Untapped Segments ─────────────────────────────────────────── */}
+              {(strategyData.untapped?.length ?? 0) > 0 && (
+                <Card data-testid="section-untapped">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Compass className="w-4 h-4 text-orange-500" />
+                      Untapped Segments
+                    </CardTitle>
+                    <CardDescription>
+                      High-potential topics with zero or thin coverage — competitors are ranking here.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {strategyData.untapped.map((u) => (
+                      <div
+                        key={u.id}
+                        className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/40 flex-wrap"
+                        data-testid={`untapped-${u.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{u.cohortValue}</p>
+                          {u.recommendationText && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{u.recommendationText}</p>
+                          )}
+                        </div>
+                        <Badge variant="secondary" className="text-xs shrink-0">Untapped</Badge>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ── Cohort Breakdown table ─────────────────────────────────────── */}
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">All Cohort Insights</CardTitle>
+                  <CardTitle className="text-base">Cohort Breakdown</CardTitle>
                   <CardDescription>
-                    Nightly cohort mining results — each row is a segment with its conversion vs. baseline multiplier.
+                    All mined cohorts — each row is a segment compared to the team baseline.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {strategyData.insights.slice(0, 30).map((insight: any) => (
-                      <div
-                        key={insight.id}
-                        className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
-                        data-testid={`insight-${insight.id}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium capitalize">{insight.cohortValue}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{insight.insightType?.replace(/_/g, " ")}</p>
+                    {strategyData.insights
+                      .filter((i) => i.insightType === "converter_cohort" || i.insightType === "non_converter")
+                      .slice(0, 30)
+                      .map((insight) => (
+                        <div
+                          key={insight.id}
+                          className="flex items-center justify-between p-3 rounded-md bg-muted/40 flex-wrap gap-2"
+                          data-testid={`insight-${insight.id}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium capitalize">{insight.cohortValue}</p>
+                              {insight.terminalKpi && (
+                                <Badge variant="outline" className="text-xs">KPI: {insight.terminalKpi}</Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground capitalize">{insight.cohortDimension} · {insight.insightType?.replace(/_/g, " ")}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Badge variant="outline" className="text-xs">n={insight.sampleSize}</Badge>
+                            <Badge
+                              className="text-xs"
+                              variant={insight.vsBaselineMultiplier >= 120 ? "default" : insight.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
+                            >
+                              {insight.vsBaselineMultiplier}% vs baseline
+                            </Badge>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge variant="outline" className="text-xs">n={insight.sampleSize}</Badge>
-                          <Badge
-                            className="text-xs"
-                            variant={insight.vsBaselineMultiplier >= 120 ? "default" : insight.vsBaselineMultiplier < 80 ? "destructive" : "secondary"}
-                          >
-                            {insight.vsBaselineMultiplier}% vs baseline
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    {strategyData.insights.filter((i) => i.insightType === "converter_cohort" || i.insightType === "non_converter").length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">No converter or non-converter cohorts found yet.</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

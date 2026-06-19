@@ -64,3 +64,12 @@ ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS session_return_
 -- Task #16: terminal_kpi on variant_arms — arm-level KPI config so learning service resolves
 -- metric weights from the arm itself (universal for all content types, no caller threading required).
 ALTER TABLE variant_arms ADD COLUMN IF NOT EXISTS terminal_kpi VARCHAR(50);
+
+-- ============================================================================
+-- Task #17: cohort_insights — Gap L (terminalKpi) + Gap N (contentTypeBlocked)
+-- ============================================================================
+ALTER TABLE cohort_insights ADD COLUMN IF NOT EXISTS terminal_kpi VARCHAR(30);
+ALTER TABLE cohort_insights ADD COLUMN IF NOT EXISTS content_type_blocked VARCHAR(50);
+
+-- Task #17: audience_personas — behavioral enrichment notes from CohortMiningJob
+ALTER TABLE audience_personas ADD COLUMN IF NOT EXISTS performance_notes TEXT;

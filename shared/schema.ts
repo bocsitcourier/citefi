@@ -1327,6 +1327,10 @@ export const audiencePersonas = pgTable("audience_personas", {
   isActive: integer("is_active").notNull().default(1),
   isDefault: integer("is_default").notNull().default(0), // One default persona per team
   
+  // Behavioral enrichment — auto-updated by CohortMiningJob when actual conversion data
+  // diverges from OCEAN predictions. Surfaced in Strategy tab persona section.
+  performanceNotes: text("performance_notes"),
+
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -3098,6 +3102,11 @@ export const cohortInsights = pgTable("cohort_insights", {
   insightType: varchar("insight_type", { length: 50 }).notNull().default("converter_cohort"),
   // 'converter_cohort'|'non_converter'|'untapped_segment'|'pre_conversion_primer'|'guardrail_conflict'
   recommendationText: text("recommendation_text"),
+  // Gap L: tag which KPI metric this insight was computed against (prevents cross-KPI comparisons)
+  terminalKpi: varchar("terminal_kpi", { length: 30 }),
+  // 'conversion'|'engagement'|'awareness'|null means composite
+  // Gap N: for GUARDRAIL_CONFLICT rows, identifies which content type is being blocked
+  contentTypeBlocked: varchar("content_type_blocked", { length: 50 }),
   computedAt: timestamp("computed_at").notNull().defaultNow(),
 }, (t) => ({
   ciTeamIdx: index("ci_team_idx").on(t.teamId),

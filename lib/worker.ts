@@ -2223,8 +2223,10 @@ export async function registerWorkers() {
       console.warn(`⚠️ Could not register underperformer archiving scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
-    // COHORT MINING: nightly 03:00 UTC — mines content_events into cohort_insights
-    // for the Strategy Intelligence dashboard (Task #17).
+    // COHORT MINING: nightly 03:00 UTC — mines content_events + content_performance_metrics
+    // into cohort_insights for the Strategy Intelligence dashboard (Task #17).
+    // Phases: contentType | device | locale | scroll-bucket | pre-conversion primers |
+    //         guardrail conflict detection (Gap N) | persona enrichment (Gap L).
     try {
       const COHORT_MINING_QUEUE = "cohort-mining";
       try { await boss.createQueue(COHORT_MINING_QUEUE); } catch (_) { /* already exists */ }
@@ -2232,71 +2234,426 @@ export async function registerWorkers() {
       await boss.work<Record<string, never>>(COHORT_MINING_QUEUE, async (_jobs) => {
         try {
           const { db: _db } = await import("./db");
-          const { teams, contentPerformanceMetrics: cpm, cohortInsights } = await import("../shared/schema");
-          const { eq, and, gte, count, sql: drizzleSql, desc: drizzleDesc } = await import("drizzle-orm");
+          const {
+            teams, contentPerformanceMetrics: cpm, cohortInsights,
+            contentEvents: ce, articles: arts, audiencePersonas,
+          } = await import("../shared/schema");
+          const {
+            eq, and, gte, lt, count, sql: drizzleSql, avg, not, isNull,
+          } = await import("drizzle-orm");
+
           const allTeams = await _db.select({ id: teams.id }).from(teams);
-          const cutoff = new Date(Date.now() - 30 * 86400_000);
+          const now = new Date();
+          const cutoff30d = new Date(now.getTime() - 30 * 86400_000);
+          const cutoff7d  = new Date(now.getTime() - 7  * 86400_000);
+          const cutoff14d = new Date(now.getTime() - 14 * 86400_000);
           let totalInsights = 0;
 
           for (const team of allTeams) {
             try {
-              // Compute per-contentType conversion rates
-              const rows = await _db
+              // PHASE 0: Replace stale insights — delete all for this team before reinserting.
+              // (No unique constraint on the table, so delete-then-insert is the clean pattern.)
+              await _db.delete(cohortInsights).where(eq(cohortInsights.teamId, team.id));
+
+              // ================================================================
+              // PHASE 1: ContentType dimension from content_performance_metrics
+              // Terminal KPI: 'conversion' (isSuccess flag)
+              // ================================================================
+              const cpmRows = await _db
                 .select({
                   contentType: cpm.contentType,
                   total: count(),
                   successes: drizzleSql<number>`sum(case when ${cpm.isSuccess} = 1 then 1 else 0 end)`,
+                  avgQuality: avg(cpm.qualityScore),
+                  avgBounce: avg(cpm.bounceRate),
+                  avgReturn: avg(cpm.sessionReturnRate),
                 })
                 .from(cpm)
-                .where(and(eq(cpm.teamId, team.id), gte(cpm.createdAt, cutoff)))
+                .where(and(eq(cpm.teamId, team.id), gte(cpm.createdAt, cutoff30d)))
                 .groupBy(cpm.contentType);
 
-              if (rows.length === 0) continue;
+              const totalAll = cpmRows.reduce((s, r) => s + Number(r.total), 0);
+              const successAll = cpmRows.reduce((s, r) => s + Number(r.successes), 0);
+              const baselineRate = totalAll > 0 ? successAll / totalAll : 0;
 
-              // Compute team baseline conversion rate
-              const totalAll = rows.reduce((s, r) => s + Number(r.total), 0);
-              const successAll = rows.reduce((s, r) => s + Number(r.successes), 0);
-              const baselineRate = totalAll > 0 ? (successAll / totalAll) : 0;
-
-              for (const row of rows) {
+              for (const row of cpmRows) {
                 const n = Number(row.total ?? 0);
                 if (n < 10) continue;
                 const successes = Number(row.successes ?? 0);
-                const rate = n > 0 ? successes / n : 0;
+                const rate = successes / n;
                 const rateBasePts = Math.round(rate * 10000);
-                const multiplier = baselineRate > 0
-                  ? Math.round((rate / baselineRate) * 100)
-                  : 100;
-                const insightType = rate > baselineRate * 1.2 ? "converter_cohort"
-                  : rate < baselineRate * 0.7 ? "non_converter"
+                const multiplier = baselineRate > 0 ? Math.round((rate / baselineRate) * 100) : 100;
+                const insightType = multiplier >= 120 ? "converter_cohort"
+                  : multiplier <= 80 ? "non_converter"
                   : "converter_cohort";
 
-                await _db
-                  .insert(cohortInsights)
-                  .values({
-                    teamId: team.id,
-                    cohortDimension: "contentType",
-                    cohortValue: row.contentType,
-                    conversionRate: rateBasePts,
-                    engagementScore: Math.round(rate * 100),
-                    sampleSize: n,
-                    vsBaselineMultiplier: multiplier,
-                    insightType,
-                    recommendationText: multiplier > 120
-                      ? `${row.contentType} converts at ${multiplier}% of baseline — scale up production.`
-                      : multiplier < 80
-                      ? `${row.contentType} underperforms baseline by ${100 - multiplier}% — review content quality.`
-                      : null,
-                  })
-                  .onConflictDoNothing();
-
+                await _db.insert(cohortInsights).values({
+                  teamId: team.id,
+                  cohortDimension: "contentType",
+                  cohortValue: row.contentType,
+                  conversionRate: rateBasePts,
+                  engagementScore: Math.min(100, Math.round(Number(row.avgQuality ?? 0))),
+                  sampleSize: n,
+                  vsBaselineMultiplier: multiplier,
+                  insightType,
+                  terminalKpi: "conversion",
+                  recommendationText: multiplier > 150
+                    ? `${row.contentType} converts at ${(multiplier / 100).toFixed(1)}× baseline (KPI: conversions) — scale up production.`
+                    : multiplier < 70
+                    ? `${row.contentType} underperforms baseline by ${100 - multiplier}% — review content quality.`
+                    : null,
+                } as any);
                 totalInsights++;
               }
+
+              // ================================================================
+              // PHASE 2: Device dimension from content_events
+              // ================================================================
+              const deviceRows = await _db
+                .select({
+                  device: ce.device,
+                  total: count(),
+                  conversions: drizzleSql<number>`sum(case when ${ce.eventType} = 'conversion' then 1 else 0 end)`,
+                  bounces: drizzleSql<number>`sum(case when ${ce.bounced} = true then 1 else 0 end)`,
+                })
+                .from(ce)
+                .where(and(eq(ce.teamId, team.id), gte(ce.createdAt, cutoff30d), not(isNull(ce.device))))
+                .groupBy(ce.device);
+
+              const evtTotal = deviceRows.reduce((s, r) => s + Number(r.total), 0);
+              const evtConv  = deviceRows.reduce((s, r) => s + Number(r.conversions), 0);
+              const evtBaselineRate = evtTotal > 0 ? evtConv / evtTotal : 0;
+
+              for (const row of deviceRows) {
+                const n = Number(row.total ?? 0);
+                if (n < 20 || !row.device) continue;
+                const conv = Number(row.conversions ?? 0);
+                const rate = conv / n;
+                const mult = evtBaselineRate > 0 ? Math.round((rate / evtBaselineRate) * 100) : 100;
+                const bounceEng = Math.max(0, 100 - Math.round((Number(row.bounces ?? 0) / n) * 100));
+                const iType = mult >= 120 ? "converter_cohort" : "non_converter";
+
+                await _db.insert(cohortInsights).values({
+                  teamId: team.id,
+                  cohortDimension: "device",
+                  cohortValue: row.device,
+                  conversionRate: Math.round(rate * 10000),
+                  engagementScore: bounceEng,
+                  sampleSize: n,
+                  vsBaselineMultiplier: mult,
+                  insightType: iType,
+                  terminalKpi: "conversion",
+                  recommendationText: mult > 150
+                    ? `${row.device} visitors convert at ${(mult / 100).toFixed(1)}× baseline — optimize for this device.`
+                    : mult < 70
+                    ? `${row.device} visitors convert at ${mult}% of baseline — review mobile/desktop experience.`
+                    : null,
+                } as any);
+                totalInsights++;
+              }
+
+              // ================================================================
+              // PHASE 3: Locale dimension from content_events (significant only)
+              // ================================================================
+              const localeRows = await _db
+                .select({
+                  locale: ce.locale,
+                  total: count(),
+                  conversions: drizzleSql<number>`sum(case when ${ce.eventType} = 'conversion' then 1 else 0 end)`,
+                })
+                .from(ce)
+                .where(and(eq(ce.teamId, team.id), gte(ce.createdAt, cutoff30d), not(isNull(ce.locale))))
+                .groupBy(ce.locale);
+
+              for (const row of localeRows) {
+                const n = Number(row.total ?? 0);
+                if (n < 20 || !row.locale) continue;
+                const conv = Number(row.conversions ?? 0);
+                const rate = conv / n;
+                const mult = evtBaselineRate > 0 ? Math.round((rate / evtBaselineRate) * 100) : 100;
+                if (mult < 130 && mult > 70) continue; // Only flag significant deviations
+
+                await _db.insert(cohortInsights).values({
+                  teamId: team.id,
+                  cohortDimension: "locale",
+                  cohortValue: row.locale,
+                  conversionRate: Math.round(rate * 10000),
+                  engagementScore: 50,
+                  sampleSize: n,
+                  vsBaselineMultiplier: mult,
+                  insightType: mult >= 130 ? "converter_cohort" : "non_converter",
+                  terminalKpi: "conversion",
+                  recommendationText: mult > 130
+                    ? `${row.locale} locale converts at ${(mult / 100).toFixed(1)}× — create geo-targeted content.`
+                    : `${row.locale} converts at only ${mult}% — review localization and relevance.`,
+                } as any);
+                totalInsights++;
+              }
+
+              // ================================================================
+              // PHASE 4: Scroll-depth bucket cohort (from content_events)
+              // Terminal KPI: 'engagement' (behavioral depth signal)
+              // ================================================================
+              const scrollRows = await _db.execute(drizzleSql`
+                SELECT
+                  CASE
+                    WHEN scroll_pct <= 33 THEN 'shallow (0-33%)'
+                    WHEN scroll_pct <= 66 THEN 'mid (34-66%)'
+                    ELSE 'deep (67-100%)'
+                  END AS bucket,
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conversions
+                FROM content_events
+                WHERE team_id = ${team.id}
+                  AND scroll_pct IS NOT NULL
+                  AND created_at > ${cutoff30d}
+                GROUP BY 1
+              `);
+
+              for (const row of scrollRows.rows as any[]) {
+                const n = Number(row.total ?? 0);
+                if (n < 30 || !row.bucket) continue;
+                const conv = Number(row.conversions ?? 0);
+                const rate = conv / n;
+                const mult = evtBaselineRate > 0 ? Math.round((rate / evtBaselineRate) * 100) : 100;
+                if (mult < 120 && mult > 80) continue;
+                const engScore = row.bucket.startsWith("deep") ? 80
+                  : row.bucket.startsWith("mid") ? 50 : 20;
+
+                await _db.insert(cohortInsights).values({
+                  teamId: team.id,
+                  cohortDimension: "scrollDepth",
+                  cohortValue: row.bucket,
+                  conversionRate: Math.round(rate * 10000),
+                  engagementScore: engScore,
+                  sampleSize: n,
+                  vsBaselineMultiplier: mult,
+                  insightType: mult >= 120 ? "converter_cohort" : "non_converter",
+                  terminalKpi: "engagement",
+                  recommendationText: row.bucket.startsWith("shallow") && mult <= 80
+                    ? `${mult}% of visitors who read <33% of your content convert — improve above-fold hooks and CTAs.`
+                    : row.bucket.startsWith("deep") && mult >= 120
+                    ? `Deep readers (67-100% scroll) convert at ${(mult / 100).toFixed(1)}× — add strong CTAs at article end.`
+                    : null,
+                } as any);
+                totalInsights++;
+              }
+
+              // ================================================================
+              // PHASE 5: Pre-conversion primer detection
+              // Articles disproportionately present in 72h pre-conversion session paths.
+              // Terminal KPI: 'conversion'
+              // ================================================================
+              try {
+                const primerResult = await _db.execute(drizzleSql`
+                  WITH conversion_visitors AS (
+                    SELECT DISTINCT visitor_id, MAX(created_at) AS conv_time
+                    FROM content_events
+                    WHERE team_id = ${team.id}
+                      AND event_type = 'conversion'
+                      AND visitor_id IS NOT NULL
+                      AND created_at > ${cutoff30d}
+                    GROUP BY visitor_id
+                  ),
+                  total_converters AS (SELECT COUNT(*) AS cnt FROM conversion_visitors),
+                  primer_views AS (
+                    SELECT ce.article_id, COUNT(DISTINCT ce.visitor_id) AS primer_visitors
+                    FROM content_events ce
+                    INNER JOIN conversion_visitors cv ON ce.visitor_id = cv.visitor_id
+                    WHERE ce.team_id = ${team.id}
+                      AND ce.article_id IS NOT NULL
+                      AND ce.event_type IN ('page_view','view','read_complete')
+                      AND ce.created_at BETWEEN (cv.conv_time - INTERVAL '72 hours') AND cv.conv_time
+                    GROUP BY ce.article_id
+                    HAVING COUNT(DISTINCT ce.visitor_id) >= 2
+                  ),
+                  article_reach AS (
+                    SELECT article_id, COUNT(DISTINCT visitor_id) AS all_visitors
+                    FROM content_events
+                    WHERE team_id = ${team.id}
+                      AND article_id IS NOT NULL
+                      AND event_type IN ('page_view','view')
+                      AND created_at > ${cutoff30d}
+                    GROUP BY article_id
+                  )
+                  SELECT
+                    pv.article_id,
+                    pv.primer_visitors,
+                    COALESCE(ar.all_visitors, 1) AS all_visitors,
+                    tc.cnt AS total_converters,
+                    a.chosen_title
+                  FROM primer_views pv
+                  CROSS JOIN total_converters tc
+                  LEFT JOIN article_reach ar ON pv.article_id = ar.article_id
+                  LEFT JOIN articles a ON pv.article_id = a.id
+                  ORDER BY pv.primer_visitors DESC
+                  LIMIT 5
+                `);
+
+                const tcCount = primerResult.rows.length > 0
+                  ? Number((primerResult.rows[0] as any).total_converters ?? 0)
+                  : 0;
+
+                if (tcCount >= 3) {
+                  for (const row of primerResult.rows as any[]) {
+                    const primerV = Number(row.primer_visitors ?? 0);
+                    const allV    = Number(row.all_visitors ?? 1);
+                    const primerRate = primerV / tcCount;
+                    const reachRate  = allV / Math.max(allV + 100, 200);
+                    const mult = reachRate > 0 ? Math.min(500, Math.round((primerRate / reachRate) * 100)) : 200;
+                    const title = row.chosen_title
+                      ? String(row.chosen_title).slice(0, 100)
+                      : `Article #${row.article_id}`;
+
+                    await _db.insert(cohortInsights).values({
+                      teamId: team.id,
+                      cohortDimension: "article",
+                      cohortValue: title,
+                      conversionRate: Math.round(primerRate * 10000),
+                      engagementScore: 75,
+                      sampleSize: primerV,
+                      vsBaselineMultiplier: mult,
+                      insightType: "pre_conversion_primer",
+                      terminalKpi: "conversion",
+                      recommendationText: `"${title.slice(0, 60)}..." appears in ${primerV}/${tcCount} converter paths — add CTAs and internal links to high-intent pages.`,
+                    } as any);
+                    totalInsights++;
+                  }
+                }
+              } catch (primerErr) {
+                console.warn(`[COHORT_MINING] team ${team.id} primer error:`, (primerErr as Error).message);
+              }
+
+              // ================================================================
+              // PHASE 6: Guardrail conflict detection (Gap N)
+              // Detecting: positive KPI improving + negative signal deteriorating simultaneously.
+              // Blocks Bayesian declare-winner for the affected content type.
+              // ================================================================
+              try {
+                const recentRows = await _db
+                  .select({
+                    contentType: cpm.contentType,
+                    avgQuality: avg(cpm.qualityScore),
+                    avgBounce: avg(cpm.bounceRate),
+                    avgReturn: avg(cpm.sessionReturnRate),
+                    cnt: count(),
+                  })
+                  .from(cpm)
+                  .where(and(eq(cpm.teamId, team.id), gte(cpm.createdAt, cutoff7d)))
+                  .groupBy(cpm.contentType);
+
+                const prevRows = await _db
+                  .select({
+                    contentType: cpm.contentType,
+                    avgQuality: avg(cpm.qualityScore),
+                    avgBounce: avg(cpm.bounceRate),
+                    avgReturn: avg(cpm.sessionReturnRate),
+                    cnt: count(),
+                  })
+                  .from(cpm)
+                  .where(and(
+                    eq(cpm.teamId, team.id),
+                    gte(cpm.createdAt, cutoff14d),
+                    lt(cpm.createdAt, cutoff7d)
+                  ))
+                  .groupBy(cpm.contentType);
+
+                const prevMap = new Map(prevRows.map((r) => [r.contentType, r]));
+
+                for (const recent of recentRows) {
+                  const prev = prevMap.get(recent.contentType);
+                  if (!prev || Number(recent.cnt) < 5 || Number(prev.cnt) < 5) continue;
+
+                  const recQ  = Number(recent.avgQuality ?? 0);
+                  const prevQ = Number(prev.avgQuality   ?? 0);
+                  const recB  = Number(recent.avgBounce  ?? 0);
+                  const prevB = Number(prev.avgBounce    ?? 0);
+                  const recR  = Number(recent.avgReturn  ?? 0);
+                  const prevR = Number(prev.avgReturn    ?? 0);
+
+                  const qualImproving  = prevQ > 0 && recQ > prevQ * 1.10; // +10% quality
+                  const bounceWorsen   = prevB > 0 && recB > prevB * 1.10; // +10% bounce
+                  const returnWorsen   = prevR > 0 && recR < prevR * 0.90; // -10% return rate
+
+                  if (qualImproving && (bounceWorsen || returnWorsen)) {
+                    const qualDelta   = prevQ > 0 ? Math.round(((recQ - prevQ) / prevQ) * 100) : 0;
+                    const bounceDelta = bounceWorsen ? `bounce rate +${Math.round(((recB - prevB) / prevB) * 100)}%` : "";
+                    const returnDelta = returnWorsen ? `reader return rate -${Math.round(((prevR - recR) / prevR) * 100)}%` : "";
+                    const conflictMsg = [bounceDelta, returnDelta].filter(Boolean).join(" and ");
+
+                    await _db.insert(cohortInsights).values({
+                      teamId: team.id,
+                      cohortDimension: "contentType",
+                      cohortValue: recent.contentType,
+                      conversionRate: 0,
+                      engagementScore: Math.round(recQ),
+                      sampleSize: Number(recent.cnt),
+                      vsBaselineMultiplier: 100 + qualDelta,
+                      insightType: "guardrail_conflict",
+                      terminalKpi: "engagement",
+                      contentTypeBlocked: recent.contentType,
+                      recommendationText: `${recent.contentType} engagement improved +${qualDelta}% but ${conflictMsg} — possible audience fatigue. Resolve before scaling.`,
+                    } as any);
+                    totalInsights++;
+                    console.log(`🚨 [GUARDRAIL_CONFLICT] team ${team.id}: ${recent.contentType} (+${qualDelta}% quality, ${conflictMsg})`);
+                  }
+                }
+              } catch (guardrailErr) {
+                console.warn(`[COHORT_MINING] team ${team.id} guardrail error:`, (guardrailErr as Error).message);
+              }
+
+              // ================================================================
+              // PHASE 7: Persona enrichment (Gap L — behavioral vs. OCEAN prediction)
+              // Writes performanceNotes to audiencePersonas when actual conversion
+              // rate diverges from OCEAN-predicted rate by ≥ 20 percentage points.
+              // ================================================================
+              try {
+                const personas = await _db
+                  .select({ id: audiencePersonas.id, name: audiencePersonas.name, avgConversionRate: audiencePersonas.avgConversionRate })
+                  .from(audiencePersonas)
+                  .where(and(eq(audiencePersonas.teamId, team.id), eq(audiencePersonas.isActive, 1)));
+
+                for (const persona of personas) {
+                  const metricsRows = await _db
+                    .select({
+                      total: count(),
+                      successes: drizzleSql<number>`sum(case when ${cpm.isSuccess} = 1 then 1 else 0 end)`,
+                    })
+                    .from(cpm)
+                    .innerJoin(arts, eq(arts.id, cpm.articleId))
+                    .where(and(
+                      eq(cpm.teamId, team.id),
+                      eq((arts as any).personaId, persona.id),
+                      gte(cpm.createdAt, cutoff30d)
+                    ));
+
+                  const n = Number(metricsRows[0]?.total ?? 0);
+                  if (n < 5) continue;
+
+                  const actualRate = Math.round((Number(metricsRows[0]?.successes ?? 0) / n) * 100);
+                  const predictedRate = persona.avgConversionRate ?? 0;
+                  const delta = actualRate - predictedRate;
+
+                  if (Math.abs(delta) >= 20) {
+                    const direction = delta > 0 ? "outperforming" : "underperforming";
+                    const note = `[${now.toISOString().slice(0, 10)}] ${n} articles (last 30d): actual conversion ${actualRate}% vs OCEAN prediction ${predictedRate}% — ${direction} by ${Math.abs(delta)}pp. ${delta < 0 ? "Review messaging tone and CTA style." : "OCEAN model well-calibrated — maintain approach."}`;
+
+                    await _db
+                      .update(audiencePersonas)
+                      .set({ performanceNotes: note, updatedAt: new Date() } as any)
+                      .where(eq(audiencePersonas.id, persona.id));
+                  }
+                }
+              } catch (personaErr) {
+                console.warn(`[COHORT_MINING] team ${team.id} persona enrichment error:`, (personaErr as Error).message);
+              }
+
             } catch (teamErr) {
               console.warn(`[COHORT_MINING] team ${team.id} error:`, (teamErr as Error).message);
             }
           }
-          console.log(`✅ Cohort mining: inserted ${totalInsights} insights for ${allTeams.length} teams`);
+
+          console.log(`✅ Cohort mining complete: ${totalInsights} insights across ${allTeams.length} teams`);
         } catch (e) {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
         }
