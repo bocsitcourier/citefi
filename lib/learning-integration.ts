@@ -148,7 +148,7 @@ export async function recordContentGenerated(
   contentId: number,
   patternsUsed: number[],
   qualityScore: number,
-  opts?: { armId?: number }
+  opts?: { armId?: number; variantArmId?: number }
 ): Promise<number> {
   try {
     const agent = await learningService.getAgentForContentType(teamId, contentType);
@@ -157,7 +157,12 @@ export async function recordContentGenerated(
       return 0;
     }
 
-    const variantId = computeVariantId(patternsUsed, contentType);
+    // When a variant arm is active, emit `va-{variantArmId}` so lift analytics
+    // can group by arm using a stable tag instead of a pattern-hash UUID.
+    const variantId = opts?.variantArmId
+      ? `va-${opts.variantArmId}`
+      : computeVariantId(patternsUsed, contentType);
+    const armId = opts?.variantArmId ?? opts?.armId;
     return await learningService.recordContentGeneration(
       teamId,
       agent.id,
@@ -165,7 +170,7 @@ export async function recordContentGenerated(
       contentId,
       patternsUsed,
       qualityScore,
-      { variantId, armId: opts?.armId }
+      { variantId, armId }
     );
   } catch (error) {
     console.warn("Failed to record content generation:", error);

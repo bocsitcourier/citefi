@@ -53,3 +53,12 @@ CREATE INDEX IF NOT EXISTS "ci_team_type_idx" ON "cohort_insights" ("team_id", "
 
 -- Task #16: 3-consecutive-week gate for underperformer archiving
 ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weak_week_count SMALLINT NOT NULL DEFAULT 0;
+
+-- Task #16: Re-point content_performance_metrics.arm_id FK to variant_arms.
+-- On fresh DBs this runs after variant_arms is created above; on existing DBs it
+-- drops the old decisionArms FK (either Drizzle-generated name or standard name)
+-- and adds the correct FK in one pass.
+ALTER TABLE content_performance_metrics DROP CONSTRAINT IF EXISTS content_performance_metrics_arm_id_fkey;
+ALTER TABLE content_performance_metrics DROP CONSTRAINT IF EXISTS content_performance_metrics_arm_id_decision_arms_id_fk;
+ALTER TABLE content_performance_metrics ADD CONSTRAINT content_performance_metrics_arm_id_variant_arms_fk
+  FOREIGN KEY (arm_id) REFERENCES variant_arms(id) ON DELETE SET NULL;

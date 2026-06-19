@@ -82,6 +82,19 @@ export function thompsonSample(alpha: number, beta: number): number {
 }
 
 /**
+ * djb2 hash — maps any string to a stable 32-bit unsigned integer.
+ * Used for deterministic arm assignment: the same stableId always maps to
+ * the same arm, preventing contamination across re-runs of the same job.
+ */
+function djb2(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+/**
  * Multi-metric weights per content type.
  * Keys: quality, engagement, conversion.
  * Used to multiply the Thompson score by the metric that governs the pattern's dimension.
@@ -230,7 +243,8 @@ export class LearningService {
       audience?: string;
       patternTypes?: string[];
       priorityDimension?: Dimension;
-      terminalKpi?: string; // 'conversion' | 'engagement' | 'awareness' — overrides metric weights
+      terminalKpi?: string;  // 'conversion' | 'engagement' | 'awareness' — overrides metric weights
+      stableId?: string;     // stable seed for deterministic holdout/treatment assignment
     }
   ): Promise<OptimizationContext | null> {
     const agent = await this.getAgentForContentType(teamId, contentType);
@@ -253,6 +267,7 @@ export class LearningService {
       patternTypes?: string[];
       priorityDimension?: Dimension;
       terminalKpi?: string;
+      stableId?: string;
     }
   ): Promise<OptimizationContext> {
     // Fetch ALL non-archived patterns for this agent.
@@ -363,7 +378,12 @@ export class LearningService {
 
       if (treatmentArm || holdoutArm) {
         const holdoutPct = holdoutArm?.allocationPct ?? 10;
-        const roll = Math.random() * 100;
+        // Deterministic: same stableId → same arm every run, preventing
+        // contamination when the same job is retried or re-evaluated.
+        // Falls back to random only when no stableId is available (e.g. tests).
+        const roll = options?.stableId
+          ? djb2(options.stableId) % 100
+          : Math.floor(Math.random() * 100);
         if (holdoutArm && roll < holdoutPct) {
           // Holdout arm: serve committed baseline patterns only
           isHoldout = true;

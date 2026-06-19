@@ -241,6 +241,16 @@ export async function POST(
       .where(and(eq(variantArms.id, armId), eq(variantArms.teamId, teamId)))
       .returning();
 
+    // ── Sync holdout arm baseline to the newly promoted champion ──────────────
+    // Holdout must serve the champion's patterns so future lift windows compare
+    // against the correct current baseline, not stale pre-experiment patterns.
+    if (holdoutArm) {
+      await db
+        .update(variantArms)
+        .set({ baselinePatternIds: winner })
+        .where(and(eq(variantArms.id, holdoutArm.id), eq(variantArms.teamId, teamId)));
+    }
+
     console.log(
       `[WINNER_DECLARED] teamId=${teamId} armId=${armId} contentType=${arm.contentType} ` +
       `patterns=${JSON.stringify(winner)} readiness=${readinessScore}`
