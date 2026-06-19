@@ -3026,6 +3026,11 @@ export const variantArms = pgTable("variant_arms", {
   // 'treatment' | 'holdout' | 'exploration'
   allocationPct: integer("allocation_pct").notNull().default(90), // 0-100
   isActive: boolean("is_active").notNull().default(true),
+  // Optional KPI override for this arm's metric-weight selection.
+  // When set, overrides content-type defaults inside buildOptimizationContext so
+  // KPI-aware pattern weighting works for ALL generation paths without caller threading.
+  // Valid values: 'conversion' | 'engagement' | 'awareness'
+  terminalKpi: varchar("terminal_kpi", { length: 50 }),
   // JSON array of learningPatterns.id values committed to this arm's baseline
   baselinePatternIds: jsonb("baseline_pattern_ids").$type<number[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -311,12 +311,31 @@ export class LearningService {
 
     // Data-maturity check → determines prior strength for Thompson Sampling.
     const maturity = await this.teamDataMaturity(agent.teamId!, agent.contentType);
+
+    // Pre-fetch active arms BEFORE computing metric weights so terminalKpi can be resolved
+    // from the arm's own stored config. This makes KPI-aware weighting universal across ALL
+    // content types (article, social, podcast, video) without requiring each generation
+    // worker to explicitly thread terminalKpi through to getPromptEnhancement.
+    const activeArms = await db
+      .select()
+      .from(variantArms)
+      .where(and(
+        eq(variantArms.teamId, agent.teamId!),
+        eq(variantArms.contentType, agent.contentType),
+        eq(variantArms.isActive, true)
+      ));
+    const treatmentArmConfig = activeArms.find(a => a.armName === "treatment");
+    // Resolve terminalKpi: arm's persisted config → caller hint → undefined (content-type default)
+    const resolvedTerminalKpi: string | undefined =
+      treatmentArmConfig?.terminalKpi ?? options?.terminalKpi;
+
     console.log(
-      `[DECISIONING_MATURITY] type=${agent.contentType} maturity=${maturity} patterns=${allPatterns.length}`
+      `[DECISIONING_MATURITY] type=${agent.contentType} maturity=${maturity} patterns=${allPatterns.length} terminalKpi=${resolvedTerminalKpi ?? 'default'}`
     );
 
-    // Effective metric weights — content-type defaults, overridden by terminalKpi if set.
-    const weights = this.effectiveWeights(agent.contentType, options?.terminalKpi);
+    // Effective metric weights — content-type defaults, overridden by resolvedTerminalKpi.
+    // Resolved from arm config first for consistent KPI weighting across all generation paths.
+    const weights = this.effectiveWeights(agent.contentType, resolvedTerminalKpi);
 
     // Thompson Sampling — replaces epsilon-greedy.
     //   α = successes + 1,  β = (trials − successes) + 1
@@ -331,7 +350,12 @@ export class LearningService {
       const beta  = Math.max(1, rawTrials - rawSuccesses + 1);
       const metricKey = DIM_TO_METRIC[dim] ?? "engagement";
       const dimWeight = (weights[metricKey] ?? weights["engagement"] ?? 0.35);
-      const thompsonScore = thompsonSample(alpha, beta) * dimWeight;
+      // Sparse mode: omit content-type metric weighting — truly neutral equal-weight priors.
+      // Multiplying Beta(1,1) Thompson draws by dimWeight introduces systematic content-type
+      // bias before sufficient data exists, violating the sparse-mode design contract.
+      const thompsonScore = maturity === "sparse"
+        ? thompsonSample(alpha, beta)
+        : thompsonSample(alpha, beta) * dimWeight;
       return {
         pattern: p,
         dim,
@@ -364,15 +388,7 @@ export class LearningService {
     let selectedArmId: number | undefined;
     let isHoldout = false;
     try {
-      const activeArms = await db
-        .select()
-        .from(variantArms)
-        .where(and(
-          eq(variantArms.teamId, agent.teamId!),
-          eq(variantArms.contentType, agent.contentType),
-          eq(variantArms.isActive, true)
-        ));
-
+      // activeArms already fetched above for KPI resolution — reuse to avoid duplicate query.
       const treatmentArm = activeArms.find(a => a.armName === "treatment");
       const holdoutArm   = activeArms.find(a => a.armName === "holdout");
 

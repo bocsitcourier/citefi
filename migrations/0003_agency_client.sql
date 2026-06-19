@@ -60,3 +60,7 @@ ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS variant_arm_id 
 
 -- Task #16: session_return_rate — % of unique visitors returning on a different day (Gate C guardrail)
 ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS session_return_rate INTEGER NOT NULL DEFAULT 0;
+
+-- Task #16: terminal_kpi on variant_arms — arm-level KPI config so learning service resolves
+-- metric weights from the arm itself (universal for all content types, no caller threading required).
+ALTER TABLE variant_arms ADD COLUMN IF NOT EXISTS terminal_kpi VARCHAR(50);

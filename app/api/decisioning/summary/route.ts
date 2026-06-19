@@ -168,9 +168,26 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // ── Readiness gate decomposition (mirrors declare-winner gates) ───────────
-    const totalTrials = enrichedPatterns.reduce((s, p) => s + (p.alpha + p.beta - 2), 0);
-    const gateA = totalTrials >= 200;
+    // ── Readiness gate decomposition (mirrors declare-winner gates exactly) ────
+    // Gate A: ≥200 treatment-tagged observations in content_performance_metrics.
+    // Uses the same variantId query as declare-winner Gate A for consistent progress tracking.
+    // Pattern-trial totals (alpha+beta) cannot be used here — they measure learning signal
+    // volume, not the treatment-observation count that declare-winner actually gates on.
+    let gateA = false;
+    let treatObsTotal = 0;
+    if (treatM) {
+      const treatTagA = `va-${treatM.armId}`;
+      const [obsResultA] = await db
+        .select({ n: count() })
+        .from(contentPerformanceMetrics)
+        .where(and(
+          eq(contentPerformanceMetrics.teamId, teamId),
+          eq(contentPerformanceMetrics.contentType, contentType),
+          eq(contentPerformanceMetrics.variantId, treatTagA)
+        ));
+      treatObsTotal = Number(obsResultA?.n ?? 0);
+      gateA = treatObsTotal >= 200;
+    }
     // ── Gate B: Two non-overlapping 14-day windows — z-test p<0.05 each ─────
     // Mirrors declare-winner Gate B exactly so readiness score predicts promotion.
     const summaryNow = Date.now();
@@ -266,9 +283,9 @@ export async function GET(req: NextRequest) {
 
     const readinessGates = {
       gateA: {
-        label: "≥200 treatment observations",
+        label: "≥200 treatment-tagged observations (CPM variantId)",
         passed: gateA,
-        value: totalTrials,
+        value: treatObsTotal,
         required: 200,
         weight: 30,
       },
@@ -279,7 +296,7 @@ export async function GET(req: NextRequest) {
         ...gateBMeta,
       },
       gateC: {
-        label: "No >10% counter-metric deterioration vs holdout (bounce/read-complete, 14d)",
+        label: "No >10% counter-metric deterioration vs holdout (bounce/session-return, 14d)",
         passed: gateC,
         weight: 30,
         ...gateCMeta,
