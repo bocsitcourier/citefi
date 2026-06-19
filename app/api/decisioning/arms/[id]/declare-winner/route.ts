@@ -143,11 +143,11 @@ export async function POST(
     // bounce_rate (↑ bad) and read_complete_rate (↓ bad) are the required guardrails.
     // Promotion is blocked if either metric deteriorates >10% vs holdout baseline.
     const win14Gte = new Date(now - 14 * 86_400_000);
-    type CtrRow = { avgBounce: number; avgRead: number; n: number };
+    type CtrRow = { avgBounce: number; avgReturn: number; n: number };
     const ctrQuery = (tag: string) => db
       .select({
-        avgBounce: sql<number>`avg(${cpm.bounceRate})`,
-        avgRead:   sql<number>`avg(${cpm.readCompleteRate})`,
+        avgBounce:  sql<number>`avg(${cpm.bounceRate})`,
+        avgReturn:  sql<number>`avg(${cpm.sessionReturnRate})`,
         n: count(),
       })
       .from(cpm)
@@ -161,20 +161,20 @@ export async function POST(
       ctrQuery(treatTag),
       holdTag
         ? ctrQuery(holdTag)
-        : Promise.resolve([{ avgBounce: 0, avgRead: 0, n: 0 }] as CtrRow[]),
+        : Promise.resolve([{ avgBounce: 0, avgReturn: 0, n: 0 }] as CtrRow[]),
     ]);
     const tCtr = tCRows[0];
     const hCtr = hCRows[0];
-    const treatAvgBounce = Number(tCtr?.avgBounce ?? 0);
-    const treatAvgRead   = Number(tCtr?.avgRead   ?? 0);
-    const holdAvgBounce  = Number(hCtr?.avgBounce ?? 0);
-    const holdAvgRead    = Number(hCtr?.avgRead   ?? 0);
-    const holdQN         = Number(hCtr?.n         ?? 0);
+    const treatAvgBounce  = Number(tCtr?.avgBounce  ?? 0);
+    const treatAvgReturn  = Number(tCtr?.avgReturn  ?? 0);
+    const holdAvgBounce   = Number(hCtr?.avgBounce  ?? 0);
+    const holdAvgReturn   = Number(hCtr?.avgReturn  ?? 0);
+    const holdQN          = Number(hCtr?.n          ?? 0);
     // bounce_rate: higher is worse — treatment must not exceed holdout × 1.1
-    // read_complete_rate: higher is better — treatment must not fall below holdout × 0.9
-    const bounceOK = holdAvgBounce === 0 || treatAvgBounce <= holdAvgBounce * 1.1;
-    const readOK   = holdAvgRead   === 0 || treatAvgRead   >= holdAvgRead   * 0.9;
-    const gateC = holdQN < 10 || (bounceOK && readOK);
+    // session_return_rate: higher is better — treatment must not fall below holdout × 0.9
+    const bounceOK = holdAvgBounce  === 0 || treatAvgBounce  <= holdAvgBounce  * 1.1;
+    const returnOK = holdAvgReturn  === 0 || treatAvgReturn  >= holdAvgReturn  * 0.9;
+    const gateC = holdQN < 10 || (bounceOK && returnOK);
 
     // ── Readiness score: A=30, B=40, C=30 ────────────────────────────────────
     const readinessScore = (gateA ? 30 : 0) + (gateB ? 40 : 0) + (gateC ? 30 : 0);
@@ -214,15 +214,15 @@ export async function POST(
         },
       },
       gateC: {
-        label: "No >10% counter-metric deterioration vs holdout (bounce/read-complete, 14d)",
+        label: "No >10% counter-metric deterioration vs holdout (bounce/session-return, 14d)",
         passed: gateC,
         treatAvgBounce: Math.round(treatAvgBounce * 10) / 10,
         holdAvgBounce: Math.round(holdAvgBounce * 10) / 10,
-        treatAvgRead: Math.round(treatAvgRead * 10) / 10,
-        holdAvgRead: Math.round(holdAvgRead * 10) / 10,
+        treatAvgReturn: Math.round(treatAvgReturn * 10) / 10,
+        holdAvgReturn: Math.round(holdAvgReturn * 10) / 10,
         holdQN,
         bounceOK,
-        readOK,
+        returnOK,
         note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
       },
     };

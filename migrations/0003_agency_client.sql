@@ -57,3 +57,6 @@ ALTER TABLE learning_patterns ADD COLUMN IF NOT EXISTS weak_week_count SMALLINT 
 -- Task #16: Separate variant_arm_id column (FK → variant_arms) in content_performance_metrics.
 -- Keeps arm_id pointing to decision_arms and avoids FK violations when writing variant_arms.id.
 ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS variant_arm_id INTEGER REFERENCES variant_arms(id) ON DELETE SET NULL;
+
+-- Task #16: session_return_rate — % of unique visitors returning on a different day (Gate C guardrail)
+ALTER TABLE content_performance_metrics ADD COLUMN IF NOT EXISTS session_return_rate INTEGER NOT NULL DEFAULT 0;

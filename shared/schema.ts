@@ -1173,6 +1173,8 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   // Beacon engagement signals (set nightly by ConversionLabeler from content_events)
   scrollDepth: integer("scroll_depth").notNull().default(0),           // 0-100: max scroll pct reached
   readCompleteRate: integer("read_complete_rate").notNull().default(0), // 0-100: % sessions that fired read_complete
+  // Session return rate: % of unique visitors who returned on a different day (Task #16 Gate C guardrail)
+  sessionReturnRate: integer("session_return_rate").notNull().default(0), // 0-100
   
   // Quality Signals
   qualityScore: integer("quality_score").notNull().default(0), // 0-100, composite engagement quality score

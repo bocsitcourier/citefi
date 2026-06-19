@@ -224,11 +224,11 @@ export async function GET(req: NextRequest) {
       const fourteenDaysAgo = new Date(summaryNow - 14 * 86_400_000);
       const treatTag14 = `va-${treatM.armId}`;
       const holdTag14  = `va-${holdM.armId}`;
-      type CtrRow = { avgBounce: number; avgRead: number; n: number };
+      type CtrRow = { avgBounce: number; avgReturn: number; n: number };
       const ctrQ = (tag: string) => db
         .select({
-          avgBounce: sql<number>`avg(${contentPerformanceMetrics.bounceRate})`,
-          avgRead:   sql<number>`avg(${contentPerformanceMetrics.readCompleteRate})`,
+          avgBounce:  sql<number>`avg(${contentPerformanceMetrics.bounceRate})`,
+          avgReturn:  sql<number>`avg(${contentPerformanceMetrics.sessionReturnRate})`,
           n: count(),
         })
         .from(contentPerformanceMetrics)
@@ -241,22 +241,24 @@ export async function GET(req: NextRequest) {
       const [tCRows, hCRows] = await Promise.all([ctrQ(treatTag14), ctrQ(holdTag14)]);
       const tCtr = tCRows[0];
       const hCtr = hCRows[0];
-      const treatAvgBounce = Number(tCtr?.avgBounce ?? 0);
-      const treatAvgRead   = Number(tCtr?.avgRead   ?? 0);
-      const holdAvgBounce  = Number(hCtr?.avgBounce ?? 0);
-      const holdAvgRead    = Number(hCtr?.avgRead   ?? 0);
-      const holdQN         = Number(hCtr?.n         ?? 0);
-      const bounceOK = holdAvgBounce === 0 || treatAvgBounce <= holdAvgBounce * 1.1;
-      const readOK   = holdAvgRead   === 0 || treatAvgRead   >= holdAvgRead   * 0.9;
-      gateC = holdQN < 10 || (bounceOK && readOK);
+      const treatAvgBounce  = Number(tCtr?.avgBounce  ?? 0);
+      const treatAvgReturn  = Number(tCtr?.avgReturn  ?? 0);
+      const holdAvgBounce   = Number(hCtr?.avgBounce  ?? 0);
+      const holdAvgReturn   = Number(hCtr?.avgReturn  ?? 0);
+      const holdQN          = Number(hCtr?.n          ?? 0);
+      // bounce_rate: higher is worse — treatment must not exceed holdout × 1.1
+      // session_return_rate: higher is better — treatment must not fall below holdout × 0.9
+      const bounceOK = holdAvgBounce  === 0 || treatAvgBounce  <= holdAvgBounce  * 1.1;
+      const returnOK = holdAvgReturn  === 0 || treatAvgReturn  >= holdAvgReturn  * 0.9;
+      gateC = holdQN < 10 || (bounceOK && returnOK);
       gateCMeta = {
         treatAvgBounce: Math.round(treatAvgBounce * 10) / 10,
         holdAvgBounce: Math.round(holdAvgBounce * 10) / 10,
-        treatAvgRead: Math.round(treatAvgRead * 10) / 10,
-        holdAvgRead: Math.round(holdAvgRead * 10) / 10,
+        treatAvgReturn: Math.round(treatAvgReturn * 10) / 10,
+        holdAvgReturn: Math.round(holdAvgReturn * 10) / 10,
         holdQN,
         bounceOK,
-        readOK,
+        returnOK,
         note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
       };
     }

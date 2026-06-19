@@ -304,9 +304,11 @@ export async function registerWorkers() {
       try {
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
         // This is the primary mechanism for stopping generation mid-batch.
+        // Also reads terminalKpi from batch generationParams for KPI-aware pattern weighting.
+        let batchTerminalKpi: string | undefined;
         if (batchId) {
           const [batchRow] = await db
-            .select({ status: jobBatches.status })
+            .select({ status: jobBatches.status, generationParams: jobBatches.generationParams })
             .from(jobBatches)
             .where(eq(jobBatches.id, batchId))
             .limit(1);
@@ -324,6 +326,9 @@ export async function registerWorkers() {
               );
             return;
           }
+          // Extract terminalKpi override — stored in generationParams.terminalKpi (optional).
+          // Valid values: 'conversion' | 'engagement' | 'awareness'
+          batchTerminalKpi = (batchRow?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
         }
 
         // STEP 1: Check article_runs for existing run records (duplicate detection & cache lookup)
@@ -635,7 +640,7 @@ export async function registerWorkers() {
             const articleEnhancement = await getPromptEnhancement(
               currentArticle.teamId,
               ContentType.ARTICLE,
-              { stableId: String(articleId) }
+              { stableId: String(articleId), terminalKpi: batchTerminalKpi }
             ).catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
             // Store on the article object — read by recordContentGenerated below.
             (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
@@ -1959,6 +1964,20 @@ export async function registerWorkers() {
                 // maxScrollPct: best scroll depth reached (not average) — spec requirement
                 maxScrollPct: max(contentEvents.scrollPct),
                 avgEngagedSec: avg(contentEvents.engagedSec),
+                // uniqueVisitors: distinct visitor count — denominator for session return rate
+                uniqueVisitors: drizzleSql<number>`COUNT(DISTINCT ${contentEvents.visitorId})`,
+                // sessionReturns: visitors who came back on a different calendar day (multi-session loyalty signal)
+                // Correlated subquery checks if the same visitor_id has events on >=2 distinct dates for this article.
+                sessionReturns: drizzleSql<number>`COUNT(DISTINCT CASE
+                  WHEN ${contentEvents.visitorId} IS NOT NULL
+                  AND (
+                    SELECT COUNT(DISTINCT DATE(ce2.created_at))
+                    FROM content_events ce2
+                    WHERE ce2.visitor_id = ${contentEvents.visitorId}
+                    AND ce2.article_id = ${contentEvents.articleId}
+                    AND ce2.team_id = ${contentEvents.teamId}
+                  ) > 1
+                  THEN ${contentEvents.visitorId} END)`,
               })
               .from(contentEvents)
               .where(and(
@@ -1983,6 +2002,10 @@ export async function registerWorkers() {
               const conversionRate = totalViews > 0 ? totalConversions / totalViews : 0;
               const fatigueRate = totalViews > 0 ? Number(stat.fatigueSignals) / totalViews : 0;
               const scrollDepth = Math.round(Number(stat.maxScrollPct) || 0);
+              // sessionReturnRate: % of unique visitors who returned on a different day (Gate C guardrail)
+              const totalUniqueVisitors = Number(stat.uniqueVisitors) || 0;
+              const sessionReturns = Number(stat.sessionReturns) || 0;
+              const sessionReturnRate = totalUniqueVisitors > 0 ? sessionReturns / totalUniqueVisitors : 0;
               // qualityScore: readComplete(40) + non-bounce(20) + CTA click rate(20) + conversion rate(20)
               // fatigue signals reduce quality: each 10% fatigue rate subtracts 5 points
               const qualityScore = Math.round(Math.min(100,
@@ -2002,6 +2025,7 @@ export async function registerWorkers() {
                 // Explicit beacon engagement signals (dedicated columns, not repurposed quality fields)
                 scrollDepth,                                     // max scroll pct reached (0-100)
                 readCompleteRate: Math.round(readCompleteRate * 100), // % sessions that fired read_complete (0-100)
+                sessionReturnRate: Math.round(sessionReturnRate * 100), // % unique visitors returning on a different day (0-100)
                 qualityScore,
                 // eatScore and readabilityScore are intentionally left at DB defaults here.
                 // They are filled by the article critique pipeline (article-critique.ts),
@@ -2047,7 +2071,7 @@ export async function registerWorkers() {
                 `bounceRate=${bounceRateDecimal.toFixed(3)} scrollDepth=${scrollDepth}% ` +
                 `ctaRate=${ctaRate.toFixed(3)} fatigueRate=${fatigueRate.toFixed(3)} ` +
                 `convRate=${conversionRate.toFixed(4)} qualityScore=${qualityScore} ` +
-                `storedScrollDepth=${scrollDepth} storedReadCompleteRate=${Math.round(readCompleteRate * 100)} ` +
+                `storedScrollDepth=${scrollDepth} storedReadCompleteRate=${Math.round(readCompleteRate * 100)} storedSessionReturnRate=${Math.round(sessionReturnRate * 100)} ` +
                 `${existingRow ? "updated_attribution_row" : "inserted_standalone_snapshot"}`
               );
               labeledCount++;

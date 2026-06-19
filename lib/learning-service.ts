@@ -401,6 +401,22 @@ export class LearningService {
               successRate: 0,
               confidence: 0,
             }));
+          } else {
+            // No committed baseline — derive deterministically from top Wilson-scored patterns.
+            // Pure Wilson ranking: zero Thompson randomness, zero exploration in holdout arm,
+            // preventing any treatment signal from contaminating the holdout control group.
+            const topWilson = scored
+              .slice()
+              .sort((a, b) => b.wilson - a.wilson)
+              .slice(0, 8);
+            learnedPatterns = topWilson.map(s => ({
+              id: s.pattern.id,
+              patternType: s.pattern.patternType,
+              patternName: s.pattern.patternName,
+              patternValue: s.pattern.patternValue,
+              successRate: s.wilson,
+              confidence: 0,
+            }));
           }
         } else if (treatmentArm) {
           // Treatment arm: Thompson-sampled patterns already computed above
