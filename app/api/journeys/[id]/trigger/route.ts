@@ -34,6 +34,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const now = new Date();
 
+    // Validate triggerArticleId ownership FIRST — before any mutations
+    const { triggerArticleId } = parsed.data;
+    if (triggerArticleId) {
+      const [ownedArticle] = await db
+        .select({ id: articles.id })
+        .from(articles)
+        .where(and(eq(articles.id, triggerArticleId), eq(articles.teamId, teamId)))
+        .limit(1);
+
+      if (!ownedArticle) {
+        return NextResponse.json({ error: "Article not found or not owned by this team" }, { status: 404 });
+      }
+    }
+
     // Schedule all pending steps: scheduledFor = now + dayOffset days
     const steps = await db
       .select()
@@ -46,20 +60,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .update(journeySteps)
         .set({ scheduledFor, status: "pending" })
         .where(eq(journeySteps.id, step.id));
-    }
-
-    // Validate triggerArticleId ownership — must belong to the same team
-    const { triggerArticleId } = parsed.data;
-    if (triggerArticleId) {
-      const [ownedArticle] = await db
-        .select({ id: articles.id })
-        .from(articles)
-        .where(and(eq(articles.id, triggerArticleId), eq(articles.teamId, teamId)))
-        .limit(1);
-
-      if (!ownedArticle) {
-        return NextResponse.json({ error: "Article not found or not owned by this team" }, { status: 404 });
-      }
     }
 
     // Activate journey

@@ -4,7 +4,7 @@ import { eq, desc } from "drizzle-orm";
 
 export interface NBARecommendation {
   priority: number;
-  actionType: "scale_up" | "review" | "link_primer" | "cover_gap" | "pause_guardrail" | "monitor";
+  actionType: "scale_up" | "review" | "link_primer" | "cover_gap" | "pause_guardrail" | "monitor" | "adjust_cadence";
   headline: string;
   rationale: string;
   cohortDimension: string;
@@ -138,6 +138,30 @@ function buildRecommendation(insight: {
         };
       }
       return null;
+
+    case "cadence_optimization": {
+      // cohortValue format: "contentType:Nx_week" e.g. "social:2x_week"
+      // vsBaselineMultiplier encodes % improvement (e.g. 140 = 40% gain)
+      const parts = ct.split(":");
+      const contentLabel = parts[0] ?? ct;
+      const freqLabel = parts[1]?.replace(/_/g, " ") ?? "the recommended frequency";
+      const gainPct = m > 100 ? m - 100 : 0;
+      return {
+        priority: 3,
+        actionType: "adjust_cadence",
+        headline: `Adjust ${contentLabel} cadence to ${freqLabel} for ${gainPct > 0 ? `+${gainPct}%` : "better"} performance`,
+        rationale:
+          insight.recommendationText ??
+          `Data shows that publishing ${contentLabel} at ${freqLabel} correlates with ${gainPct > 0 ? `${gainPct}% higher` : "improved"} engagement${kpiLabel}. Shift to this cadence to maximize content ROI.`,
+        cohortDimension: insight.cohortDimension,
+        cohortValue: ct,
+        vsBaselineMultiplier: m,
+        insightType: insight.insightType,
+        terminalKpi: insight.terminalKpi,
+        contentTypeBlocked: null,
+        sampleSize: insight.sampleSize,
+      };
+    }
 
     default:
       return null;

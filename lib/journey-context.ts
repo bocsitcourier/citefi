@@ -52,12 +52,15 @@ export async function getJourneyContext(
 
     const resolvedTeamId = teamId ?? journey.teamId;
 
-    // Find the pillar step (step 0) and its generated article
-    const [pillarStep] = await db
+    // Find the pillar step — the first article-type step in the journey.
+    // We cannot assume stepIndex=0 is an article; some templates start with social.
+    const allSteps = await db
       .select()
       .from(journeySteps)
-      .where(and(eq(journeySteps.journeyId, journeyId), eq(journeySteps.stepIndex, 0)))
-      .limit(1);
+      .where(eq(journeySteps.journeyId, journeyId))
+      .orderBy(journeySteps.stepIndex);
+
+    const pillarStep = allSteps.find((s) => s.contentType === "article") ?? null;
 
     let pillarSummary = "";
     let pillarTitle = "";
@@ -181,19 +184,32 @@ ${stepIndex > 0 ? "CROSS-CONTENT RULE: Link back to the pillar article naturally
 }
 
 /**
- * Checks whether a journey's pillar step (step 0) has been generated.
- * Used by the scheduler to gate downstream podcast/video steps.
+ * Returns the pillar (first article-type) step for a journey, or null.
+ * Used by the scheduler to locate the article ID that podcast/video steps depend on.
  *
- * Note: checks `articleId` IS NOT NULL as the definitive pillar-ready signal —
- * the step must have an actual article linked, not just status=generated.
+ * We intentionally do NOT assume stepIndex=0 is an article — templates like
+ * product_launch and churn_rescue start with a social step at index 0.
+ */
+export async function getPillarStep(journeyId: number): Promise<{
+  articleId: number | null;
+  status: string;
+} | null> {
+  const steps = await db
+    .select({ articleId: journeySteps.articleId, status: journeySteps.status, contentType: journeySteps.contentType })
+    .from(journeySteps)
+    .where(eq(journeySteps.journeyId, journeyId))
+    .orderBy(journeySteps.stepIndex);
+
+  const pillar = steps.find((s) => s.contentType === "article");
+  return pillar ?? null;
+}
+
+/**
+ * Checks whether a journey's pillar (first article-type) step has been generated
+ * and has a linked articleId.
+ * Used by the scheduler to gate downstream podcast/video steps.
  */
 export async function isPillarGenerated(journeyId: number): Promise<boolean> {
-  const [step] = await db
-    .select({ articleId: journeySteps.articleId, status: journeySteps.status })
-    .from(journeySteps)
-    .where(and(eq(journeySteps.journeyId, journeyId), eq(journeySteps.stepIndex, 0)))
-    .limit(1);
-
-  // Pillar is ready only if it has a generated article linked
-  return !!step && (step.status === "generated" || step.status === "published") && !!step.articleId;
+  const pillar = await getPillarStep(journeyId);
+  return !!pillar && (pillar.status === "generated" || pillar.status === "published") && !!pillar.articleId;
 }

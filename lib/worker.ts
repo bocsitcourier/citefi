@@ -2805,7 +2805,7 @@ export async function registerWorkers() {
             teams: teamsTable,
           } = await import("../shared/schema");
           const { eq, and, lte } = await import("drizzle-orm");
-          const { getJourneyContext, isPillarGenerated } = await import("./journey-context");
+          const { getJourneyContext, isPillarGenerated, getPillarStep } = await import("./journey-context");
 
           const now = new Date();
 
@@ -3097,15 +3097,10 @@ export async function registerWorkers() {
                 });
 
               } else if (contentType === "podcast") {
-                // Podcast steps: require the pillar article to exist in journey_steps.
-                // Pillar gate already passed above, so we can look up the article.
-                const [pillarStep] = await _db
-                  .select({ articleId: jSteps.articleId, batchId: jSteps.batchId })
-                  .from(jSteps)
-                  .where(and(eq(jSteps.journeyId, journey.id), eq(jSteps.stepIndex, 0)))
-                  .limit(1);
-
-                const pillarArticleId = pillarStep?.articleId;
+                // Podcast steps: require the pillar article (first article-type step).
+                // We cannot assume stepIndex=0 is an article — use getPillarStep().
+                const pillarStep = await getPillarStep(journey.id);
+                const pillarArticleId = pillarStep?.articleId ?? null;
                 if (!pillarArticleId) {
                   // Pillar article not yet linked — revert and wait
                   await _db.update(jSteps).set({ status: "pending" }).where(eq(jSteps.id, step.id));
