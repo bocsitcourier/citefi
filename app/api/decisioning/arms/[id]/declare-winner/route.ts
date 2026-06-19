@@ -6,7 +6,6 @@ import {
   learningPatterns,
   patternDimensionStats,
   contentPerformanceMetrics,
-  cohortInsights,
 } from "@/shared/schema";
 import { eq, and, gte, lt, count, sql } from "drizzle-orm";
 import { thompsonSample } from "@/lib/learning-service";
@@ -140,17 +139,36 @@ export async function POST(
     const w2Sig = w2Stat.pValue < 0.05 && w2Stat.lift > 0;
     const gateB = w1Sig && w2Sig;
 
-    // ── Gate C: No guardrail_conflict cohort insights in last 14 days ─────────
-    const [conflictRes] = await db
-      .select({ n: count() })
-      .from(cohortInsights)
-      .where(and(
-        eq(cohortInsights.teamId, teamId),
-        eq(cohortInsights.insightType, "guardrail_conflict"),
-        gte(cohortInsights.computedAt, new Date(now - 14 * 86_400_000))
-      ));
-    const recentConflicts = Number(conflictRes?.n ?? 0);
-    const gateC = recentConflicts === 0;
+    // ── Gate C: No >10% quality deterioration in treatment vs holdout (14d) ───
+    // Direct counter-metric check: if treatment avg quality score drops >10%
+    // below holdout avg quality, the experiment may be harming content quality.
+    const win14Gte = new Date(now - 14 * 86_400_000);
+    const [tQRes, hQRes] = await Promise.all([
+      db.select({ avgQ: sql<number>`avg(${cpm.qualityScore})`, n: count() })
+        .from(cpm)
+        .where(and(
+          eq(cpm.teamId, teamId),
+          eq(cpm.contentType, arm.contentType),
+          eq(cpm.variantId, treatTag),
+          gte(cpm.createdAt, win14Gte)
+        )),
+      holdTag
+        ? db.select({ avgQ: sql<number>`avg(${cpm.qualityScore})`, n: count() })
+            .from(cpm)
+            .where(and(
+              eq(cpm.teamId, teamId),
+              eq(cpm.contentType, arm.contentType),
+              eq(cpm.variantId, holdTag),
+              gte(cpm.createdAt, win14Gte)
+            ))
+        : Promise.resolve([{ avgQ: 0, n: 0 }] as { avgQ: number; n: number }[]),
+    ]);
+    const treatAvgQ = Number(tQRes[0]?.avgQ ?? 0);
+    const holdAvgQ  = Number(hQRes[0]?.avgQ ?? 0);
+    const holdQN    = Number(hQRes[0]?.n ?? 0);
+    // Gate C passes when holdout has <10 observations (insufficient baseline)
+    // OR when treatment quality ≥ 90% of holdout quality (no >10% deterioration)
+    const gateC = holdQN < 10 || holdAvgQ === 0 || treatAvgQ >= holdAvgQ * 0.9;
 
     // ── Readiness score: A=30, B=40, C=30 ────────────────────────────────────
     const readinessScore = (gateA ? 30 : 0) + (gateB ? 40 : 0) + (gateC ? 30 : 0);
@@ -190,9 +208,13 @@ export async function POST(
         },
       },
       gateC: {
-        label: "No guardrail conflicts in last 14 days",
+        label: "No >10% quality deterioration vs holdout (14d)",
         passed: gateC,
-        recentConflicts,
+        treatAvgQ: Math.round(treatAvgQ * 10) / 10,
+        holdAvgQ: Math.round(holdAvgQ * 10) / 10,
+        holdQN,
+        threshold: "treatment avgQ ≥ holdout avgQ × 0.9",
+        note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
       },
     };
 

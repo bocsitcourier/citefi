@@ -121,9 +121,10 @@ export async function generateSocialVideo(
     try {
       // Fetch learned patterns for attribution so Wilson/EMA updates fire on the
       // right patterns. Must be done before the orchestrator call.
-      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO)
-        .catch(() => ({ patternsUsed: [] as number[] }));
+      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO, { stableId: String(socialPostId) })
+        .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
       const capturedVideoPatternIds = videoEnhancement.patternsUsed;
+      const videoVariantArmId = videoEnhancement.variantArmId;
 
       const orchResult = await runGenerationOrchestrator({
         teamId: post.teamId,
@@ -153,7 +154,7 @@ export async function generateSocialVideo(
         socialPostId,
         capturedVideoPatternIds,
         orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
-        { armId: orchResult.armId }
+        { armId: orchResult.armId, variantArmId: videoVariantArmId }
       ).catch(() => { /* non-fatal */ });
     } catch (orchErr) {
       console.warn(`[Video Orchestrator] Failed, continuing with original script:`, (orchErr as Error).message);

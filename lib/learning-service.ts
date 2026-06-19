@@ -1112,6 +1112,7 @@ export class LearningService {
       industry?: string;
       audience?: string;
       patternTypes?: string[];
+      stableId?: string;
     }
   ): Promise<OptimizationContext & { humanizationGuidelines: string[] }> {
     const baseContext = await this.getOptimizationContext(teamId, contentType, options);

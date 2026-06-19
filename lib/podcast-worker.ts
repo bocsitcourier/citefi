@@ -82,11 +82,13 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     let capturedPodcastPatternIds: number[] = [];
     let podcastQualityScore = 75;
     let podcastArmId: number | undefined;
+    let podcastVariantArmId: number | undefined;
     if (teamId) {
       try {
-        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST)
-          .catch(() => ({ patternsUsed: [] as number[] }));
+        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, { stableId: String(articleId) })
+          .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedPodcastPatternIds = podcastEnhancement.patternsUsed;
+        podcastVariantArmId = podcastEnhancement.variantArmId;
 
         const scriptText = script.segments.map(s => s.text).join(' ');
         const orchResult = await runGenerationOrchestrator({
@@ -225,7 +227,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // so the engagement scorer can label it and Wilson attribution can fire.
         const effectiveTeamId = teamId ?? article.teamId;
         if (effectiveTeamId) {
-          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore, { armId: podcastArmId })
+          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore, { armId: podcastArmId, variantArmId: podcastVariantArmId })
             .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
         }
       } catch (dbError) {

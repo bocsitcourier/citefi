@@ -1190,8 +1190,8 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   // Bayesian A/B measurement — wired by generation-orchestrator
   // variantId: deterministic UUID derived from sorted patternsUsedJson + contentType hash
   variantId: varchar("variant_id", { length: 36 }),
-  // armId: FK to variant_arms for content generated inside a holdout/treatment experiment (nullable)
-  armId: integer("arm_id").references(() => variantArms.id, { onDelete: "set null" }),
+  // armId: FK to decisionArms for content generated inside a Bayesian policy experiment (nullable)
+  armId: integer("arm_id").references(() => decisionArms.id, { onDelete: "set null" }),
 
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),

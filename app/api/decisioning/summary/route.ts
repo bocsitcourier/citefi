@@ -7,7 +7,7 @@ import {
   variantArms,
   contentPerformanceMetrics,
 } from "@/shared/schema";
-import { eq, and, inArray, count, sql } from "drizzle-orm";
+import { eq, and, inArray, count, sql, gte } from "drizzle-orm";
 import { learningService, thompsonSample, METRIC_WEIGHTS } from "@/lib/learning-service";
 
 // ── Statistical helpers (mirrored in declare-winner route) ────────────────────
@@ -172,7 +172,51 @@ export async function GET(req: NextRequest) {
     const totalTrials = enrichedPatterns.reduce((s, p) => s + (p.alpha + p.beta - 2), 0);
     const gateA = totalTrials >= 200;
     const gateB = liftSummary?.significant === true;
-    const gateC = true; // guardrail conflict check runs at declare-winner time
+    // ── Gate C: No >10% quality deterioration in treatment vs holdout (14d) ──
+    // Direct counter-metric check using qualityScore from content_performance_metrics.
+    let gateC = true;
+    let gateCMeta: Record<string, unknown> = {};
+    if (treatM && holdM) {
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 86_400_000);
+      const treatTag14 = `va-${treatM.armId}`;
+      const holdTag14  = `va-${holdM.armId}`;
+      const [[tQRow], [hQRow]] = await Promise.all([
+        db.select({
+          avgQ: sql<number>`avg(${contentPerformanceMetrics.qualityScore})`,
+          n: count(),
+        })
+        .from(contentPerformanceMetrics)
+        .where(and(
+          eq(contentPerformanceMetrics.teamId, teamId),
+          eq(contentPerformanceMetrics.contentType, contentType),
+          eq(contentPerformanceMetrics.variantId, treatTag14),
+          gte(contentPerformanceMetrics.createdAt, fourteenDaysAgo)
+        )),
+        db.select({
+          avgQ: sql<number>`avg(${contentPerformanceMetrics.qualityScore})`,
+          n: count(),
+        })
+        .from(contentPerformanceMetrics)
+        .where(and(
+          eq(contentPerformanceMetrics.teamId, teamId),
+          eq(contentPerformanceMetrics.contentType, contentType),
+          eq(contentPerformanceMetrics.variantId, holdTag14),
+          gte(contentPerformanceMetrics.createdAt, fourteenDaysAgo)
+        )),
+      ]);
+      const treatAvgQ = Number(tQRow?.avgQ ?? 0);
+      const holdAvgQ  = Number(hQRow?.avgQ ?? 0);
+      const holdQN    = Number(hQRow?.n ?? 0);
+      // Gate passes when holdout has <10 obs (insufficient baseline) or no deterioration
+      gateC = holdQN < 10 || holdAvgQ === 0 || treatAvgQ >= holdAvgQ * 0.9;
+      gateCMeta = {
+        treatAvgQ: Math.round(treatAvgQ * 10) / 10,
+        holdAvgQ: Math.round(holdAvgQ * 10) / 10,
+        holdQN,
+        threshold: "treatment avgQ ≥ holdout avgQ × 0.9",
+        note: holdQN < 10 ? "Insufficient holdout data — gate passes by default" : undefined,
+      };
+    }
     const readinessScore = (gateA ? 30 : 0) + (gateB ? 40 : 0) + (gateC ? 30 : 0);
 
     const readinessGates = {
@@ -193,9 +237,10 @@ export async function GET(req: NextRequest) {
         note: "Requires both treatment + holdout arms with tagged observations",
       },
       gateC: {
-        label: "No guardrail conflicts in last 14 days (checked at promotion)",
+        label: "No >10% quality deterioration vs holdout (14d)",
         passed: gateC,
         weight: 30,
+        ...gateCMeta,
       },
     };
 

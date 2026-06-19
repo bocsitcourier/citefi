@@ -634,10 +634,12 @@ export async function registerWorkers() {
             // on the real patterns that influenced this generation.
             const articleEnhancement = await getPromptEnhancement(
               currentArticle.teamId,
-              ContentType.ARTICLE
-            ).catch(() => ({ patternsUsed: [] as number[] }));
+              ContentType.ARTICLE,
+              { stableId: String(articleId) }
+            ).catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
             // Store on the article object — read by recordContentGenerated below.
             (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
+            (currentArticle as any)._variantArmId = articleEnhancement.variantArmId;
 
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: currentArticle.teamId,
@@ -1230,7 +1232,10 @@ export async function registerWorkers() {
               articleId,
               patternsUsed || [],
               (currentArticle as any)._qualityScore ?? 80, // orchestrator quality; default updated by engagement labeler
-              { armId: (currentArticle as any)._armId as number | undefined }
+              {
+                armId: (currentArticle as any)._armId as number | undefined,
+                variantArmId: (currentArticle as any)._variantArmId as number | undefined,
+              }
             );
             console.log(`📊 Recorded article generation for AI Learning`);
           }

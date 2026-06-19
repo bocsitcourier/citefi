@@ -78,6 +78,7 @@ export async function orchestrateVideoIdeaGeneration(
     let capturedVideoPatternIds: number[] = [];
     let capturedVideoQualityScore = 80;
     let capturedVideoArmId: number | undefined;
+    let capturedVideoVariantArmId: number | undefined;
     try {
       const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
         .from(videoIdeas)
@@ -85,9 +86,10 @@ export async function orchestrateVideoIdeaGeneration(
         .limit(1);
       videoTeamId = ideaRow?.teamId ?? null;
       if (videoTeamId) {
-        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO)
-          .catch(() => ({ patternsUsed: [] as number[] }));
+        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO, { stableId: String(videoIdeaId) })
+          .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedVideoPatternIds = enhancement.patternsUsed;
+        capturedVideoVariantArmId = enhancement.variantArmId;
       }
     } catch (earlyFetchErr) {
       console.warn('[VideoOrchestrator] Could not pre-fetch team/patterns:', (earlyFetchErr as Error).message);
@@ -288,7 +290,7 @@ export async function orchestrateVideoIdeaGeneration(
           videoIdeaId,
           capturedVideoPatternIds,
           capturedVideoQualityScore,
-          { armId: capturedVideoArmId }
+          { armId: capturedVideoArmId, variantArmId: capturedVideoVariantArmId }
         );
         console.log(`📊 Recorded video generation for AI Learning (quality=${capturedVideoQualityScore})`);
       }

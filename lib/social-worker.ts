@@ -165,10 +165,11 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
     // attribute patterns that didn't actually influence the generation run.
     const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
     const socialEnhancement = (!disableCriticLoop && postDetails?.teamId)
-      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL)
-          .catch(() => ({ patternsUsed: [] as number[] }))
-      : { patternsUsed: [] as number[] };
+      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL, { stableId: String(socialPostId) })
+          .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }))
+      : { patternsUsed: [] as number[], variantArmId: undefined };
     const capturedPatternIds = socialEnhancement.patternsUsed;
+    const socialVariantArmId = socialEnhancement.variantArmId;
 
     // Pre-sample a SINGLE arm BEFORE launching concurrent platform promises.
     // All platforms belong to the same social post (same team+contentType), so
@@ -548,7 +549,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
           socialPostId,
           capturedPatternIds,
           avgQualityScore,
-          { armId: capturedSocialArmId }
+          { armId: capturedSocialArmId, variantArmId: socialVariantArmId }
         );
         console.log(`📊 Recorded social post generation for AI Learning`);
       }

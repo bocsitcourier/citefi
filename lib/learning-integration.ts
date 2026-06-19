@@ -24,6 +24,9 @@ export interface PromptEnhancement {
   };
   patternsUsed: number[];
   humanizationGuidelines?: string[];
+  /** Arm ID for variant tagging. When set, callers should pass this as
+   *  `variantArmId` to `recordContentGenerated()` so analytics can group by arm. */
+  variantArmId?: number;
 }
 
 export async function getPromptEnhancement(
@@ -32,6 +35,7 @@ export async function getPromptEnhancement(
   options?: {
     industry?: string;
     audience?: string;
+    stableId?: string;
   }
 ): Promise<PromptEnhancement> {
   try {
@@ -49,6 +53,7 @@ export async function getPromptEnhancement(
         suggestedParameters: {},
         patternsUsed: [],
         humanizationGuidelines: context?.humanizationGuidelines || [],
+        variantArmId: context?.selectedArmId,
       };
     }
 
@@ -107,6 +112,7 @@ export async function getPromptEnhancement(
       },
       patternsUsed,
       humanizationGuidelines: context.humanizationGuidelines,
+      variantArmId: context.selectedArmId,
     };
   } catch (error) {
     console.warn("Failed to get prompt enhancement:", error);
@@ -116,6 +122,7 @@ export async function getPromptEnhancement(
       suggestedParameters: {},
       patternsUsed: [],
       humanizationGuidelines: [],
+      variantArmId: undefined,
     };
   }
 }
