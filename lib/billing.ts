@@ -339,16 +339,23 @@ export async function debitReservation(params: {
       return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
     }
 
-    // Read current state
+    // Read current state — FOR UPDATE acquires an exclusive row lock on the
+    // credit_balances row for this team before we compute the allowance/purchased
+    // split. This serialises concurrent debits (e.g. multiple batch article
+    // workers finishing in parallel) so each worker sees the actual current
+    // allowanceUsed when deciding how much to take from each bucket.
     const [row] = await tx
       .select()
       .from(creditBalances)
       .where(eq(creditBalances.teamId, teamId))
-      .limit(1);
+      .limit(1)
+      .for("update");
 
     if (!row) throw new Error(`credit_balances row missing for team ${teamId}`);
 
-    // Compute bucket split: allowance first, then purchased
+    // Compute bucket split: allowance first, then purchased.
+    // Safe under concurrency because the FOR UPDATE lock above guarantees no
+    // other transaction can update this row until our transaction commits.
     const allowanceAvailable = Math.max(0, row.allowanceCredits - row.allowanceUsed);
     const fromAllowance = Math.min(allowanceAvailable, amount);
     const fromPurchased = amount - fromAllowance;
@@ -379,6 +386,21 @@ export async function debitReservation(params: {
     }
 
     const [updated] = updatedRows;
+
+    // Invariant check: allowanceUsed must never exceed allowanceCredits.
+    // A violation indicates a concurrent-write bug that slipped through
+    // the FOR UPDATE lock (e.g. a DDL conflict or off-transactional write).
+    // Log it loudly but don't throw — the debit itself completed.
+    if ((updated.allowanceUsed ?? 0) > (updated.allowanceCredits ?? 0)) {
+      console.error(
+        `[billing] INVARIANT VIOLATION: allowanceUsed(${updated.allowanceUsed}) > allowanceCredits(${updated.allowanceCredits}) for teamId=${teamId}. Ledger corruption suspected — investigate immediately.`
+      );
+    }
+    if ((updated.purchasedUsed ?? 0) > (updated.purchasedCredits ?? 0)) {
+      console.error(
+        `[billing] INVARIANT VIOLATION: purchasedUsed(${updated.purchasedUsed}) > purchasedCredits(${updated.purchasedCredits}) for teamId=${teamId}. Ledger corruption suspected — investigate immediately.`
+      );
+    }
 
     const after = computeRemaining(updated);
 
