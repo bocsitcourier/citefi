@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
                 articleId: article.id,
               });
             }
-          } catch (error) {
+          } catch (error: any) {
             result.brokenImages++;
             const errorMsg = error instanceof Error ? error.message : "Unknown error";
             
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
         ? `Validated ${result.withHeroImages} hero images`
         : `Found ${result.withHeroImages} articles with hero images (use ?checkUrls=true to validate URLs)`,
     });
-  } catch (error) {
+  } catch (error: any) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
     console.error("[HERO_IMAGE_VALIDATION] Error:", errorMsg);
     
@@ -191,7 +191,7 @@ export async function GET(request: NextRequest) {
         success: false,
         error: errorMsg,
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

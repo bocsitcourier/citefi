@@ -76,6 +76,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // SECURITY: Verify article ownership BEFORE spending any OpenAI tokens.
+    // Without this check, an authenticated user from Team A could pass any
+    // articleId and trigger expensive AI work on behalf of Team B's content.
+    const [ownedArticle] = await db
+      .select({ id: articles.id })
+      .from(articles)
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
+      .limit(1);
+
+    if (!ownedArticle) {
+      return NextResponse.json(
+        { error: "Article not found" },
+        { status: 404 }
+      );
+    }
+
     console.log(`[ChatGPT Review] Starting review for article ${articleId}...`);
 
     // Execute all ChatGPT enrichment tasks in parallel for speed

@@ -99,11 +99,11 @@ export async function GET(request: NextRequest) {
       recentBatches,
       recentEvents,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Admin dashboard error:", error);
     return NextResponse.json(
       { error: "Failed to fetch dashboard data" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

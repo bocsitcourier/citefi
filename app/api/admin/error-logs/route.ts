@@ -132,9 +132,9 @@ export async function GET(req: NextRequest) {
       page,
       hasMore: merged.length === limit,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching error logs:", error);
-    return NextResponse.json({ error: "Failed to fetch error logs" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch error logs" }, { status: error?.statusCode || 500 });
   }
 }
 
@@ -152,9 +152,9 @@ export async function PATCH(req: NextRequest) {
       .where(eq(errorLogs.id, id));
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating error log:", error);
-    return NextResponse.json({ error: "Failed to update" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update" }, { status: error?.statusCode || 500 });
   }
 }
 
@@ -187,8 +187,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid delete request" }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting error logs:", error);
-    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to delete" }, { status: error?.statusCode || 500 });
   }
 }

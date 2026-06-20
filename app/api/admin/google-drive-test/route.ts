@@ -18,14 +18,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: false,
         message: 'Google Drive connection failed. Check console logs for details.',
-      }, { status: 500 });
+      }, { status: error?.statusCode || 500 });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Google Drive Test] Error:', error);
     return NextResponse.json({
       success: false,
       message: 'Google Drive test failed',
       error: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
+    }, { status: error?.statusCode || 500 });
   }
 }

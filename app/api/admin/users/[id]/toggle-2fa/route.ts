@@ -65,11 +65,11 @@ export async function POST(
       twoFactorEnforced: Boolean(newEnforcementStatus),
       message: `2FA ${newEnforcementStatus ? 'enforced' : 'enforcement removed'} for user`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Toggle 2FA enforcement error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to toggle 2FA enforcement" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

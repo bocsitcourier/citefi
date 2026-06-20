@@ -33,11 +33,11 @@ export async function GET(req: NextRequest) {
       isEnabled: flag.flagValue === 1,
       message: flag.description || "System is under maintenance. Please check back later.",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Get maintenance flag error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch maintenance flag" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -93,11 +93,11 @@ export async function POST(req: NextRequest) {
       isEnabled,
       message,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Update maintenance flag error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update maintenance flag" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

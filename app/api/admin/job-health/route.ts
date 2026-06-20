@@ -77,11 +77,11 @@ export async function GET(request: NextRequest) {
       autoExpireTimeout: "20 minutes",
     });
     
-  } catch (error) {
+  } catch (error: any) {
     console.error("Job health check error:", error);
     return NextResponse.json(
       { error: "Failed to check job health" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

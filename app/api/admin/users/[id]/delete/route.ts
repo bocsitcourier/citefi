@@ -145,11 +145,11 @@ export async function DELETE(
       success: true,
       message: "User permanently deleted",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Delete user error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to delete user" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -73,11 +73,11 @@ export async function POST(
       expiresAt,
       message: "Password reset link generated successfully",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Admin password reset error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to generate password reset" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

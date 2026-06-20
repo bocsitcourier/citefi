@@ -51,11 +51,11 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(count / limit),
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Admin errors fetch error:", error);
     return NextResponse.json(
       { error: "Failed to fetch errors" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

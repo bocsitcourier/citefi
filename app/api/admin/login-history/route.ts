@@ -38,11 +38,11 @@ export async function GET(req: NextRequest) {
     const history = await query;
 
     return NextResponse.json(history);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Get login history error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch login history" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

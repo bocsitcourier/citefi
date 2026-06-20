@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       .offset(offset);
 
     return NextResponse.json(logs);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Get activity logs error:", error);
     const message = error instanceof Error ? error.message : "Failed to fetch activity logs";
     let status = 500;

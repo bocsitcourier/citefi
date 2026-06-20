@@ -115,6 +115,13 @@ export async function POST(req: NextRequest) {
 
     const adminTeamId = await getAdminTeamId(auth.userId);
 
+    if (!adminTeamId) {
+      return NextResponse.json(
+        { error: 'Admin account has no team assigned. Please contact a system administrator to assign a team before sending invites.' },
+        { status: 400 }
+      );
+    }
+
     const insertedInvites = await db
       .insert(userInvites)
       .values({

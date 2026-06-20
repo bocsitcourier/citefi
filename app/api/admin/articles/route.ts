@@ -66,11 +66,11 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(count / limit),
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Admin articles error:", error);
     return NextResponse.json(
       { error: "Failed to fetch articles" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
