@@ -6,7 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, CreditCard, Zap, Building2, Rocket, Star, ArrowUpRight, RefreshCw, AlertTriangle } from "lucide-react";
+import {
+  Loader2, CheckCircle2, CreditCard, Zap, Rocket, TrendingUp,
+  ArrowUpRight, RefreshCw, AlertTriangle,
+} from "lucide-react";
 
 interface BillingStatus {
   plan: {
@@ -26,6 +29,11 @@ interface BillingStatus {
   };
   credits: {
     balance: number;
+    allowanceRemaining: number;
+    purchasedRemaining: number;
+    totalRemaining: number;
+    allowanceCredits: number;
+    purchasedCredits: number;
   };
 }
 
@@ -33,6 +41,7 @@ interface PlanConfig {
   id: string;
   name: string;
   priceUsd: number;
+  annualPriceUsd: number;
   monthlyCredits: number;
   features: string[];
   icon: React.ReactNode;
@@ -43,18 +52,19 @@ interface TopUpConfig {
   id: string;
   credits: number;
   priceUsd: number;
+  label: string;
 }
 
-// Display-only — no price IDs. Server resolves prices from env vars.
 const PLANS: PlanConfig[] = [
   {
     id: "starter",
     name: "Starter",
     priceUsd: 29,
-    monthlyCredits: 500,
+    annualPriceUsd: 290,
+    monthlyCredits: 50,
     icon: <Rocket className="w-5 h-5" />,
     features: [
-      "500 credits per month",
+      "50 credits per month",
       "Article generation",
       "Social posts",
       "Podcast generation",
@@ -63,14 +73,15 @@ const PLANS: PlanConfig[] = [
     ],
   },
   {
-    id: "pro",
-    name: "Pro",
-    priceUsd: 79,
-    monthlyCredits: 2000,
-    icon: <Star className="w-5 h-5" />,
+    id: "growth",
+    name: "Growth",
+    priceUsd: 89,
+    annualPriceUsd: 890,
+    monthlyCredits: 200,
+    icon: <TrendingUp className="w-5 h-5" />,
     highlight: true,
     features: [
-      "2,000 credits per month",
+      "200 credits per month",
       "Everything in Starter",
       "AI learning system",
       "Content clusters",
@@ -78,27 +89,14 @@ const PLANS: PlanConfig[] = [
       "Advanced analytics",
     ],
   },
-  {
-    id: "agency",
-    name: "Agency",
-    priceUsd: 199,
-    monthlyCredits: 10000,
-    icon: <Building2 className="w-5 h-5" />,
-    features: [
-      "10,000 credits per month",
-      "Everything in Pro",
-      "Multi-team management",
-      "White-label exports",
-      "Dedicated support",
-      "Custom integrations",
-    ],
-  },
 ];
 
 const TOP_UPS: TopUpConfig[] = [
-  { id: "topup_100", credits: 100, priceUsd: 9 },
-  { id: "topup_500", credits: 500, priceUsd: 39 },
-  { id: "topup_1000", credits: 1000, priceUsd: 69 },
+  { id: "topup_20",  credits: 20,  priceUsd: 12,  label: "Starter Pack" },
+  { id: "topup_50",  credits: 50,  priceUsd: 25,  label: "Small Pack" },
+  { id: "topup_100", credits: 100, priceUsd: 45,  label: "Medium Pack" },
+  { id: "topup_250", credits: 250, priceUsd: 100, label: "Large Pack" },
+  { id: "topup_500", credits: 500, priceUsd: 180, label: "Bulk Pack" },
 ];
 
 function getAuthHeaders(): Record<string, string> {
@@ -112,9 +110,8 @@ async function fetchBillingStatus(): Promise<BillingStatus> {
   return res.json();
 }
 
-/** Send planId (subscription) or topUpId (one-time) — server resolves the price ID. */
 async function createCheckout(
-  payload: { kind: "subscription"; planId: string } | { kind: "topup"; topUpId: string }
+  payload: { kind: "subscription"; planId: string; annual?: boolean } | { kind: "topup"; topUpId: string }
 ): Promise<{ url: string; portal?: boolean }> {
   const res = await fetch("/api/billing/checkout", {
     method: "POST",
@@ -123,7 +120,7 @@ async function createCheckout(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? "Checkout failed");
+    throw new Error((err as any).error ?? "Checkout failed");
   }
   return res.json();
 }
@@ -135,7 +132,7 @@ async function openPortal(): Promise<{ url: string }> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? "Failed to open billing portal");
+    throw new Error((err as any).error ?? "Failed to open billing portal");
   }
   return res.json();
 }
@@ -146,6 +143,7 @@ function StatusBadge({ status }: { status: string }) {
     trialing: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
     past_due: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
     canceled: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    cancelled: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
     free: "bg-muted text-muted-foreground",
   };
   return (
@@ -161,20 +159,15 @@ export default function BillingPage() {
   const { toast } = useToast();
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [annual, setAnnual] = useState(false);
 
-  const {
-    data: billing,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<BillingStatus>({
+  const { data: billing, isLoading, error, refetch } = useQuery<BillingStatus>({
     queryKey: ["/api/billing/status"],
     queryFn: fetchBillingStatus,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
 
-  // Toast on Stripe return redirects
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("success")) {
@@ -183,11 +176,7 @@ export default function BillingPage() {
       window.history.replaceState({}, "", "/settings/billing");
     }
     if (params.get("canceled")) {
-      toast({
-        title: "Checkout canceled",
-        description: "No charge was made.",
-        variant: "destructive",
-      });
+      toast({ title: "Checkout canceled", description: "No charge was made.", variant: "destructive" });
       window.history.replaceState({}, "", "/settings/billing");
     }
   }, []);
@@ -195,9 +184,9 @@ export default function BillingPage() {
   async function handleSubscribe(plan: PlanConfig) {
     setCheckingOut(plan.id);
     try {
-      const result = await createCheckout({ kind: "subscription", planId: plan.id });
+      const result = await createCheckout({ kind: "subscription", planId: plan.id, annual });
       if (result.portal) {
-        toast({ title: "Opening billing portal", description: "You already have an active subscription. Use the portal to switch plans." });
+        toast({ title: "Opening billing portal", description: "Use the portal to switch plans." });
       }
       window.location.href = result.url;
     } catch (err: any) {
@@ -205,15 +194,11 @@ export default function BillingPage() {
       if (msg.toLowerCase().includes("not configured") || msg.toLowerCase().includes("seed")) {
         toast({
           title: "Billing not configured",
-          description: "Stripe price IDs are not yet set up. Run: npx tsx scripts/seed-stripe-products.ts",
+          description: "Run: npx tsx scripts/seed-stripe-products.ts",
           variant: "destructive",
         });
       } else if (msg.toLowerCase().includes("admin")) {
-        toast({
-          title: "Permission denied",
-          description: "Only team admins can manage billing.",
-          variant: "destructive",
-        });
+        toast({ title: "Permission denied", description: "Only team admins can manage billing.", variant: "destructive" });
       } else {
         toast({ title: "Error", description: msg, variant: "destructive" });
       }
@@ -223,21 +208,21 @@ export default function BillingPage() {
   }
 
   async function handleTopUp(topUp: TopUpConfig) {
+    if (billing?.plan.id === "free") {
+      toast({
+        title: "Upgrade required",
+        description: "Top-ups are not available on the Free plan. Upgrade to Starter or Growth first.",
+        variant: "destructive",
+      });
+      return;
+    }
     setCheckingOut(topUp.id);
     try {
       const result = await createCheckout({ kind: "topup", topUpId: topUp.id });
       window.location.href = result.url;
     } catch (err: any) {
       const msg: string = err.message ?? "Top-up failed";
-      if (msg.toLowerCase().includes("not configured") || msg.toLowerCase().includes("seed")) {
-        toast({
-          title: "Billing not configured",
-          description: "Top-up price IDs are not yet set up. Run: npx tsx scripts/seed-stripe-products.ts",
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: "Error", description: msg, variant: "destructive" });
-      }
+      toast({ title: "Error", description: msg, variant: "destructive" });
     } finally {
       setCheckingOut(null);
     }
@@ -251,11 +236,7 @@ export default function BillingPage() {
     } catch (err: any) {
       const msg: string = err.message ?? "Failed to open portal";
       if (msg.toLowerCase().includes("admin")) {
-        toast({
-          title: "Permission denied",
-          description: "Only team admins can manage billing.",
-          variant: "destructive",
-        });
+        toast({ title: "Permission denied", description: "Only team admins can manage billing.", variant: "destructive" });
       } else {
         toast({ title: "Error", description: msg, variant: "destructive" });
       }
@@ -273,21 +254,16 @@ export default function BillingPage() {
   }
 
   if (error || !billing) {
-    return (
-      <div className="p-6 text-center text-muted-foreground">
-        Failed to load billing information.
-      </div>
-    );
+    return <div className="p-6 text-center text-muted-foreground">Failed to load billing information.</div>;
   }
 
   const currentPlanId = billing.plan.id;
   const periodEnd = billing.billing.currentPeriodEnd
-    ? new Date(billing.billing.currentPeriodEnd).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
+    ? new Date(billing.billing.currentPeriodEnd).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : null;
+  const totalRemaining = billing.credits.totalRemaining ?? billing.credits.balance;
+  const allowanceRemaining = billing.credits.allowanceRemaining ?? 0;
+  const purchasedRemaining = billing.credits.purchasedRemaining ?? 0;
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -304,17 +280,13 @@ export default function BillingPage() {
             disabled={openingPortal}
             data-testid="button-manage-subscription"
           >
-            {openingPortal ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <CreditCard className="w-4 h-4 mr-2" />
-            )}
+            {openingPortal ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
             Manage Subscription
           </Button>
         )}
       </div>
 
-      {/* Billing status cards */}
+      {/* Status cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -332,12 +304,15 @@ export default function BillingPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Credit Balance</p>
+            <p className="text-sm text-muted-foreground">Available Credits</p>
             <div className="flex items-center gap-2 mt-1">
               <Zap className="w-5 h-5 text-yellow-500" />
-              <span className="text-xl font-semibold">{billing.credits.balance.toLocaleString()}</span>
+              <span className="text-xl font-semibold tabular-nums">{totalRemaining.toLocaleString()}</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Available credits</p>
+            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+              <p>{allowanceRemaining} allowance</p>
+              {purchasedRemaining > 0 && <p>+ {purchasedRemaining} purchased</p>}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -345,25 +320,25 @@ export default function BillingPage() {
             <p className="text-sm text-muted-foreground">Monthly Allowance</p>
             <div className="flex items-center gap-2 mt-1">
               <RefreshCw className="w-5 h-5 text-blue-500" />
-              <span className="text-xl font-semibold">{billing.plan.monthlyCredits.toLocaleString()}</span>
+              <span className="text-xl font-semibold tabular-nums">{billing.plan.monthlyCredits.toLocaleString()}</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Credits per month</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {currentPlanId === "free" ? "one-time grant" : "resets each cycle"}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Paywall notice for zero credits on free plan */}
-      {currentPlanId === "free" && billing.credits.balance === 0 && (
+      {/* Paywall notice */}
+      {currentPlanId === "free" && totalRemaining === 0 && (
         <Card className="border-yellow-200 dark:border-yellow-900/40 bg-yellow-50/50 dark:bg-yellow-900/10">
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-yellow-900 dark:text-yellow-300">
-                  Free credits exhausted
-                </p>
+                <p className="font-medium text-yellow-900 dark:text-yellow-300">Free credits exhausted</p>
                 <p className="text-sm text-yellow-800/80 dark:text-yellow-400/80 mt-1">
-                  You have used all your free credits. Upgrade to a paid plan or purchase a top-up to continue generating content.
+                  You have used all your free credits. Upgrade to continue generating content.
                 </p>
               </div>
             </div>
@@ -371,14 +346,13 @@ export default function BillingPage() {
         </Card>
       )}
 
-      {/* Free-plan notice (credits remaining) */}
-      {currentPlanId === "free" && billing.credits.balance > 0 && (
+      {currentPlanId === "free" && totalRemaining > 0 && (
         <Card className="border-muted bg-muted/30">
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
               <Zap className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-sm text-muted-foreground">
-                You are on the <strong>Free plan</strong> — {billing.credits.balance} credits remaining this month. Upgrade for more credits and advanced features.
+                You are on the <strong>Free plan</strong> — {totalRemaining} credits remaining. Top-ups are not available on the Free plan. Upgrade for more credits and recurring allowances.
               </p>
             </div>
           </CardContent>
@@ -387,11 +361,33 @@ export default function BillingPage() {
 
       {/* Plans */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">Plans</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 className="text-lg font-semibold">Plans</h2>
+          <div className="flex items-center gap-2 bg-muted rounded-md p-1">
+            <button
+              className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${!annual ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              onClick={() => setAnnual(false)}
+              data-testid="button-billing-monthly"
+            >
+              Monthly
+            </button>
+            <button
+              className={`text-xs px-3 py-1 rounded-md font-medium transition-colors ${annual ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              onClick={() => setAnnual(true)}
+              data-testid="button-billing-annual"
+            >
+              Annual <span className="text-green-600 font-semibold ml-0.5">−17%</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {PLANS.map((plan) => {
             const isCurrent = currentPlanId === plan.id;
             const isCheckingOut = checkingOut === plan.id;
+            const displayPrice = annual
+              ? `$${(plan.annualPriceUsd / 12).toFixed(2)}`
+              : `$${plan.priceUsd}`;
             return (
               <Card key={plan.id} className={plan.highlight ? "border-primary" : ""}>
                 <CardHeader className="pb-3">
@@ -400,20 +396,19 @@ export default function BillingPage() {
                       {plan.icon}
                       <CardTitle className="text-base">{plan.name}</CardTitle>
                     </div>
-                    {plan.highlight && (
-                      <Badge variant="default" className="text-xs">
-                        Most Popular
-                      </Badge>
-                    )}
-                    {isCurrent && (
-                      <Badge variant="outline" className="text-xs">
-                        Current
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {plan.highlight && <Badge variant="default" className="text-xs">Most Popular</Badge>}
+                      {isCurrent && <Badge variant="outline" className="text-xs">Current</Badge>}
+                    </div>
                   </div>
                   <div className="mt-2">
-                    <span className="text-2xl font-bold">${plan.priceUsd}</span>
+                    <span className="text-2xl font-bold tabular-nums">{displayPrice}</span>
                     <span className="text-muted-foreground text-sm">/month</span>
+                    {annual && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        (${plan.annualPriceUsd}/yr)
+                      </span>
+                    )}
                   </div>
                   <CardDescription className="text-sm">
                     {plan.monthlyCredits.toLocaleString()} credits/month
@@ -443,8 +438,8 @@ export default function BillingPage() {
                     {isCurrent
                       ? "Current Plan"
                       : billing.billing.hasSubscription
-                        ? "Switch Plan"
-                        : "Subscribe"}
+                      ? "Switch Plan"
+                      : "Subscribe"}
                   </Button>
                 </CardContent>
               </Card>
@@ -456,33 +451,41 @@ export default function BillingPage() {
       {/* Top-ups */}
       <div>
         <h2 className="text-lg font-semibold mb-1">Credit Top-Ups</h2>
-        <p className="text-sm text-muted-foreground mb-4">One-time credit purchases — never expire.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <p className="text-sm text-muted-foreground mb-4">
+          One-time purchases — never expire.
+          {currentPlanId === "free" && (
+            <span className="ml-1 text-amber-600 dark:text-amber-400">Requires Starter or Growth plan.</span>
+          )}
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {TOP_UPS.map((topUp) => {
             const isCheckingOut = checkingOut === topUp.id;
             const cpl = (topUp.priceUsd / topUp.credits).toFixed(2);
+            const disabled = currentPlanId === "free" || !!checkingOut;
             return (
               <Card key={topUp.id}>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap className="w-4 h-4 text-yellow-500" />
-                    <span className="font-semibold">{topUp.credits.toLocaleString()} credits</span>
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs text-muted-foreground mb-1">{topUp.label}</p>
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Zap className="w-3 h-3 text-yellow-500" />
+                    <span className="font-semibold text-sm tabular-nums">{topUp.credits}</span>
+                    <span className="text-xs text-muted-foreground">cr</span>
                   </div>
-                  <div className="text-2xl font-bold mb-0.5">${topUp.priceUsd}</div>
-                  <p className="text-xs text-muted-foreground mb-4">${cpl}/credit</p>
+                  <div className="text-lg font-bold mb-0.5">${topUp.priceUsd}</div>
+                  <p className="text-[10px] text-muted-foreground mb-3">${cpl}/credit</p>
                   <Button
                     variant="outline"
                     className="w-full"
                     onClick={() => handleTopUp(topUp)}
-                    disabled={!!checkingOut}
+                    disabled={disabled}
                     data-testid={`button-topup-${topUp.id}`}
                   >
                     {isCheckingOut ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                     ) : (
-                      <Zap className="w-4 h-4 mr-2" />
+                      <Zap className="w-3 h-3 mr-1" />
                     )}
-                    Buy Now
+                    Buy
                   </Button>
                 </CardContent>
               </Card>

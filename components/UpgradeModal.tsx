@@ -25,8 +25,7 @@ interface PaywallDetail {
 
 const UPGRADE_PLANS = [
   BILLING_PLANS.starter,
-  BILLING_PLANS.pro,
-  BILLING_PLANS.agency,
+  BILLING_PLANS.growth,
 ] as const;
 
 export function UpgradeModal() {
@@ -74,7 +73,7 @@ export function UpgradeModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
           {UPGRADE_PLANS.map(plan => {
             const isCurrent = detail?.planId === plan.id;
             return (
@@ -83,7 +82,7 @@ export function UpgradeModal() {
                 className="rounded-md border p-4 space-y-3 relative"
                 data-testid={`upgrade-plan-${plan.id}`}
               >
-                {plan.id === "pro" && (
+                {plan.id === "growth" && (
                   <Badge className="absolute -top-2.5 left-3 text-xs">Most popular</Badge>
                 )}
                 <div>
@@ -97,7 +96,7 @@ export function UpgradeModal() {
                 <Button
                   size="sm"
                   className="w-full"
-                  variant={plan.id === "pro" ? "default" : "outline"}
+                  variant={plan.id === "growth" ? "default" : "outline"}
                   disabled={isCurrent || checkoutMutation.isPending}
                   onClick={() => checkoutMutation.mutate(plan.id)}
                   data-testid={`button-upgrade-to-${plan.id}`}

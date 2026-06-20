@@ -3283,6 +3283,140 @@ export async function registerWorkers() {
       console.warn(`⚠️ Could not register journey scheduler (non-fatal):`, (scheduleErr as Error).message);
     }
 
+    // ── BILLING: Credit Period Reset (daily 00:05 UTC) ────────────────────────────
+    // Safety-net fallback: renews allowance for active subs that missed Stripe webhooks.
+    // Also downgrades cancelled teams once their period has ended.
+    try {
+      const CREDIT_PERIOD_RESET_QUEUE = "credit-period-reset";
+      try { await boss.createQueue(CREDIT_PERIOD_RESET_QUEUE); } catch (_) { /* already exists — ok */ }
+      await boss.schedule(CREDIT_PERIOD_RESET_QUEUE, "5 0 * * *", {});
+      await boss.work<Record<string, never>>(CREDIT_PERIOD_RESET_QUEUE, async (_jobs) => {
+        const { teams: teamsTable } = await import("@/shared/schema");
+        const { grantAllowance } = await import("@/lib/billing");
+        const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
+        const now = new Date();
+
+        // Downgrade cancelled subs whose period has expired
+        const cancelledExpired = await db
+          .select({ id: teamsTable.id })
+          .from(teamsTable)
+          .where(sql`${teamsTable.billingStatus} = 'cancelled' AND ${teamsTable.currentPeriodEnd} IS NOT NULL AND ${teamsTable.currentPeriodEnd} <= ${now} AND ${teamsTable.billingPlan} != 'free'`);
+
+        for (const t of cancelledExpired) {
+          await db.update(teamsTable)
+            .set({ billingPlan: "free", billingStatus: "active", stripeSubscriptionId: null, stripePriceId: null, updatedAt: new Date() } as any)
+            .where(eq(teamsTable.id, t.id));
+          console.log(`[credit-period-reset] Team ${t.id} downgraded to free (sub expired)`);
+        }
+
+        // Renew active subs that are overdue (missed webhook)
+        const overdue = await db
+          .select({ id: teamsTable.id, billingPlan: teamsTable.billingPlan, stripeSubscriptionId: teamsTable.stripeSubscriptionId })
+          .from(teamsTable)
+          .where(sql`${teamsTable.billingStatus} IN ('active', 'trialing') AND ${teamsTable.billingPlan} != 'free' AND ${teamsTable.currentPeriodEnd} IS NOT NULL AND ${teamsTable.currentPeriodEnd} <= ${now}`);
+
+        if (overdue.length === 0) {
+          console.log("[credit-period-reset] No overdue subscriptions");
+          return;
+        }
+
+        const { getStripeClient } = await import("@/lib/stripe");
+        const stripeClient = await getStripeClient().catch(() => null);
+        if (!stripeClient) { console.warn("[credit-period-reset] Stripe not connected — skipping"); return; }
+
+        for (const t of overdue) {
+          try {
+            if (!t.stripeSubscriptionId) continue;
+            const sub = await stripeClient.subscriptions.retrieve(t.stripeSubscriptionId, { expand: ["items.data.price"] });
+            const priceId = sub.items.data[0]?.price?.id;
+            const plan = priceId ? getPlanByStripePriceId(priceId) : null;
+            if (plan && (sub.status === "active" || sub.status === "trialing")) {
+              const periodStart = new Date(sub.current_period_start * 1000);
+              const periodEnd = new Date(sub.current_period_end * 1000);
+              await grantAllowance({
+                teamId: t.id,
+                amount: plan.monthlyCredits,
+                periodStart,
+                periodEnd,
+                idempotencyKey: `period-reset-${t.id}-${sub.current_period_start}`,
+                reason: `Period reset (webhook fallback): ${plan.name}`,
+              });
+              await db.update(teamsTable).set({
+                billingPlan: plan.id,
+                billingStatus: sub.status,
+                currentPeriodEnd: periodEnd,
+                cancelAtPeriodEnd: sub.cancel_at_period_end,
+                updatedAt: new Date(),
+              }).where(eq(teamsTable.id, t.id));
+              console.log(`[credit-period-reset] Renewed team ${t.id} — ${plan.name} (${plan.monthlyCredits} cr)`);
+            } else {
+              await db.update(teamsTable).set({ billingStatus: sub.status, updatedAt: new Date() }).where(eq(teamsTable.id, t.id));
+            }
+          } catch (err) {
+            console.error(`[credit-period-reset] Error for team ${t.id}:`, (err as Error).message);
+          }
+        }
+      });
+      console.log("⏱️ Credit period reset registered (daily 00:05 UTC)");
+    } catch (scheduleErr) {
+      console.warn("⚠️ Could not register credit-period-reset scheduler (non-fatal):", (scheduleErr as Error).message);
+    }
+
+    // ── BILLING: Stripe Reconciliation (every 15 min) ─────────────────────────────
+    // Corrects status/plan mismatches caused by delayed or missed Stripe webhooks.
+    try {
+      const STRIPE_RECONCILE_QUEUE = "stripe-reconcile";
+      try { await boss.createQueue(STRIPE_RECONCILE_QUEUE); } catch (_) { /* already exists — ok */ }
+      await boss.schedule(STRIPE_RECONCILE_QUEUE, "*/15 * * * *", {});
+      await boss.work<Record<string, never>>(STRIPE_RECONCILE_QUEUE, async (_jobs) => {
+        const { teams: teamsTable } = await import("@/shared/schema");
+        const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
+        const { isNotNull } = await import("drizzle-orm");
+
+        const teamsWithSub = await db
+          .select({ id: teamsTable.id, billingStatus: teamsTable.billingStatus, billingPlan: teamsTable.billingPlan, stripeSubscriptionId: teamsTable.stripeSubscriptionId })
+          .from(teamsTable)
+          .where(isNotNull(teamsTable.stripeSubscriptionId));
+
+        if (teamsWithSub.length === 0) return;
+
+        const { getStripeClient } = await import("@/lib/stripe");
+        const stripeClient = await getStripeClient().catch(() => null);
+        if (!stripeClient) { console.warn("[stripe-reconcile] Stripe not connected"); return; }
+
+        let corrected = 0;
+        for (const t of teamsWithSub) {
+          try {
+            const sub = await stripeClient.subscriptions.retrieve(t.stripeSubscriptionId!, { expand: ["items.data.price"] });
+            const priceId = sub.items.data[0]?.price?.id;
+            const plan = priceId ? getPlanByStripePriceId(priceId) : null;
+            const stripeStatus = sub.status;
+            if (t.billingStatus !== stripeStatus || (plan && t.billingPlan !== plan.id)) {
+              await db.update(teamsTable).set({
+                billingStatus: stripeStatus,
+                billingPlan: plan?.id ?? t.billingPlan,
+                currentPeriodEnd: new Date(sub.current_period_end * 1000),
+                cancelAtPeriodEnd: sub.cancel_at_period_end,
+                updatedAt: new Date(),
+              }).where(eq(teamsTable.id, t.id));
+              console.log(`[stripe-reconcile] Corrected team ${t.id}: status ${t.billingStatus}→${stripeStatus} plan ${t.billingPlan}→${plan?.id ?? t.billingPlan}`);
+              corrected++;
+            }
+          } catch (err: any) {
+            if (err.statusCode === 404) {
+              await db.update(teamsTable).set({ billingPlan: "free", billingStatus: "active", stripeSubscriptionId: null, updatedAt: new Date() }).where(eq(teamsTable.id, t.id));
+              console.log(`[stripe-reconcile] Team ${t.id} downgraded to free (sub not found in Stripe)`);
+              corrected++;
+            }
+          }
+        }
+        if (corrected > 0) console.log(`[stripe-reconcile] Corrected ${corrected}/${teamsWithSub.length} teams`);
+      });
+      console.log("⏱️ Stripe reconciliation registered (every 15 min)");
+    } catch (scheduleErr) {
+      console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
+    }
+
     await boss.work<SocialVideoJobData>(
       SOCIAL_VIDEO_GENERATION_QUEUE,
       { 

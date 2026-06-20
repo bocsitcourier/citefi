@@ -6,6 +6,7 @@ import { Zap, LogOut, User } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { NAV_SECTIONS } from "./nav-config";
 import { NotificationBell } from "@/components/NotificationBell";
+import { CreditMeter } from "@/components/credit-meter";
 import {
   Sidebar,
   SidebarContent,
@@ -57,6 +58,20 @@ export function AppSidebar() {
             )}
           </div>
         </SidebarHeader>
+
+        <SidebarSeparator />
+
+        {/* Credit meter — only shown when expanded */}
+        {!isCollapsed && (
+          <div className="px-2 py-1">
+            <CreditMeter collapsed={false} />
+          </div>
+        )}
+        {isCollapsed && (
+          <div className="flex justify-center py-1">
+            <CreditMeter collapsed={true} />
+          </div>
+        )}
 
         <SidebarSeparator />
 

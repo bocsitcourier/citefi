@@ -20,6 +20,7 @@ export const teams = pgTable("teams", {
   // Stripe billing
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }).unique(),
   stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }).unique(),
+  stripePriceId: varchar("stripe_price_id", { length: 255 }),
   billingPlan: varchar("billing_plan", { length: 30 }).notNull().default("free"),
   billingStatus: varchar("billing_status", { length: 30 }).notNull().default("active"),
   currentPeriodEnd: timestamp("current_period_end"),
@@ -2818,6 +2819,23 @@ export const billingEvents = pgTable("billing_events", {
 }));
 
 export type BillingEvent = typeof billingEvents.$inferSelect;
+
+// ============================================================================
+// FREE TIER GRANTS — anti-abuse deduplication for the free plan
+// ============================================================================
+
+export const freeTierGrants = pgTable("free_tier_grants", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull(),
+  deviceFingerprint: varchar("device_fingerprint", { length: 255 }),
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "set null" }),
+  grantedAt: timestamp("granted_at").notNull().defaultNow(),
+}, (t) => ({
+  emailIdx: uniqueIndex("free_tier_grants_email_idx").on(t.email),
+  deviceIdx: index("free_tier_grants_device_idx").on(t.deviceFingerprint),
+}));
+
+export type FreeTierGrant = typeof freeTierGrants.$inferSelect;
 
 // ============================================================================
 // RATE LIMITING (DB-backed, survives restarts)

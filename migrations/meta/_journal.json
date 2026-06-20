@@ -29,6 +29,13 @@
       "when": 1781975467872,
       "tag": "0011_credit_menu_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0012_stripe_billing",
+      "breakpoints": true
     }
   ]
 }

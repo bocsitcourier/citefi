@@ -3,13 +3,16 @@
  *
  * Run with: npx tsx scripts/seed-stripe-products.ts
  *
- * After running, copy the printed price IDs to your .env.local:
+ * After running, copy the printed env lines to your .env.local (or add as Replit secrets):
  *   STRIPE_PRICE_STARTER=price_xxx
- *   STRIPE_PRICE_PRO=price_xxx
- *   STRIPE_PRICE_AGENCY=price_xxx
+ *   STRIPE_PRICE_STARTER_ANNUAL=price_xxx
+ *   STRIPE_PRICE_GROWTH=price_xxx
+ *   STRIPE_PRICE_GROWTH_ANNUAL=price_xxx
+ *   STRIPE_PRICE_TOPUP_20=price_xxx
+ *   STRIPE_PRICE_TOPUP_50=price_xxx
  *   STRIPE_PRICE_TOPUP_100=price_xxx
+ *   STRIPE_PRICE_TOPUP_250=price_xxx
  *   STRIPE_PRICE_TOPUP_500=price_xxx
- *   STRIPE_PRICE_TOPUP_1000=price_xxx
  */
 
 import "dotenv/config";
@@ -17,49 +20,30 @@ import "dotenv/config";
 const PLANS = [
   {
     name: "Starter Plan",
-    description: "500 credits/month for growing content teams",
-    envKey: "STRIPE_PRICE_STARTER",
-    priceUsd: 29,
-    metadata: { plan: "starter", credits: "500", type: "subscription" },
+    description: "50 credits/month for growing content teams",
+    monthlyEnvKey: "STRIPE_PRICE_STARTER",
+    annualEnvKey: "STRIPE_PRICE_STARTER_ANNUAL",
+    monthlyPriceUsd: 29,
+    annualPriceUsd: 290,
+    metadata: { plan: "starter", credits: "50", type: "subscription" },
   },
   {
-    name: "Pro Plan",
-    description: "2,000 credits/month for professional content operations",
-    envKey: "STRIPE_PRICE_PRO",
-    priceUsd: 79,
-    metadata: { plan: "pro", credits: "2000", type: "subscription" },
-  },
-  {
-    name: "Agency Plan",
-    description: "10,000 credits/month for full-service agencies",
-    envKey: "STRIPE_PRICE_AGENCY",
-    priceUsd: 199,
-    metadata: { plan: "agency", credits: "10000", type: "subscription" },
+    name: "Growth Plan",
+    description: "200 credits/month for professional content operations",
+    monthlyEnvKey: "STRIPE_PRICE_GROWTH",
+    annualEnvKey: "STRIPE_PRICE_GROWTH_ANNUAL",
+    monthlyPriceUsd: 89,
+    annualPriceUsd: 890,
+    metadata: { plan: "growth", credits: "200", type: "subscription" },
   },
 ];
 
 const TOP_UPS = [
-  {
-    name: "100 Credits Top-Up",
-    description: "One-time purchase of 100 credits",
-    envKey: "STRIPE_PRICE_TOPUP_100",
-    priceUsd: 9,
-    metadata: { type: "topup", credits: "100" },
-  },
-  {
-    name: "500 Credits Top-Up",
-    description: "One-time purchase of 500 credits",
-    envKey: "STRIPE_PRICE_TOPUP_500",
-    priceUsd: 39,
-    metadata: { type: "topup", credits: "500" },
-  },
-  {
-    name: "1,000 Credits Top-Up",
-    description: "One-time purchase of 1,000 credits",
-    envKey: "STRIPE_PRICE_TOPUP_1000",
-    priceUsd: 69,
-    metadata: { type: "topup", credits: "1000" },
-  },
+  { name: "20 Credits — Starter Pack",   envKey: "STRIPE_PRICE_TOPUP_20",  priceUsd: 12,  credits: 20  },
+  { name: "50 Credits — Small Pack",     envKey: "STRIPE_PRICE_TOPUP_50",  priceUsd: 25,  credits: 50  },
+  { name: "100 Credits — Medium Pack",   envKey: "STRIPE_PRICE_TOPUP_100", priceUsd: 45,  credits: 100 },
+  { name: "250 Credits — Large Pack",    envKey: "STRIPE_PRICE_TOPUP_250", priceUsd: 100, credits: 250 },
+  { name: "500 Credits — Bulk Pack",     envKey: "STRIPE_PRICE_TOPUP_500", priceUsd: 180, credits: 500 },
 ];
 
 async function getStripeKey(): Promise<string> {
@@ -103,7 +87,7 @@ async function main() {
     let productId: string;
     if (existing.data.length > 0) {
       productId = existing.data[0].id;
-      console.log(`[SKIP] ${plan.name} already exists: ${productId}`);
+      console.log(`[SKIP] ${plan.name} product already exists: ${productId}`);
     } else {
       const product = await stripe.products.create({
         name: plan.name,
@@ -114,27 +98,45 @@ async function main() {
       console.log(`[CREATE] ${plan.name}: ${productId}`);
     }
 
-    // Check for existing monthly price
-    const prices = await stripe.prices.list({ product: productId, active: true, limit: 10 });
-    const monthlyPrice = prices.data.find((p) => p.recurring?.interval === "month");
+    const prices = await stripe.prices.list({ product: productId, active: true, limit: 20 });
 
-    let priceId: string;
-    if (monthlyPrice) {
-      priceId = monthlyPrice.id;
-      console.log(`[SKIP] Monthly price already exists: ${priceId}`);
+    // Monthly price
+    const existingMonthly = prices.data.find(
+      (p) => p.recurring?.interval === "month" && p.recurring?.interval_count === 1
+    );
+    if (existingMonthly) {
+      console.log(`[SKIP] Monthly price already exists: ${existingMonthly.id}`);
+      envLines.push(`${plan.monthlyEnvKey}=${existingMonthly.id}`);
     } else {
       const price = await stripe.prices.create({
         product: productId,
-        unit_amount: plan.priceUsd * 100,
+        unit_amount: plan.monthlyPriceUsd * 100,
         currency: "usd",
         recurring: { interval: "month" },
-        metadata: plan.metadata,
+        metadata: { ...plan.metadata, billing: "monthly" },
       });
-      priceId = price.id;
-      console.log(`[CREATE] Monthly price $${plan.priceUsd}/mo: ${priceId}`);
+      console.log(`[CREATE] Monthly $${plan.monthlyPriceUsd}/mo: ${price.id}`);
+      envLines.push(`${plan.monthlyEnvKey}=${price.id}`);
     }
 
-    envLines.push(`${plan.envKey}=${priceId}`);
+    // Annual price (10 months for 12)
+    const existingAnnual = prices.data.find(
+      (p) => p.recurring?.interval === "year" && p.recurring?.interval_count === 1
+    );
+    if (existingAnnual) {
+      console.log(`[SKIP] Annual price already exists: ${existingAnnual.id}`);
+      envLines.push(`${plan.annualEnvKey}=${existingAnnual.id}`);
+    } else {
+      const price = await stripe.prices.create({
+        product: productId,
+        unit_amount: plan.annualPriceUsd * 100,
+        currency: "usd",
+        recurring: { interval: "year" },
+        metadata: { ...plan.metadata, billing: "annual" },
+      });
+      console.log(`[CREATE] Annual $${plan.annualPriceUsd}/yr: ${price.id}`);
+      envLines.push(`${plan.annualEnvKey}=${price.id}`);
+    }
   }
 
   console.log("\n=== Seeding credit top-ups ===\n");
@@ -147,12 +149,12 @@ async function main() {
     let productId: string;
     if (existing.data.length > 0) {
       productId = existing.data[0].id;
-      console.log(`[SKIP] ${topUp.name} already exists: ${productId}`);
+      console.log(`[SKIP] ${topUp.name} product already exists: ${productId}`);
     } else {
       const product = await stripe.products.create({
         name: topUp.name,
-        description: topUp.description,
-        metadata: topUp.metadata,
+        description: `One-time purchase of ${topUp.credits} credits`,
+        metadata: { type: "topup", credits: String(topUp.credits) },
       });
       productId = product.id;
       console.log(`[CREATE] ${topUp.name}: ${productId}`);
@@ -161,29 +163,26 @@ async function main() {
     const prices = await stripe.prices.list({ product: productId, active: true, limit: 10 });
     const oneTimePrice = prices.data.find((p) => !p.recurring);
 
-    let priceId: string;
     if (oneTimePrice) {
-      priceId = oneTimePrice.id;
-      console.log(`[SKIP] One-time price already exists: ${priceId}`);
+      console.log(`[SKIP] One-time price already exists: ${oneTimePrice.id}`);
+      envLines.push(`${topUp.envKey}=${oneTimePrice.id}`);
     } else {
       const price = await stripe.prices.create({
         product: productId,
         unit_amount: topUp.priceUsd * 100,
         currency: "usd",
-        metadata: topUp.metadata,
+        metadata: { type: "topup", credits: String(topUp.credits) },
       });
-      priceId = price.id;
-      console.log(`[CREATE] One-time price $${topUp.priceUsd}: ${priceId}`);
+      console.log(`[CREATE] One-time $${topUp.priceUsd}: ${price.id}`);
+      envLines.push(`${topUp.envKey}=${price.id}`);
     }
-
-    envLines.push(`${topUp.envKey}=${priceId}`);
   }
 
-  console.log("\n=== Add these to your .env.local / environment secrets ===\n");
+  console.log("\n=== Add these to your .env.local / Replit Secrets ===\n");
   for (const line of envLines) {
     console.log(line);
   }
-  console.log("\nDone!");
+  console.log("\n✅ Done!");
 }
 
 main().catch((err) => {
