@@ -544,11 +544,17 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
     const teamIdForBilling = job.data.teamId ?? postDetails?.teamId;
     if (job.data.creditRunId && teamIdForBilling) {
       const { debitReservation } = await import("@/lib/billing");
-      await debitReservation({
+      const debitResult = await debitReservation({
         teamId: teamIdForBilling,
         runId: job.data.creditRunId,
         jobId: job.id,
       });
+      if (!debitResult.ok) {
+        throw new Error(
+          `[billing] DEBIT_FAILED for social post ${socialPostId} (teamId=${teamIdForBilling} runId=${job.data.creditRunId}). ` +
+          `Marking job failed so pg-boss retries the debit. Post was generated successfully.`
+        );
+      }
     }
 
     // Record generation for AI Learning System

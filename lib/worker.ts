@@ -368,6 +368,24 @@ export async function registerWorkers() {
             const terminalStatuses = ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED'];
             if (runArticle && terminalStatuses.includes(runArticle.articleStatus || '')) {
               console.log(`⏭️ SKIPPING: Article ${articleId} run ${runId.slice(0,8)} already completed and article is ${runArticle.articleStatus} — no regeneration needed`);
+              // Ensure any outstanding reservation is debited before returning.
+              // This path is reached on a pg-boss retry when the prior attempt completed
+              // generation + DB write but failed on debit, causing the job to retry.
+              // ok:false means no reservation exists (pre-billing article, or already debited
+              // and reservation cleared) — safe to ignore; do NOT throw here or we create
+              // an infinite retry loop on an article that cannot be regenerated.
+              if (articleTeamId && articleCreditRunId) {
+                const { debitReservation } = await import("@/lib/billing");
+                const debitResult = await debitReservation({
+                  teamId: articleTeamId,
+                  runId: articleCreditRunId,
+                  amount: articleCreditCost,
+                  jobId: String(job.id),
+                });
+                if (!debitResult.ok) {
+                  console.warn(`[billing] article ${articleId} terminal-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
+                }
+              }
               return;
             }
             // Run completed but article isn't in terminal state — continue to regenerate
@@ -411,6 +429,21 @@ export async function registerWorkers() {
         const finalStatuses = ['COMPLETE', 'GPT4_ENHANCED'];
         if (finalStatuses.includes(currentArticle?.articleStatus || '')) {
           console.log(`⏭️ SKIPPING: Article ${articleId} is already ${currentArticle!.articleStatus} — job reset but no regeneration needed`);
+          // Ensure any outstanding reservation is debited before returning.
+          // Same rationale as the existingRun early-return above: on a debit-failure
+          // retry we must attempt the debit; ok:false just means no reservation to debit.
+          if (articleTeamId && articleCreditRunId) {
+            const { debitReservation } = await import("@/lib/billing");
+            const debitResult = await debitReservation({
+              teamId: articleTeamId,
+              runId: articleCreditRunId,
+              amount: articleCreditCost,
+              jobId: String(job.id),
+            });
+            if (!debitResult.ok) {
+              console.warn(`[billing] article ${articleId} final-status-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
+            }
+          }
           return;
         }
         
@@ -3382,11 +3415,17 @@ export async function registerWorkers() {
               const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
               if (videoPost?.teamId) {
                 const { debitReservation } = await import("@/lib/billing");
-                await debitReservation({
+                const debitResult = await debitReservation({
                   teamId: videoPost.teamId,
                   runId: videoCreditRunId,
                   jobId: job.id,
                 });
+                if (!debitResult.ok) {
+                  throw new Error(
+                    `[billing] DEBIT_FAILED for video post ${socialPostId} (teamId=${videoPost.teamId} runId=${videoCreditRunId}). ` +
+                    `Marking job failed so pg-boss retries the debit. Video was generated successfully.`
+                  );
+                }
               }
             }
             

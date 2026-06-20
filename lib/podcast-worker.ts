@@ -230,7 +230,13 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // Two-bucket billing: DEBIT on success
         if (job.teamId && job.creditRunId) {
           const { debitReservation } = await import("@/lib/billing");
-          await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId });
+          const debitResult = await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId });
+          if (!debitResult.ok) {
+            throw new Error(
+              `[billing] DEBIT_FAILED for podcast article ${articleId} (teamId=${job.teamId} runId=${job.creditRunId}). ` +
+              `Marking job failed so pg-boss retries the debit. Podcast was generated successfully.`
+            );
+          }
         }
 
         // Close the learning loop: record this podcast in the learning pipeline
