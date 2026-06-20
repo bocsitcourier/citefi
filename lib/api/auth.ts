@@ -501,3 +501,21 @@ export async function requireAuth(req: NextRequest): Promise<{ userId: number; t
     role: authResult.role,
   };
 }
+
+/**
+ * Guard: verifies a content resource belongs to the authenticated team.
+ *
+ * Throws 404 (not 403) so that IDOR attempts cannot probe resource existence.
+ * Use on every content read/write route after `requireTeamMember()`.
+ *
+ * @example
+ *   const { teamId } = await requireTeamMember(req);
+ *   requireTeamResource(article.teamId, teamId);
+ */
+export function requireTeamResource(resourceTeamId: number, authTeamId: number): void {
+  if (resourceTeamId !== authTeamId) {
+    const error: any = new Error("Resource not found");
+    error.statusCode = 404;
+    throw error;
+  }
+}

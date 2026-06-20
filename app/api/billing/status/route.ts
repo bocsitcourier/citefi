@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     }
 
     const [balance] = await db
-      .select({ balance: creditBalances.balance })
+      .select()
       .from(creditBalances)
       .where(eq(creditBalances.teamId, teamId))
       .limit(1);
@@ -35,6 +35,17 @@ export async function GET(req: NextRequest) {
     const plan = BILLING_PLANS[team.billingPlan as keyof typeof BILLING_PLANS] ?? BILLING_PLANS.free;
     const hasActivePlan =
       team.billingStatus === "active" || team.billingStatus === "trialing";
+
+    const allowanceRemaining = balance
+      ? Math.max(0, balance.allowanceCredits - balance.allowanceUsed)
+      : 0;
+    const purchasedRemaining = balance
+      ? Math.max(0, balance.purchasedCredits - balance.purchasedUsed)
+      : 0;
+    const totalRemaining = Math.max(
+      0,
+      allowanceRemaining + purchasedRemaining - (balance?.reservedCredits ?? 0)
+    );
 
     return NextResponse.json({
       plan: {
@@ -53,7 +64,19 @@ export async function GET(req: NextRequest) {
         hasSubscription: !!team.stripeSubscriptionId,
       },
       credits: {
+        // Legacy combined balance (kept for backward compat)
         balance: balance?.balance ?? 0,
+        // Two-bucket breakdown
+        allowanceCredits: balance?.allowanceCredits ?? 0,
+        purchasedCredits: balance?.purchasedCredits ?? 0,
+        allowanceUsed: balance?.allowanceUsed ?? 0,
+        purchasedUsed: balance?.purchasedUsed ?? 0,
+        reservedCredits: balance?.reservedCredits ?? 0,
+        allowanceRemaining,
+        purchasedRemaining,
+        totalRemaining,
+        periodStart: balance?.periodStart ?? null,
+        periodEnd: balance?.periodEnd ?? null,
       },
     });
   } catch (err: any) {

@@ -92,7 +92,7 @@ export async function registerWorkers() {
     async (jobs) => {
       for (const job of jobs) {
         console.log(`📦 Processing batch generation job ${job.id}`);
-        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName } = job.data;
+        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId } = job.data;
 
       try {
         await db
@@ -184,6 +184,7 @@ export async function registerWorkers() {
               personaId,
               journeyContext,
               journeyName,
+              creditRunId,
             });
             retried++;
             continue;
@@ -225,6 +226,7 @@ export async function registerWorkers() {
             personaId,
             journeyContext,
             journeyName,
+            creditRunId,
           });
           spawned++;
         }
@@ -306,7 +308,7 @@ export async function registerWorkers() {
       // Process each job sequentially
       for (const job of jobs) {
         console.log(`📝 Processing article generation job ${job.id}`);
-        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName } = job.data;
+        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId } = job.data;
 
       try {
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
@@ -1274,6 +1276,13 @@ export async function registerWorkers() {
           payloadJson: { articleId, wordCount: geminiResult.wordCount }
         });
 
+        // Two-bucket billing: DEBIT on success (converts reservation to actual usage)
+        if (articleTeamId && articleCreditRunId) {
+          const { debitReservation } = await import("@/lib/billing");
+          await debitReservation({ teamId: articleTeamId, runId: articleCreditRunId, amount: 10, jobId: String(job.id) })
+            .catch((e: unknown) => console.warn(`[billing] debitReservation failed for article ${articleId}:`, e));
+        }
+
         // Check if all articles in batch are complete
         await checkBatchCompletion(batchId);
 
@@ -1314,6 +1323,13 @@ export async function registerWorkers() {
             .where(eq(articles.id, articleId));
         } catch (dbError) {
           console.error(`❌ Failed to update article status:`, dbError);
+        }
+
+        // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles)
+        if (articleTeamId && articleCreditRunId) {
+          const { releaseReservation } = await import("@/lib/billing");
+          await releaseReservation({ teamId: articleTeamId, runId: articleCreditRunId, amount: 10, reason: `Article ${articleId} generation failed` })
+            .catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
         }
 
         // Record failure in learning ledger so the AI learning center can surface it

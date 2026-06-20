@@ -13,6 +13,8 @@ import { getContentOptimizationContext, type ContentOptimizationContext } from "
 import { refundCredits, CREDIT_COSTS } from "./credits";
 
 export interface PodcastGenerationJob {
+  /** Two-bucket billing: reservation runId threaded from the API route */
+  creditRunId?: string;
   articleId: number;
   tone?: string;
   duration?: string;
@@ -225,6 +227,13 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           })
           .where(eq(articles.id, articleId));
 
+        // Two-bucket billing: DEBIT on success
+        if (job.teamId && job.creditRunId) {
+          const { debitReservation } = await import("@/lib/billing");
+          await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId })
+            .catch((e: unknown) => console.warn(`[Podcast Worker] Non-fatal: debitReservation failed for article ${articleId}:`, e));
+        }
+
         // Close the learning loop: record this podcast in the learning pipeline
         // so the engagement scorer can label it and Wilson attribution can fire.
         const effectiveTeamId = teamId ?? article.teamId;
@@ -284,7 +293,19 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       .where(eq(articles.id, articleId));
 
     // Refund credits if userId + ledger row were provided by the caller
-    if (job.userId && job.debitLedgerRowId && job.teamId) {
+    // Two-bucket billing: RELEASE reservation on failure (no charge)
+    if (job.teamId && job.creditRunId) {
+      const { releaseReservation } = await import("@/lib/billing");
+      await releaseReservation({
+        teamId: job.teamId,
+        runId: job.creditRunId,
+        userId: job.userId,
+        reason: `Release: podcast generation failure for article ${articleId}`,
+      }).catch((releaseErr) => {
+        console.error(`[Podcast Worker] Failed to release credits for article ${articleId}:`, releaseErr);
+      });
+    } else if (job.userId && job.debitLedgerRowId && job.teamId) {
+      // Legacy fallback: refund via old debitLedgerRowId path
       await refundCredits({
         teamId: job.teamId,
         userId: job.userId,

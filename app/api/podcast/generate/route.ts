@@ -5,6 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { generateArticlePodcast } from "@/lib/podcast-worker";
 import { requireTeamMember } from "@/lib/api/auth";
 import { debitCredits, refundCredits } from "@/lib/credits";
+import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
 export async function POST(request: NextRequest) {
@@ -63,17 +64,16 @@ export async function POST(request: NextRequest) {
     // Per-request idempotency key: stable for network retries, unique per generation attempt
     const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
 
-    // Debit AFTER acquiring lock — reset lock on insufficient credits
-    const creditDebit = await debitCredits({
+    // RESERVE credits — no charge until generation completes successfully
+    const creditRunId = `podcast:${articleId}:${requestKey}`;
+    const creditReserve = await reserveCredits({
       teamId,
+      operationType: "podcast",
+      runId: creditRunId,
       userId,
-      productType: "podcast",
-      idempotencyKey: `podcast:${articleId}:${requestKey}`,
-      sourceType: "article",
-      sourceId: articleId,
     });
 
-    if (!creditDebit.ok) {
+    if (!creditReserve.ok) {
       await db
         .update(articles)
         .set({ podcastStatus: article.podcastStatus ?? "none" })
@@ -82,15 +82,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          balance: creditDebit.balance,
-          requiredCredits: creditDebit.requiredCredits,
-          message: `You need ${creditDebit.requiredCredits} credits to generate a podcast. Current balance: ${creditDebit.balance}.`,
+          balance: creditReserve.totalRemaining,
+          requiredCredits: creditReserve.requiredCredits,
+          message: `You need ${creditReserve.requiredCredits} credits to generate a podcast. Current balance: ${creditReserve.totalRemaining}.`,
         },
         { status: 402 }
       );
     }
 
-    // Fire-and-forget generation — worker handles async failure (sets podcastStatus=failed, refunds credits)
+    // Fire-and-forget generation — worker calls debitReservation on success, releaseReservation on failure
     try {
       generateArticlePodcast({
         articleId,
@@ -98,19 +98,16 @@ export async function POST(request: NextRequest) {
         duration,
         teamId,
         userId,
-        debitLedgerRowId: creditDebit.ledgerRowId,
+        creditRunId,
       }).catch((err) => {
         console.error("Podcast generation failed:", err);
       });
     } catch (startErr) {
-      await refundCredits({
+      await releaseReservation({
         teamId,
+        runId: creditRunId,
         userId,
-        amount: 8,
-        reason: `Refund: podcast start failure for article ${articleId}`,
-        sourceType: "article",
-        sourceId: articleId,
-        debitLedgerRowId: creditDebit.ledgerRowId,
+        reason: `Release: podcast start failure for article ${articleId}`,
       }).catch(() => {});
       throw startErr;
     }

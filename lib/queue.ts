@@ -30,6 +30,8 @@ export interface BatchJobData {
   // Journey Orchestrator — passed through to article workers for narrative coherence
   journeyContext?: string | null;
   journeyName?: string | null;
+  // Two-bucket billing: RESERVE runId threaded from route → worker for DEBIT/RELEASE
+  creditRunId?: string;
 }
 
 export interface ArticleJobData {
@@ -57,6 +59,8 @@ export interface ArticleJobData {
   // Journey Orchestrator — shared narrative context injected into article generation prompt
   journeyContext?: string | null;
   journeyName?: string | null;
+  // Two-bucket billing: RESERVE runId threaded from route → worker for DEBIT/RELEASE
+  creditRunId?: string;
 }
 
 export interface PodcastJobData {

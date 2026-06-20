@@ -25,7 +25,32 @@ export async function GET(request: NextRequest) {
         .orderBy(desc(creditLedger.createdAt))
         .limit(100);
 
-      return NextResponse.json({ balance: balance?.balance ?? 0, teamId, ledger });
+      const allowanceRemaining = balance
+        ? Math.max(0, balance.allowanceCredits - balance.allowanceUsed)
+        : 0;
+      const purchasedRemaining = balance
+        ? Math.max(0, balance.purchasedCredits - balance.purchasedUsed)
+        : 0;
+      const totalRemaining = Math.max(
+        0,
+        allowanceRemaining + purchasedRemaining - (balance?.reservedCredits ?? 0)
+      );
+
+      return NextResponse.json({
+        teamId,
+        balance: balance?.balance ?? 0,
+        allowanceCredits: balance?.allowanceCredits ?? 0,
+        purchasedCredits: balance?.purchasedCredits ?? 0,
+        allowanceUsed: balance?.allowanceUsed ?? 0,
+        purchasedUsed: balance?.purchasedUsed ?? 0,
+        reservedCredits: balance?.reservedCredits ?? 0,
+        allowanceRemaining,
+        purchasedRemaining,
+        totalRemaining,
+        periodStart: balance?.periodStart ?? null,
+        periodEnd: balance?.periodEnd ?? null,
+        ledger,
+      });
     }
 
     const allBalances = await db
@@ -33,6 +58,12 @@ export async function GET(request: NextRequest) {
         teamId: creditBalances.teamId,
         teamName: teams.name,
         balance: creditBalances.balance,
+        allowanceCredits: creditBalances.allowanceCredits,
+        purchasedCredits: creditBalances.purchasedCredits,
+        allowanceUsed: creditBalances.allowanceUsed,
+        purchasedUsed: creditBalances.purchasedUsed,
+        reservedCredits: creditBalances.reservedCredits,
+        periodEnd: creditBalances.periodEnd,
         updatedAt: creditBalances.updatedAt,
       })
       .from(creditBalances)

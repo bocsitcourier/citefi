@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { socialPosts, socialPostVariants, socialPostAssets } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { articles, socialPosts, socialPostVariants, socialPostAssets } from "@/shared/schema";
+import { eq, and } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
 export async function GET(
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
     const { id } = await params;
     const articleId = parseInt(id);
 
@@ -20,9 +20,25 @@ export async function GET(
       );
     }
 
+    // SECURITY: Verify the article belongs to the caller's team before exposing
+    // social-post data. Without this check an authenticated user from team A could
+    // read social posts for articles belonging to team B (IDOR).
+    const [article] = await db
+      .select({ id: articles.id })
+      .from(articles)
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
+
+    if (!article) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
+
     // Fetch social posts for this article with variants and assets
+    // Double-scoped by teamId for defence-in-depth
     const posts = await db.query.socialPosts.findMany({
-      where: eq(socialPosts.articleId, articleId),
+      where: and(
+        eq(socialPosts.articleId, articleId),
+        eq(socialPosts.teamId, teamId)
+      ),
       with: {
         variants: {
           with: {

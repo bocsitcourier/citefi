@@ -5,6 +5,7 @@ import { jobBatches, articles, clientBrandProfiles } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { addBatchGenerationJob } from "@/lib/queue";
 import { debitCredits, refundCredits, CREDIT_COSTS } from "@/lib/credits";
+import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
@@ -149,26 +150,25 @@ export async function POST(request: NextRequest) {
     // Per-request idempotency key: stable for retries of the same request, unique per submission attempt
     const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
 
-    // Debit credits — refund + reset batch if insufficient
-    const creditDebit = await debitCredits({
+    // RESERVE credits — atomic two-bucket reserve; DEBIT fires per-article on success
+    const creditRunId = `batch:${batchId}:${requestKey}`;
+    const creditReserve = await reserveCredits({
       teamId,
+      operationType: "article",
+      runId: creditRunId,
+      amount: CREDIT_COSTS.article * selectedTitles.length,
       userId,
-      productType: "article",
-      units: selectedTitles.length,
-      idempotencyKey: `batch:${batchId}:${requestKey}`,
-      sourceType: "batch",
-      sourceId: batchId,
     });
 
-    if (!creditDebit.ok) {
+    if (!creditReserve.ok) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          balance: creditDebit.balance,
-          requiredCredits: creditDebit.requiredCredits,
+          balance: creditReserve.totalRemaining,
+          requiredCredits: creditReserve.requiredCredits,
           upgradeUrl: "/settings/billing",
-          message: `You need ${creditDebit.requiredCredits} credits to generate ${selectedTitles.length} articles. Current balance: ${creditDebit.balance}. Purchase more credits at /settings/billing.`,
+          message: `You need ${creditReserve.requiredCredits} credits to generate ${selectedTitles.length} articles. Current balance: ${creditReserve.totalRemaining}. Purchase more credits at /settings/billing.`,
         },
         { status: 402 }
       );
@@ -218,20 +218,18 @@ export async function POST(request: NextRequest) {
         semanticClusterId,
         serpFeatureTarget,
         personaId,
+        creditRunId,
       });
 
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
     } catch (queueErr) {
       console.error(`❌ Batch ${batchId} submission failed:`, queueErr);
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
-      await refundCredits({
+      await releaseReservation({
         teamId,
+        runId: creditRunId,
         userId,
-        amount: CREDIT_COSTS.article * selectedTitles.length,
-        reason: `Refund: batch ${batchId} queue failure`,
-        sourceType: "batch",
-        sourceId: batchId,
-        debitLedgerRowId: creditDebit.ledgerRowId,
+        reason: `Release: batch ${batchId} queue failure`,
       }).catch(() => {});
       return NextResponse.json(
         { error: "Failed to queue batch generation job. Please try again." },

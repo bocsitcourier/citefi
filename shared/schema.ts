@@ -2754,7 +2754,16 @@ export type CostTelemetry = typeof costTelemetry.$inferSelect;
 export const creditBalances = pgTable("credit_balances", {
   id: serial("id").primaryKey(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }).unique(),
+  // Legacy combined balance — kept for backward compat with lib/credits.ts & Stripe webhook
   balance: integer("balance").notNull().default(0),
+  // Two-bucket design (two-phase metering)
+  allowanceCredits: integer("allowance_credits").notNull().default(0),
+  purchasedCredits: integer("purchased_credits").notNull().default(0),
+  allowanceUsed: integer("allowance_used").notNull().default(0),
+  purchasedUsed: integer("purchased_used").notNull().default(0),
+  reservedCredits: integer("reserved_credits").notNull().default(0),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
   teamIdx: uniqueIndex("credit_balances_team_idx").on(t.teamId),
@@ -2770,6 +2779,11 @@ export const creditLedger = pgTable("credit_ledger", {
   amount: integer("amount").notNull(),
   balanceAfter: integer("balance_after").notNull(),
   eventType: varchar("event_type", { length: 30 }).notNull(),
+  // Two-bucket extensions
+  bucket: varchar("bucket", { length: 20 }),      // "allowance" | "purchased"
+  runId: varchar("run_id", { length: 255 }),        // ties reserve → debit/release
+  operationType: varchar("operation_type", { length: 50 }), // canonical op name from credit-menu
+  // Legacy fields kept for backward compat
   productType: varchar("product_type", { length: 30 }),
   sourceType: varchar("source_type", { length: 30 }),
   sourceId: integer("source_id"),
@@ -2782,6 +2796,7 @@ export const creditLedger = pgTable("credit_ledger", {
   teamCreatedIdx: index("credit_ledger_team_created_idx").on(t.teamId, t.createdAt),
   productIdx: index("credit_ledger_product_idx").on(t.productType, t.createdAt),
   idempotencyIdx: uniqueIndex("credit_ledger_idempotency_idx").on(t.idempotencyKey),
+  runIdIdx: index("credit_ledger_run_id_idx").on(t.runId),
 }));
 
 export type CreditLedger = typeof creditLedger.$inferSelect;
