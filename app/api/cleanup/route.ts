@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
       config: configs,
       defaults,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to fetch cleanup data:", error);
     return NextResponse.json(
       { error: "Failed to fetch cleanup data" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
       },
       { status: 202 }
     );
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
         error: "Failed to trigger cleanup",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -178,7 +178,7 @@ export async function PATCH(request: NextRequest) {
       config,
       message: "Cleanup configuration updated successfully",
     });
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
@@ -195,7 +195,7 @@ export async function PATCH(request: NextRequest) {
         error: "Failed to update cleanup configuration",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
