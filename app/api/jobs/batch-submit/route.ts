@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { jobBatches, articles, clientBrandProfiles } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { addBatchGenerationJob } from "@/lib/queue";
-import { debitCredits, refundCredits, CREDIT_COSTS } from "@/lib/credits";
+import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
@@ -151,12 +151,15 @@ export async function POST(request: NextRequest) {
     const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
 
     // RESERVE credits — atomic two-bucket reserve; DEBIT fires per-article on success
+    // Resolve per-article cost honoring DB overrides (team-specific → global → static default)
+    const creditCostPerUnit = (await getEffectiveCreditCost("article", teamId)) ?? getCreditCost("article") ?? 10;
+
     const creditRunId = `batch:${batchId}:${requestKey}`;
     const creditReserve = await reserveCredits({
       teamId,
       operationType: "article",
       runId: creditRunId,
-      amount: CREDIT_COSTS.article * selectedTitles.length,
+      amount: creditCostPerUnit * selectedTitles.length,
       userId,
     });
 
@@ -164,9 +167,13 @@ export async function POST(request: NextRequest) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       return NextResponse.json(
         {
-          error: "Insufficient credits",
-          balance: creditReserve.totalRemaining,
-          requiredCredits: creditReserve.requiredCredits,
+          error: "CREDITS_EXHAUSTED",
+          creditCost: creditReserve.requiredCredits,
+          sufficient: false,
+          allowanceRemaining: creditReserve.allowanceRemaining,
+          purchasedRemaining: creditReserve.purchasedRemaining,
+          totalRemaining: creditReserve.totalRemaining,
+          insufficientBy: creditReserve.insufficientBy,
           upgradeUrl: "/settings/billing",
           message: `You need ${creditReserve.requiredCredits} credits to generate ${selectedTitles.length} articles. Current balance: ${creditReserve.totalRemaining}. Purchase more credits at /settings/billing.`,
         },
@@ -219,6 +226,7 @@ export async function POST(request: NextRequest) {
         serpFeatureTarget,
         personaId,
         creditRunId,
+        creditCostPerUnit,
       });
 
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");

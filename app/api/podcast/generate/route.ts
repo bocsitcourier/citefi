@@ -81,9 +81,14 @@ export async function POST(request: NextRequest) {
         .catch(() => {});
       return NextResponse.json(
         {
-          error: "Insufficient credits",
-          balance: creditReserve.totalRemaining,
-          requiredCredits: creditReserve.requiredCredits,
+          error: "CREDITS_EXHAUSTED",
+          creditCost: creditReserve.requiredCredits,
+          sufficient: false,
+          allowanceRemaining: creditReserve.allowanceRemaining,
+          purchasedRemaining: creditReserve.purchasedRemaining,
+          totalRemaining: creditReserve.totalRemaining,
+          insufficientBy: creditReserve.insufficientBy,
+          upgradeUrl: "/settings/billing",
           message: `You need ${creditReserve.requiredCredits} credits to generate a podcast. Current balance: ${creditReserve.totalRemaining}.`,
         },
         { status: 402 }

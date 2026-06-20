@@ -66,12 +66,19 @@ export async function GET(req: NextRequest) {
       quantity,
       unitCost,
       totalCost,
+      /** Spec-canonical alias for totalCost */
+      creditCost: totalCost,
       balance: {
         allowanceRemaining: balance.allowanceRemaining,
         purchasedRemaining: balance.purchasedRemaining,
         totalRemaining: balance.totalRemaining,
       },
+      allowanceRemaining: balance.allowanceRemaining,
+      purchasedRemaining: balance.purchasedRemaining,
+      totalRemaining: balance.totalRemaining,
       canAfford,
+      /** Spec-canonical alias for canAfford */
+      sufficient: canAfford,
       insufficientBy: canAfford ? 0 : totalCost - balance.totalRemaining,
       /** Full credit menu for display purposes */
       creditMenu: CREDIT_MENU,

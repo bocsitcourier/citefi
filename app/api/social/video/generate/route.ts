@@ -135,7 +135,9 @@ export async function POST(request: NextRequest) {
         .catch(() => {});
       return NextResponse.json(
         {
-          error: "Insufficient credits",
+          error: "CREDITS_EXHAUSTED",
+          creditCost: reservation.requiredCredits,
+          sufficient: false,
           allowanceRemaining: reservation.allowanceRemaining,
           purchasedRemaining: reservation.purchasedRemaining,
           totalRemaining: reservation.totalRemaining,

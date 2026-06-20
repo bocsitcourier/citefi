@@ -32,6 +32,9 @@ export interface BatchJobData {
   journeyName?: string | null;
   // Two-bucket billing: RESERVE runId threaded from route → worker for DEBIT/RELEASE
   creditRunId?: string;
+  // Per-unit credit cost from the credit menu (including DB overrides) stored at enqueue
+  // time so workers debit/release the exact amount reserved, not a hardcoded constant.
+  creditCostPerUnit?: number;
 }
 
 export interface ArticleJobData {
@@ -61,6 +64,9 @@ export interface ArticleJobData {
   journeyName?: string | null;
   // Two-bucket billing: RESERVE runId threaded from route → worker for DEBIT/RELEASE
   creditRunId?: string;
+  // Per-unit credit cost carried from the batch reservation so workers don't need
+  // a hardcoded constant and DB overrides are honoured end-to-end.
+  creditCostPerUnit?: number;
 }
 
 export interface PodcastJobData {

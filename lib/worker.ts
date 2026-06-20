@@ -92,7 +92,7 @@ export async function registerWorkers() {
     async (jobs) => {
       for (const job of jobs) {
         console.log(`📦 Processing batch generation job ${job.id}`);
-        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId } = job.data;
+        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit } = job.data;
 
       try {
         await db
@@ -185,6 +185,7 @@ export async function registerWorkers() {
               journeyContext,
               journeyName,
               creditRunId,
+              creditCostPerUnit: batchCreditCostPerUnit,
             });
             retried++;
             continue;
@@ -227,6 +228,7 @@ export async function registerWorkers() {
             journeyContext,
             journeyName,
             creditRunId,
+            creditCostPerUnit: batchCreditCostPerUnit,
           });
           spawned++;
         }
@@ -308,7 +310,12 @@ export async function registerWorkers() {
       // Process each job sequentially
       for (const job of jobs) {
         console.log(`📝 Processing article generation job ${job.id}`);
-        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId } = job.data;
+        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
+        // Per-article cost: use the value threaded through from the batch reservation
+        // (which honours DB overrides). Fall back to static default only for legacy jobs
+        // that predate this field being stored in job data.
+        const { getCreditCost: _getCreditCost } = await import("@/lib/credit-menu");
+        const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
 
       try {
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
@@ -1276,11 +1283,23 @@ export async function registerWorkers() {
           payloadJson: { articleId, wordCount: geminiResult.wordCount }
         });
 
-        // Two-bucket billing: DEBIT on success (converts reservation to actual usage)
+        // Two-bucket billing: DEBIT on success (converts reservation to actual usage).
+        // FATAL if debit fails — pg-boss will retry the job; the article is already written
+        // so the generation step is skipped on retry but the debit attempt is repeated.
         if (articleTeamId && articleCreditRunId) {
           const { debitReservation } = await import("@/lib/billing");
-          await debitReservation({ teamId: articleTeamId, runId: articleCreditRunId, amount: 10, jobId: String(job.id) })
-            .catch((e: unknown) => console.warn(`[billing] debitReservation failed for article ${articleId}:`, e));
+          const debitResult = await debitReservation({
+            teamId: articleTeamId,
+            runId: articleCreditRunId,
+            amount: articleCreditCost,
+            jobId: String(job.id),
+          });
+          if (!debitResult.ok) {
+            throw new Error(
+              `[billing] DEBIT_FAILED for article ${articleId} (teamId=${articleTeamId} runId=${articleCreditRunId} amount=${articleCreditCost}). ` +
+              `Marking job failed so pg-boss retries the debit. Content was generated successfully.`
+            );
+          }
         }
 
         // Check if all articles in batch are complete
@@ -1332,7 +1351,7 @@ export async function registerWorkers() {
           await releaseReservation({
             teamId: articleTeamId,
             runId: articleCreditRunId,
-            amount: 10,
+            amount: articleCreditCost,
             reason: `Article ${articleId} generation failed`,
             releaseKey: `article:${articleId}`,
           }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));

@@ -84,8 +84,12 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
  */
 export function paywallErrorBody(result: PaywallResult) {
   return {
-    error: "Insufficient credits",
+    error: "CREDITS_EXHAUSTED",
     creditBalance: result.creditBalance,
+    allowanceRemaining: 0,
+    purchasedRemaining: 0,
+    totalRemaining: result.creditBalance,
+    sufficient: false,
     planId: result.planId,
     billingStatus: result.billingStatus,
     upgradeUrl: "/settings/billing",

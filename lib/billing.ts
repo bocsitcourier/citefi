@@ -181,15 +181,31 @@ export async function reserveCredits(params: {
       .limit(1);
 
     if (existingReserve) {
-      const [row] = await tx
-        .select()
-        .from(creditBalances)
-        .where(eq(creditBalances.teamId, teamId))
+      // Only reuse the reservation if it is still OUTSTANDING — i.e. it has NOT been
+      // consumed by a debit or release yet. If it was consumed (e.g. reserve → release →
+      // retry with same runId), fall through and create a fresh reservation so the caller
+      // is never left with ok:true but no actual credit hold.
+      const [consumed] = await tx
+        .select({ id: creditLedger.id })
+        .from(creditLedger)
+        .where(
+          sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} IN ('debit', 'release')`
+        )
         .limit(1);
-      const after = row
-        ? computeRemaining(row)
-        : { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
-      return { ok: true, runId, requiredCredits: amount, ...after };
+
+      if (!consumed) {
+        // Reservation is still active — return cached ok:true without double-reserving
+        const [row] = await tx
+          .select()
+          .from(creditBalances)
+          .where(eq(creditBalances.teamId, teamId))
+          .limit(1);
+        const after = row
+          ? computeRemaining(row)
+          : { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
+        return { ok: true, runId, requiredCredits: amount, ...after };
+      }
+      // Reservation was consumed — fall through to create a fresh one
     }
 
     // ── Atomic reserve ───────────────────────────────────────────────────────
