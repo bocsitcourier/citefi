@@ -540,6 +540,17 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
 
     console.log(`✅ Social post ${socialPostId} generation completed successfully`);
 
+    // Two-bucket billing: DEBIT reservation on success
+    const teamIdForBilling = job.data.teamId ?? postDetails?.teamId;
+    if (job.data.creditRunId && teamIdForBilling) {
+      const { debitReservation } = await import("@/lib/billing");
+      await debitReservation({
+        teamId: teamIdForBilling,
+        runId: job.data.creditRunId,
+        jobId: job.id,
+      }).catch((e: unknown) => console.warn(`[billing] social debitReservation failed for socialPostId=${socialPostId}:`, e));
+    }
+
     // Record generation for AI Learning System
     try {
       if (postDetails?.teamId) {
@@ -600,6 +611,17 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         platforms,
       },
     });
+
+    // Two-bucket billing: RELEASE reservation on failure (no charge)
+    const teamIdForRelease = job.data.teamId;
+    if (job.data.creditRunId && teamIdForRelease) {
+      const { releaseReservation } = await import("@/lib/billing");
+      await releaseReservation({
+        teamId: teamIdForRelease,
+        runId: job.data.creditRunId,
+        reason: `Social post ${socialPostId} generation failed`,
+      }).catch((e: unknown) => console.warn(`[billing] social releaseReservation failed for socialPostId=${socialPostId}:`, e));
+    }
 
     throw error;
   }

@@ -74,6 +74,10 @@ export interface PodcastJobData {
 export interface SocialPostJobData {
   socialPostId: number; // Standalone social post ID (not tied to articles)
   userId: number;
+  /** Team that owns this post — required for billing debit/release in the worker */
+  teamId?: number;
+  /** Two-bucket billing runId — worker calls debitReservation/releaseReservation with this */
+  creditRunId?: string;
   prompt: string;
   platforms: string[]; // ['x', 'facebook', 'instagram', 'linkedin', 'pinterest']
   tone?: string;

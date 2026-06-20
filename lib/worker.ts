@@ -30,7 +30,7 @@ import {
   type PodcastJobData,
 } from "./queue";
 import { db } from "./db";
-import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas } from "@/shared/schema";
+import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas, creditLedger } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
@@ -4117,6 +4117,48 @@ async function checkBatchCompletion(batchId: number) {
       .where(eq(jobBatches.id, batchId));
 
     console.log(`✅ Batch ${batchId} finished with status: ${finalStatus}`);
+
+    // ── Billing reconciliation ───────────────────────────────────────────────
+    // Release any credits that were reserved for this batch but never debited
+    // or explicitly released (e.g. titles skipped as already-complete, or
+    // titles cancelled mid-batch).  This prevents credits from being stuck in
+    // reservedCredits indefinitely.
+    try {
+      const reservations = await db
+        .select({ runId: creditLedger.runId, amount: creditLedger.amount, teamId: creditLedger.teamId })
+        .from(creditLedger)
+        .where(sql`${creditLedger.runId} LIKE ${'batch:' + batchId + ':%'} AND ${creditLedger.eventType} = 'reserve'`)
+        .limit(10);
+
+      for (const res of reservations) {
+        const ledgerRows = await db
+          .select({ eventType: creditLedger.eventType, amount: creditLedger.amount })
+          .from(creditLedger)
+          .where(sql`${creditLedger.teamId} = ${res.teamId} AND ${creditLedger.runId} = ${res.runId} AND ${creditLedger.eventType} IN ('debit', 'release')`);
+
+        const totalDebited = ledgerRows
+          .filter(r => r.eventType === "debit")
+          .reduce((sum, r) => sum + Math.abs(r.amount), 0);
+        const totalReleased = ledgerRows
+          .filter(r => r.eventType === "release")
+          .reduce((sum, r) => sum + r.amount, 0);
+
+        const remaining = res.amount - totalDebited - totalReleased;
+        if (remaining > 0) {
+          console.log(`[billing] Batch ${batchId} reconciliation: releasing ${remaining} unreleased credits for runId=${res.runId}`);
+          const { releaseReservation } = await import("@/lib/billing");
+          await releaseReservation({
+            teamId: res.teamId,
+            runId: res.runId,
+            amount: remaining,
+            reason: `Batch ${batchId} end-of-batch reconciliation`,
+            releaseKey: `batch:${batchId}:reconcile`,
+          }).catch((e: unknown) => console.warn(`[billing] Batch reconciliation release failed:`, e));
+        }
+      }
+    } catch (reconcileErr: unknown) {
+      console.warn(`[billing] Batch ${batchId} reservation reconciliation failed (non-fatal):`, reconcileErr);
+    }
 
     // Log batch completion event
     const { jobEvents } = await import("@/shared/schema");

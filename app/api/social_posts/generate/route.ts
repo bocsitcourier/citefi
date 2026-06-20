@@ -3,8 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { socialPosts, articles, jobBatches } from "@/shared/schema";
 import { addSocialPostJob } from "@/lib/queue";
-import { debitCredits, refundCredits } from "@/lib/credits";
-import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
+import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -45,17 +44,14 @@ export async function POST(request: NextRequest) {
 
     // If article ID provided, fetch article details
     if (validatedData.articleId) {
-      // CRITICAL: Verify article belongs to user's team (including NULL team_id for legacy articles)
+      // Verify article belongs to this team — strict ownership, no NULL-team fallback
       const [article] = await db
         .select()
         .from(articles)
         .where(
           and(
             eq(articles.id, parseInt(validatedData.articleId)),
-            or(
-              eq(articles.teamId, teamId),
-              isNull(articles.teamId) // Include articles with NULL team_id
-            )
+            eq(articles.teamId, teamId)
           )
         );
 
@@ -239,28 +235,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Paywall gate — plan-level check before credit debit
-    const paywallResult = await checkTeamPaywall(teamId);
-    if (!paywallResult.allowed) {
-      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
-    }
-
-    // Debit FIRST — key is team-scoped to prevent cross-tenant collision
-    const creditDebit = await debitCredits({
+    // Two-bucket billing: RESERVE credits atomically before queuing.
+    // The worker debits on success or releases on failure — no charge for failed jobs.
+    const creditRunId = `social:${teamId}:${requestKey}`;
+    const reservation = await reserveCredits({
       teamId,
+      operationType: "social",
+      runId: creditRunId,
       userId,
-      productType: "social",
-      idempotencyKey: `social:${teamId}:${requestKey}`,
-      sourceType: "social_post",
     });
 
-    if (!creditDebit.ok) {
+    if (!reservation.ok) {
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          balance: creditDebit.balance,
-          requiredCredits: creditDebit.requiredCredits,
-          message: `You need ${creditDebit.requiredCredits} credits to generate a social post. Current balance: ${creditDebit.balance}.`,
+          allowanceRemaining: reservation.allowanceRemaining,
+          purchasedRemaining: reservation.purchasedRemaining,
+          totalRemaining: reservation.totalRemaining,
+          insufficientBy: reservation.insufficientBy,
+          upgradeUrl: "/settings/billing",
+          message: `Insufficient credits. You need ${reservation.requiredCredits} but have ${reservation.totalRemaining} available.`,
         },
         { status: 402 }
       );
@@ -318,13 +312,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Previous attempt pending, please retry shortly" }, { status: 409 });
         }
       }
-      // Genuine DB error — refund and surface error
-      await refundCredits({
-        teamId, userId, amount: 4,
-        reason: `Refund: social post DB creation failure`,
-        sourceType: "social_post",
-        debitLedgerRowId: creditDebit.ledgerRowId,
-      }).catch(() => {});
+      // Genuine DB error — release reservation (no charge)
+      await releaseReservation({ teamId, runId: creditRunId, reason: "Social post DB creation failure" }).catch(() => {});
       return NextResponse.json({ error: "Failed to create social post" }, { status: 500 });
     }
 
@@ -334,6 +323,8 @@ export async function POST(request: NextRequest) {
       jobId = await addSocialPostJob({
         socialPostId: socialPost.id,
         userId,
+        teamId,
+        creditRunId,
         prompt,
         platforms: validatedData.platforms.map(p => p.toLowerCase()),
         tone: validatedData.tone,
@@ -352,12 +343,8 @@ export async function POST(request: NextRequest) {
         .set({ status: "FAILED", requestKey: null })
         .where(eq(socialPosts.id, socialPost.id))
         .catch(() => {});
-      await refundCredits({
-        teamId, userId, amount: 4,
-        reason: `Refund: social post ${socialPost.id} queue failure`,
-        sourceType: "social_post", sourceId: socialPost.id,
-        debitLedgerRowId: creditDebit.ledgerRowId,
-      }).catch(() => {});
+      // Release reservation — no charge for queue failure
+      await releaseReservation({ teamId, runId: creditRunId, reason: `Social post ${socialPost.id} queue failure` }).catch(() => {});
       return NextResponse.json(
         { error: "Failed to queue social post generation", message: errMsg },
         { status: 500 }

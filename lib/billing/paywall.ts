@@ -14,29 +14,45 @@ export interface PaywallResult {
  * Enforce team paywall for generation endpoints.
  *
  * Rules:
- * - Any team with credits > 0: allowed (credit debit is the hard floor).
+ * - Any team with credits > 0: allowed (reserveCredits() is the hard floor).
  * - Free plan with 0 credits: blocked with 402 + billing CTA.
- * - Paid plan active/trialing with 0 credits: blocked (let credit debit return 402).
- * - Paid plan past_due: allowed with 0 credits for a 3-day grace period
- *   (simplified: always allowed if subscription exists — Stripe handles dunning).
+ * - Paid plan active/trialing with 0 credits: blocked (let reserveCredits return 402).
+ * - Paid plan past_due: allowed with 0 credits (Stripe handles dunning).
  * - Subscription canceled, 0 credits: blocked.
  *
  * Returns `allowed: false` only when the team is on the free tier (or canceled)
  * AND has no credits. This is the plan-level gate on top of credit metering.
+ *
+ * Credit balance is sourced from the two-bucket engine (allowance + purchased)
+ * when bucket grants exist, falling back to the legacy balance column for
+ * teams that predate the two-bucket migration.
  */
 export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
   const [[team], [balanceRow]] = await Promise.all([
     db.select({ billingPlan: teams.billingPlan, billingStatus: teams.billingStatus })
       .from(teams).where(eq(teams.id, teamId)).limit(1),
-    db.select({ balance: creditBalances.balance })
-      .from(creditBalances).where(eq(creditBalances.teamId, teamId)).limit(1),
+    db.select({
+      balance: creditBalances.balance,
+      allowanceCredits: creditBalances.allowanceCredits,
+      allowanceUsed: creditBalances.allowanceUsed,
+      purchasedCredits: creditBalances.purchasedCredits,
+      purchasedUsed: creditBalances.purchasedUsed,
+      reservedCredits: creditBalances.reservedCredits,
+    }).from(creditBalances).where(eq(creditBalances.teamId, teamId)).limit(1),
   ]);
 
   const planId = team?.billingPlan ?? "free";
   const billingStatus = team?.billingStatus ?? "active";
-  const creditBalance = balanceRow?.balance ?? 0;
 
-  // Always allow when there are credits — debitCredits() is the enforcement layer
+  // Effective balance: prefer two-bucket total when bucket grants exist,
+  // otherwise fall back to legacy balance column (pre-migration teams).
+  const allowanceRemaining = Math.max(0, (balanceRow?.allowanceCredits ?? 0) - (balanceRow?.allowanceUsed ?? 0));
+  const purchasedRemaining = Math.max(0, (balanceRow?.purchasedCredits ?? 0) - (balanceRow?.purchasedUsed ?? 0));
+  const bucketTotal = Math.max(0, allowanceRemaining + purchasedRemaining - (balanceRow?.reservedCredits ?? 0));
+  const hasBucketGrants = (balanceRow?.allowanceCredits ?? 0) > 0 || (balanceRow?.purchasedCredits ?? 0) > 0;
+  const creditBalance = hasBucketGrants ? bucketTotal : (balanceRow?.balance ?? 0);
+
+  // Always allow when there are credits — reserveCredits() is the enforcement layer
   if (creditBalance > 0) {
     return { allowed: true, planId, billingStatus, creditBalance };
   }
