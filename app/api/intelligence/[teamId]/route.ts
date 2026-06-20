@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const recomputeSchema = z.object({
   windowDays: z.number().int().min(1).max(365).default(30),
-  contentType: z.enum(["article", "social_post"]).optional(),
+  contentType: z.enum(["article", "social", "social_post", "podcast", "video"]).optional(),
 });
 
 export async function GET(
@@ -36,10 +36,10 @@ export async function GET(
     const contentTypeParam = url.searchParams.get("contentType");
     const limit = parseInt(url.searchParams.get("limit") ?? "100");
 
-    const contentType =
-      contentTypeParam === "article" || contentTypeParam === "social_post"
-        ? contentTypeParam
-        : undefined;
+    const VALID_CONTENT_TYPES = ["article", "social", "social_post", "podcast", "video"];
+    const contentType = contentTypeParam && VALID_CONTENT_TYPES.includes(contentTypeParam)
+      ? (contentTypeParam === "social_post" ? "social" : contentTypeParam)
+      : undefined;
 
     const rows = await getIntelligence(requestedTeamId, {
       contentType,

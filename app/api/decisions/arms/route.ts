@@ -8,7 +8,7 @@ import { z } from "zod";
 
 const createArmSchema = z.object({
   policyId: z.number().int().positive(),
-  contentType: z.enum(["article", "social_post"]),
+  contentType: z.enum(["article", "social", "social_post", "podcast", "video"]),
   articleId: z.number().int().positive().nullable().optional(),
   socialPostId: z.number().int().positive().nullable().optional(),
   label: z.string().max(100).nullable().optional(),

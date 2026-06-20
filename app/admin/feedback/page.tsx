@@ -130,7 +130,9 @@ export default function FeedbackAdminPage() {
           <SelectContent>
             <SelectItem value="all">All content</SelectItem>
             <SelectItem value="article">Articles</SelectItem>
-            <SelectItem value="social_post">Social posts</SelectItem>
+            <SelectItem value="social">Social posts</SelectItem>
+            <SelectItem value="podcast">Podcasts</SelectItem>
+            <SelectItem value="video">Videos</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -173,7 +175,7 @@ export default function FeedbackAdminPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {row.articleId ?? row.socialPostId ?? "—"}
+                        {row.articleId ?? row.socialPostId ?? (row as any).videoIdeaId ?? "—"}
                       </td>
                       <td className="px-4 py-3">
                         {row.rating === "up" ? (

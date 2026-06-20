@@ -7,7 +7,7 @@ import { createPolicy } from "@/lib/bayesian-decision-service";
 import { z } from "zod";
 
 const createPolicySchema = z.object({
-  contentType: z.enum(["article", "social_post"]).default("article"),
+  contentType: z.enum(["article", "social", "social_post", "podcast", "video"]).default("article"),
   objective: z.string().max(50).default("maximize_conversions"),
   explorationRate: z.number().min(0).max(1).default(0.1),
   holdoutPercent: z.number().min(0).max(0.5).default(0.1),

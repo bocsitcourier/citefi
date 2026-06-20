@@ -2817,9 +2817,12 @@ export const contentFeedback = pgTable("content_feedback", {
   id: serial("id").primaryKey(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
+  // Canonical values: "article" | "social" | "podcast" | "video"
+  // Legacy value "social_post" accepted on input and normalized to "social" at API layer.
+  contentType: varchar("content_type", { length: 50 }).notNull(),
   articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
   socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  videoIdeaId: integer("video_idea_id").references(() => videoIdeas.id, { onDelete: "cascade" }),
   rating: varchar("rating", { length: 10 }).notNull(), // "up" | "down"
   comment: text("comment"),
   metricId: integer("metric_id"), // contentPerformanceMetrics.id for learning attribution
@@ -2837,6 +2840,46 @@ export const insertContentFeedbackSchema = createInsertSchema(contentFeedback).o
 });
 export type ContentFeedback = typeof contentFeedback.$inferSelect;
 export type InsertContentFeedback = z.infer<typeof insertContentFeedbackSchema>;
+
+// ============================================================================
+// Judge Recalibration Queue — rows written when human feedback contradicts the
+// AI judge score (e.g. human rates 5★ but judge scored ≤ 60). Used to retrain
+// or recalibrate the judge model's rubric for specific content dimensions.
+// ============================================================================
+export const judgeRecalibrationQueue = pgTable("judge_recalibration_queue", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 50 }).notNull(),
+  articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
+  socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
+  videoIdeaId: integer("video_idea_id").references(() => videoIdeas.id, { onDelete: "cascade" }),
+  // Human feedback signal
+  humanRating: integer("human_rating").notNull(), // 1–5 stars
+  humanIsSuccess: boolean("human_is_success").notNull(), // derived from rating
+  // AI judge signal at time of feedback
+  judgeScore: integer("judge_score"), // 0–100 composite quality score
+  judgeDimensionScores: jsonb("judge_dimension_scores"), // {completeness,factuality,…}
+  // Conflict details
+  conflictDimension: varchar("conflict_dimension", { length: 50 }), // which dimension disagreed most
+  conflictMagnitude: integer("conflict_magnitude"), // abs(human - judge) in 0–100 scale
+  // Processing
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | reviewed | applied | dismissed
+  reviewNotes: text("review_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  jrqTeamIdx: index("jrq_team_idx").on(t.teamId),
+  jrqStatusIdx: index("jrq_status_idx").on(t.status),
+  jrqCreatedAtIdx: index("jrq_created_at_idx").on(t.createdAt),
+  jrqTeamStatusIdx: index("jrq_team_status_idx").on(t.teamId, t.status),
+}));
+
+export const insertJudgeRecalibrationSchema = createInsertSchema(judgeRecalibrationQueue).omit({
+  id: true,
+  createdAt: true,
+});
+export type JudgeRecalibration = typeof judgeRecalibrationQueue.$inferSelect;
+export type InsertJudgeRecalibration = z.infer<typeof insertJudgeRecalibrationSchema>;
 
 // ============================================================================
 // Content Events — high-volume engagement + conversion event stream.

@@ -14,7 +14,7 @@ import { getNextContent } from "@/lib/journey-orchestrator-service";
 const bodySchema = z.object({
   teamId: z.number().int().positive(),
   visitorId: z.string().min(1).max(128),
-  contentType: z.enum(["article", "social_post"]).optional(),
+  contentType: z.enum(["article", "social", "social_post", "podcast", "video"]).optional(),
   locale: z.string().max(100).optional(),
   personaId: z.number().int().positive().optional(),
   channel: z.string().max(50).optional(),
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const result = await getNextContent({
       teamId,
       visitorId,
-      contentType: contentType ?? "article",
+      contentType: (contentType === "social_post" ? "social" : contentType) ?? "article",
       locale,
       personaId,
       channel,

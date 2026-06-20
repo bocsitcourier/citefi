@@ -40,11 +40,11 @@ function hashVisitor(visitorId: string): string {
 export interface JourneyContext {
   teamId: number;
   visitorId: string;
-  contentType?: "article" | "social_post";
+  contentType?: "article" | "social" | "social_post" | "podcast" | "video";
   /** City / region string for article locale matching */
   locale?: string;
   personaId?: number;
-  /** Platform for social_post matching */
+  /** Platform for social matching */
   channel?: string;
 }
 
@@ -52,7 +52,7 @@ export interface JourneyNextResult {
   policyId: number;
   armId: number;
   isHoldout: boolean;
-  contentType: "article" | "social_post";
+  contentType: string;
   content: {
     id: number;
     title: string;
@@ -104,6 +104,9 @@ export interface JourneyStats {
 const CONTENT_TYPE_KEY: Record<string, number> = {
   article: 1,
   social_post: 2,
+  social: 2,
+  podcast: 3,
+  video: 4,
 };
 
 // ---------------------------------------------------------------------------
@@ -144,7 +147,7 @@ async function countActiveArms(policyId: number): Promise<number> {
 
 export async function getOrCreateActivePolicy(
   teamId: number,
-  contentType: "article" | "social_post"
+  contentType: string
 ): Promise<{ policy: DecisionPolicy; armCount: number }> {
   // Fast path: policy with active arms already exists
   const existing = await findActivePolicy(teamId, contentType);
@@ -187,7 +190,7 @@ export async function getOrCreateActivePolicy(
     }
 
     // Select eligible content items
-    type EligibleItem = { id: number; label: string; type: "article" | "social_post" };
+    type EligibleItem = { id: number; label: string; type: string };
     let eligibleItems: EligibleItem[] = [];
 
     if (contentType === "article") {
@@ -205,9 +208,10 @@ export async function getOrCreateActivePolicy(
       eligibleItems = arts.map((a) => ({
         id: a.id,
         label: a.title.slice(0, 80),
-        type: "article" as const,
+        type: "article",
       }));
     } else {
+      // social / social_post / podcast / video — all fall back to social posts for now
       const posts = await tx
         .select({ id: socialPosts.id, title: socialPosts.title })
         .from(socialPosts)
@@ -217,7 +221,7 @@ export async function getOrCreateActivePolicy(
       eligibleItems = posts.map((p) => ({
         id: p.id,
         label: p.title.slice(0, 80),
-        type: "social_post" as const,
+        type: "social",
       }));
     }
 
@@ -259,7 +263,7 @@ export async function getOrCreateActivePolicy(
         teamId,
         contentType: item.type,
         articleId: item.type === "article" ? item.id : null,
-        socialPostId: item.type === "social_post" ? item.id : null,
+        socialPostId: (item.type === "social" || item.type === "social_post") ? item.id : null,
         label: item.label,
         priorAlpha: 1.0,
         priorBeta: 1.0,

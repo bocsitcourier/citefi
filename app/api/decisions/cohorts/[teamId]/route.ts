@@ -27,10 +27,10 @@ export async function GET(
     const url = new URL(req.url);
 
     const contentTypeParam = url.searchParams.get("contentType");
-    const contentType =
-      contentTypeParam === "article" || contentTypeParam === "social_post"
-        ? contentTypeParam
-        : undefined;
+    const VALID_CONTENT_TYPES = ["article", "social", "social_post", "podcast", "video"];
+    const contentType = contentTypeParam && VALID_CONTENT_TYPES.includes(contentTypeParam)
+      ? (contentTypeParam === "social_post" ? "social" : contentTypeParam)
+      : undefined;
 
     const minImpressions = parseInt(url.searchParams.get("minImpressions") ?? "30");
     const minLiftPct = parseFloat(url.searchParams.get("minLift") ?? "0.05");

@@ -142,7 +142,7 @@ export async function computeIntelligence(
 export async function getIntelligence(
   teamId: number,
   options: {
-    contentType?: "article" | "social_post";
+    contentType?: string;
     windowDays?: number;
     limit?: number;
   } = {}

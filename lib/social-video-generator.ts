@@ -147,10 +147,13 @@ export async function generateSocialVideo(
           /* JSON parse failed — keep original script */
         }
       }
-      // Non-blocking — record arm + quality + patterns for the video content type
+      // Non-blocking — record arm + quality + patterns for learning.
+      // Social videos are stored in social_posts (not video_ideas), so we record
+      // under ContentType.SOCIAL so the learning service maps the ID to
+      // socialPostId (not videoIdeaId) — preventing a silent FK mismatch.
       recordContentGenerated(
         post.teamId,
-        ContentType.VIDEO,
+        ContentType.SOCIAL,
         socialPostId,
         capturedVideoPatternIds,
         orchResult.qualityScore > 0 ? orchResult.qualityScore : 75,
