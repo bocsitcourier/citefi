@@ -69,6 +69,22 @@ async function ensureBucketRow(teamId: number, tx: any): Promise<void> {
       reservedCredits: 0,
     })
     .onConflictDoNothing();
+
+  // Lazy one-time migration: teams that were granted credits via the legacy
+  // `balance` field (before the two-bucket system) have allowanceCredits=0 and
+  // purchasedCredits=0 but a positive balance. Treat that legacy balance as
+  // purchased credits so reserveCredits() / debitReservation() can see it.
+  // The UPDATE is a no-op (0 rows affected) for any team already on the bucket
+  // system, so it is safe to call on every transaction.
+  await tx
+    .update(creditBalances)
+    .set({ purchasedCredits: sql`${creditBalances.balance}` })
+    .where(
+      sql`${creditBalances.teamId} = ${teamId}
+        AND ${creditBalances.balance} > 0
+        AND ${creditBalances.allowanceCredits} = 0
+        AND ${creditBalances.purchasedCredits} = 0`
+    );
 }
 
 function computeRemaining(row: {
