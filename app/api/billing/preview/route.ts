@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { getBucketBalance } from "@/lib/billing";
-import { getCreditCost, CREDIT_MENU, type OperationType } from "@/lib/credit-menu";
+import { getEffectiveCreditCost, CREDIT_MENU, type OperationType } from "@/lib/credit-menu";
 import { z } from "zod";
 
 const previewSchema = z.object({
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { operationType, quantity } = parsed.data;
-    const unitCost = getCreditCost(operationType);
+    const unitCost = await getEffectiveCreditCost(operationType, teamId);
 
     if (unitCost === null) {
       return NextResponse.json(

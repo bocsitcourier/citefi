@@ -9,7 +9,7 @@ import {
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
 
 const updateSocialPostSchema = z.object({
   topic: z.string().optional(),
@@ -57,6 +57,7 @@ export async function GET(
         { status: 404 }
       );
     }
+    requireTeamResource(post.teamId, teamId);
 
     // Fetch all platform variants for this post
     const variants = await db
@@ -104,6 +105,7 @@ export async function PUT(
         { status: 404 }
       );
     }
+    requireTeamResource(existingPost.teamId, teamId);
 
     const updateData: any = { updatedAt: new Date() };
     if (validatedData.topic !== undefined) updateData.topic = validatedData.topic;
@@ -181,6 +183,7 @@ export async function PATCH(
         { status: 404 }
       );
     }
+    requireTeamResource(existingPost.teamId, teamId);
 
     const [updatedPost] = await db
       .update(socialPosts)
@@ -247,6 +250,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    requireTeamResource(existingPost.teamId, teamId);
 
     // HARD DELETE: Remove post and all related records in correct cascade order
     // This matches the behavior of batch-delete endpoint for consistency

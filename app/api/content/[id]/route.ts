@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles, articleAssets, jobBatches, errorLogs } from "@/shared/schema";
 import { and, eq, asc, desc } from "drizzle-orm";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
 
 // Helper: Convert any absolute image URL to a relative /api/public-objects/ path.
 // This makes URLs immune to Replit dev domain changes and works on any deployment.
@@ -72,6 +72,7 @@ export async function GET(
         { status: 404 }
       );
     }
+    requireTeamResource(article.teamId, teamId);
 
     // Run remaining queries in parallel — they're all independent once we have the article
     const [batchResult, assets, errors] = await Promise.all([
@@ -181,6 +182,7 @@ export async function PUT(
         { status: 404 }
       );
     }
+    requireTeamResource(article.teamId, teamId);
 
     const updatePayload: any = {};
     if (updateData.finalHtmlContent !== undefined) updatePayload.finalHtmlContent = updateData.finalHtmlContent;
@@ -245,6 +247,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    requireTeamResource(article.teamId, teamId);
 
     const assets = await db
       .select()

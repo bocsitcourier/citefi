@@ -16,7 +16,7 @@ import {
   batchSeoCache 
 } from "@/shared/schema";
 import { eq, inArray, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
@@ -53,6 +53,7 @@ export async function GET(
         { status: 404 }
       );
     }
+    requireTeamResource(batch.teamId, teamId);
 
     // Only select columns needed for the UI — avoids pulling 20KB+ bodyHtml on every poll
     const batchArticles = await db
@@ -177,6 +178,7 @@ export async function PATCH(
         { status: 404 }
       );
     }
+    requireTeamResource(existingBatch.teamId, teamId);
 
     if (existingBatch.status === "RUNNING") {
       return NextResponse.json(
@@ -263,6 +265,7 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    requireTeamResource(batch.teamId, teamId);
 
     // Get all articles in this batch
     const batchArticles = await db
