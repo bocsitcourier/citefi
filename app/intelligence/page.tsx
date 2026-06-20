@@ -11,11 +11,15 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, RefreshCw, Loader2, AlertTriangle, CheckCircle2, Clock,
   ChevronDown, ChevronUp, Pencil, Check, X, Plus, Target, ShieldCheck,
   Users, TrendingUp, MessageSquare, Lightbulb, MapPin, BookOpen,
+  Search, Globe, BarChart3, ExternalLink, ShieldAlert,
 } from "lucide-react";
 import type { ClientBrandProfileJson } from "@/lib/client-brand-profile-service";
 
@@ -703,6 +707,11 @@ export default function BrandIntelligencePage() {
         </div>
       )}
 
+      {/* Market Intelligence section */}
+      <div className="md:col-span-2">
+        <MarketIntelligenceSection />
+      </div>
+
       {/* Seed Exemplars section */}
       {merged && (
         <div className="md:col-span-2">
@@ -739,6 +748,299 @@ export default function BrandIntelligencePage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Market Intelligence Section (Task #25)
+// ---------------------------------------------------------------------------
+
+interface CIResearchResult {
+  success: boolean;
+  topPerformersFound: number;
+  searchesPerformed: number;
+  patternsExtracted: number;
+  patternsSeeded: number;
+  patternsSkipped: number;
+  gaps: Array<{ dimension: string; opportunity: string; urgency: string }>;
+  intelContext: {
+    externalHookPatterns: string[];
+    gapAngles: string[];
+    platformSignals: string[];
+    trustNote: string;
+  };
+}
+
+interface ExternalPattern {
+  id: number;
+  patternType: string;
+  patternName: string;
+  patternValue: string;
+  successRate: number;
+  confidence: number;
+  externalUrl?: string | null;
+  externalPlatform?: string | null;
+  validatedByOwnAudience: boolean;
+  createdAt: string;
+}
+
+function MarketIntelligenceSection() {
+  const { toast } = useToast();
+  const [topic, setTopic] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [location, setLocation] = useState("");
+  const [contentType, setContentType] = useState<"social" | "video" | "podcast">("social");
+  const [lastResult, setLastResult] = useState<CIResearchResult | null>(null);
+
+  function getAuthHeaders() {
+    const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  const researchMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/intelligence/competitive-research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ topic, industry, location: location || undefined, contentType }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Research failed");
+      }
+      return res.json() as Promise<CIResearchResult>;
+    },
+    onSuccess: (data) => {
+      setLastResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/intelligence/competitive-patterns"] });
+      toast({ title: "Market research complete", description: `${data.patternsSeeded} new patterns seeded, ${data.gaps.length} gaps found.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Research failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const patternsQuery = useQuery<{ patterns: ExternalPattern[] }>({
+    queryKey: ["/api/intelligence/competitive-patterns", contentType],
+    queryFn: async () => {
+      const res = await fetch(`/api/intelligence/competitive-patterns?contentType=${contentType}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch patterns");
+      return res.json();
+    },
+  });
+
+  const patterns = patternsQuery.data?.patterns ?? [];
+  const validatedPatterns = patterns.filter(p => p.validatedByOwnAudience);
+  const pendingPatterns = patterns.filter(p => !p.validatedByOwnAudience);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-primary" />
+            <CardTitle className="text-base">Market Intelligence</CardTitle>
+            <Badge variant="secondary" className="text-xs">Beta</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            {patterns.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {patterns.length} external patterns · {validatedPatterns.length} validated
+              </span>
+            )}
+          </div>
+        </div>
+        <CardDescription className="text-xs mt-1">
+          Research top-performing competitor content to discover market patterns and content gaps. Patterns are seeded into the learning system at a low score and graduate as your audience validates them.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Research form */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Topic / Niche</Label>
+            <Input
+              value={topic}
+              onChange={e => setTopic(e.target.value)}
+              placeholder="e.g. roofing services"
+              className="h-8 text-sm"
+              data-testid="input-ci-topic"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Industry</Label>
+            <Input
+              value={industry}
+              onChange={e => setIndustry(e.target.value)}
+              placeholder="e.g. home improvement"
+              className="h-8 text-sm"
+              data-testid="input-ci-industry"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Location (optional)</Label>
+            <Input
+              value={location}
+              onChange={e => setLocation(e.target.value)}
+              placeholder="e.g. Austin, TX"
+              className="h-8 text-sm"
+              data-testid="input-ci-location"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Content Type</Label>
+            <Select value={contentType} onValueChange={v => setContentType(v as "social" | "video" | "podcast")}>
+              <SelectTrigger className="h-8 text-sm" data-testid="select-ci-content-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="social">Social</SelectItem>
+                <SelectItem value="video">Video</SelectItem>
+                <SelectItem value="podcast">Podcast</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => researchMutation.mutate()}
+          disabled={researchMutation.isPending || !topic.trim() || !industry.trim()}
+          data-testid="button-run-ci-research"
+        >
+          {researchMutation.isPending
+            ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Researching…</>
+            : <><Search className="w-3.5 h-3.5 mr-1.5" />Run Market Research</>
+          }
+        </Button>
+
+        {/* Research results */}
+        {lastResult && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { label: "Top performers", value: lastResult.topPerformersFound },
+                { label: "Patterns extracted", value: lastResult.patternsExtracted },
+                { label: "Patterns seeded", value: lastResult.patternsSeeded },
+                { label: "Gaps found", value: lastResult.gaps.length },
+              ].map(stat => (
+                <div key={stat.label} className="bg-muted/40 rounded-md px-3 py-2 text-center">
+                  <p className="text-lg font-semibold">{stat.value}</p>
+                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Gap analysis */}
+            {lastResult.gaps.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                  Gap Analysis
+                </p>
+                <div className="space-y-1.5">
+                  {lastResult.gaps.map((gap, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs border rounded-md px-3 py-2">
+                      <Badge
+                        variant={gap.urgency === "high" ? "destructive" : gap.urgency === "medium" ? "outline" : "secondary"}
+                        className="text-xs shrink-0 mt-0.5"
+                      >
+                        {gap.urgency}
+                      </Badge>
+                      <div>
+                        <span className="font-medium text-foreground">{gap.dimension}:</span>{" "}
+                        <span className="text-muted-foreground">{gap.opportunity}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Hook pattern previews */}
+            {lastResult.intelContext.externalHookPatterns.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 text-primary" />
+                  Top Hook Patterns (injected into next generation)
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {lastResult.intelContext.externalHookPatterns.slice(0, 5).map((h, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs font-normal">{h}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Existing external patterns */}
+        {patterns.length > 0 && (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-primary" />
+                Seeded External Patterns — {contentType}
+              </p>
+              <div className="flex gap-1.5">
+                {validatedPatterns.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    <CheckCircle2 className="w-3 h-3 mr-1 text-green-500" />
+                    {validatedPatterns.length} validated
+                  </Badge>
+                )}
+                {pendingPatterns.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    <Clock className="w-3 h-3 mr-1" />
+                    {pendingPatterns.length} pending
+                  </Badge>
+                )}
+              </div>
+            </div>
+            {patternsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                <Loader2 className="w-3 h-3 animate-spin" />Loading patterns…
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {patterns.slice(0, 15).map(p => (
+                  <div key={p.id} className="flex items-start gap-2 text-xs border rounded-md px-2.5 py-1.5">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium text-foreground truncate">{p.patternName}</span>
+                        <Badge variant="outline" className="text-xs">{p.patternType}</Badge>
+                        {p.externalPlatform && (
+                          <Badge variant="secondary" className="text-xs">{p.externalPlatform}</Badge>
+                        )}
+                        {p.validatedByOwnAudience && (
+                          <Badge variant="secondary" className="text-xs">
+                            <CheckCircle2 className="w-3 h-3 mr-0.5 text-green-500" />Validated
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground mt-0.5 line-clamp-2">{p.patternValue}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-muted-foreground">{p.successRate.toFixed(0)}</span>
+                      {p.externalUrl && (
+                        <a href={p.externalUrl} target="_blank" rel="noopener noreferrer" className="ml-1.5 text-muted-foreground hover:text-foreground inline-block">
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <ShieldAlert className="w-3 h-3 shrink-0 mt-0.5" />
+              External patterns compete in exploration only. They graduate to the exploitation pool once your audience validates them through engagement.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

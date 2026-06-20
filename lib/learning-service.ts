@@ -1255,6 +1255,184 @@ export class LearningService {
       return [];
     }
   }
+
+  // ============================================================================
+  // Task #25: Competitive Intelligence — External Pattern Seeding
+  // ============================================================================
+
+  /**
+   * Seed external patterns discovered via competitive research into the learning
+   * system at a low initial Wilson score (floor of 5).  They compete in the
+   * Thompson Sampling exploration slot alongside internal patterns but only
+   * graduate to the exploitation pool once validatedByOwnAudience is promoted.
+   *
+   * Uses an upsert strategy keyed on (agentId, patternType, patternName) to
+   * avoid duplicates when research is run multiple times for the same niche.
+   */
+  async seedExternalPatterns(
+    teamId: number,
+    contentType: string,
+    patterns: Array<{
+      patternType: string;
+      patternName: string;
+      patternValue: string;
+      externalUrl?: string;
+      externalPlatform?: string;
+    }>
+  ): Promise<{ seeded: number; skipped: number }> {
+    let seeded = 0;
+    let skipped = 0;
+
+    const agent = await this.getAgentForContentType(teamId, contentType);
+    if (!agent) {
+      await this.initializeDefaultAgents(teamId);
+      const newAgent = await this.getAgentForContentType(teamId, contentType);
+      if (!newAgent) {
+        console.warn(`[CompetitiveIntel] No agent found for team ${teamId} / ${contentType}`);
+        return { seeded: 0, skipped: patterns.length };
+      }
+    }
+
+    const resolvedAgent = agent ?? (await this.getAgentForContentType(teamId, contentType));
+    if (!resolvedAgent) return { seeded: 0, skipped: patterns.length };
+
+    for (const p of patterns) {
+      try {
+        // Check for duplicate by agentId + patternType + patternName
+        const existing = await db
+          .select({ id: learningPatterns.id })
+          .from(learningPatterns)
+          .where(
+            and(
+              eq(learningPatterns.agentId, resolvedAgent.id),
+              eq(learningPatterns.patternType, p.patternType),
+              eq(learningPatterns.patternName, p.patternName)
+            )
+          )
+          .limit(1);
+
+        if (existing.length > 0) {
+          skipped++;
+          continue;
+        }
+
+        await db.insert(learningPatterns).values({
+          agentId: resolvedAgent.id,
+          teamId,
+          contentType,
+          patternType: p.patternType,
+          patternName: p.patternName,
+          patternValue: p.patternValue,
+          successRate: 5,      // Floor Wilson score — must be validated up
+          engagementScore: 5,
+          qualityScore: 50,
+          confidence: 0,
+          // External CI fields
+          source: "external",
+          externalUrl: p.externalUrl ?? null,
+          externalPlatform: p.externalPlatform ?? null,
+          validatedByOwnAudience: false,
+        } as any);
+
+        seeded++;
+      } catch (err) {
+        console.warn(`[CompetitiveIntel] Failed to seed pattern "${p.patternName}":`, (err as Error).message);
+        skipped++;
+      }
+    }
+
+    // After seeding: promote external patterns whose Wilson score now exceeds
+    // the internal median for this dimension (graduated → validatedByOwnAudience=true).
+    await this.promoteValidatedExternalPatterns(teamId, contentType);
+
+    console.log(`[CompetitiveIntel] Seeded ${seeded} external patterns, skipped ${skipped} duplicates`);
+    return { seeded, skipped };
+  }
+
+  /**
+   * Promote external patterns whose success rate has risen above the internal
+   * median for their content type — signalling the team's own audience has
+   * validated them.
+   */
+  private async promoteValidatedExternalPatterns(teamId: number, contentType: string): Promise<void> {
+    try {
+      const [medianRow] = await db
+        .select({ median: sql<number>`percentile_cont(0.5) WITHIN GROUP (ORDER BY success_rate)` })
+        .from(learningPatterns)
+        .where(
+          and(
+            eq(learningPatterns.teamId, teamId),
+            eq(learningPatterns.contentType, contentType),
+            eq(learningPatterns.source, "internal"),
+            eq(learningPatterns.isArchived, false)
+          )
+        );
+
+      const internalMedian = Number(medianRow?.median ?? 0);
+      if (internalMedian === 0) return; // Not enough internal data yet
+
+      await db
+        .update(learningPatterns)
+        .set({ validatedByOwnAudience: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(learningPatterns.teamId, teamId),
+            eq(learningPatterns.contentType, contentType),
+            eq(learningPatterns.source, "external"),
+            eq(learningPatterns.validatedByOwnAudience, false),
+            sql`${learningPatterns.successRate} > ${internalMedian}`
+          )
+        );
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Return external patterns for a team + content type with their validation status.
+   */
+  async getExternalPatterns(
+    teamId: number,
+    contentType: string
+  ): Promise<Array<{
+    id: number;
+    patternType: string;
+    patternName: string;
+    patternValue: string;
+    successRate: number;
+    confidence: number;
+    externalUrl?: string | null;
+    externalPlatform?: string | null;
+    validatedByOwnAudience: boolean;
+    createdAt: Date;
+  }>> {
+    const rows = await db
+      .select()
+      .from(learningPatterns)
+      .where(
+        and(
+          eq(learningPatterns.teamId, teamId),
+          eq(learningPatterns.contentType, contentType),
+          eq(learningPatterns.source, "external"),
+          eq(learningPatterns.isArchived, false)
+        )
+      )
+      .orderBy(desc(learningPatterns.successRate))
+      .limit(50);
+
+    return rows.map(r => ({
+      id: r.id,
+      patternType: r.patternType,
+      patternName: r.patternName,
+      patternValue: r.patternValue,
+      successRate: r.successRate,
+      confidence: r.confidence,
+      externalUrl: (r as any).externalUrl ?? null,
+      externalPlatform: (r as any).externalPlatform ?? null,
+      validatedByOwnAudience: (r as any).validatedByOwnAudience ?? false,
+      createdAt: r.createdAt,
+    }));
+  }
 }
 
 export const learningService = LearningService.getInstance();

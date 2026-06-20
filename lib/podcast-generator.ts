@@ -7,6 +7,7 @@ import { getContentOptimizationContext, type ContentOptimizationContext } from "
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizePodcastScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
+import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -47,6 +48,8 @@ export async function generatePodcastScript(
     personaId?: number;
     enableFactValidation?: boolean;
     podcastId?: number;
+    // Task #25: Competitive Intelligence
+    competitiveIntel?: CompetitiveIntelContext;
   } = {}
 ): Promise<PodcastScript> {
   const {
@@ -58,6 +61,7 @@ export async function generatePodcastScript(
     personaId,
     enableFactValidation,
     podcastId,
+    competitiveIntel,
   } = options;
   
   const brandLockContext = companyName && companyName !== "our company" ? createBrandLockPromptSegment(companyName) : "";
@@ -80,7 +84,24 @@ export async function generatePodcastScript(
     }
   }
 
-  const prompt = `You are an expert podcast script writer. Create a natural, engaging, ENTERTAINING 2-host conversational podcast script that summarizes the following article.${personaContext}
+  // Task #25: Build competitive intelligence section for podcast
+  let ciSection = "";
+  if (competitiveIntel) {
+    const ci = competitiveIntel;
+    const parts: string[] = ["\n\n## Market-validated podcast content patterns (external — adapt to your hosts' voice)"];
+    if (ci.externalHookPatterns.length > 0) {
+      parts.push(...ci.externalHookPatterns.slice(0, 3));
+    }
+    if (ci.gapAngles.length > 0) {
+      parts.push("\n## Underserved angles listeners want addressed");
+      parts.push(...ci.gapAngles.slice(0, 2));
+    }
+    parts.push(`\nNote: ${ci.trustNote}`);
+    ciSection = parts.join("\n");
+    console.log(`[CI] Podcast: ${ci.externalHookPatterns.length} hook patterns + ${ci.gapAngles.length} gap angles injected`);
+  }
+
+  const prompt = `You are an expert podcast script writer. Create a natural, engaging, ENTERTAINING 2-host conversational podcast script that summarizes the following article.${personaContext}${ciSection}
 
 **Article Title:** ${articleTitle}
 

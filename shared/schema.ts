@@ -1134,6 +1134,16 @@ export const learningPatterns = pgTable("learning_patterns", {
   // Consecutive weekly check counter for 3-week gate: incremented each Monday when
   // Wilson LB < 10 with ≥50 trials; reset to 0 when pattern recovers; archived at 3.
   weakWeekCount: smallint("weak_week_count").notNull().default(0),
+
+  // Competitive Intelligence (Task #25)
+  // 'internal' = discovered from own audience data (default)
+  // 'external' = seeded from competitive market research via Brave Search
+  source: varchar("source", { length: 20 }).notNull().default("internal"),
+  externalUrl: text("external_url"),        // URL of top-performing content this was extracted from
+  externalPlatform: varchar("external_platform", { length: 50 }), // youtube, tiktok, instagram, linkedin, podcast
+  validatedByOwnAudience: boolean("validated_by_own_audience").notNull().default(false),
+  // External patterns start with wilsonScore=5 (floor) and only graduate to exploitation
+  // pool once validatedByOwnAudience=true (set when Wilson score exceeds internal median).
   
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),

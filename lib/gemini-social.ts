@@ -17,6 +17,7 @@ import { getContentOptimizationContext, type ContentOptimizationContext } from "
 import { humanizeSocialPost } from "./deterministic-humanizer";
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { cleanGeneratedText } from "./content-cleaner";
+import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Gemini social post generation");
@@ -46,6 +47,8 @@ interface GeminiSocialPostRequest {
   // Anti-Hallucination Framework
   enableFactValidation?: boolean;
   socialPostId?: number;
+  // Task #25: Competitive Intelligence
+  competitiveIntel?: CompetitiveIntelContext;
 }
 
 interface FactValidationResult {
@@ -190,6 +193,24 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
     } catch (error) {
       console.warn(`⚠️ Failed to fetch psychographic context for social:`, error);
     }
+  }
+
+  // Task #25: COMPETITIVE INTELLIGENCE — inject market-validated patterns
+  if (request.competitiveIntel) {
+    const ci = request.competitiveIntel;
+    const ciSection: string[] = [
+      "\n\n## Market-validated hook patterns (external — treat as inspiration, adapt to brand voice)",
+    ];
+    if (ci.externalHookPatterns.length > 0) {
+      ciSection.push(...ci.externalHookPatterns.slice(0, 3));
+    }
+    if (ci.gapAngles.length > 0) {
+      ciSection.push("\n## Underserved angles in this niche");
+      ciSection.push(...ci.gapAngles.slice(0, 3));
+    }
+    ciSection.push(`\nNote: ${ci.trustNote}`);
+    systemPrompt += ciSection.join("\n");
+    console.log(`[CI] Injected ${ci.externalHookPatterns.length} hook patterns + ${ci.gapAngles.length} gap angles into social prompt`);
   }
 
   // Generate content with Gemini (shared by both prompt systems)

@@ -5,6 +5,7 @@ import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizeVideoScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
 import { getClientBrandContext } from "./client-brand-profile-service";
+import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -198,6 +199,8 @@ interface GenerateVideoScriptRequest {
   videoId?: number;
   dialogueMode?: VideoDialogueMode;
   isManualScript?: boolean;
+  // Task #25: Competitive Intelligence
+  competitiveIntel?: CompetitiveIntelContext;
 }
 
 export async function generateVideoScript(
@@ -241,9 +244,30 @@ export async function generateVideoScript(
   
   const dialogueModeInstructions = getDialogueModeInstructions(dialogueMode);
 
+  // Task #25: Build competitive intelligence prompt section for video
+  let ciSection = "";
+  if (request.competitiveIntel) {
+    const ci = request.competitiveIntel;
+    const parts: string[] = ["\n## Market-validated hook patterns (external — adapt to brand voice)"];
+    if (ci.externalHookPatterns.length > 0) {
+      parts.push(...ci.externalHookPatterns.slice(0, 3));
+    }
+    if (ci.platformSignals && ci.platformSignals.length > 0) {
+      parts.push("\n## Video-specific pacing & hold-rate signals from top performers");
+      parts.push(...ci.platformSignals.slice(0, 2));
+    }
+    if (ci.gapAngles.length > 0) {
+      parts.push("\n## Underserved angles in this niche");
+      parts.push(...ci.gapAngles.slice(0, 2));
+    }
+    parts.push(`\nNote: ${ci.trustNote}`);
+    ciSection = parts.join("\n");
+    console.log(`[CI] Video: ${ci.externalHookPatterns.length} hooks + ${ci.platformSignals?.length ?? 0} pacing signals + ${ci.gapAngles.length} gaps injected`);
+  }
+
   const prompt = `You are a professional video script writer creating a 60-second social media video script.
 ${brandLockContext}
-${brandIntelligenceContext ? `\nBRAND INTELLIGENCE (apply this brand voice and positioning throughout):\n${brandIntelligenceContext}\n` : ""}
+${brandIntelligenceContext ? `\nBRAND INTELLIGENCE (apply this brand voice and positioning throughout):\n${brandIntelligenceContext}\n` : ""}${ciSection ? `\n${ciSection}\n` : ""}
 
 ANTI-HALLUCINATION RULES (CRITICAL):
 - Do NOT include website URLs anywhere in the script
