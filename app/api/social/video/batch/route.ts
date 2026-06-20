@@ -171,14 +171,14 @@ export async function POST(request: NextRequest) {
       jobIds: queuedJobIds,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Batch video generation failed:", error);
     return NextResponse.json(
       {
         error: "Failed to start batch video generation",
         details: error instanceof Error ? error.message : String(error),
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

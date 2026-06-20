@@ -54,7 +54,7 @@ export async function POST(
       jobId,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Reformat queue error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(

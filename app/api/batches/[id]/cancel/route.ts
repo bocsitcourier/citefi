@@ -74,8 +74,8 @@ export async function POST(
       success: true,
       message: `Batch cancelled. ${cancelledJobs} queued job(s) stopped.`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error cancelling batch:", error);
-    return NextResponse.json({ error: "Failed to cancel batch" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to cancel batch" }, { status: error?.statusCode || 500 });
   }
 }

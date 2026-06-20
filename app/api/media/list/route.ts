@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
         error: "Failed to fetch media assets",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

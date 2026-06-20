@@ -62,11 +62,11 @@ export async function GET(request: NextRequest) {
         hasMore: offset + limit < (countResult?.count ?? 0),
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to fetch activity logs:", error);
     return NextResponse.json(
       { error: "Failed to fetch activity logs" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
         error: "Failed to create activity log",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     console.error("Schema markup generation error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to generate schema markup" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

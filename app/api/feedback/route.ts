@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[feedback POST]", err);
-    return NextResponse.json({ error: "Failed to submit feedback" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to submit feedback" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -240,6 +240,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[feedback GET]", err);
-    return NextResponse.json({ error: "Failed to fetch feedback" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch feedback" }, { status: err?.statusCode || 500 });
   }
 }

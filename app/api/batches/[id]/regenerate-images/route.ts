@@ -204,7 +204,7 @@ export async function POST(
         } else {
           errors.push(`Article ${article.id}: No image prompts generated`);
         }
-      } catch (error) {
+      } catch (error: any) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`❌ Failed to regenerate images for article ${article.id}:`, errorMsg);
         errors.push(`Article ${article.id}: ${errorMsg}`);
@@ -218,9 +218,9 @@ export async function POST(
       errors: errors.length > 0 ? errors : undefined
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error regenerating images:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: errorMessage }, { status: error?.statusCode || 500 });
   }
 }

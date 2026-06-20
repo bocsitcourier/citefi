@@ -90,6 +90,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     console.error("[auth/team-context POST]", err);
-    return NextResponse.json({ error: "Failed to switch team context" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to switch team context" }, { status: err?.statusCode || 500 });
   }
 }

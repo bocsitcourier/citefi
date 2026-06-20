@@ -108,14 +108,14 @@ export async function POST(
       heroImageUrl,
       message: "Hero image regenerated successfully",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[REGENERATE_HERO] Error:", error);
     return NextResponse.json(
       {
         error: "Failed to regenerate hero image",
         details: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

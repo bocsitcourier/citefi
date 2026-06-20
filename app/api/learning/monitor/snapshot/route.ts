@@ -14,6 +14,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     console.error("Learning monitor snapshot error:", error);
-    return NextResponse.json({ error: "Failed to load monitor snapshot" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load monitor snapshot" }, { status: error?.statusCode || 500 });
   }
 }

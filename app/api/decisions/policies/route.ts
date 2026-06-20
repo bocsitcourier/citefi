@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisions/policies GET]", err);
-    return NextResponse.json({ error: "Failed to fetch policies" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch policies" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -51,6 +51,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisions/policies POST]", err);
-    return NextResponse.json({ error: "Failed to create policy" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create policy" }, { status: err?.statusCode || 500 });
   }
 }

@@ -34,7 +34,7 @@ function calculateNextRun(cronExpression: string, timezone: string): Date {
     };
     const interval = cronParser.parse(cronExpression, options);
     return interval.next().toDate();
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Failed to parse cron expression "${cronExpression}":`, error);
     const fallback = new Date();
     fallback.setHours(fallback.getHours() + 24);

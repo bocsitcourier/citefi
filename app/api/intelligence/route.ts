@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     console.error("GET /api/intelligence error:", err);
-    return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load profile" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -55,6 +55,6 @@ export async function PATCH(req: NextRequest) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
     console.error("PATCH /api/intelligence error:", err);
-    return NextResponse.json({ error: "Failed to update intelligence profile" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update intelligence profile" }, { status: err?.statusCode || 500 });
   }
 }

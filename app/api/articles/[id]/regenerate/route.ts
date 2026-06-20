@@ -161,14 +161,14 @@ export async function POST(
         ? "Article regeneration started with your custom instructions"
         : "Article regeneration started",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Article regeneration error:", error);
     return NextResponse.json(
       { 
         error: "Failed to regenerate article",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

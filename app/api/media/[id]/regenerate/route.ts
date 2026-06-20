@@ -185,7 +185,7 @@ export async function POST(
       message: "Image regenerated successfully",
     });
 
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { 
@@ -202,7 +202,7 @@ export async function POST(
         error: "Failed to regenerate image",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -403,7 +403,7 @@ export async function POST(
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Heal error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(

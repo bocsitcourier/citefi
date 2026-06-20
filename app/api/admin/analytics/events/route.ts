@@ -107,6 +107,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[admin/analytics/events]", err);
-    return NextResponse.json({ error: "Failed to load event analytics" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load event analytics" }, { status: err?.statusCode || 500 });
   }
 }

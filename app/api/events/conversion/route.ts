@@ -273,6 +273,6 @@ export async function GET(req: NextRequest) {
     if (status === 401 || status === 403) {
       return NextResponse.json({ error: err.message }, { status });
     }
-    return NextResponse.json({ error: "Failed to fetch conversions" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch conversions" }, { status: err?.statusCode || 500 });
   }
 }

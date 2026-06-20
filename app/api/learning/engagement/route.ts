@@ -27,11 +27,11 @@ export async function POST(request: NextRequest) {
       success: true,
       message: "Engagement recorded",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to record engagement:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to record engagement" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

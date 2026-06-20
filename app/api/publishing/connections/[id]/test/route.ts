@@ -28,11 +28,11 @@ export async function POST(
       success: false,
       error: result.error,
     }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error testing connection:', error);
     return NextResponse.json(
       { error: 'Failed to test connection' },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

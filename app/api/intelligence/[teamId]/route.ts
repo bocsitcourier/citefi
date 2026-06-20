@@ -54,7 +54,7 @@ export async function GET(
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[intelligence GET]", err);
-    return NextResponse.json({ error: "Failed to fetch intelligence" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch intelligence" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -96,6 +96,6 @@ export async function POST(
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[intelligence POST]", err);
-    return NextResponse.json({ error: "Failed to compute intelligence" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to compute intelligence" }, { status: err?.statusCode || 500 });
   }
 }

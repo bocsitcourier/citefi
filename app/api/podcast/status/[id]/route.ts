@@ -48,11 +48,11 @@ export async function GET(
       generatedAt: article.podcastGeneratedAt,
       script: article.podcastScriptJson,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching podcast status:", error);
     return NextResponse.json(
       { error: "Failed to fetch podcast status" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

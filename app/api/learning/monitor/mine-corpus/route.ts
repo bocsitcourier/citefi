@@ -20,6 +20,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     console.error("Mine corpus error:", error);
-    return NextResponse.json({ error: "Failed to mine corpus" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to mine corpus" }, { status: error?.statusCode || 500 });
   }
 }

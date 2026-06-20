@@ -56,6 +56,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisions/update POST]", err);
-    return NextResponse.json({ error: "Failed to record outcome" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to record outcome" }, { status: err?.statusCode || 500 });
   }
 }

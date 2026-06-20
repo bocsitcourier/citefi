@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     console.error("Failed to get learning agents:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to get learning agents" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

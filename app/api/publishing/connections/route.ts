@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
       success: true, 
       data: safeConnections 
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching connections:', error);
     return NextResponse.json(
       { error: 'Failed to fetch connections' },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -78,11 +78,11 @@ export async function POST(request: NextRequest) {
         ? 'Connection created. Save the API key - it will only be shown once!'
         : 'Connection created',
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating connection:', error);
     return NextResponse.json(
       { error: 'Failed to create connection' },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

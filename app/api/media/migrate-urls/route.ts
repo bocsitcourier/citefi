@@ -80,14 +80,14 @@ export async function POST(request: NextRequest) {
         assetsWithNewUrls: assetsResult.rows?.[0]?.count || 0,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[MIGRATE_URLS] Error:", error);
     return NextResponse.json(
       {
         error: "Failed to migrate URLs",
         details: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

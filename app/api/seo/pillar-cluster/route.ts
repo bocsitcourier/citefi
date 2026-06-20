@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     console.error("Pillar cluster strategy error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to generate pillar cluster strategy" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

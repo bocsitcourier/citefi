@@ -57,14 +57,14 @@ export async function DELETE(
       message: "Asset deleted successfully",
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Media delete error:", error);
     return NextResponse.json(
       {
         error: "Failed to delete media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -103,14 +103,14 @@ export async function GET(
       asset,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Media get error:", error);
     return NextResponse.json(
       {
         error: "Failed to fetch media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -166,7 +166,7 @@ export async function PATCH(
       asset: updatedAsset,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
@@ -183,7 +183,7 @@ export async function PATCH(
         error: "Failed to update media asset",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

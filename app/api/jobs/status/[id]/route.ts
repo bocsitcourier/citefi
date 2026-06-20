@@ -97,14 +97,14 @@ export async function GET(
         progress: totalArticles > 0 ? Math.round((completedArticles / totalArticles) * 100) : 0,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Job status error:", error);
     return NextResponse.json(
       {
         error: "Failed to fetch job status",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
     console.error("Failed to get learning intelligence:", error);
     return NextResponse.json(
       { success: false, error: "Failed to get intelligence data" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -36,6 +36,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[client/articles]", err);
-    return NextResponse.json({ error: "Failed to load articles" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load articles" }, { status: err?.statusCode || 500 });
   }
 }

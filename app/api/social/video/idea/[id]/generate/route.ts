@@ -104,11 +104,11 @@ export async function POST(
       estimatedTime: "60-80 minutes",
     });
     
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error starting video idea generation:", error);
     return NextResponse.json(
       { error: "Failed to start video generation" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

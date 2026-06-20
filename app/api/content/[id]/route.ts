@@ -124,11 +124,11 @@ export async function GET(
         format: asset.fileFormat,
       })),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching article:", error);
     return NextResponse.json(
       { error: "Failed to fetch article" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -209,11 +209,11 @@ export async function PUT(
       success: true,
       message: "No changes to save",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating article:", error);
     return NextResponse.json(
       { error: "Failed to update article", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -261,7 +261,7 @@ export async function DELETE(
           const urlParts = asset.storageUrl.split('/');
           const key = urlParts.slice(3).join('/');
           await deleteFromStorage(key);
-        } catch (err) {
+        } catch (err: any) {
           console.warn(`Failed to delete asset from storage: ${asset.storageUrl}`, err);
         }
       }
@@ -277,11 +277,11 @@ export async function DELETE(
       message: "Article and all related data deleted successfully",
       deletedAssets: assets.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting article:", error);
     return NextResponse.json(
       { error: "Failed to delete article", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

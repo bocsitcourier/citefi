@@ -28,7 +28,7 @@ async function resilientSend(
       const jobId = await boss.send(queueName, data, opts);
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
       return jobId;
-    } catch (err) {
+    } catch (err: any) {
       lastErr = err;
       if (isConnectionError(err) && attempt < MAX_ATTEMPTS) {
         const jitter = Math.floor(Math.random() * 500) + 500 * attempt;
@@ -189,14 +189,14 @@ export async function POST(request: NextRequest) {
       videoProgress: 0,
       videoStage: "queued",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Failed to queue video generation:", error);
     return NextResponse.json(
       {
         error: "Failed to start video generation",
         details: error instanceof Error ? error.message : String(error),
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -145,14 +145,14 @@ export async function POST(request: NextRequest) {
       titleCount: titlePoolResult.titles.length,
       message: `Title pool generated with ${titlePoolResult.titles.length} titles. Select titles and configure generation settings to proceed.`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ SEO article creation error:", error);
     return NextResponse.json(
       { 
         error: "Failed to create articles from SEO tool output",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

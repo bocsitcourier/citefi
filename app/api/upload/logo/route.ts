@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     console.error("❌ Logo upload failed:", error);
     return NextResponse.json(
       { error: error.message || "Failed to upload logo" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

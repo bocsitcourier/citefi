@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     return NextResponse.json({ success: true, data: jobs });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching publishing jobs:', error);
     const status = (error as any)?.statusCode ?? 500;
     return NextResponse.json({ error: 'Failed to fetch publishing jobs' }, { status });
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     const job = await createPublishingJob(teamId, connectionId, contentType, contentId);
 
     return NextResponse.json({ success: true, data: job, message: 'Publishing job created' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating publishing job:', error);
     const status = (error as any)?.statusCode ?? 500;
     return NextResponse.json({ error: 'Failed to create publishing job' }, { status });
@@ -148,8 +148,8 @@ export async function DELETE(request: NextRequest) {
       deleted: deletableIds.length,
       skipped: ids.length - deletableIds.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error batch deleting publishing jobs:', error);
-    return NextResponse.json({ error: 'Failed to delete jobs' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete jobs' }, { status: error?.statusCode || 500 });
   }
 }

@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 
         fileName = fileName.replace(/\.[^.]+$/, '.webp');
         finalContentType = 'image/webp';
-      } catch (err) {
+      } catch (err: any) {
         console.error("❌ Image processing failed:", err);
         return NextResponse.json(
           { error: "Failed to process image" },
@@ -114,14 +114,14 @@ export async function POST(request: NextRequest) {
       metadata,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Media import from URL error:", error);
     return NextResponse.json(
       { 
         error: "Failed to import media from URL",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

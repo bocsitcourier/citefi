@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisioning/arms GET]", err);
-    return NextResponse.json({ error: "Failed to fetch variant arms" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch variant arms" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisioning/arms POST]", err);
-    return NextResponse.json({ error: "Failed to create variant arm" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create variant arm" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -109,6 +109,6 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisioning/arms PATCH]", err);
-    return NextResponse.json({ error: "Failed to update variant arm" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update variant arm" }, { status: err?.statusCode || 500 });
   }
 }

@@ -121,11 +121,11 @@ export async function POST(request: NextRequest) {
       articleId,
       status: "pending",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error starting podcast generation:", error);
     return NextResponse.json(
       { error: "Failed to start podcast generation" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

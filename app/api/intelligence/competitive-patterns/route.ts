@@ -19,6 +19,6 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     console.error("GET /api/intelligence/competitive-patterns error:", err);
-    return NextResponse.json({ error: "Failed to fetch competitive patterns" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch competitive patterns" }, { status: err?.statusCode || 500 });
   }
 }

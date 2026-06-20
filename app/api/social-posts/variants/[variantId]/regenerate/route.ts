@@ -179,7 +179,7 @@ export async function POST(
         status: "READY",
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Variant regeneration failed:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -198,7 +198,7 @@ export async function POST(
 
     return NextResponse.json(
       { error: "Regeneration failed", message: errorMessage },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

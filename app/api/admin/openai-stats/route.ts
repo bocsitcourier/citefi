@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     console.error("Error fetching OpenAI stats:", error);
     return NextResponse.json(
       { error: "Failed to fetch OpenAI stats" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

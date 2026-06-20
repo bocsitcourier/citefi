@@ -159,7 +159,7 @@ export async function POST(
       primaryKeywords: allKeywords,
       contentStrategy: strategy,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Title regeneration error:", error);
     
     await db.insert(jobEvents).values({
@@ -175,7 +175,7 @@ export async function POST(
         error: "Failed to regenerate titles",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

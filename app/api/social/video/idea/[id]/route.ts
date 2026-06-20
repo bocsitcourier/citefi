@@ -59,11 +59,11 @@ export async function GET(
       }
     });
     
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching video idea:", error);
     return NextResponse.json(
       { error: "Failed to fetch video idea" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -102,11 +102,11 @@ export async function DELETE(
     
     return NextResponse.json({ success: true });
     
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting video idea:", error);
     return NextResponse.json(
       { error: "Failed to delete video idea" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

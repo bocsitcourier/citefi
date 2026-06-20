@@ -65,11 +65,11 @@ export async function POST(
       success: true,
       metaDescription: newMetaDescription,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate meta description:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate meta description" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

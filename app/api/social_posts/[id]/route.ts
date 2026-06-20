@@ -65,11 +65,11 @@ export async function GET(
       .where(eq(socialPostVariants.socialPostId, postId));
 
     return NextResponse.json({ ...post, variants });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching social post:", error);
     return NextResponse.json(
       { error: "Failed to fetch social post" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -134,7 +134,7 @@ export async function PUT(
     });
 
     return NextResponse.json({ success: true, post: updatedPost });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating social post:", error);
 
     if (error instanceof z.ZodError) {
@@ -146,7 +146,7 @@ export async function PUT(
 
     return NextResponse.json(
       { error: "Failed to update social post" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -202,7 +202,7 @@ export async function PATCH(
     });
 
     return NextResponse.json({ success: true, post: updatedPost });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error scheduling social post:", error);
 
     if (error instanceof z.ZodError) {
@@ -214,7 +214,7 @@ export async function PATCH(
 
     return NextResponse.json(
       { error: "Failed to schedule social post" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -271,11 +271,11 @@ export async function DELETE(
       success: true,
       message: "Post and all related data deleted",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting social post:", error);
     return NextResponse.json(
       { error: "Failed to delete social post" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

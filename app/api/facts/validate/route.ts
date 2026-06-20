@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Validate error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to validate content" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

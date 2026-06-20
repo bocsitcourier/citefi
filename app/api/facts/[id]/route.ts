@@ -47,14 +47,14 @@ export async function GET(
         history,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Get error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to get fact" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -89,7 +89,7 @@ export async function PUT(
       success: true,
       data: updatedFact,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Update error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -102,7 +102,7 @@ export async function PUT(
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update fact" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -138,7 +138,7 @@ export async function DELETE(
       success: true,
       message: "Fact revoked successfully",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Revoke error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -151,7 +151,7 @@ export async function DELETE(
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to revoke fact" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

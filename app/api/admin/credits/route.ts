@@ -44,6 +44,6 @@ export async function GET(request: NextRequest) {
     const msg = err?.message ?? "Unknown error";
     if (msg === "Authentication required") return NextResponse.json({ error: msg }, { status: 401 });
     if (msg === "Admin access required") return NextResponse.json({ error: msg }, { status: 403 });
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: err?.statusCode || 500 });
   }
 }

@@ -87,11 +87,11 @@ export async function GET(
       },
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Export error:", error);
     return NextResponse.json(
       { error: "Failed to export batch", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

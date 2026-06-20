@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     console.error("Local SEO research error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to research local SEO" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

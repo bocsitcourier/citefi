@@ -110,11 +110,11 @@ export async function DELETE(
       message: "Article permanently deleted",
       deletedId: articleId,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting article:", error);
     return NextResponse.json(
       { error: "Failed to delete article" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

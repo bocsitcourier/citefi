@@ -55,6 +55,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[learning/strategy GET]", err);
-    return NextResponse.json({ error: "Failed to fetch strategy insights" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch strategy insights" }, { status: err?.statusCode || 500 });
   }
 }

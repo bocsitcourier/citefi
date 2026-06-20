@@ -72,11 +72,11 @@ export async function POST(
       success: true,
       faq: newFaq,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate FAQ:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate FAQ" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

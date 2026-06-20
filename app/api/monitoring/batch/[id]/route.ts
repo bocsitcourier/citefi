@@ -27,11 +27,11 @@ export async function GET(
       liveStatus,
       performanceMetrics,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching batch monitoring data:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch monitoring data" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

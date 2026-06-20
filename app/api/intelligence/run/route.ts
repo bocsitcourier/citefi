@@ -42,6 +42,6 @@ export async function POST(req: NextRequest) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
     console.error("POST /api/intelligence/run error:", err);
-    return NextResponse.json({ error: "Failed to start research" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to start research" }, { status: err?.statusCode || 500 });
   }
 }

@@ -22,11 +22,11 @@ export async function POST(request: NextRequest) {
       success: true,
       message: "Feedback recorded and learning updated",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to record feedback:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to record feedback" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

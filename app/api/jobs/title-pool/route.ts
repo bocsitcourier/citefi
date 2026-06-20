@@ -227,14 +227,14 @@ export async function POST(request: NextRequest) {
         refinedCount
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Title pool generation error:", error);
     return NextResponse.json(
       { 
         error: "Failed to generate title pool",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

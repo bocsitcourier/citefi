@@ -66,11 +66,11 @@ export async function POST(
       success: true,
       keywords: newKeywords,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate keywords:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate keywords" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -32,11 +32,11 @@ export async function GET(
         apiKeyHash: undefined,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching connection:', error);
     return NextResponse.json(
       { error: 'Failed to fetch connection' },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -60,11 +60,11 @@ export async function DELETE(
       success: true,
       message: 'Connection deleted',
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting connection:', error);
     return NextResponse.json(
       { error: 'Failed to delete connection' },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

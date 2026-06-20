@@ -235,7 +235,7 @@ export async function POST(
 
         console.log(`  ✅ Article ${article.id}: ${result.keywordsLinked}/${keywords.length} keywords linked${wasValidated ? ' (validated)' : ''}`);
 
-      } catch (error) {
+      } catch (error: any) {
         errorCount++;
         results.push({
           articleId: article.id,
@@ -275,7 +275,7 @@ export async function POST(
       results,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Apply keyword hyperlinks error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(

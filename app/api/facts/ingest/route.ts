@@ -86,11 +86,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid action. Use: ingest, extract, or coverage" }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[API] /api/facts/ingest error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to process request" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

@@ -173,6 +173,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: msg || "Access denied" }, { status });
     }
     console.error("Cost telemetry route error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal server error" }, { status: error?.statusCode || 500 });
   }
 }

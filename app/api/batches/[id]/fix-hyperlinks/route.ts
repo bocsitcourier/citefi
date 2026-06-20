@@ -185,7 +185,7 @@ export async function POST(
             details: "No stored data to apply",
           });
         }
-      } catch (error) {
+      } catch (error: any) {
         errorCount++;
         results.push({
           articleId: article.id,
@@ -206,7 +206,7 @@ export async function POST(
       },
       results,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Fix hyperlinks error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;
     return NextResponse.json(

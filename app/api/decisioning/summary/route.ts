@@ -320,6 +320,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisioning/summary GET]", err);
-    return NextResponse.json({ error: "Failed to fetch decisioning summary" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch decisioning summary" }, { status: err?.statusCode || 500 });
   }
 }

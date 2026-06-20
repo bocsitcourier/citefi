@@ -1,15 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { errorLogs } from "@/shared/schema";
-import { eq } from "drizzle-orm";
 import { objectStorageClient } from "@/lib/storage";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireAuth } from "@/lib/api/auth";
 
 const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+// Per-user rate limiter: max 5 error screenshots per user per 10 minutes
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_WINDOW_MS = 10 * 60 * 1000;
+const RATE_MAX = 5;
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(userId);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(userId, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_MAX) return false;
+  entry.count++;
+  return true;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    await requireTeamMember(req);
+    const { userId } = await requireAuth(req);
+
+    if (!checkRateLimit(userId)) {
+      return NextResponse.json(
+        { error: "Too many error reports. Try again in 10 minutes." },
+        { status: 429 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("screenshot") as File | null;
     const errorMessage = formData.get("errorMessage") as string || "Unknown client error";
@@ -20,23 +46,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No screenshot provided" }, { status: 400 });
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: "Screenshot file too large (max 2 MB)" }, { status: 413 });
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      return NextResponse.json({ error: "Invalid file type. Must be PNG, JPEG, or WebP." }, { status: 415 });
+    }
+
     let screenshotUrl: string | undefined;
 
-    // Upload screenshot to object storage if bucket is configured
+    // Upload screenshot to private (not public) object storage
     if (BUCKET_ID) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const timestamp = Date.now();
-      const objectName = `public/error-screenshots/${timestamp}.png`;
+      const objectName = `.private/error-screenshots/${timestamp}-${userId.slice(0, 8)}.png`;
 
       const bucket = objectStorageClient.bucket(BUCKET_ID);
       const storageFile = bucket.file(objectName);
       await storageFile.save(buffer, {
-        contentType: "image/png",
-        metadata: { cacheControl: "public, max-age=86400" },
+        contentType: file.type,
+        metadata: { cacheControl: "private, no-store" },
       });
 
-      screenshotUrl = `/api/public-objects/error-screenshots/${timestamp}.png`;
+      screenshotUrl = `[private]error-screenshots/${timestamp}-${userId.slice(0, 8)}.png`;
     }
 
     // Insert error log with screenshot
@@ -68,15 +102,6 @@ export async function POST(req: NextRequest) {
           fields: [{ type: "mrkdwn", text: `*Page:* ${pageUrl}` }],
         });
       }
-      if (screenshotUrl) {
-        const absoluteUrl = `${process.env.NEXTAUTH_URL || ""}${screenshotUrl}`;
-        blocks.push({
-          type: "image",
-          title: { type: "plain_text", text: "UI Screenshot at time of crash" },
-          image_url: absoluteUrl,
-          alt_text: "Error screenshot",
-        });
-      }
       blocks.push({
         type: "context",
         elements: [{ type: "mrkdwn", text: `ApexContent Engine • ${new Date().toISOString()}` }],
@@ -89,9 +114,9 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     }
 
-    return NextResponse.json({ success: true, errorLogId: inserted?.id, screenshotUrl });
-  } catch (err) {
+    return NextResponse.json({ success: true, errorLogId: inserted?.id });
+  } catch (err: any) {
     console.error("[ERROR_SCREENSHOT] Failed:", err);
-    return NextResponse.json({ error: "Failed to capture error screenshot" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to capture error screenshot" }, { status: err?.statusCode || 500 });
   }
 }

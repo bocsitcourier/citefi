@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
         facts: createdFacts,
       },
     }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Bulk create error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to bulk create facts" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

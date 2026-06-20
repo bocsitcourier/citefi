@@ -27,9 +27,9 @@ export async function GET(
     }
 
     return NextResponse.json({ success: true, data: job });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching publishing job:', error);
-    return NextResponse.json({ error: 'Failed to fetch job' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch job' }, { status: error?.statusCode || 500 });
   }
 }
 
@@ -67,8 +67,8 @@ export async function DELETE(
       .where(and(eq(publishingJobs.id, jobId), eq(publishingJobs.teamId, teamId)));
 
     return NextResponse.json({ success: true, message: 'Job deleted' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting publishing job:', error);
-    return NextResponse.json({ error: 'Failed to delete job' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete job' }, { status: error?.statusCode || 500 });
   }
 }

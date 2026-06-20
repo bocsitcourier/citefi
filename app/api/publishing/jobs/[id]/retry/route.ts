@@ -63,6 +63,6 @@ export async function POST(
     if (error?.statusCode === 401) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ error: 'Failed to retry job' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to retry job' }, { status: error?.statusCode || 500 });
   }
 }

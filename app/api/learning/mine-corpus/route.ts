@@ -19,11 +19,11 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, ...result });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Mine corpus error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return NextResponse.json({ error: "Failed to mine corpus" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to mine corpus" }, { status: error?.statusCode || 500 });
   }
 }

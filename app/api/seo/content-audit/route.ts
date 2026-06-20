@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     console.error("Content audit error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to audit content" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

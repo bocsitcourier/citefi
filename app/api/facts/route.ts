@@ -38,14 +38,14 @@ export async function GET(request: NextRequest) {
       success: true,
       data: factPack,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to query facts" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: fact,
     }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Facts API] Create error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create fact" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

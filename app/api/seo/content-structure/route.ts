@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     console.error("Content structure optimization error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to optimize content structure" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

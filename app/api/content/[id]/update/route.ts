@@ -66,11 +66,11 @@ export async function PATCH(
       success: true, 
       article: updated 
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating article:", error);
     return NextResponse.json(
       { error: "Failed to update article" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

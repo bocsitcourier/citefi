@@ -121,11 +121,11 @@ export async function GET(
         failed: batchArticles.filter(a => a.articleStatus === "FAILED").length,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching batch:", error);
     return NextResponse.json(
       { error: "Failed to fetch batch details" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
       );
   }
 }
@@ -216,14 +216,14 @@ export async function PATCH(
       success: true,
       batch: updatedBatch,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error updating batch:", error);
     return NextResponse.json(
       { 
         error: "Failed to update batch",
         message: error instanceof Error ? error.message : "Unknown error"
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -330,11 +330,11 @@ export async function DELETE(
       deletedBatchId: batchId,
       deletedArticlesCount: articleIds.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting batch:", error);
     return NextResponse.json(
       { error: "Failed to delete batch" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

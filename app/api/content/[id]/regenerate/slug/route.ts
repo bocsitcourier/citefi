@@ -53,11 +53,11 @@ export async function POST(
       success: true,
       slug: newSlug,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate slug:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate slug" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

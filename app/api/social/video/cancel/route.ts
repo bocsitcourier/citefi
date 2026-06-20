@@ -44,8 +44,8 @@ export async function POST(request: NextRequest) {
     console.log(`🛑 Video generation cancelled by user for social post ${socialPostId}`);
 
     return NextResponse.json({ success: true, message: "Video generation cancelled" });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Failed to cancel video generation:", error);
-    return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to cancel" }, { status: error?.statusCode || 500 });
   }
 }

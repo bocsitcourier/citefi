@@ -86,6 +86,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys/[id]/trigger POST]", err);
-    return NextResponse.json({ error: "Failed to trigger journey" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to trigger journey" }, { status: err?.statusCode || 500 });
   }
 }

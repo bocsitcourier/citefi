@@ -67,11 +67,11 @@ export async function GET(request: NextRequest) {
       success: true,
       authorizationUrl: authUrl.toString(),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('TikTok OAuth authorize error:', error);
     if (error instanceof Error && error.message.includes('Unauthorized')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ error: 'Failed to initiate TikTok OAuth' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to initiate TikTok OAuth' }, { status: error?.statusCode || 500 });
   }
 }

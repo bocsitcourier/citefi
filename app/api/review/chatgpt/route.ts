@@ -180,14 +180,14 @@ export async function POST(request: NextRequest) {
     console.log(`[ChatGPT Review] Completed in ${processingTime}ms`);
 
     return NextResponse.json(response);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[ChatGPT Review] Error:", error);
     return NextResponse.json(
       {
         error: "ChatGPT review failed",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

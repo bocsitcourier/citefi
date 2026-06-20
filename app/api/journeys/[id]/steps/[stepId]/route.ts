@@ -83,6 +83,6 @@ export async function PATCH(
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys/[id]/steps/[stepId] PATCH]", err);
-    return NextResponse.json({ error: "Failed to update step" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update step" }, { status: err?.statusCode || 500 });
   }
 }

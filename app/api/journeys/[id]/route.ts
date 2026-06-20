@@ -116,7 +116,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys/[id] GET]", err);
-    return NextResponse.json({ error: "Failed to fetch journey" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch journey" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -152,6 +152,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys/[id] PATCH]", err);
-    return NextResponse.json({ error: "Failed to update journey" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update journey" }, { status: err?.statusCode || 500 });
   }
 }

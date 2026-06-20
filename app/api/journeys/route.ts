@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys GET]", err);
-    return NextResponse.json({ error: "Failed to fetch journeys" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch journeys" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -157,6 +157,6 @@ export async function POST(req: NextRequest) {
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys POST]", err);
-    return NextResponse.json({ error: "Failed to create journey" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create journey" }, { status: err?.statusCode || 500 });
   }
 }

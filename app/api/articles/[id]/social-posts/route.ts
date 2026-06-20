@@ -38,11 +38,11 @@ export async function GET(
       posts,
       count: posts.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching social posts for article:", error);
     return NextResponse.json(
       { error: "Failed to fetch social posts" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

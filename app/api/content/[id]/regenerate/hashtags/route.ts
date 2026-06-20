@@ -53,11 +53,11 @@ export async function POST(
       success: true,
       hashtags: newHashtags,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate hashtags:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate hashtags" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

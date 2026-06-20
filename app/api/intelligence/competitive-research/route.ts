@@ -68,6 +68,6 @@ export async function POST(req: NextRequest) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
     console.error("POST /api/intelligence/competitive-research error:", err);
-    return NextResponse.json({ error: "Competitive research failed" }, { status: 500 });
+    return NextResponse.json({ error: "Competitive research failed" }, { status: err?.statusCode || 500 });
   }
 }

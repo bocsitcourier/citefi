@@ -76,11 +76,11 @@ export async function POST(request: NextRequest) {
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating like video idea:", error);
     return NextResponse.json(
       { error: "Failed to create like video idea" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
@@ -119,11 +119,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ideas });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching like video ideas:", error);
     return NextResponse.json(
       { error: "Failed to fetch like video ideas" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

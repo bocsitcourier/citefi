@@ -68,11 +68,11 @@ export async function POST(request: NextRequest) {
     };
     
     return NextResponse.json(breakdown);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error calculating costs:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to calculate costs" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

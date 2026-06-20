@@ -65,11 +65,11 @@ export async function POST(
       success: true,
       seoTitle: newSeoTitle,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Failed to regenerate SEO title:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to regenerate SEO title" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

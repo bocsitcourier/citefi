@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisions/arms GET]", err);
-    return NextResponse.json({ error: "Failed to fetch arms" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch arms" }, { status: err?.statusCode || 500 });
   }
 }
 
@@ -129,6 +129,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message }, { status });
     }
     console.error("[decisions/arms POST]", err);
-    return NextResponse.json({ error: "Failed to create arm" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create arm" }, { status: err?.statusCode || 500 });
   }
 }

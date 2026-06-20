@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       post: updatedPost,
       message: `Post scheduled for ${scheduleAt}`
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error scheduling social post:", error);
 
     if (error instanceof z.ZodError) {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to schedule social post" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

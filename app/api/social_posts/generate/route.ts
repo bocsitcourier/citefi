@@ -389,7 +389,7 @@ export async function POST(request: NextRequest) {
       message: `Social posts queued for ${validatedData.platforms.length} platform(s)`,
       platforms: validatedData.platforms,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Social post generation error:", error);
 
     if (error instanceof z.ZodError) {
@@ -401,7 +401,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to queue social post generation", message: String(error) },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

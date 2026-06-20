@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
       articlesQueued: selectedTitles.length,
       message: `Batch submitted successfully. ${selectedTitles.length} articles will be generated.`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Batch submission error:", error);
 
     if (error instanceof z.ZodError) {
@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to submit batch", message: String(error) },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

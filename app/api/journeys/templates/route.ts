@@ -19,6 +19,6 @@ export async function GET(req: NextRequest) {
     if (status === 401 || status === 403)
       return NextResponse.json({ error: err.message }, { status });
     console.error("[journeys/templates GET]", err);
-    return NextResponse.json({ error: "Failed to fetch templates" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch templates" }, { status: err?.statusCode || 500 });
   }
 }

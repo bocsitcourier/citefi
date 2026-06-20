@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
       success: true,
       deletedCount: postIds.length
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error batch deleting social posts:", error);
 
     if (error instanceof z.ZodError) {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to batch delete social posts" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

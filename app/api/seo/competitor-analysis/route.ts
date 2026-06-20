@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     console.error("Competitor analysis error:", error);
     return NextResponse.json(
       { error: error.message || "Failed to analyze competitor" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

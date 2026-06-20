@@ -50,6 +50,6 @@ export async function GET(
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[cohorts GET]", err);
-    return NextResponse.json({ error: "Failed to compute cohort strategy" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to compute cohort strategy" }, { status: err?.statusCode || 500 });
   }
 }

@@ -133,7 +133,7 @@ export async function POST(
             details: "No figcaptions or relative URLs found to fix",
           });
         }
-      } catch (error) {
+      } catch (error: any) {
         errorCount++;
         results.push({
           articleId: article.id,
@@ -157,11 +157,11 @@ export async function POST(
         baseUrl: baseUrl || "(not set - relative URLs preserved)",
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Fix image captions error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fix image captions" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

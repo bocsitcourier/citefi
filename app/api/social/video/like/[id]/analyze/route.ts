@@ -88,7 +88,7 @@ export async function POST(
       inferredTone,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error analyzing reference video:", error);
 
     try {
@@ -108,7 +108,7 @@ export async function POST(
 
     return NextResponse.json(
       { error: `Failed to analyze video: ${error instanceof Error ? error.message : "Unknown error"}` },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }
