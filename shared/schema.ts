@@ -3299,6 +3299,31 @@ export type InsertCadencePerformance = z.infer<typeof insertCadencePerformanceSc
 
 // ============================================================================
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Credit Menu Overrides — admin-managed per-team or global cost overrides.
+// NULL teamId = global override affecting all teams.
+// Team-specific row takes precedence over global row.
+// ─────────────────────────────────────────────────────────────────────────────
+export const creditMenuOverrides = pgTable("credit_menu_overrides", {
+  id: serial("id").primaryKey(),
+  /** NULL = global override for all teams; non-null = per-team override */
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "cascade" }),
+  operationType: varchar("operation_type", { length: 50 }).notNull(),
+  costOverride: integer("cost_override").notNull(), // credits per unit
+  adminUserId: integer("admin_user_id").references(() => users.id),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  // Unique constraint: only one override per (operationType, teamId)
+  // NULLS NOT DISTINCT for teamId so global + per-team can coexist
+  cmoOpTeamIdx: index("cmo_op_team_idx").on(t.operationType, t.teamId),
+}));
+
+export const insertCreditMenuOverrideSchema = createInsertSchema(creditMenuOverrides).omit({ id: true, createdAt: true, updatedAt: true });
+export type CreditMenuOverride = typeof creditMenuOverrides.$inferSelect;
+export type InsertCreditMenuOverride = z.infer<typeof insertCreditMenuOverrideSchema>;
+
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),
   numTitles: z.number().int().min(10).max(100).default(50),

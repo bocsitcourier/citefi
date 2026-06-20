@@ -13,7 +13,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getTxDb, db } from "./db";
 import { creditBalances, creditLedger, teams } from "@/shared/schema";
-import { getCreditCost, type OperationType } from "./credit-menu";
+import { getCreditCost, getEffectiveCreditCost, type OperationType } from "./credit-menu";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,13 +140,17 @@ export async function reserveCredits(params: {
   userId?: number;
 }): Promise<ReserveResult> {
   const { teamId, operationType, runId, userId } = params;
-  const menuCost = getCreditCost(operationType);
 
-  // Fail closed: unknown operation types are not free — reject immediately
-  // rather than silently treating them as 0-cost. Callers must use a canonical
-  // OperationType from credit-menu.ts or supply an explicit `amount` override.
-  if (menuCost === null && params.amount === undefined) {
-    console.error(`[billing] UNKNOWN_OPERATION: "${operationType}" is not in the credit menu. Rejecting.`);
+  // Async DB-backed cost lookup: checks credit_menu_overrides (team-specific
+  // then global) before falling back to the static CREDIT_MENU defaults.
+  const effectiveCost = params.amount !== undefined
+    ? params.amount
+    : await getEffectiveCreditCost(operationType, teamId);
+
+  // Fail closed: unknown operation types are not free — reject immediately.
+  // Callers must use a canonical OperationType or supply an explicit `amount`.
+  if (effectiveCost === null) {
+    console.error(`[billing] UNKNOWN_OPERATION: "${operationType}" is not in the credit menu or DB overrides. Rejecting.`);
     return {
       ok: false,
       runId,
@@ -158,7 +162,7 @@ export async function reserveCredits(params: {
     };
   }
 
-  const amount = params.amount ?? menuCost!;
+  const amount = effectiveCost;
 
   const txDb = await getTxDb();
 
@@ -334,19 +338,31 @@ export async function debitReservation(params: {
     const fromPurchased = amount - fromAllowance;
     const bucket = fromAllowance >= amount ? "allowance" : fromPurchased >= amount ? "purchased" : "mixed";
 
-    // Atomic debit: convert reservation to usage
-    const [updated] = await tx
+    // Atomic debit: convert reservation to usage.
+    // WHERE guard enforces reservedCredits >= amount to prevent over-debit
+    // if a duplicate or mis-sequenced worker call slips through idempotency.
+    const updatedRows = await tx
       .update(creditBalances)
       .set({
         allowanceUsed: sql`${creditBalances.allowanceUsed} + ${fromAllowance}`,
         purchasedUsed: sql`${creditBalances.purchasedUsed} + ${fromPurchased}`,
-        reservedCredits: sql`GREATEST(${creditBalances.reservedCredits} - ${amount}, 0)`,
+        reservedCredits: sql`${creditBalances.reservedCredits} - ${amount}`,
         // Keep legacy balance in sync
         balance: sql`GREATEST(${creditBalances.balance} - ${amount}, 0)`,
         updatedAt: new Date(),
       })
-      .where(eq(creditBalances.teamId, teamId))
+      .where(sql`${creditBalances.teamId} = ${teamId} AND ${creditBalances.reservedCredits} >= ${amount}`)
       .returning();
+
+    if (updatedRows.length === 0) {
+      // Reservation capacity exhausted — idempotency check above should normally
+      // catch duplicate calls, but guard here as a final backstop.
+      console.error(`[billing] debitReservation BLOCKED for teamId=${teamId} runId=${runId} — reservedCredits < ${amount}. Possible duplicate debit.`);
+      const balance = await getBucketBalance(teamId);
+      return { ok: false, fromAllowance: 0, fromPurchased: 0, ...balance };
+    }
+
+    const [updated] = updatedRows;
 
     const after = computeRemaining(updated);
 
@@ -438,17 +454,24 @@ export async function releaseReservation(params: {
     }
 
     // Release: decrement reservedCredits.
-    // WHERE guard: only decrement if reservedCredits is large enough, preventing
-    // underflow if a partial batch was released more than expected.
-    await tx
+    // WHERE guard enforces reservedCredits >= amount to prevent underflow if
+    // a partial batch release fires more than expected (double-call after
+    // idempotency check is a last-resort backstop).
+    const releaseRows = await tx
       .update(creditBalances)
       .set({
-        reservedCredits: sql`GREATEST(${creditBalances.reservedCredits} - ${amount}, 0)`,
+        reservedCredits: sql`${creditBalances.reservedCredits} - ${amount}`,
         updatedAt: new Date(),
       })
       .where(
-        sql`${creditBalances.teamId} = ${teamId} AND ${creditBalances.reservedCredits} >= 0`
-      );
+        sql`${creditBalances.teamId} = ${teamId} AND ${creditBalances.reservedCredits} >= ${amount}`
+      )
+      .returning({ id: creditBalances.id });
+
+    if (releaseRows.length === 0) {
+      console.warn(`[billing] releaseReservation BLOCKED for teamId=${teamId} runId=${runId} — reservedCredits < ${amount}. Skipping ledger insert.`);
+      return;
+    }
 
     // Insert release ledger row
     await tx.insert(creditLedger).values({
@@ -526,6 +549,18 @@ export async function grantAllowance(params: {
       reason: reason ?? `Allowance grant: ${amount} credits for period ${periodStart.toISOString()} – ${periodEnd.toISOString()}`,
     });
 
+    // Admin audit log (written only when a human admin performs the action)
+    if (adminUserId) {
+      const { adminActionLogs } = await import("@/shared/schema");
+      await tx.insert(adminActionLogs).values({
+        userId: adminUserId,
+        action: "BILLING_GRANT_ALLOWANCE",
+        targetType: "TEAM",
+        targetId: teamId,
+        details: JSON.stringify({ amount, periodStart, periodEnd, reason }),
+      });
+    }
+
     return computeAndReturnBalance(updated);
   });
 }
@@ -581,6 +616,18 @@ export async function grantPurchased(params: {
       reason: reason ?? `Purchased credit grant: ${amount} credits`,
     });
 
+    // Admin audit log (written only when a human admin performs the action)
+    if (adminUserId) {
+      const { adminActionLogs } = await import("@/shared/schema");
+      await tx.insert(adminActionLogs).values({
+        userId: adminUserId,
+        action: "BILLING_GRANT_PURCHASED",
+        targetType: "TEAM",
+        targetId: teamId,
+        details: JSON.stringify({ amount, reason }),
+      });
+    }
+
     return computeAndReturnBalance(updated);
   });
 }
@@ -623,6 +670,16 @@ export async function adminAdjust(params: {
       bucket,
       operationType: "admin_adjust",
       reason,
+    });
+
+    // Admin audit log — adminUserId is always required for adminAdjust
+    const { adminActionLogs } = await import("@/shared/schema");
+    await tx.insert(adminActionLogs).values({
+      userId: adminUserId,
+      action: "BILLING_ADMIN_ADJUST",
+      targetType: "TEAM",
+      targetId: teamId,
+      details: JSON.stringify({ bucket, amount, reason }),
     });
 
     return computeAndReturnBalance(updated);
