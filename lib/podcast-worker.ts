@@ -230,8 +230,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // Two-bucket billing: DEBIT on success
         if (job.teamId && job.creditRunId) {
           const { debitReservation } = await import("@/lib/billing");
-          await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId })
-            .catch((e: unknown) => console.warn(`[Podcast Worker] Non-fatal: debitReservation failed for article ${articleId}:`, e));
+          await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId });
         }
 
         // Close the learning loop: record this podcast in the learning pipeline

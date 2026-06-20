@@ -548,7 +548,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         teamId: teamIdForBilling,
         runId: job.data.creditRunId,
         jobId: job.id,
-      }).catch((e: unknown) => console.warn(`[billing] social debitReservation failed for socialPostId=${socialPostId}:`, e));
+      });
     }
 
     // Record generation for AI Learning System

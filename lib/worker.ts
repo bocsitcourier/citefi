@@ -3386,7 +3386,7 @@ export async function registerWorkers() {
                   teamId: videoPost.teamId,
                   runId: videoCreditRunId,
                   jobId: job.id,
-                }).catch((e: unknown) => console.warn(`[billing] video debitReservation failed for post ${socialPostId}:`, e));
+                });
               }
             }
             
