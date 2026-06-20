@@ -1326,10 +1326,16 @@ export async function registerWorkers() {
         }
 
         // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles)
+        // releaseKey = "article:<id>" ensures per-article idempotency on batch runIds
         if (articleTeamId && articleCreditRunId) {
           const { releaseReservation } = await import("@/lib/billing");
-          await releaseReservation({ teamId: articleTeamId, runId: articleCreditRunId, amount: 10, reason: `Article ${articleId} generation failed` })
-            .catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
+          await releaseReservation({
+            teamId: articleTeamId,
+            runId: articleCreditRunId,
+            amount: 10,
+            reason: `Article ${articleId} generation failed`,
+            releaseKey: `article:${articleId}`,
+          }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
         }
 
         // Record failure in learning ledger so the AI learning center can surface it

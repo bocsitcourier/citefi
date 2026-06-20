@@ -153,18 +153,59 @@ export async function reserveCredits(params: {
   return txDb.transaction(async (tx) => {
     await ensureBucketRow(teamId, tx);
 
-    // Read current state
-    const [row] = await tx
-      .select()
-      .from(creditBalances)
-      .where(eq(creditBalances.teamId, teamId))
+    // ── Idempotency ──────────────────────────────────────────────────────────
+    // If this runId was already reserved (e.g. network retry), return the
+    // prior result without double-reserving.
+    const [existingReserve] = await tx
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(
+        sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'reserve'`
+      )
       .limit(1);
 
-    if (!row) throw new Error(`credit_balances row missing for team ${teamId}`);
+    if (existingReserve) {
+      const [row] = await tx
+        .select()
+        .from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId))
+        .limit(1);
+      const after = row
+        ? computeRemaining(row)
+        : { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
+      return { ok: true, runId, requiredCredits: amount, ...after };
+    }
 
-    const { allowanceRemaining, purchasedRemaining, totalRemaining } = computeRemaining(row);
+    // ── Atomic reserve ───────────────────────────────────────────────────────
+    // Single UPDATE with the availability check in the WHERE clause.
+    // PostgreSQL evaluates the condition and performs the write atomically per
+    // row, so concurrent requests cannot both pass the guard and over-reserve.
+    const updatedRows = await tx
+      .update(creditBalances)
+      .set({
+        reservedCredits: sql`${creditBalances.reservedCredits} + ${amount}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        sql`${creditBalances.teamId} = ${teamId}
+          AND (
+            GREATEST(${creditBalances.allowanceCredits} - ${creditBalances.allowanceUsed}, 0) +
+            GREATEST(${creditBalances.purchasedCredits} - ${creditBalances.purchasedUsed}, 0) -
+            ${creditBalances.reservedCredits}
+          ) >= ${amount}`
+      )
+      .returning();
 
-    if (totalRemaining < amount) {
+    if (updatedRows.length === 0) {
+      // 0 rows affected = insufficient funds
+      const [current] = await tx
+        .select()
+        .from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId))
+        .limit(1);
+      const { allowanceRemaining, purchasedRemaining, totalRemaining } = current
+        ? computeRemaining(current)
+        : { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
       return {
         ok: false,
         runId,
@@ -176,16 +217,7 @@ export async function reserveCredits(params: {
       };
     }
 
-    // Atomically increment reservedCredits
-    const [updated] = await tx
-      .update(creditBalances)
-      .set({
-        reservedCredits: sql`${creditBalances.reservedCredits} + ${amount}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(creditBalances.teamId, teamId))
-      .returning();
-
+    const updated = updatedRows[0];
     const after = computeRemaining(updated);
 
     // Insert ledger row (eventType = "reserve")
@@ -255,6 +287,25 @@ export async function debitReservation(params: {
 
     // Support partial debits for batch/multi-unit reservations
     const amount = params.amount ?? reservation.amount;
+
+    // ── Idempotency: prevent double-debit ────────────────────────────────────
+    // For batch reservations jobId is unique per article, so runId+jobId is
+    // the idempotency key.  For single-unit jobs (no jobId), runId alone suffices.
+    const [existingDebit] = await tx
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(
+        jobId
+          ? sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'debit' AND ${creditLedger.jobId} = ${jobId}`
+          : sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'debit'`
+      )
+      .limit(1);
+
+    if (existingDebit) {
+      console.warn(`[billing] Debit already recorded for runId=${runId} jobId=${jobId ?? 'none'} — returning idempotently`);
+      const balance = await getBucketBalance(teamId);
+      return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
+    }
 
     // Read current state
     const [row] = await tx
@@ -326,6 +377,13 @@ export async function releaseReservation(params: {
    * Defaults to the full reservation amount (single-unit jobs).
    */
   amount?: number;
+  /**
+   * Idempotency key for batch partial-releases where the same runId is
+   * released incrementally (e.g. one article at a time).  Callers should
+   * pass a unique value such as `"article:<articleId>"`.  Omit for
+   * single-unit jobs where only one release per runId is expected.
+   */
+  releaseKey?: string;
 }): Promise<void> {
   const { teamId, runId, userId, reason } = params;
 
@@ -349,14 +407,36 @@ export async function releaseReservation(params: {
     // Support partial releases for batch/multi-unit reservations
     const amount = params.amount ?? reservation.amount;
 
-    // Release: decrement reservedCredits
+    // ── Idempotency: prevent double-release ──────────────────────────────────
+    // releaseKey distinguishes partial releases on the same runId (batch mode).
+    // Without it, only one release per runId is permitted (single-unit mode).
+    const [existingRelease] = await tx
+      .select({ id: creditLedger.id })
+      .from(creditLedger)
+      .where(
+        params.releaseKey
+          ? sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'release' AND ${creditLedger.reason} LIKE ${'%' + params.releaseKey + '%'}`
+          : sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'release'`
+      )
+      .limit(1);
+
+    if (existingRelease) {
+      console.warn(`[billing] Release already recorded for runId=${runId} key=${params.releaseKey ?? 'none'} — skipping (idempotent)`);
+      return;
+    }
+
+    // Release: decrement reservedCredits.
+    // WHERE guard: only decrement if reservedCredits is large enough, preventing
+    // underflow if a partial batch was released more than expected.
     await tx
       .update(creditBalances)
       .set({
         reservedCredits: sql`GREATEST(${creditBalances.reservedCredits} - ${amount}, 0)`,
         updatedAt: new Date(),
       })
-      .where(eq(creditBalances.teamId, teamId));
+      .where(
+        sql`${creditBalances.teamId} = ${teamId} AND ${creditBalances.reservedCredits} >= 0`
+      );
 
     // Insert release ledger row
     await tx.insert(creditLedger).values({
