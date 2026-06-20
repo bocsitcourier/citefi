@@ -101,6 +101,8 @@ export interface ReformatJobData {
 }
 
 export interface SocialVideoJobData {
+  /** Two-bucket billing runId — worker calls debitReservation/releaseReservation with this */
+  creditRunId?: string;
   socialPostId: number;
   platform?: string; // tiktok, instagram, youtube, facebook, linkedin, x
 }

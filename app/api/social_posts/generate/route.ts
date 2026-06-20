@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
     const creditRunId = `social:${teamId}:${requestKey}`;
     const reservation = await reserveCredits({
       teamId,
-      operationType: "social",
+      operationType: "social_batch",
       runId: creditRunId,
       userId,
     });

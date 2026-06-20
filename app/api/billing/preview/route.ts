@@ -5,6 +5,11 @@ import { getCreditCost, CREDIT_MENU, type OperationType } from "@/lib/credit-men
 import { z } from "zod";
 
 const previewSchema = z.object({
+  /**
+   * Canonical operation type from credit-menu.ts.
+   * Accepts both `operationType` and `operation` query params — the latter
+   * is the spec-canonical alias; both are supported for compatibility.
+   */
   operationType: z.string().min(1),
   /** For multi-unit operations (e.g. 5 articles). Defaults to 1. */
   quantity: z.number().int().positive().default(1),
@@ -12,6 +17,7 @@ const previewSchema = z.object({
 
 /**
  * GET /api/billing/preview?operationType=article&quantity=5
+ * GET /api/billing/preview?operation=article&quantity=5   (alias)
  *
  * Returns cost and affordability check for a proposed operation without
  * debiting anything. Used by the UI to show "this will cost N credits"
@@ -22,8 +28,12 @@ export async function GET(req: NextRequest) {
     const { teamId } = await requireTeamMember(req);
 
     const { searchParams } = new URL(req.url);
+    // `operation` is the spec-canonical param name; `operationType` is accepted
+    // as an alias so existing callers continue to work without changes.
+    const rawOperationType =
+      searchParams.get("operationType") ?? searchParams.get("operation");
     const parsed = previewSchema.safeParse({
-      operationType: searchParams.get("operationType"),
+      operationType: rawOperationType,
       quantity: searchParams.get("quantity")
         ? parseInt(searchParams.get("quantity")!, 10)
         : 1,

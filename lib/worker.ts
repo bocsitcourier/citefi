@@ -3240,7 +3240,7 @@ export async function registerWorkers() {
       async (jobs) => {
         for (const job of jobs) {
           console.log(`🎬 Processing social video generation job ${job.id}`);
-          const { socialPostId, platform } = job.data;
+          const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
 
           // PERMANENT FIX: Check disk space before starting (need ~500MB per video)
           try {
@@ -3357,6 +3357,19 @@ export async function registerWorkers() {
             console.log(`   URL: ${result.videoUrl}`);
             console.log(`   Duration: ${result.duration}s`);
             console.log(`   Resolution: ${result.resolution}`);
+
+            // Two-bucket billing: DEBIT reservation on success
+            if (videoCreditRunId) {
+              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+              if (videoPost?.teamId) {
+                const { debitReservation } = await import("@/lib/billing");
+                await debitReservation({
+                  teamId: videoPost.teamId,
+                  runId: videoCreditRunId,
+                  jobId: job.id,
+                }).catch((e: unknown) => console.warn(`[billing] video debitReservation failed for post ${socialPostId}:`, e));
+              }
+            }
             
             // PERMANENT FIX: Always clean up temp files after successful generation
             await cleanupTempFiles(socialPostId);
@@ -3398,7 +3411,20 @@ export async function registerWorkers() {
             } catch (dbUpdateError) {
               console.warn(`⚠️ Could not update videoStatus to FAILED:`, dbUpdateError);
             }
-            
+
+            // Two-bucket billing: RELEASE reservation on failure (no charge)
+            if (videoCreditRunId) {
+              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+              if (videoPost?.teamId) {
+                const { releaseReservation } = await import("@/lib/billing");
+                await releaseReservation({
+                  teamId: videoPost.teamId,
+                  runId: videoCreditRunId,
+                  reason: `Video generation failed for social post ${socialPostId}`,
+                }).catch((e: unknown) => console.warn(`[billing] video releaseReservation failed for post ${socialPostId}:`, e));
+              }
+            }
+
             throw error; // Let pg-boss handle retries
           }
         }

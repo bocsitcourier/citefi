@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPgBoss } from "@/lib/queue";
-import { debitCredits, refundCredits } from "@/lib/credits";
-import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
+import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
@@ -81,12 +80,6 @@ export async function POST(request: NextRequest) {
     const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
     console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
 
-    // Paywall gate — read-only check before acquiring the generation lock
-    const paywallResult = await checkTeamPaywall(teamId);
-    if (!paywallResult.allowed) {
-      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
-    }
-
     // Atomically acquire GENERATING lock — this is both the duplicate-guard AND the state transition
     // force=true overrides the GENERATING guard for stuck jobs
     const [locked] = await db
@@ -123,17 +116,18 @@ export async function POST(request: NextRequest) {
     // Per-request idempotency key: stable for network retries, unique per generation attempt
     const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
 
-    // Debit AFTER acquiring lock — reset lock on insufficient credits
-    const creditDebit = await debitCredits({
+    // Two-bucket billing: RESERVE credits atomically after acquiring the lock.
+    // Worker debits on success or releases on failure — no charge for failed jobs.
+    const creditRunId = `video:${teamId}:${socialPostId}:${requestKey}`;
+    const reservation = await reserveCredits({
       teamId,
+      operationType: "video",
+      runId: creditRunId,
       userId,
-      productType: "video",
-      idempotencyKey: `video:${socialPostId}:${requestKey}`,
-      sourceType: "social_post",
-      sourceId: socialPostId,
     });
 
-    if (!creditDebit.ok) {
+    if (!reservation.ok) {
+      // Reset the GENERATING lock so the user can retry after topping up
       await db
         .update(socialPosts)
         .set({ videoStatus: post.videoStatus ?? null, videoProgress: post.videoProgress ?? 0, videoStage: post.videoStage ?? null })
@@ -142,21 +136,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          balance: creditDebit.balance,
-          requiredCredits: creditDebit.requiredCredits,
-          message: `You need ${creditDebit.requiredCredits} credits to generate a video. Current balance: ${creditDebit.balance}.`,
+          allowanceRemaining: reservation.allowanceRemaining,
+          purchasedRemaining: reservation.purchasedRemaining,
+          totalRemaining: reservation.totalRemaining,
+          insufficientBy: reservation.insufficientBy,
+          upgradeUrl: "/settings/billing",
+          message: `Insufficient credits for video generation. You need ${reservation.requiredCredits} but have ${reservation.totalRemaining} available.`,
         },
         { status: 402 }
       );
     }
 
-    // Queue the job — refund + reset to FAILED on any send failure
+    // Queue the job — release reservation + reset to FAILED on any send failure
     const expireInSeconds = isVeo ? 5400 : 900;
     let jobId: string;
     try {
       jobId = await resilientSend(
         "social-video-generation",
-        { socialPostId, platform, videoType },
+        { socialPostId, platform, videoType, teamId, creditRunId },
         { retryLimit: 0, retryDelay: 0, expireInSeconds },
         socialPostId
       );
@@ -167,11 +164,10 @@ export async function POST(request: NextRequest) {
         .update(socialPosts)
         .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })
         .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
-      await refundCredits({
-        teamId, userId, amount: 15,
-        reason: `Refund: video queue failure for social post ${socialPostId}`,
-        sourceType: "social_post", sourceId: socialPostId,
-        debitLedgerRowId: creditDebit.ledgerRowId,
+      await releaseReservation({
+        teamId,
+        runId: creditRunId,
+        reason: `Video queue failure for social post ${socialPostId}`,
       }).catch(() => {});
       throw sendError;
     }

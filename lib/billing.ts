@@ -141,12 +141,24 @@ export async function reserveCredits(params: {
 }): Promise<ReserveResult> {
   const { teamId, operationType, runId, userId } = params;
   const menuCost = getCreditCost(operationType);
-  const amount = params.amount ?? menuCost ?? 0;
 
-  if (amount === 0) {
-    // Free operation — no reservation needed
-    return { ok: true, runId, requiredCredits: 0, allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
+  // Fail closed: unknown operation types are not free — reject immediately
+  // rather than silently treating them as 0-cost. Callers must use a canonical
+  // OperationType from credit-menu.ts or supply an explicit `amount` override.
+  if (menuCost === null && params.amount === undefined) {
+    console.error(`[billing] UNKNOWN_OPERATION: "${operationType}" is not in the credit menu. Rejecting.`);
+    return {
+      ok: false,
+      runId,
+      requiredCredits: 0,
+      allowanceRemaining: 0,
+      purchasedRemaining: 0,
+      totalRemaining: 0,
+      insufficientBy: 0,
+    };
   }
+
+  const amount = params.amount ?? menuCost!;
 
   const txDb = await getTxDb();
 
@@ -415,7 +427,7 @@ export async function releaseReservation(params: {
       .from(creditLedger)
       .where(
         params.releaseKey
-          ? sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'release' AND ${creditLedger.reason} LIKE ${'%' + params.releaseKey + '%'}`
+          ? sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'release' AND ${creditLedger.reason} LIKE ${'%[releaseKey:' + params.releaseKey + ']%'}`
           : sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'release'`
       )
       .limit(1);
@@ -447,7 +459,11 @@ export async function releaseReservation(params: {
       eventType: "release",
       operationType: reservation.operationType,
       runId,
-      reason: reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`,
+      // Embed releaseKey in the stored reason so the LIKE idempotency check
+      // (above) can match it reliably regardless of the caller-supplied reason.
+      reason: params.releaseKey
+        ? `${reason ?? `Release for ${reservation.operationType} (runId: ${runId})`} [releaseKey:${params.releaseKey}]`
+        : (reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`),
     });
   });
 }
