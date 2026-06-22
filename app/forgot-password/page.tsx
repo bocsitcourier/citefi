@@ -105,7 +105,7 @@ export default function ForgotPasswordPage() {
         description: "Your password has been updated. You can now log in.",
       });
 
-      router.replace("/");
+      router.replace("/login");
     } catch (error: any) {
       toast({
         variant: "destructive",

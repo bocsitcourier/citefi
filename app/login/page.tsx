@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Eye, EyeOff } from "lucide-react";
+import { Loader2, Eye, EyeOff, Sparkles, Target, Share2 } from "lucide-react";
 import Link from "next/link";
 
 function LoginForm() {
@@ -209,8 +209,8 @@ function LoginForm() {
               </p>
               <div className="pt-8 space-y-4">
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                    ✨
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                    <Sparkles className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
                     <h3 className="font-semibold">AI-Powered Generation</h3>
@@ -218,8 +218,8 @@ function LoginForm() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                    🎯
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                    <Target className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
                     <h3 className="font-semibold">SEO Optimized</h3>
@@ -227,8 +227,8 @@ function LoginForm() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
-                    📱
+                  <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                    <Share2 className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
                     <h3 className="font-semibold">Social Media AI</h3>

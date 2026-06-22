@@ -55,7 +55,7 @@ function Verify2FAContent() {
         title: "Verification successful!",
         description: "You have been securely authenticated.",
       });
-      router.push("/");
+      router.push("/home");
     } catch (error: any) {
       toast({
         variant: "destructive",
