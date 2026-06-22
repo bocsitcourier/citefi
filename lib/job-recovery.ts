@@ -509,6 +509,8 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   }
 
   // 5. Cancel stuck pg-boss jobs
+  // Scope to short-lived queues only — never cancel long-running content
+  // generation, publishing, or video jobs that legitimately run for 30+ min.
   try {
     await db.execute(sql`
       UPDATE pgboss.job 
@@ -516,8 +518,17 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           completed_on = NOW()
       WHERE state = 'active' 
       AND started_on < NOW() - INTERVAL '30 minutes'
+      AND name NOT IN (
+        'article-generation',
+        'content-publishing',
+        'video-idea-generation',
+        'social-video-generation',
+        'article-podcast',
+        'intelligence-research',
+        'site-crawl'
+      )
     `);
-    console.log("  ✅ Cleaned up stuck pg-boss jobs");
+    console.log("  ✅ Cleaned up stuck pg-boss jobs (short-lived queues only)");
   } catch (e) {
     console.warn("  ⚠️ Could not clean pg-boss jobs:", e);
   }
@@ -588,8 +599,19 @@ export function startJobRecoveryMonitor(intervalMinutes: number = 5) {
     }
   }).catch(e => console.error("Initial recovery error:", e));
   
+  // In-flight guard: prevents concurrent recovery scans if a scan takes
+  // longer than the interval (e.g. DB is slow under heavy load or many
+  // stuck jobs need processing). Without this guard, overlapping scans
+  // can concurrently reset/re-enqueue the same articles.
+  let recoveryRunning = false;
+
   // Set up periodic recovery
   recoveryInterval = setInterval(async () => {
+    if (recoveryRunning) {
+      console.log("⏭️ Recovery scan already in progress — skipping tick to prevent concurrent resets");
+      return;
+    }
+    recoveryRunning = true;
     try {
       const stats = await recoverStuckJobs();
       console.log(`✅ [${new Date().toISOString()}] Job recovery monitor check complete`);
@@ -600,6 +622,8 @@ export function startJobRecoveryMonitor(intervalMinutes: number = 5) {
       }
     } catch (e) {
       console.error("Job recovery monitor error:", e);
+    } finally {
+      recoveryRunning = false;
     }
   }, intervalMinutes * 60 * 1000);
   

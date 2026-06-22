@@ -84,8 +84,6 @@ export async function POST(request: NextRequest) {
     }
 
     // SECURITY: Verify article ownership BEFORE spending any OpenAI tokens.
-    // Without this check, an authenticated user from Team A could pass any
-    // articleId and trigger expensive AI work on behalf of Team B's content.
     const [ownedArticle] = await db
       .select({ id: articles.id })
       .from(articles)
@@ -101,14 +99,15 @@ export async function POST(request: NextRequest) {
 
     console.log(`[ChatGPT Review] Starting review for article ${articleId}...`);
 
-    // Execute all ChatGPT enrichment tasks in parallel for speed
+    // Execute all ChatGPT enrichment tasks in parallel.
+    // Use allSettled so one optional module failure cannot kill the whole stage.
     const [
-      hyperlinkResult,
-      seoAnalysis,
-      hashtagResult,
-      socialSnippets,
-      enhancedImages,
-    ] = await Promise.all([
+      hyperlinkSettled,
+      seoSettled,
+      hashtagSettled,
+      socialSettled,
+      imageSettled,
+    ] = await Promise.allSettled([
       generateHyperlinks(content, coreTopic, targetUrl, competitorUrls),
       analyzeSEO(content, title, metaDescription, keywords, geographicFocus, businessName),
       generateHashtags(title, content, keywords, geographicFocus, industry),
@@ -118,13 +117,42 @@ export async function POST(request: NextRequest) {
         : Promise.resolve(null),
     ]);
 
+    // Extract values with safe fallbacks for any failed sub-modules
+    const hyperlinkResult = hyperlinkSettled.status === "fulfilled"
+      ? hyperlinkSettled.value
+      : { totalLinks: 0, keywords: [], tokenUsage: { totalTokens: 0 } };
+    const seoAnalysis = seoSettled.status === "fulfilled"
+      ? seoSettled.value
+      : { seoScore: 0, recommendations: [], readability: null, localSignals: null, tokenUsage: { totalTokens: 0 } };
+    const hashtagResult = hashtagSettled.status === "fulfilled"
+      ? hashtagSettled.value
+      : { hashtags: [], categories: {}, totalCount: 0, tokenUsage: { totalTokens: 0 } };
+    const socialSnippets = socialSettled.status === "fulfilled"
+      ? socialSettled.value
+      : { tokenUsage: { totalTokens: 0 } };
+    const enhancedImages = imageSettled.status === "fulfilled"
+      ? imageSettled.value
+      : null;
+
+    // Log any failures from optional sub-modules
+    if (hyperlinkSettled.status === "rejected")
+      console.warn(`[ChatGPT Review] Hyperlink generation failed for article ${articleId}:`, hyperlinkSettled.reason);
+    if (seoSettled.status === "rejected")
+      console.warn(`[ChatGPT Review] SEO analysis failed for article ${articleId}:`, seoSettled.reason);
+    if (hashtagSettled.status === "rejected")
+      console.warn(`[ChatGPT Review] Hashtag generation failed for article ${articleId}:`, hashtagSettled.reason);
+    if (socialSettled.status === "rejected")
+      console.warn(`[ChatGPT Review] Social snippets failed for article ${articleId}:`, socialSettled.reason);
+    if (imageSettled.status === "rejected")
+      console.warn(`[ChatGPT Review] Image enhancement failed for article ${articleId}:`, imageSettled.reason);
+
     console.log(`[ChatGPT Review] Enrichment complete for article ${articleId}`);
     console.log(`  - Hyperlinks: ${hyperlinkResult.totalLinks} links generated`);
     console.log(`  - SEO Score: ${seoAnalysis.seoScore}/100`);
     console.log(`  - Hashtags: ${hashtagResult.totalCount} hashtags`);
     console.log(`  - Social Snippets: OG, Twitter, LinkedIn ready`);
     if (enhancedImages) {
-      console.log(`  - Images: ${enhancedImages.enhancedPrompts.length} prompts enhanced`);
+      console.log(`  - Images: ${(enhancedImages as any)?.enhancedPrompts?.length ?? 0} prompts enhanced`);
     }
 
     // Calculate actual token usage from OpenAI responses
@@ -132,14 +160,14 @@ export async function POST(request: NextRequest) {
       hyperlinks: hyperlinkResult.tokenUsage.totalTokens,
       seoAnalysis: seoAnalysis.tokenUsage.totalTokens,
       hashtags: hashtagResult.tokenUsage.totalTokens,
-      socialSnippets: socialSnippets.tokenUsage.totalTokens,
-      imageEnhancement: enhancedImages?.tokenUsage.totalTokens || 0,
-      total: 
+      socialSnippets: (socialSnippets as any)?.tokenUsage?.totalTokens ?? 0,
+      imageEnhancement: (enhancedImages as any)?.tokenUsage?.totalTokens || 0,
+      total:
         hyperlinkResult.tokenUsage.totalTokens +
         seoAnalysis.tokenUsage.totalTokens +
         hashtagResult.tokenUsage.totalTokens +
-        socialSnippets.tokenUsage.totalTokens +
-        (enhancedImages?.tokenUsage.totalTokens || 0),
+        ((socialSnippets as any)?.tokenUsage?.totalTokens ?? 0) +
+        ((enhancedImages as any)?.tokenUsage?.totalTokens || 0),
     };
 
     // Build meta enrichment object
@@ -150,7 +178,7 @@ export async function POST(request: NextRequest) {
       seoRecommendations: seoAnalysis.recommendations,
       readability: seoAnalysis.readability,
       localSignals: seoAnalysis.localSignals,
-      enhancedImages: enhancedImages?.enhancedPrompts || [],
+      enhancedImages: (enhancedImages as any)?.enhancedPrompts || [],
     };
 
     // Update article in database with enriched data

@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "./db";
 import { errorLogs, type ErrorLog } from "@/shared/schema";
 
@@ -131,6 +131,8 @@ function buildSummary(input: {
 
 export async function buildArticleShadowRunPlan(input: {
   articleId: number;
+  /** Scopes error log reads to this batch to prevent cross-tenant data leakage into Gemini prompts. */
+  batchId?: number;
   title: string;
   geographicFocus?: string;
 }): Promise<ArticleShadowRunPlan> {
@@ -141,6 +143,9 @@ export async function buildArticleShadowRunPlan(input: {
       articleId: errorLogs.articleId,
     })
     .from(errorLogs)
+    // Scope to this batch when available; falls back to global last-50 only when no batchId is set.
+    // This prevents error messages from other tenants' jobs from leaking into Gemini prompts.
+    .where(input.batchId ? eq(errorLogs.batchId, input.batchId) : undefined)
     .orderBy(desc(errorLogs.createdAt))
     .limit(50);
 

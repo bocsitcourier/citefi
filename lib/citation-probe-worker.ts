@@ -166,9 +166,12 @@ export async function enqueueCitationProbes(
   ];
 
   const jobs = queries.map((q) => ({
+    name: "citation-probe",
     data: { articleId, teamId, targetQuery: q } satisfies CitationProbeJob,
+    retryLimit: 2,
+    retryDelay: 30,
   }));
 
-  await boss.insert("citation-probe", jobs);
+  await boss.insert(jobs);
   console.log(`[CitationProbe] Enqueued ${jobs.length} probes for article ${articleId}`);
 }

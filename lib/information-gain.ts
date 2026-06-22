@@ -8,11 +8,14 @@
  * Algorithm:
  *   1. Strip HTML to plain text; tokenise into 2-word bigrams.
  *   2. Build a TF set for the new article.
- *   3. Fetch the team's last N published articles from DB (capped at 30).
+ *   3. Fetch the team's last 30 COMPLETE articles from DB.
  *   4. For each existing article, compute Jaccard similarity on bigrams.
  *   5. Take the MAX similarity (most-similar existing article).
  *   6. Information-gain score = 100 - (maxSimilarity * 100).
  *   7. Gate: PASSED ≥ 55, FLAGGED 35-54, BLOCKED < 35.
+ *
+ * NOTE: Score BEFORE disclosure injection so the shared EU AI Act footer
+ * does not artificially inflate similarity between all articles.
  *
  * Why Jaccard not cosine? Jaccard on bigrams catches near-duplicate
  * structure (same talking points, same sentence starters) even when
@@ -22,7 +25,7 @@
 
 import { db } from "./db";
 import { articles } from "@/shared/schema";
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { eq, and, isNull, desc } from "drizzle-orm";
 
 const GATE_THRESHOLDS = {
   PASSED: 55,   // novel enough to publish
@@ -73,15 +76,24 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 /**
  * Score the information gain of a new article against existing team content.
  *
- * @param newHtml    The final HTML content of the newly generated article.
+ * IMPORTANT: Call this on the pre-disclosure HTML so the shared disclosure
+ * footer does not inflate similarity scores across all articles.
+ *
+ * @param newHtml    The final HTML content of the newly generated article
+ *                   (before EU AI Act disclosure injection).
  * @param teamId     The team producing the article.
  * @param excludeId  Optional: exclude this article ID from comparisons (for regeneration).
  */
 export async function scoreInformationGain(
-  newHtml: string,
+  newHtml: string | null | undefined,
   teamId: number,
   excludeId?: number
 ): Promise<InformationGainResult> {
+  // Null/empty guard — treat missing content as novel (do not block)
+  if (!newHtml || newHtml.trim().length === 0) {
+    return { score: 75, status: "PASSED", blocked: false };
+  }
+
   const newText = stripHtml(newHtml);
   const newBigrams = toBigrams(newText);
 
@@ -90,17 +102,20 @@ export async function scoreInformationGain(
     return { score: 75, status: "PASSED", blocked: false };
   }
 
-  // Fetch the 30 most-recent COMPLETE articles for this team
+  // Fetch the 30 most-recent COMPLETE articles for this team.
+  // Only compare against truly published (COMPLETE) content.
+  // Use orderBy to guarantee deterministic "most-recent" results.
   const existing = await db
     .select({ id: articles.id, chosenTitle: articles.chosenTitle, finalHtmlContent: articles.finalHtmlContent })
     .from(articles)
     .where(
       and(
         eq(articles.teamId, teamId),
-        inArray(articles.articleStatus, ["COMPLETE", "GPT4_ENHANCED", "CHATGPT_REVIEWED"]),
+        eq(articles.articleStatus, "COMPLETE"),
         isNull(articles.deletedAt)
       )
     )
+    .orderBy(desc(articles.createdAt))
     .limit(30);
 
   const comparables = excludeId
@@ -121,7 +136,7 @@ export async function scoreInformationGain(
     const sim = jaccard(newBigrams, existingBigrams);
     if (sim > maxSimilarity) {
       maxSimilarity = sim;
-      mostSimilarTitle = art.chosenTitle;
+      mostSimilarTitle = art.chosenTitle ?? undefined;
     }
   }
 

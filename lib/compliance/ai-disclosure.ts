@@ -16,6 +16,9 @@ export interface DisclosureOptions {
   includeModelDetails?: boolean;
 }
 
+/** Sentinel class used to check idempotency — do not rename without updating injectDisclosureIntoHtml */
+const DISCLOSURE_SENTINEL = "ai-disclosure-notice";
+
 /**
  * Generates the EU AI Act Article 50 compliant disclosure footer HTML.
  * This is appended to finalHtmlContent before the article is marked COMPLETE.
@@ -40,7 +43,7 @@ export function generateDisclosureFooter(opts: DisclosureOptions = {}): string {
       : "";
 
   return `
-<aside class="ai-disclosure-notice" role="note" aria-label="AI content disclosure" style="margin-top:2rem;padding:1rem 1.25rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:0.85rem;color:#64748b;line-height:1.5;">
+<aside class="${DISCLOSURE_SENTINEL}" role="note" aria-label="AI content disclosure" style="margin-top:2rem;padding:1rem 1.25rem;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;font-size:0.85rem;color:#64748b;line-height:1.5;">
   <strong style="color:#475569;">AI-Generated Content Disclosure</strong><br>
   This article was created with the assistance of artificial intelligence tools${modelDetail} on ${dateStr}.
   While AI assisted in drafting this content, it has been reviewed for accuracy.
@@ -51,12 +54,21 @@ export function generateDisclosureFooter(opts: DisclosureOptions = {}): string {
 
 /**
  * Injects the EU AI Act disclosure footer into the final article HTML.
- * Appends before the closing </article> or </body> tag, or at the end.
+ * - Null/undefined-safe: returns empty string if html is falsy.
+ * - Idempotent: skips injection if the sentinel is already present
+ *   (prevents duplicate footers on regeneration/reprocessing).
  */
 export function injectDisclosureIntoHtml(
-  html: string,
+  html: string | null | undefined,
   opts: DisclosureOptions = {}
 ): string {
+  if (!html) return "";
+
+  // Idempotency guard — already has a disclosure footer
+  if (html.includes(DISCLOSURE_SENTINEL)) {
+    return html;
+  }
+
   const disclosureHtml = generateDisclosureFooter(opts);
 
   if (html.includes("</article>")) {

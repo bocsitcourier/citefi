@@ -512,11 +512,29 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       });
     }
 
-    // Update status to READY
+    // Only mark READY when at least one platform variant succeeded.
+    // If ALL platforms failed, throw so pg-boss retries the job and the
+    // post does not sit silently in READY with zero usable variants.
+    const finalStatus = successfulPlatforms.length > 0 ? "READY" : "FAILED";
+
+    // Scope the update to both id AND teamId for defence-in-depth write isolation.
+    const postTeamId = job.data.teamId ?? postDetails?.teamId;
+    const updateWhere = postTeamId
+      ? and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, postTeamId))
+      : eq(socialPosts.id, socialPostId);
+
     await db
       .update(socialPosts)
-      .set({ status: "READY", updatedAt: new Date() })
-      .where(eq(socialPosts.id, socialPostId));
+      .set({ status: finalStatus, updatedAt: new Date() })
+      .where(updateWhere);
+
+    if (finalStatus === "FAILED") {
+      // Throw so pg-boss retries; billing reservation will be released by the outer catch.
+      throw new Error(
+        `All ${platforms.length} platform variants failed for social post ${socialPostId}. ` +
+        `Failed platforms: ${failedPlatforms.map((r) => r.platform).join(", ")}.`
+      );
+    }
 
     // Mark job as completed
     await db
@@ -524,17 +542,18 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       .set({ status: "COMPLETED", completedAt: new Date() })
       .where(eq(socialPostJobs.jobId, job.id));
 
-    // Log final completion
+    // Log final completion with accurate variant counts
     await db.insert(socialPostLogs).values({
       socialPostId,
       eventType: "READY",
       stage: "COMPLETE",
       severity: "info",
-      message: `Social post generation completed for ${platforms.length} platforms`,
+      message: `Social post generation completed for ${successfulPlatforms.length}/${platforms.length} platforms`,
       payloadJson: { 
         platforms, 
-        variantsGenerated: platforms.length,
-        imagesGenerated: includeImage ? platforms.length : 0,
+        variantsGenerated: successfulPlatforms.length,
+        imagesGenerated: includeImage ? successfulPlatforms.length : 0,
+        failedPlatforms: failedPlatforms.map((r) => r.platform),
       },
     });
 

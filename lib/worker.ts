@@ -427,10 +427,10 @@ export async function registerWorkers() {
           .from(articles)
           .where(eq(articles.id, articleId));
 
-        // IDEMPOTENCY GUARD: Never regenerate an article that already completed the full
-        // pipeline. The job monitor may reset stuck pg-boss jobs — if the article already
-        // reached COMPLETE/GPT4_ENHANCED the reset job should be a no-op, not a re-run.
-        const finalStatuses = ['COMPLETE', 'GPT4_ENHANCED'];
+        // IDEMPOTENCY GUARD: Never regenerate an article that has reached COMPLETE.
+        // GPT4_ENHANCED is an intermediate status (pre-Guardian); articles stuck
+        // there should resume into the finalization stages, not be skipped entirely.
+        const finalStatuses = ['COMPLETE'];
         if (finalStatuses.includes(currentArticle?.articleStatus || '')) {
           console.log(`⏭️ SKIPPING: Article ${articleId} is already ${currentArticle!.articleStatus} — job reset but no regeneration needed`);
           // Ensure any outstanding reservation is debited before returning.
@@ -454,9 +454,11 @@ export async function registerWorkers() {
         let geminiResult: any;
         let skipGeminiUpdate = false;
         
-        // RESUME LOGIC: Skip Gemini if already complete (preserve expensive work)
-        if (currentArticle?.articleStatus === "GEMINI_COMPLETE" && currentArticle?.finalHtmlContent) {
-          console.log(`♻️ RESUMING: Article ${articleId} already has Gemini content, skipping to ChatGPT review`);
+        // RESUME LOGIC: Skip Gemini if content is already generated (preserve expensive work).
+        // Covers both GEMINI_COMPLETE (Gemini done, ChatGPT pending) and GPT4_ENHANCED
+        // (ChatGPT done, Guardian/disclosure/COMPLETE pending — re-runs ChatGPT cheaply).
+        if ((currentArticle?.articleStatus === "GEMINI_COMPLETE" || currentArticle?.articleStatus === "GPT4_ENHANCED") && currentArticle?.finalHtmlContent) {
+          console.log(`♻️ RESUMING: Article ${articleId} is ${currentArticle.articleStatus} — skipping Gemini, resuming from ChatGPT review`);
           
           // Hydrate geminiResult from EXISTING saved metadata (reuse everything as-is)
           geminiResult = {
@@ -524,6 +526,7 @@ export async function registerWorkers() {
             const { buildArticleShadowRunPlan } = await import("./article-shadow-run");
             shadowRunPlan = await buildArticleShadowRunPlan({
               articleId,
+              batchId: batchId || undefined,
               title,
               geographicFocus,
             });
@@ -1078,7 +1081,9 @@ export async function registerWorkers() {
           // BRAND NAME NORMALIZATION: Force correct capitalization before validation
           // This catches any remaining case variations from GPT-4, JSON-LD, or other processing
           if (businessName) {
-            const brandRegex = new RegExp(businessName, 'gi');
+            // Escape regex metacharacters so brand names like "C++ Corp" or "Price.io" don't corrupt HTML
+            const escapedBrand = businessName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const brandRegex = new RegExp(escapedBrand, 'gi');
             finalHtmlWithLinks = finalHtmlWithLinks.replace(brandRegex, businessName);
             console.log(`🔒 Final brand normalization applied before validation: "${businessName}"`);
           }
@@ -1127,7 +1132,7 @@ export async function registerWorkers() {
 
             console.log(`🛡️ Guardian audit attempt ${attempt} for article ${articleId}: score=${audit.score}, passed=${audit.passed}`);
 
-            if (audit.passed || audit.score >= 70) {
+            if (audit.passed) {
               console.log(`✅ Guardian approved article ${articleId} (score: ${audit.score})`);
               guardianHtml = guardianHtml; // accepted
               break;
@@ -1166,18 +1171,9 @@ export async function registerWorkers() {
           finalHtmlWithLinks = guardianHtml;
 
           // ================================================================
-          // EU AI ACT ARTICLE 50 DISCLOSURE — inject before COMPLETE
-          // Effective Aug 2 2026 — disclose AI-assisted content to readers
-          // ================================================================
-          finalHtmlWithLinks = injectDisclosureIntoHtml(finalHtmlWithLinks, {
-            generatorModel: GEMINI_ARTICLE_MODEL,
-            reviewModel: GPT_REVIEW_MODEL,
-            generatedAt: new Date(),
-          });
-
-          // ================================================================
-          // INFORMATION-GAIN EDITORIAL GATE — surface novel content only
-          // Scores article novelty vs existing team corpus (Jaccard bigrams)
+          // INFORMATION-GAIN EDITORIAL GATE — score BEFORE disclosure injection
+          // so the shared EU AI Act footer text does not inflate article
+          // similarity scores across all generated articles.
           // ================================================================
           let igScore: number | undefined;
           let igStatus: string | undefined;
@@ -1190,15 +1186,30 @@ export async function registerWorkers() {
               );
               igScore = igResult.score;
               igStatus = igResult.status;
-              console.log(
-                `📊 Info-gain gate: article ${articleId} score=${igScore} status=${igStatus}` +
-                  (igResult.mostSimilarTitle ? ` (similar to: "${igResult.mostSimilarTitle}")` : "")
-              );
+              if (igResult.blocked) {
+                console.warn(
+                  `🚫 Info-gain BLOCKED article ${articleId} (score=${igScore}) — too similar to: "${igResult.mostSimilarTitle ?? "existing content"}"`
+                );
+              } else {
+                console.log(
+                  `📊 Info-gain gate: article ${articleId} score=${igScore} status=${igStatus}` +
+                    (igResult.mostSimilarTitle ? ` (similar to: "${igResult.mostSimilarTitle}")` : "")
+                );
+              }
             } catch (igErr) {
               console.warn(`⚠️ Info-gain scoring failed for article ${articleId} — skipping gate`, igErr);
             }
           }
-          // ====================================================================
+
+          // ================================================================
+          // EU AI ACT ARTICLE 50 DISCLOSURE — inject AFTER info-gain scoring
+          // Effective Aug 2 2026 — disclose AI-assisted content to readers
+          // ================================================================
+          finalHtmlWithLinks = injectDisclosureIntoHtml(finalHtmlWithLinks, {
+            generatorModel: GEMINI_ARTICLE_MODEL,
+            reviewModel: GPT_REVIEW_MODEL,
+            generatedAt: new Date(),
+          });
 
           // Mark article as COMPLETE and save normalized HTML
           await db
@@ -1422,10 +1433,28 @@ export async function registerWorkers() {
         });
         
         try {
-          await db
-            .update(articles)
-            .set({ articleStatus: "FAILED", errorMessage: errorMessage.slice(0, 1000) })
-            .where(eq(articles.id, articleId));
+          // Do not overwrite GEMINI_COMPLETE — that checkpoint preserves expensive Gemini work.
+          // An article at GEMINI_COMPLETE will resume from ChatGPT review on the next worker
+          // pickup (skipping Gemini entirely). Only mark FAILED for pre-Gemini failures.
+          const [statusCheck] = await db
+            .select({ articleStatus: articles.articleStatus })
+            .from(articles)
+            .where(eq(articles.id, articleId))
+            .limit(1);
+          const statusNow = statusCheck?.articleStatus;
+          if (statusNow !== "GEMINI_COMPLETE") {
+            await db
+              .update(articles)
+              .set({ articleStatus: "FAILED", errorMessage: errorMessage.slice(0, 1000) })
+              .where(eq(articles.id, articleId));
+          } else {
+            // Preserve GEMINI_COMPLETE — update only the error message for observability
+            await db
+              .update(articles)
+              .set({ errorMessage: errorMessage.slice(0, 1000), updatedAt: new Date() })
+              .where(eq(articles.id, articleId));
+            console.warn(`⚠️ Article ${articleId} failed in post-Gemini stages — GEMINI_COMPLETE preserved, will retry from ChatGPT review`);
+          }
         } catch (dbError) {
           console.error(`❌ Failed to update article status:`, dbError);
         }
