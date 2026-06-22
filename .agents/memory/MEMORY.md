@@ -10,3 +10,4 @@
 - [Brand intelligence pipeline](brand-intelligence-pipeline.md) — client_brand_profiles table (UNIQUE teamId); migration via scripts/ using neon() template literals; service in lib/client-brand-profile-service.ts; context injected into learning-service.ts buildOptimizationContext via Promise.all.
 - [Architect review findings T1-T17](architect-review-t1-t17.md) — IDOR media route, wrong field names content update, worker rethrow, queue names, persona join, guardrail gate, video metrics.
 - [T18 Journey Orchestrator](t18-journey-orchestrator.md) — 4 tables + journey-context.ts + 15-min pg-boss scheduler; terminalKpi NOT nullable (Gap L); locale/localeConfig for Gap P; migration via scripts/migrate-t018-journeys.ts.
+- [Admin panel audit findings](admin-panel-bugs.md) — 8 fixed bugs: toggle-2fa schema mismatch, Reddit crash, suspend no-session-kill, self-demotion, quota injection, error-log scope, credit idempotency, chatgpt paywall.

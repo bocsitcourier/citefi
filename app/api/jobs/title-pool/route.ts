@@ -96,13 +96,20 @@ export async function POST(request: NextRequest) {
     }
     
     // ENHANCED v3.0: Perform Reddit research BEFORE title generation for intent-based titles
+    // Wrapped in try/catch — Reddit API failures must not crash the entire batch creation
     console.log(`🔍 Performing Reddit research for "${coreTopic}" in "${geographicFocus}"...`);
-    const redditResearch = await performRedditResearch(coreTopic, geographicFocus, {
-      maxSubreddits: 5,
-      maxPostsPerSubreddit: 20,
-      maxDiscussionsToAnalyze: 10
-    });
-    console.log(`✅ Reddit research complete: ${redditResearch.questions.length} questions mined`);
+    let redditResearch: Awaited<ReturnType<typeof performRedditResearch>>;
+    try {
+      redditResearch = await performRedditResearch(coreTopic, geographicFocus, {
+        maxSubreddits: 5,
+        maxPostsPerSubreddit: 20,
+        maxDiscussionsToAnalyze: 10
+      });
+      console.log(`✅ Reddit research complete: ${redditResearch.questions.length} questions mined`);
+    } catch (redditError) {
+      console.warn(`⚠️ Reddit research failed, continuing without it:`, (redditError as Error).message);
+      redditResearch = { questions: [], subreddits: [], intentClusters: [], contentAngles: [] } as any;
+    }
     
     // Extract top Reddit questions for title generation
     const redditQuestions = redditResearch.questions.map(q => ({

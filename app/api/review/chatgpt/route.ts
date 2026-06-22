@@ -5,6 +5,7 @@ import { analyzeSEO } from "@/lib/chatgpt-review/seo-analyzer";
 import { generateHashtags } from "@/lib/chatgpt-review/hashtag-enrichment";
 import { generateSocialSnippets } from "@/lib/chatgpt-review/social-snippets";
 import { enhanceImagePrompts } from "@/lib/chatgpt-review/image-enhancer";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -74,6 +75,12 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields: articleId, content, title, coreTopic, targetUrl" },
         { status: 400 }
       );
+    }
+
+    // PAYWALL: Ensure the team has active access before running expensive AI work.
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
     // SECURITY: Verify article ownership BEFORE spending any OpenAI tokens.

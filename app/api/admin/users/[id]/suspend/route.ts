@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, activityLogs } from "@/shared/schema";
+import { users, sessions, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 
 export async function POST(
   req: NextRequest,
@@ -53,6 +53,20 @@ export async function POST(
       })
       .where(eq(users.id, userId));
 
+    // Immediately invalidate all active sessions so the suspended user
+    // cannot remain logged in until their JWT expires naturally.
+    const terminatedSessions = await db
+      .update(sessions)
+      .set({
+        isActive: 0,
+        forceLogoutAt: new Date(),
+        terminationReason: "account_suspended",
+      })
+      .where(
+        eq(sessions.userId, userId)
+      )
+      .returning({ id: sessions.id });
+
     await db.insert(activityLogs).values({
       userId: adminUserId,
       action: "user_suspended",
@@ -64,6 +78,7 @@ export async function POST(
         suspendedEmail: user.email,
         suspendedBy: adminUser?.email || 'unknown',
         previousStatus: user.accountStatus,
+        sessionsTerminated: terminatedSessions.length,
       },
       severity: "warning",
     });
@@ -75,6 +90,7 @@ export async function POST(
         email: user.email,
         accountStatus: "suspended",
       },
+      sessionsTerminated: terminatedSessions.length,
     });
   } catch (error: unknown) {
     console.error("Suspend user error:", error);

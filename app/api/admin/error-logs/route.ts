@@ -141,15 +141,34 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     await requireAdmin(req);
-    const { id, resolved } = await req.json();
+    const { id, resolved, source } = await req.json();
 
-    await db
-      .update(errorLogs)
-      .set({
-        resolved: resolved ? 1 : 0,
-        resolvedAt: resolved ? new Date() : null,
-      })
-      .where(eq(errorLogs.id, id));
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    // Route resolve/unresolve to the correct table based on the error source
+    if (source === "video_idea") {
+      // Mark as DISMISSED so it no longer shows in the FAILED query
+      await db
+        .update(videoIdeas)
+        .set({ status: resolved ? "DISMISSED" : "FAILED" })
+        .where(eq(videoIdeas.id, id));
+    } else if (source === "social_video") {
+      await db
+        .update(socialPosts)
+        .set({ videoStatus: resolved ? "DISMISSED" : "FAILED" })
+        .where(eq(socialPosts.id, id));
+    } else {
+      // Default: article error log
+      await db
+        .update(errorLogs)
+        .set({
+          resolved: resolved ? 1 : 0,
+          resolvedAt: resolved ? new Date() : null,
+        })
+        .where(eq(errorLogs.id, id));
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -163,7 +182,44 @@ export async function DELETE(req: NextRequest) {
     await requireAdmin(req);
     const body = await req.json();
 
-    // Delete specific IDs
+    // Delete specific IDs with source routing
+    // body.entries = [{ id, source }] for cross-table deletes
+    if (Array.isArray(body.entries) && body.entries.length > 0) {
+      const articleIds: number[] = [];
+      const videoIdeaIds: number[] = [];
+      const socialVideoIds: number[] = [];
+
+      for (const entry of body.entries) {
+        const id = Number(entry.id);
+        if (isNaN(id)) continue;
+        if (entry.source === "video_idea") videoIdeaIds.push(id);
+        else if (entry.source === "social_video") socialVideoIds.push(id);
+        else articleIds.push(id);
+      }
+
+      if (articleIds.length > 0) {
+        await db.delete(errorLogs).where(
+          sql`${errorLogs.id} = ANY(ARRAY[${sql.join(articleIds.map(id => sql`${id}`), sql`, `)}]::int[])`
+        );
+      }
+      if (videoIdeaIds.length > 0) {
+        await db.delete(videoIdeas).where(
+          sql`${videoIdeas.id} = ANY(ARRAY[${sql.join(videoIdeaIds.map(id => sql`${id}`), sql`, `)}]::int[])`
+        );
+      }
+      if (socialVideoIds.length > 0) {
+        // Soft-delete social posts to preserve data integrity
+        await db.update(socialPosts)
+          .set({ deletedAt: new Date() })
+          .where(
+            sql`${socialPosts.id} = ANY(ARRAY[${sql.join(socialVideoIds.map(id => sql`${id}`), sql`, `)}]::int[])`
+          );
+      }
+
+      return NextResponse.json({ success: true, deleted: body.entries.length });
+    }
+
+    // Legacy: delete specific article errorLog IDs (backward compat)
     if (Array.isArray(body.ids) && body.ids.length > 0) {
       const ids = body.ids.map(Number).filter((n: number) => !isNaN(n));
       await db.delete(errorLogs).where(
@@ -172,7 +228,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, deleted: ids.length });
     }
 
-    // Clear all resolved errors
+    // Clear all resolved errors (article errorLogs only)
     if (body.clearResolved === true) {
       const result = await db
         .delete(errorLogs)
@@ -180,7 +236,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, deleted: result.rowCount ?? 0 });
     }
 
-    // Clear all errors (optionally filtered by source type)
+    // Clear all errors
     if (body.clearAll === true) {
       await db.delete(errorLogs);
       return NextResponse.json({ success: true });

@@ -9,15 +9,32 @@ interface RouteParams {
   params: Promise<{ userId: string }>;
 }
 
+const VALID_QUOTA_TYPES = [
+  'articles_per_hour',
+  'articles_per_day',
+  'articles_per_week',
+  'articles_per_month',
+  'social_posts_per_day',
+  'social_posts_per_week',
+  'social_posts_per_month',
+  'videos_per_day',
+  'videos_per_week',
+  'videos_per_month',
+  'podcasts_per_day',
+  'podcasts_per_month',
+  'api_calls_per_hour',
+  'api_calls_per_day',
+] as const;
+
 const quotaUpdateSchema = z.object({
-  quotaType: z.string(),
+  quotaType: z.enum(VALID_QUOTA_TYPES),
   limitValue: z.number().int().min(0).max(100000),
   periodType: z.enum(['hour', 'day', 'week', 'month']).optional(),
   enabled: z.number().int().min(0).max(1).optional(),
 });
 
 const quotaCreateSchema = z.object({
-  quotaType: z.string(),
+  quotaType: z.enum(VALID_QUOTA_TYPES),
   limitValue: z.number().int().min(0).max(100000),
   periodType: z.enum(['hour', 'day', 'week', 'month']),
   enabled: z.number().int().min(0).max(1).default(1),

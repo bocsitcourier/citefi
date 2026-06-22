@@ -34,12 +34,13 @@ export async function POST(
       );
     }
 
-    const targetUserAny = targetUser as any;
-    const newEnforcementStatus = !targetUserAny.twoFactorEnforced;
+    // Toggle the actual twoFactorEnabled column (0 → 1, 1 → 0)
+    const currentlyEnabled = targetUser.twoFactorEnabled === 1;
+    const newEnabledValue = currentlyEnabled ? 0 : 1;
 
     await db
       .update(users)
-      .set({ twoFactorEnabled: newEnforcementStatus ? 1 : 0 } as any)
+      .set({ twoFactorEnabled: newEnabledValue })
       .where(eq(users.id, userId));
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 
@@ -48,13 +49,13 @@ export async function POST(
 
     await db.insert(adminActionLogs).values({
       userId: adminUserId,
-      action: '2fa_enforcement_toggled',
+      action: '2fa_toggled',
       targetType: 'user',
       targetId: userId,
       details: JSON.stringify({
         targetUserEmail: targetUser.email,
-        previousStatus: targetUserAny.twoFactorEnforced,
-        newStatus: newEnforcementStatus,
+        previousStatus: currentlyEnabled,
+        newStatus: Boolean(newEnabledValue),
         targetUserRole: targetUser.role,
         ipAddress: clientIp,
       }),
@@ -62,13 +63,13 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      twoFactorEnforced: Boolean(newEnforcementStatus),
-      message: `2FA ${newEnforcementStatus ? 'enforced' : 'enforcement removed'} for user`,
+      twoFactorEnabled: Boolean(newEnabledValue),
+      message: `2FA ${newEnabledValue ? 'enabled' : 'disabled'} for user`,
     });
   } catch (error: any) {
-    console.error("Toggle 2FA enforcement error:", error);
+    console.error("Toggle 2FA error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to toggle 2FA enforcement" },
+      { error: error instanceof Error ? error.message : "Failed to toggle 2FA" },
       { status: error?.statusCode || 500 }
     );
   }

@@ -33,6 +33,14 @@ export async function POST(
       );
     }
 
+    // Prevent an admin from modifying their own role
+    if (userId === auth.userId) {
+      return NextResponse.json(
+        { error: 'Cannot change your own role. Ask another admin to do this.' },
+        { status: 400 }
+      );
+    }
+
     const [targetUser] = await db
       .select()
       .from(users)

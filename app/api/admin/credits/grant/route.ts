@@ -32,7 +32,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { teamId, amount, bucket, reason, periodStart, periodEnd, idempotencyKey } = parsed.data;
+    const { teamId, amount, bucket, reason, periodStart, periodEnd } = parsed.data;
+
+    // Always use an idempotency key to prevent double-grants on repeated clicks.
+    // If the caller provided one, use it; otherwise generate a deterministic one
+    // scoped to (admin, team, amount, bucket, minute) so rapid re-submissions
+    // within the same minute are deduplicated automatically.
+    const idempotencyKey = parsed.data.idempotencyKey ?? 
+      `admin-grant:${adminUserId}:${teamId}:${amount}:${bucket}:${Math.floor(Date.now() / 60000)}`;
 
     if (bucket === "allowance") {
       if (!periodStart || !periodEnd) {
