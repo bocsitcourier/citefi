@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
       agencyTeam: { id: agencyTeam.id, name: agencyTeam.name },
     });
   } catch (err: any) {
-    if (err.status === 401 || err.status === 403) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[agency/clients GET]", err);
     return NextResponse.json({ error: "Failed to load clients" }, { status: 500 });
@@ -147,8 +148,9 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
-    if (err.status === 401 || err.status === 403) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
     console.error("[agency/clients POST]", err);
     return NextResponse.json({ error: "Failed to create client team" }, { status: 500 });

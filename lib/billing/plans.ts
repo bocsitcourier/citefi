@@ -1,4 +1,4 @@
-export type PlanId = "free" | "starter" | "growth";
+export type PlanId = "free" | "starter" | "growth" | "agency" | "enterprise";
 
 export interface BillingPlan {
   id: PlanId;
@@ -9,6 +9,8 @@ export interface BillingPlan {
   stripeAnnualPriceEnvKey?: string;
   features: string[];
   oneTime?: boolean;
+  /** If true, this plan is managed manually (sales-assisted) and not purchasable via self-serve checkout */
+  salesAssisted?: boolean;
 }
 
 export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
@@ -55,6 +57,41 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
       "Content clusters",
       "Batch generation",
       "Advanced analytics",
+    ],
+  },
+  agency: {
+    id: "agency",
+    name: "Agency",
+    monthlyCredits: 1000,
+    priceUsd: 299,
+    stripePriceEnvKey: "STRIPE_PRICE_AGENCY",
+    stripeAnnualPriceEnvKey: "STRIPE_PRICE_AGENCY_ANNUAL",
+    features: [
+      "1,000 credits per month",
+      "Everything in Growth",
+      "Up to 25 client sub-teams",
+      "Client dashboard & reporting",
+      "White-label content generation",
+      "Agency admin console",
+      "Priority support",
+    ],
+  },
+  enterprise: {
+    id: "enterprise",
+    name: "Enterprise",
+    monthlyCredits: 5000,
+    priceUsd: 999,
+    stripePriceEnvKey: "STRIPE_PRICE_ENTERPRISE",
+    stripeAnnualPriceEnvKey: "STRIPE_PRICE_ENTERPRISE_ANNUAL",
+    salesAssisted: true,
+    features: [
+      "5,000 credits per month",
+      "Everything in Agency",
+      "Unlimited client sub-teams",
+      "Custom integrations",
+      "Dedicated account manager",
+      "SLA guarantees",
+      "Custom billing terms",
     ],
   },
 };

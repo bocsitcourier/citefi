@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLiveBatchStatus, getBatchPerformanceMetrics } from "@/lib/monitoring";
 import { requireTeamMember } from "@/lib/api/auth";
+import { db } from "@/lib/db";
+import { jobBatches } from "@/shared/schema";
+import { and, eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
@@ -16,6 +19,17 @@ export async function GET(
         { error: "Invalid batch ID" },
         { status: 400 }
       );
+    }
+
+    // Enforce team ownership — return 404 (not 403) to prevent batch ID enumeration
+    const [batch] = await db
+      .select({ id: jobBatches.id })
+      .from(jobBatches)
+      .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)))
+      .limit(1);
+
+    if (!batch) {
+      return NextResponse.json({ error: "Batch not found" }, { status: 404 });
     }
     
     const [liveStatus, performanceMetrics] = await Promise.all([

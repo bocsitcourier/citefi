@@ -8,14 +8,18 @@ import { BILLING_PLANS, TOP_UPS } from "@/lib/billing/plans";
 import { z } from "zod";
 
 const schema = z.union([
-  z.object({ kind: z.literal("subscription"), planId: z.string().min(1) }),
+  z.object({ kind: z.literal("subscription"), planId: z.string().min(1), annual: z.boolean().optional() }),
   z.object({ kind: z.literal("topup"), topUpId: z.string().min(1) }),
 ]);
 
-function getStripePriceId(kind: "subscription" | "topup", id: string): string | null {
+function getStripePriceId(kind: "subscription" | "topup", id: string, annual?: boolean): string | null {
   if (kind === "subscription") {
     const plan = BILLING_PLANS[id as keyof typeof BILLING_PLANS];
-    if (!plan || !plan.stripePriceEnvKey) return null;
+    if (!plan) return null;
+    if (annual && "stripeAnnualPriceEnvKey" in plan && plan.stripeAnnualPriceEnvKey) {
+      return process.env[plan.stripeAnnualPriceEnvKey as string] ?? null;
+    }
+    if (!plan.stripePriceEnvKey) return null;
     return process.env[plan.stripePriceEnvKey] ?? null;
   } else {
     const topUp = TOP_UPS.find((t) => t.id === id);
@@ -36,7 +40,8 @@ export async function POST(req: NextRequest) {
     const data = parsed.data;
     const priceId = getStripePriceId(
       data.kind,
-      data.kind === "subscription" ? data.planId : data.topUpId
+      data.kind === "subscription" ? data.planId : data.topUpId,
+      data.kind === "subscription" ? data.annual : undefined
     );
 
     if (!priceId) {

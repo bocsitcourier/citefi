@@ -301,7 +301,8 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
       return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
     }
 
-    // Check 2: agency-admin inheritance — user is admin of the client team's parent agency
+    // Check 2: agency-admin inheritance — user is admin of the client team's parent agency.
+    // The inner join on teams ensures the parent agency team is not soft-deleted.
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
@@ -312,6 +313,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
       const [agencyMembership] = await db
         .select({ role: teamMembers.role })
         .from(teamMembers)
+        .innerJoin(teams, and(eq(teams.id, teamMembers.teamId), isNull(teams.deletedAt)))
         .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
         .limit(1);
 
@@ -391,7 +393,8 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
       return { userId: user.id, teamId: authResult.teamContextId };
     }
 
-    // Agency-admin inheritance: user is admin of the parent agency team
+    // Agency-admin inheritance: user is admin of the parent agency team.
+    // The inner join on teams ensures the parent agency team is not soft-deleted.
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
@@ -402,6 +405,7 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
       const [agencyMembership] = await db
         .select({ role: teamMembers.role })
         .from(teamMembers)
+        .innerJoin(teams, and(eq(teams.id, teamMembers.teamId), isNull(teams.deletedAt)))
         .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
         .limit(1);
 

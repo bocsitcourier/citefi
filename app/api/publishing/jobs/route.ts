@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
-import { publishingJobs, articles, publishingConnections } from '@/shared/schema';
+import { publishingJobs, articles, publishingConnections, videoIdeas, socialPosts } from '@/shared/schema';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import { createPublishingJob, getConnectionById } from '@/lib/publishing';
 import { requireTeamMember } from '@/lib/api/auth';
@@ -94,6 +94,36 @@ export async function POST(request: NextRequest) {
         { error: 'Connection has errors. Check connection settings.' },
         { status: 400 }
       );
+    }
+
+    // IDOR guard: verify the content belongs to this team before publishing.
+    // Return 404 (not 403) so content IDs from other teams cannot be probed.
+    let contentOwned = false;
+    if (contentType === 'article' || contentType === 'podcast') {
+      const [row] = await db
+        .select({ id: articles.id })
+        .from(articles)
+        .where(and(eq(articles.id, contentId), eq(articles.teamId, teamId)))
+        .limit(1);
+      contentOwned = !!row;
+    } else if (contentType === 'video') {
+      const [row] = await db
+        .select({ id: videoIdeas.id })
+        .from(videoIdeas)
+        .where(and(eq(videoIdeas.id, contentId), eq(videoIdeas.teamId, teamId)))
+        .limit(1);
+      contentOwned = !!row;
+    } else if (contentType === 'social_post') {
+      const [row] = await db
+        .select({ id: socialPosts.id })
+        .from(socialPosts)
+        .where(and(eq(socialPosts.id, contentId), eq(socialPosts.teamId, teamId)))
+        .limit(1);
+      contentOwned = !!row;
+    }
+
+    if (!contentOwned) {
+      return NextResponse.json({ error: 'Content not found' }, { status: 404 });
     }
 
     const job = await createPublishingJob(teamId, connectionId, contentType, contentId);

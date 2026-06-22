@@ -8,6 +8,8 @@ import { logError, logCritical } from "@/lib/error-logger";
 
 interface VideoIdeaJobData {
   videoIdeaId: number;
+  /** Two-bucket billing: runId from reserveCredits() called in the route. */
+  creditRunId?: string;
 }
 
 export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
@@ -37,9 +39,9 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
       if (!job || !job.data) {
         throw new Error("No job data received");
       }
-      const { videoIdeaId } = job.data;
+      const { videoIdeaId, creditRunId } = job.data;
       console.log(`🎬 Processing video idea generation job: ${job.id}`);
-      console.log(`   Video Idea ID: ${videoIdeaId}`);
+      console.log(`   Video Idea ID: ${videoIdeaId}${creditRunId ? ` (creditRunId: ${creditRunId})` : " (unmetered — legacy)"}`);
 
       try {
         const [idea] = await db.select()
@@ -69,6 +71,24 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
         });
 
         console.log(`✅ Video idea generation complete: ${result.videoUrl}`);
+
+        // Two-bucket billing: DEBIT reservation on success
+        if (creditRunId && idea.teamId) {
+          const { debitReservation } = await import("@/lib/billing");
+          const debitResult = await debitReservation({
+            teamId: idea.teamId,
+            runId: creditRunId,
+            jobId: job.id,
+          });
+          if (!debitResult.ok) {
+            console.error(
+              `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${creditRunId}). ` +
+              `Video was generated but debit failed — throwing so pg-boss can retry the debit.`
+            );
+            throw new Error(`Credit debit failed for video idea ${videoIdeaId}`);
+          }
+          console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);
+        }
 
         // Record content generation metrics so Thompson Sampling can learn for video
         if (idea.teamId) {
@@ -115,6 +135,16 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
             updatedAt: new Date(),
           })
           .where(eq(videoIdeas.id, videoIdeaId));
+
+        // Two-bucket billing: RELEASE reservation on failure — no charge for failed videos
+        if (creditRunId && idea?.teamId) {
+          const { releaseReservation } = await import("@/lib/billing");
+          await releaseReservation({
+            teamId: idea.teamId,
+            runId: creditRunId,
+            reason: `Video idea generation failed for ID ${videoIdeaId}: ${displayError.substring(0, 200)}`,
+          }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for video idea ${videoIdeaId}:`, e));
+        }
 
         if (idea?.teamId) {
           await notifyVideoFailed(
