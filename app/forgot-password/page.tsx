@@ -182,7 +182,7 @@ export default function ForgotPasswordPage() {
                 </Button>
 
                 <Link
-                  href="/"
+                  href="/login"
                   className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                   data-testid="link-back-login"
                 >
