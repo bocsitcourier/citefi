@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { email, password, fullName, role } = body;
+    const { email, password, fullName, teamName, role } = body;
 
     // Validate required fields
     if (!email || !password) {
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
         resourceId: createdUser!.id,
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
-        details: { email: createdUser!.email, role: createdUser!.role, status: accountStatus },
+        details: { email: createdUser!.email, role: createdUser!.role, status: accountStatus, teamName: teamName || null },
         severity: "info",
       });
 

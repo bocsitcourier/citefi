@@ -204,13 +204,13 @@ export default function MarketingPage() {
 
           {/* CTAs */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <Link href="/login">
+            <Link href="/signup">
               <Button
                 size="lg"
                 className="bg-white text-slate-900 hover:bg-white/90 px-8 text-base"
                 data-testid="hero-button-get-demo"
               >
-                Get a Demo
+                Get Started Free
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
@@ -698,7 +698,7 @@ export default function MarketingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/login">
+                <Link href={plan.cta === "Contact Sales" ? "/login" : "/signup"}>
                   <Button
                     className="w-full"
                     variant={plan.highlighted ? "default" : "outline"}
@@ -727,7 +727,7 @@ export default function MarketingPage() {
             Join 500+ agencies and businesses generating local SEO content at scale.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/login">
+            <Link href="/signup">
               <Button size="lg" className="bg-white text-slate-900 hover:bg-white/90 px-8" data-testid="cta-band-start">
                 Get Started Free
                 <ArrowRight className="w-4 h-4 ml-2" />
@@ -796,7 +796,7 @@ export default function MarketingPage() {
                 <Link href="/login" className="block text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="footer-link-login">
                   Log in
                 </Link>
-                <Link href="/login" className="block text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="footer-link-signup">
+                <Link href="/signup" className="block text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="footer-link-signup">
                   Sign up
                 </Link>
                 <Link href="/forgot-password" className="block text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="footer-link-forgot">

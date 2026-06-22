@@ -18,7 +18,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; userId?: number; twoFactorMethod?: string }>;
   verify2FA: (code: string, userId: number, method: string) => Promise<void>;
   logout: () => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, fullName?: string, teamName?: string) => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
@@ -115,10 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   };
 
-  const signup = async (email: string, password: string) => {
+  const signup = async (email: string, password: string, fullName?: string, teamName?: string) => {
     const response = await apiRequest("/api/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, fullName, teamName }),
     });
     return response;
   };
