@@ -12,10 +12,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { teamId, userId } = await requireTeamMember(request);
-    const { id } = await params;
+  // Lifted outside the try block so the outer catch can release on unexpected errors
+  let teamId: number | undefined;
+  let creditRunId: string | undefined;
 
+  try {
+    const auth = await requireTeamMember(request);
+    teamId = auth.teamId;
+    const userId = auth.userId;
+
+    const { id } = await params;
     const ideaId = parseInt(id, 10);
     if (isNaN(ideaId)) {
       return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
@@ -67,7 +73,7 @@ export async function POST(
     }
 
     // Reserve credits atomically — blocks if balance insufficient
-    const creditRunId = randomUUID();
+    creditRunId = randomUUID();
     const reservation = await reserveCredits({
       teamId,
       userId,
@@ -76,6 +82,7 @@ export async function POST(
     });
 
     if (!reservation.ok) {
+      creditRunId = undefined; // nothing to release
       return NextResponse.json(
         {
           error: "CREDITS_EXHAUSTED",
@@ -120,6 +127,7 @@ export async function POST(
       // Release the reservation — job never started, so no charge
       await releaseReservation({ teamId, runId: creditRunId, reason: "Queue send failed" })
         .catch((e) => console.warn("[billing] releaseReservation on queue failure:", e));
+      creditRunId = undefined; // prevent double-release in outer catch
 
       await db.update(videoIdeas)
         .set({
@@ -139,6 +147,7 @@ export async function POST(
       .set({ jobId })
       .where(eq(videoIdeas.id, ideaId));
 
+    creditRunId = undefined; // worker owns the runId from here on
     console.log(`✅ Like Video generation job queued: ${jobId}`);
 
     return NextResponse.json({
@@ -150,6 +159,11 @@ export async function POST(
     });
 
   } catch (error: any) {
+    // Release any outstanding credit reservation so balance isn't stranded
+    if (creditRunId && teamId) {
+      await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in like-video route" })
+        .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
+    }
     console.error("Error starting like video generation:", error);
     return NextResponse.json(
       { error: "Failed to start like video generation" },

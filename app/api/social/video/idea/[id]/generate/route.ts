@@ -12,15 +12,21 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Lifted outside the try block so the outer catch can release on unexpected errors
+  let teamId: number | undefined;
+  let creditRunId: string | undefined;
+
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    const auth = await requireTeamMember(request);
+    teamId = auth.teamId;
+    const userId = auth.userId;
+
     const { id } = await params;
-    
     const ideaId = parseInt(id, 10);
     if (isNaN(ideaId)) {
       return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
     }
-    
+
     const [idea] = await db.select()
       .from(videoIdeas)
       .where(and(
@@ -29,18 +35,18 @@ export async function POST(
         isNull(videoIdeas.deletedAt)
       ))
       .limit(1);
-    
+
     if (!idea) {
       return NextResponse.json({ error: "Video idea not found" }, { status: 404 });
     }
-    
+
     if (!idea.companyName) {
       return NextResponse.json(
         { error: "Company name is required for video generation" },
         { status: 400 }
       );
     }
-    
+
     const activeStatuses = ["EXPANDING", "SCRIPTING", "GENERATING", "STITCHING"];
     if (activeStatuses.includes(idea.status)) {
       return NextResponse.json({
@@ -60,7 +66,7 @@ export async function POST(
     }
 
     // Reserve credits atomically — blocks if balance insufficient
-    const creditRunId = randomUUID();
+    creditRunId = randomUUID();
     const reservation = await reserveCredits({
       teamId,
       userId,
@@ -69,6 +75,7 @@ export async function POST(
     });
 
     if (!reservation.ok) {
+      creditRunId = undefined; // nothing to release
       return NextResponse.json(
         {
           error: "CREDITS_EXHAUSTED",
@@ -84,9 +91,9 @@ export async function POST(
         { status: 402 }
       );
     }
-    
+
     console.log(`🎬 Queueing video idea generation for ID ${ideaId}: "${idea.ideaTitle}" (creditRunId: ${creditRunId})`);
-    
+
     await db.update(videoIdeas)
       .set({
         status: "EXPANDING",
@@ -96,9 +103,9 @@ export async function POST(
         updatedAt: new Date(),
       })
       .where(eq(videoIdeas.id, ideaId));
-    
+
     const queue = await getPgBoss();
-    
+
     const jobId = await queue.send(
       "video-idea-generation",
       { videoIdeaId: ideaId, creditRunId },
@@ -108,13 +115,14 @@ export async function POST(
         expireInSeconds: 5400,
       }
     );
-    
+
     if (!jobId) {
       console.error(`❌ Failed to queue video idea generation job`);
 
       // Release the reservation — job never started, so no charge
       await releaseReservation({ teamId, runId: creditRunId, reason: "Queue send failed" })
         .catch((e) => console.warn("[billing] releaseReservation on queue failure:", e));
+      creditRunId = undefined; // prevent double-release in outer catch
 
       await db.update(videoIdeas)
         .set({
@@ -123,19 +131,20 @@ export async function POST(
           errorMessage: "Failed to queue job - please try again",
         })
         .where(eq(videoIdeas.id, ideaId));
-      
+
       return NextResponse.json(
         { error: "Failed to queue video generation job" },
         { status: 500 }
       );
     }
-    
+
     await db.update(videoIdeas)
       .set({ jobId })
       .where(eq(videoIdeas.id, ideaId));
-    
+
+    creditRunId = undefined; // worker owns the runId from here on
     console.log(`✅ Video idea generation job queued: ${jobId}`);
-    
+
     return NextResponse.json({
       success: true,
       jobId,
@@ -143,8 +152,13 @@ export async function POST(
       message: "Video generation started. This will take 60-80 minutes for premium AI video.",
       estimatedTime: "60-80 minutes",
     });
-    
+
   } catch (error: any) {
+    // Release any outstanding credit reservation so balance isn't stranded
+    if (creditRunId && teamId) {
+      await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in idea-to-video route" })
+        .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
+    }
     console.error("Error starting video idea generation:", error);
     return NextResponse.json(
       { error: "Failed to start video generation" },

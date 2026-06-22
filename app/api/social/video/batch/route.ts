@@ -23,8 +23,14 @@ const CHUNK_SIZE = 10; // Process 10 videos at a time
 const CHUNK_DELAY_MS = 5000; // 5 seconds between chunks
 
 export async function POST(request: NextRequest) {
+  // Lifted outside try so outer catch can release reservations on unexpected errors
+  let teamId: number | undefined;
+  const reservations: { postId: number; creditRunId: string }[] = [];
+
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    const auth = await requireTeamMember(request);
+    teamId = auth.teamId;
+    const userId = auth.userId;
 
     const body = await request.json();
     const { socialPostIds, platform = "tiktok" } = body;
@@ -104,8 +110,6 @@ export async function POST(request: NextRequest) {
 
     // Reserve credits per video — each job gets its own runId so the worker can
     // debit/release individually. Bail out (release all) if any reservation fails.
-    const reservations: { postId: number; creditRunId: string }[] = [];
-
     for (const post of postsToGenerate) {
       const creditRunId = randomUUID();
       const reservation = await reserveCredits({
@@ -116,13 +120,14 @@ export async function POST(request: NextRequest) {
       });
 
       if (!reservation.ok) {
-        // Release all previously successful reservations
+        // Release all previously successful reservations before returning
         await Promise.all(
           reservations.map(r =>
-            releaseReservation({ teamId, runId: r.creditRunId, reason: "Batch reserve failed mid-loop" })
+            releaseReservation({ teamId: teamId!, runId: r.creditRunId, reason: "Batch reserve failed mid-loop" })
               .catch((e) => console.warn(`[billing] batch releaseReservation for post ${r.postId}:`, e))
           )
         );
+        reservations.length = 0; // prevent double-release in outer catch
 
         return NextResponse.json(
           {
@@ -193,6 +198,10 @@ export async function POST(request: NextRequest) {
         if (jobId) {
           queuedJobIds.push(jobId);
           totalQueued++;
+          // Worker now owns this creditRunId — remove from our tracking so outer catch
+          // doesn't double-release it
+          const idx = reservations.findIndex(r => r.postId === post.id);
+          if (idx !== -1) reservations.splice(idx, 1);
         } else {
           console.warn(`⚠️ Failed to queue video for post ${post.id}`);
           // Release this video's reservation — it was never queued
@@ -201,6 +210,10 @@ export async function POST(request: NextRequest) {
             runId: reservation.creditRunId,
             reason: `Queue send failed for post ${post.id}`,
           }).catch((e) => console.warn(`[billing] releaseReservation on failed queue send for post ${post.id}:`, e));
+
+          // Also remove from tracking (already released)
+          const idx = reservations.findIndex(r => r.postId === post.id);
+          if (idx !== -1) reservations.splice(idx, 1);
 
           // Mark as failed so user can retry
           await db
@@ -232,6 +245,16 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
+    // Emergency release: any reservations still tracked here were never handed to a worker
+    if (reservations.length > 0 && teamId) {
+      console.warn(`[billing] batch emergency release: releasing ${reservations.length} stranded reservations`);
+      await Promise.all(
+        reservations.map(r =>
+          releaseReservation({ teamId: teamId!, runId: r.creditRunId, reason: "Unexpected error in batch video route" })
+            .catch((e) => console.warn(`[billing] emergency batch releaseReservation for post ${r.postId}:`, e))
+        )
+      );
+    }
     console.error("❌ Batch video generation failed:", error);
     return NextResponse.json(
       {

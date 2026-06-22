@@ -38,6 +38,22 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+
+    // Block self-serve checkout for sales-assisted plans (e.g., Enterprise)
+    if (data.kind === "subscription") {
+      const plan = BILLING_PLANS[data.planId as keyof typeof BILLING_PLANS];
+      if (plan?.salesAssisted) {
+        return NextResponse.json(
+          {
+            error: "ENTERPRISE_SALES_ONLY",
+            message: `The ${plan.name} plan requires a custom contract and cannot be purchased directly. Please contact our sales team to get started.`,
+            contactUrl: "/contact-sales",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const priceId = getStripePriceId(
       data.kind,
       data.kind === "subscription" ? data.planId : data.topUpId,
