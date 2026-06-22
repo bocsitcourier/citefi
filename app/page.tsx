@@ -186,9 +186,9 @@ export default function MarketingPage() {
 
           {/* Headline */}
           <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.08] tracking-tight" data-testid="hero-headline">
-            Content That Ranks.<br />
+            The Local SEO<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">
-              Locally.
+              Content Engine
             </span>
           </h1>
 
@@ -205,9 +205,9 @@ export default function MarketingPage() {
               <Button
                 size="lg"
                 className="bg-white text-slate-900 hover:bg-white/90 px-8 text-base"
-                data-testid="hero-button-get-started"
+                data-testid="hero-button-get-demo"
               >
-                Get Started Free
+                Get a Demo
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
@@ -239,7 +239,7 @@ export default function MarketingPage() {
           {[
             { value: "4×", label: "more local content output", sub: "vs. generic AI tools" },
             { value: "60%", label: "reduction in content costs", sub: "no agency retainers needed" },
-            { value: "4-Stage", label: "dual-AI pipeline", sub: "Gemini + GPT-4 in sequence" },
+            { value: "50+", label: "articles per batch", sub: "generated in a single run" },
           ].map((stat, i) => (
             <div key={i} className={`space-y-1 ${i > 0 ? "sm:border-l sm:border-border" : ""}`} data-testid={`stat-item-${i}`}>
               <div className="text-4xl font-bold text-foreground">{stat.value}</div>

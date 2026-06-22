@@ -58,7 +58,7 @@ export default function AdminHealthPage() {
 
   useEffect(() => {
     if (!isAuthLoading && (!user || user.role !== "admin")) {
-      router.push("/");
+      router.push("/login");
     }
   }, [user, isAuthLoading, router]);
 

@@ -125,7 +125,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     try {
       const res = await fetch("/api/auth/logout", { method: "POST" });
       if (res.ok) {
-        router.push("/");
+        router.push("/login");
       } else {
         toast({
           title: "Logout failed",
