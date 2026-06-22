@@ -303,6 +303,7 @@ export const articles = pgTable("articles", {
   publicIdIdx: index("articles_public_id_idx").on(table.publicId),
   teamIdStatusIdx: index("articles_team_id_status_idx").on(table.teamId, table.articleStatus),
   batchIdIdx: index("articles_batch_id_idx").on(table.batchId),
+  batchIdStatusIdx: index("articles_batch_id_status_idx").on(table.batchId, table.articleStatus),
   slugIdx: index("articles_slug_idx").on(table.slug),
 }));
 
@@ -327,6 +328,7 @@ export const articleAssets = pgTable("article_assets", {
   publicIdIdx: index("article_assets_public_id_idx").on(table.publicId),
   teamIdIdx: index("article_assets_team_id_idx").on(table.teamId),
   articleIdIdx: index("article_assets_article_id_idx").on(table.articleId),
+  articleIdTypeIdx: index("article_assets_article_id_type_idx").on(table.articleId, table.assetType),
 }));
 
 // Job Events table - tracks all job processing events for debugging
@@ -1163,6 +1165,7 @@ export const learningPatterns = pgTable("learning_patterns", {
 }, (table) => ({
   publicIdIdx: index("learning_patterns_public_id_idx").on(table.publicId),
   agentIdIdx: index("learning_patterns_agent_id_idx").on(table.agentId),
+  agentPatternTypeIdx: index("learning_patterns_agent_pattern_type_idx").on(table.agentId, table.patternType),
   teamIdContentTypeIdx: index("learning_patterns_team_content_type_idx").on(table.teamId, table.contentType),
   patternTypeIdx: index("learning_patterns_pattern_type_idx").on(table.patternType),
   successRateIdx: index("learning_patterns_success_rate_idx").on(table.successRate),
@@ -2980,6 +2983,7 @@ export const contentEvents = pgTable("content_events", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   teamIdIdx: index("content_events_team_id_idx").on(table.teamId),
+  teamIdCreatedAtIdx: index("content_events_team_id_created_at_idx").on(table.teamId, table.createdAt),
   eventTypeIdx: index("content_events_event_type_idx").on(table.eventType),
   articleIdIdx: index("content_events_article_id_idx").on(table.articleId),
   socialPostIdIdx: index("content_events_social_post_id_idx").on(table.socialPostId),

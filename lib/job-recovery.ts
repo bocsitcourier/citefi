@@ -54,14 +54,22 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
   // 1. Recover stuck video ideas (CRITICAL - these are expensive!)
   try {
+    // Only reset video ideas that have been stuck for >30 minutes.
+    // Video generation (all stages) completes within 30 min under normal load.
+    // Without this guard the 5-minute periodic scan would kill any legitimately
+    // running video idea every interval.
+    const THIRTY_MINUTES_AGO = new Date(Date.now() - 30 * 60 * 1000);
     const stuckVideos = await withDbRetry(
       () => db.select({ id: videoIdeas.id, status: videoIdeas.status })
         .from(videoIdeas)
-        .where(or(
-          eq(videoIdeas.status, "EXPANDING"),
-          eq(videoIdeas.status, "SCRIPTING"),
-          eq(videoIdeas.status, "GENERATING"),
-          eq(videoIdeas.status, "STITCHING")
+        .where(and(
+          or(
+            eq(videoIdeas.status, "EXPANDING"),
+            eq(videoIdeas.status, "SCRIPTING"),
+            eq(videoIdeas.status, "GENERATING"),
+            eq(videoIdeas.status, "STITCHING")
+          ),
+          lt(videoIdeas.updatedAt, THIRTY_MINUTES_AGO)
         )),
       "stuck-video-ideas"
     );
@@ -353,11 +361,19 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
   // 3. Recover stuck social posts
   try {
+    // Only reset posts that have been stuck for >15 minutes.
+    // Platform variant generation (Gemini × N platforms + GPT enhancement) takes
+    // up to ~10 minutes under normal load. Without this guard the 5-minute periodic
+    // scan would kill any currently-running social post every interval.
+    const FIFTEEN_MINUTES_AGO = new Date(Date.now() - 15 * 60 * 1000);
     const stuckPosts = await db.select({ id: socialPosts.id, status: socialPosts.status })
       .from(socialPosts)
-      .where(or(
-        eq(socialPosts.status, "QUEUED"),
-        eq(socialPosts.status, "GENERATING")
+      .where(and(
+        or(
+          eq(socialPosts.status, "QUEUED"),
+          eq(socialPosts.status, "GENERATING")
+        ),
+        lt(socialPosts.updatedAt, FIFTEEN_MINUTES_AGO)
       ));
     
     for (const post of stuckPosts) {
