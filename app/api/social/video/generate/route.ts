@@ -44,6 +44,14 @@ async function resilientSend(
 export async function POST(request: NextRequest) {
   try {
     const { userId, teamId } = await requireTeamMember(request);
+
+    // Paywall gate — plan-level check before acquiring the GENERATING lock
+    const { checkTeamPaywall, paywallErrorBody } = await import("@/lib/billing/paywall");
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
+
     const body = await request.json();
     const { socialPostId, platform = "tiktok", videoType = "slideshow", force = false } = body;
 

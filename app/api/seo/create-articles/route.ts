@@ -3,10 +3,17 @@ import { db } from "@/lib/db";
 import { jobBatches } from "@/shared/schema";
 import { generateTitlePool } from "@/lib/gemini";
 import { requireTeamMember } from "@/lib/api/auth";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
 export async function POST(request: NextRequest) {
   try {
     const { userId, teamId } = await requireTeamMember(request);
+
+    // Paywall gate — check plan + trial expiry before spending any AI tokens
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
     
     const body = await request.json();
     const { 

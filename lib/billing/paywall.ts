@@ -7,6 +7,7 @@ export interface PaywallResult {
   planId: string;
   billingStatus: string;
   creditBalance: number;
+  trialExpired?: boolean;
   reason?: string;
 }
 
@@ -29,8 +30,11 @@ export interface PaywallResult {
  */
 export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
   const [[team], [balanceRow]] = await Promise.all([
-    db.select({ billingPlan: teams.billingPlan, billingStatus: teams.billingStatus })
-      .from(teams).where(eq(teams.id, teamId)).limit(1),
+    db.select({
+      billingPlan: teams.billingPlan,
+      billingStatus: teams.billingStatus,
+      currentPeriodEnd: teams.currentPeriodEnd,
+    }).from(teams).where(eq(teams.id, teamId)).limit(1),
     db.select({
       balance: creditBalances.balance,
       allowanceCredits: creditBalances.allowanceCredits,
@@ -43,6 +47,26 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
 
   const planId = team?.billingPlan ?? "free";
   const billingStatus = team?.billingStatus ?? "active";
+  const currentPeriodEnd = team?.currentPeriodEnd ?? null;
+
+  // Trial expiry: team is still "trialing" in our DB but the period has passed.
+  // Stripe normally transitions to canceled/past_due — this catches the window
+  // before the webhook fires, or teams with no Stripe subscription at all.
+  const trialExpired =
+    billingStatus === "trialing" &&
+    currentPeriodEnd !== null &&
+    new Date(currentPeriodEnd) < new Date();
+
+  if (trialExpired) {
+    return {
+      allowed: false,
+      planId,
+      billingStatus,
+      creditBalance: 0,
+      trialExpired: true,
+      reason: "Your trial has ended. Add a payment method to continue generating content.",
+    };
+  }
 
   // Effective balance: prefer two-bucket total when bucket grants exist,
   // otherwise fall back to legacy balance column (pre-migration teams).
@@ -84,7 +108,7 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
  */
 export function paywallErrorBody(result: PaywallResult) {
   return {
-    error: "CREDITS_EXHAUSTED",
+    error: result.trialExpired ? "TRIAL_EXPIRED" : "CREDITS_EXHAUSTED",
     creditBalance: result.creditBalance,
     allowanceRemaining: 0,
     purchasedRemaining: 0,
@@ -92,7 +116,8 @@ export function paywallErrorBody(result: PaywallResult) {
     sufficient: false,
     planId: result.planId,
     billingStatus: result.billingStatus,
-    upgradeUrl: "/settings/billing",
-    message: result.reason ?? "You have no credits remaining. Purchase more at /settings/billing.",
+    trialExpired: result.trialExpired ?? false,
+    upgradeUrl: "/client/billing",
+    message: result.reason ?? "You have no credits remaining. Upgrade your plan at /client/billing.",
   };
 }

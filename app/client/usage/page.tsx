@@ -5,10 +5,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Zap, FileText, Share2, Mic, Video } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Zap, FileText, Share2, Mic, Video, AlertTriangle } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, Legend,
+  BarChart, Bar, Cell,
 } from "recharts";
 import Link from "next/link";
 
@@ -77,6 +78,8 @@ export default function UsagePage() {
     key,
   }));
 
+  const isLowCredit = credits.allocated > 0 && credits.usedPct >= 80;
+
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
 
@@ -89,13 +92,38 @@ export default function UsagePage() {
           </p>
         </div>
         <Link
-          href="/settings/billing"
+          href="/client/billing"
           className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
           data-testid="link-manage-billing"
         >
           Manage billing
         </Link>
       </div>
+
+      {/* Low-credit warning banner */}
+      {isLowCredit && (
+        <div
+          className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 px-4 py-3"
+          data-testid="banner-low-credit"
+        >
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+              You&apos;ve used {credits.usedPct}% of your credits
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              Only {credits.balance.toLocaleString()} credits remaining.{" "}
+              <Link href="/client/billing" className="underline underline-offset-2 hover:no-underline">
+                Upgrade your plan
+              </Link>{" "}
+              to avoid interruptions.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" asChild className="shrink-0 border-amber-500/50 text-amber-800 dark:text-amber-300">
+            <Link href="/client/billing" data-testid="link-upgrade-from-warning">Upgrade</Link>
+          </Button>
+        </div>
+      )}
 
       {/* Credit progress */}
       <Card>
@@ -119,7 +147,7 @@ export default function UsagePage() {
           </div>
           <Progress
             value={credits.usedPct}
-            className="h-2"
+            className={`h-2 ${isLowCredit ? "[&>div]:bg-amber-500" : ""}`}
             data-testid="progress-credit-usage"
           />
           <div className="flex flex-wrap gap-3">

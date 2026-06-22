@@ -3,6 +3,8 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teamMembers, users, userInvites } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
+import crypto from "crypto";
+import { z } from "zod";
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,7 +42,144 @@ export async function GET(req: NextRequest) {
     if (httpStatus === 401 || httpStatus === 403) {
       return NextResponse.json({ error: err.message }, { status: httpStatus });
     }
-    console.error("[client/team]", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: err?.statusCode || 500 });
+    console.error("[client/team GET]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+const inviteSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  role: z.enum(["member", "admin"]).default("member"),
+  message: z.string().max(500).optional(),
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId, teamId, role: callerRole } = await requireTeamMember(req);
+
+    if (callerRole !== "admin") {
+      return NextResponse.json({ error: "Only team admins can invite members" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const parsed = inviteSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Invalid input" }, { status: 400 });
+    }
+    const { email, role, message } = parsed.data;
+
+    // Check if user is already a team member
+    const [existingMember] = await db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(teamMembers, and(eq(teamMembers.userId, users.id), eq(teamMembers.teamId, teamId)))
+      .where(eq(users.email, email.toLowerCase()))
+      .limit(1);
+
+    if (existingMember) {
+      return NextResponse.json({ error: "This person is already a member of your team" }, { status: 409 });
+    }
+
+    // Check for existing pending invite
+    const [existingInvite] = await db
+      .select({ id: userInvites.id })
+      .from(userInvites)
+      .where(and(
+        eq(userInvites.teamId, teamId),
+        eq(userInvites.email, email.toLowerCase()),
+        eq(userInvites.status, "pending"),
+      ))
+      .limit(1);
+
+    if (existingInvite) {
+      return NextResponse.json({ error: "An invite for this email is already pending" }, { status: 409 });
+    }
+
+    // Generate token (raw token is sent in the invite link; we store the hash)
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await db.insert(userInvites).values({
+      email: email.toLowerCase(),
+      invitedBy: userId,
+      teamId,
+      role: role === "admin" ? "admin" : "team_member",
+      tokenHash,
+      expiresAt,
+      status: "pending",
+      message: message ?? null,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: `Invite sent to ${email}. They have 7 days to accept.`,
+    });
+  } catch (err: any) {
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
+    }
+    console.error("[client/team POST]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+const removeSchema = z.object({
+  memberId: z.number().int().positive(),
+});
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { userId, teamId, role: callerRole } = await requireTeamMember(req);
+
+    if (callerRole !== "admin") {
+      return NextResponse.json({ error: "Only team admins can remove members" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const parsed = removeSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "memberId is required" }, { status: 400 });
+    }
+    const { memberId } = parsed.data;
+
+    // Fetch the target member to validate it belongs to this team
+    const [target] = await db
+      .select({ userId: teamMembers.userId, role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)))
+      .limit(1);
+
+    if (!target) {
+      return NextResponse.json({ error: "Member not found" }, { status: 404 });
+    }
+
+    // Prevent self-removal
+    if (target.userId === userId) {
+      return NextResponse.json({ error: "You cannot remove yourself from the team" }, { status: 400 });
+    }
+
+    // Count remaining admins to prevent last-admin removal
+    if (target.role === "admin") {
+      const adminRows = await db
+        .select({ id: teamMembers.id })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, "admin")));
+      if (adminRows.length <= 1) {
+        return NextResponse.json({ error: "Cannot remove the last admin from the team" }, { status: 400 });
+      }
+    }
+
+    await db.delete(teamMembers).where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)));
+
+    return NextResponse.json({ success: true, message: "Member removed" });
+  } catch (err: any) {
+    const httpStatus = err.statusCode ?? err.status;
+    if (httpStatus === 401 || httpStatus === 403) {
+      return NextResponse.json({ error: err.message }, { status: httpStatus });
+    }
+    console.error("[client/team DELETE]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

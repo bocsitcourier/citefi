@@ -31,6 +31,13 @@ export async function POST(request: NextRequest) {
     // CRITICAL: Verify authentication and get team context
     const { userId, teamId } = await requireTeamMember(request);
 
+    // Paywall gate — plan-level check before any DB work or idempotency logic
+    const { checkTeamPaywall, paywallErrorBody } = await import("@/lib/billing/paywall");
+    const paywallResult = await checkTeamPaywall(teamId);
+    if (!paywallResult.allowed) {
+      return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
+
     const body = await request.json();
     const validatedData = generateSocialPostSchema.parse(body);
 
