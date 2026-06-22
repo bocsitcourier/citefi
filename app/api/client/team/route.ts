@@ -129,10 +129,10 @@ export async function POST(req: NextRequest) {
     });
 
     // Derive the invite URL from the request host so it works across dev + prod.
-    // The accept-invite page uses the raw token (not the hash) to validate.
+    // The accept-invite page is at app/accept-invite/[token]/page.tsx (path param route).
     const host = req.headers.get("host") ?? "";
     const proto = req.headers.get("x-forwarded-proto") ?? "https";
-    const inviteUrl = `${proto}://${host}/accept-invite?token=${token}`;
+    const inviteUrl = `${proto}://${host}/accept-invite/${token}`;
 
     return NextResponse.json({
       success: true,
