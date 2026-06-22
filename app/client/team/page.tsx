@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Users, MailOpen, Clock, UserMinus, Send } from "lucide-react";
+import { Loader2, Users, MailOpen, Clock, UserMinus, Send, Copy } from "lucide-react";
 
 interface TeamMember {
   memberId: number;
@@ -76,6 +76,7 @@ export default function TeamPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [removeTarget, setRemoveTarget] = useState<TeamMember | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<TeamData>({
     queryKey: ["/api/client/team"],
@@ -93,8 +94,9 @@ export default function TeamPage() {
         method: "POST",
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       }),
-    onSuccess: () => {
-      toast({ title: "Invite sent", description: `An invite has been sent to ${inviteEmail}.` });
+    onSuccess: (res: any) => {
+      toast({ title: "Invite created", description: res.message });
+      if (res.inviteUrl) setInviteLink(res.inviteUrl);
       setInviteEmail("");
       qc.invalidateQueries({ queryKey: ["/api/client/team"] });
     },
@@ -190,9 +192,45 @@ export default function TeamPage() {
                 ) : (
                   <Send className="h-4 w-4 mr-2" />
                 )}
-                Send invite
+                Create invite
               </Button>
             </div>
+
+            {/* Invite link to copy and share */}
+            {inviteLink && (
+              <div className="mt-4 space-y-1.5">
+                <Label className="text-xs">Invite link — share this with your colleague</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    value={inviteLink}
+                    className="font-mono text-xs"
+                    data-testid="input-invite-link"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      navigator.clipboard.writeText(inviteLink);
+                      toast({ title: "Copied", description: "Invite link copied to clipboard." });
+                    }}
+                    data-testid="button-copy-invite-link"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setInviteLink(null)}
+                    data-testid="button-dismiss-invite-link"
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">This link expires in 7 days.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

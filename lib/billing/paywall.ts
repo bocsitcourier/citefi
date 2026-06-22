@@ -34,6 +34,7 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
       billingPlan: teams.billingPlan,
       billingStatus: teams.billingStatus,
       currentPeriodEnd: teams.currentPeriodEnd,
+      stripeSubscriptionId: teams.stripeSubscriptionId,
     }).from(teams).where(eq(teams.id, teamId)).limit(1),
     db.select({
       balance: creditBalances.balance,
@@ -48,12 +49,16 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
   const planId = team?.billingPlan ?? "free";
   const billingStatus = team?.billingStatus ?? "active";
   const currentPeriodEnd = team?.currentPeriodEnd ?? null;
+  const stripeSubscriptionId = team?.stripeSubscriptionId ?? null;
 
-  // Trial expiry: team is still "trialing" in our DB but the period has passed.
-  // Stripe normally transitions to canceled/past_due — this catches the window
-  // before the webhook fires, or teams with no Stripe subscription at all.
+  // Trial expiry: team is still "trialing" in our DB but the period has passed
+  // AND they have no active Stripe subscription (no payment method was ever added).
+  // We require !stripeSubscriptionId to avoid false-positives during webhook lag —
+  // a team with a subscription ID that appears in-trial is almost certainly between
+  // Stripe events and should not be blocked until Stripe explicitly cancels them.
   const trialExpired =
     billingStatus === "trialing" &&
+    !stripeSubscriptionId &&
     currentPeriodEnd !== null &&
     new Date(currentPeriodEnd) < new Date();
 

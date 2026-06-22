@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teamMembers, users, userInvites } from "@/shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, gt } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
         .innerJoin(users, eq(teamMembers.userId, users.id))
         .where(and(eq(teamMembers.teamId, teamId), isNull(users.deletedAt))),
 
+      // Only return invites that are pending AND not yet expired
       db.select({
         id: userInvites.id,
         email: userInvites.email,
@@ -33,7 +34,11 @@ export async function GET(req: NextRequest) {
         expiresAt: userInvites.expiresAt,
       })
         .from(userInvites)
-        .where(and(eq(userInvites.teamId, teamId), eq(userInvites.status, "pending"))),
+        .where(and(
+          eq(userInvites.teamId, teamId),
+          eq(userInvites.status, "pending"),
+          gt(userInvites.expiresAt, new Date()),
+        )),
     ]);
 
     return NextResponse.json({ members, pendingInvites });
@@ -80,25 +85,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "This person is already a member of your team" }, { status: 409 });
     }
 
-    // Check for existing pending invite
-    const [existingInvite] = await db
+    // Check for an existing pending invite that has NOT expired.
+    // Expired pending invites (status=pending, expiresAt < now) do NOT block re-invites —
+    // the new invite supersedes the old one.
+    const [existingActiveInvite] = await db
       .select({ id: userInvites.id })
       .from(userInvites)
       .where(and(
         eq(userInvites.teamId, teamId),
         eq(userInvites.email, email.toLowerCase()),
         eq(userInvites.status, "pending"),
+        gt(userInvites.expiresAt, new Date()), // only block if not yet expired
       ))
       .limit(1);
 
-    if (existingInvite) {
-      return NextResponse.json({ error: "An invite for this email is already pending" }, { status: 409 });
+    if (existingActiveInvite) {
+      return NextResponse.json({ error: "An active invite for this email is already pending" }, { status: 409 });
     }
 
-    // Generate token (raw token is sent in the invite link; we store the hash)
+    // Generate token — raw token is returned to the caller so they can share the link.
+    // We store only the SHA-256 hash in the DB; the raw token never touches the DB.
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Expire any stale pending invites for this email before creating the new one
+    // (handles the case where an expired pending invite exists in the DB)
+    await db.delete(userInvites).where(and(
+      eq(userInvites.teamId, teamId),
+      eq(userInvites.email, email.toLowerCase()),
+      eq(userInvites.status, "pending"),
+    ));
 
     await db.insert(userInvites).values({
       email: email.toLowerCase(),
@@ -111,9 +128,16 @@ export async function POST(req: NextRequest) {
       message: message ?? null,
     });
 
+    // Derive the invite URL from the request host so it works across dev + prod.
+    // The accept-invite page uses the raw token (not the hash) to validate.
+    const host = req.headers.get("host") ?? "";
+    const proto = req.headers.get("x-forwarded-proto") ?? "https";
+    const inviteUrl = `${proto}://${host}/accept-invite?token=${token}`;
+
     return NextResponse.json({
       success: true,
-      message: `Invite sent to ${email}. They have 7 days to accept.`,
+      inviteUrl,
+      message: `Invite created for ${email}. Share the link below — it expires in 7 days.`,
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
