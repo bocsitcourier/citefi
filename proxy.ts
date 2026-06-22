@@ -115,12 +115,12 @@ export async function proxy(request: NextRequest) {
   const token = extractToken(request);
 
   if (!token) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   const isAdmin = await verifyAdminJwt(token);
   if (!isAdmin) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return NextResponse.next();
