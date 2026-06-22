@@ -85,6 +85,10 @@ interface Article {
   businessName: string | null;
   createdAt: string;
   updatedAt: string;
+  aiDisclosureIncluded?: boolean | null;
+  informationGainScore?: number | null;
+  qualityGateStatus?: string | null;
+  citationRate?: number | null;
 }
 
 interface SocialPostVariant {
@@ -2502,6 +2506,38 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                   </div>
                 )}
               </div>
+
+              {/* Quality & Compliance Badges */}
+              {(article.aiDisclosureIncluded != null || article.qualityGateStatus || article.informationGainScore != null || article.citationRate != null) && (
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border mt-2">
+                  {article.aiDisclosureIncluded && (
+                    <Badge variant="secondary" className="text-xs gap-1" data-testid="badge-eu-disclosure">
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                      EU AI Act Disclosed
+                    </Badge>
+                  )}
+                  {article.qualityGateStatus && (
+                    <Badge
+                      variant={article.qualityGateStatus === "PASSED" ? "default" : article.qualityGateStatus === "FLAGGED" ? "secondary" : "destructive"}
+                      className="text-xs"
+                      data-testid="badge-quality-gate"
+                    >
+                      Info-Gain: {article.qualityGateStatus}
+                    </Badge>
+                  )}
+                  {article.informationGainScore != null && (
+                    <span className="text-xs text-muted-foreground" data-testid="text-info-gain-score">
+                      Novelty score: {article.informationGainScore}
+                    </span>
+                  )}
+                  {article.citationRate != null && (
+                    <Badge variant="outline" className="text-xs gap-1" data-testid="badge-citation-rate">
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+                      Citation rate: {article.citationRate}/100
+                    </Badge>
+                  )}
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {isEditing ? (

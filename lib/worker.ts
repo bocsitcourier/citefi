@@ -44,6 +44,10 @@ import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
 import { ContentType } from "@/shared/schema";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
+import { injectDisclosureIntoHtml } from "./compliance/ai-disclosure";
+import { scoreInformationGain } from "./information-gain";
+import { enqueueCitationProbes } from "./citation-probe-worker";
+import { GEMINI_ARTICLE_MODEL, GPT_REVIEW_MODEL } from "./ai-config";
 
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
@@ -1160,6 +1164,40 @@ export async function registerWorkers() {
             }
           }
           finalHtmlWithLinks = guardianHtml;
+
+          // ================================================================
+          // EU AI ACT ARTICLE 50 DISCLOSURE — inject before COMPLETE
+          // Effective Aug 2 2026 — disclose AI-assisted content to readers
+          // ================================================================
+          finalHtmlWithLinks = injectDisclosureIntoHtml(finalHtmlWithLinks, {
+            generatorModel: GEMINI_ARTICLE_MODEL,
+            reviewModel: GPT_REVIEW_MODEL,
+            generatedAt: new Date(),
+          });
+
+          // ================================================================
+          // INFORMATION-GAIN EDITORIAL GATE — surface novel content only
+          // Scores article novelty vs existing team corpus (Jaccard bigrams)
+          // ================================================================
+          let igScore: number | undefined;
+          let igStatus: string | undefined;
+          if (articleTeamId) {
+            try {
+              const igResult = await scoreInformationGain(
+                finalHtmlWithLinks,
+                articleTeamId,
+                articleId
+              );
+              igScore = igResult.score;
+              igStatus = igResult.status;
+              console.log(
+                `📊 Info-gain gate: article ${articleId} score=${igScore} status=${igStatus}` +
+                  (igResult.mostSimilarTitle ? ` (similar to: "${igResult.mostSimilarTitle}")` : "")
+              );
+            } catch (igErr) {
+              console.warn(`⚠️ Info-gain scoring failed for article ${articleId} — skipping gate`, igErr);
+            }
+          }
           // ====================================================================
 
           // Mark article as COMPLETE and save normalized HTML
@@ -1167,11 +1205,26 @@ export async function registerWorkers() {
             .update(articles)
             .set({
               articleStatus: "COMPLETE",
-              finalHtmlContent: finalHtmlWithLinks, // Save normalized HTML with correct brand capitalization
+              finalHtmlContent: finalHtmlWithLinks,
+              aiDisclosureIncluded: true,
+              informationGainScore: igScore ?? null,
+              qualityGateStatus: igStatus ?? null,
             })
             .where(eq(articles.id, articleId));
           
           console.log(`✅ Article ${articleId} validation passed - marked COMPLETE`);
+
+          // Enqueue citation probes fire-and-forget (measures AI citation attribution)
+          if (articleTeamId) {
+            void enqueueCitationProbes(
+              articleId,
+              articleTeamId,
+              title,
+              (geminiResult as any)?.keywords || []
+            ).catch((err) => {
+              console.warn(`⚠️ Citation probe enqueueing failed for article ${articleId}:`, err);
+            });
+          }
 
           // Track article quota usage (fire-and-forget, non-blocking)
           void (async () => {
@@ -3853,6 +3906,32 @@ export async function registerWorkers() {
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register podcast generation worker:", error);
     throw error;
+  }
+
+  // ── Citation Probe Worker ─────────────────────────────────────────────────
+  console.log("🔬 Registering citation probe worker for queue: citation-probe");
+  try {
+    try { await boss.createQueue("citation-probe"); } catch (_) { /* already exists */ }
+    console.log("✅ Queue created/verified: citation-probe");
+    await boss.work<import("./citation-probe-worker").CitationProbeJob>(
+      "citation-probe",
+      { batchSize: 1, teamSize: 3 } as any,
+      async (jobs) => {
+        for (const job of jobs) {
+          const { processCitationProbe } = await import("./citation-probe-worker");
+          try {
+            await processCitationProbe(job.data);
+          } catch (err) {
+            console.error(`❌ Citation probe job ${job.id} failed:`, err);
+            throw err; // Allow pg-boss retry
+          }
+        }
+      }
+    );
+    console.log("✅ Citation probe worker registered (3 concurrent workers)");
+  } catch (error) {
+    console.error("❌ Failed to register citation probe worker:", error);
+    // Non-critical — don't throw, just log
   }
 
   // Pre-warm the public-objects route so Turbopack compiles it before publishing jobs run.

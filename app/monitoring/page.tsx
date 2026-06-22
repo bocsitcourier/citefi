@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { DollarSign, Clock, TrendingUp, AlertCircle, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { DollarSign, Clock, TrendingUp, AlertCircle, CheckCircle, XCircle, Loader2, Shield, Brain, BookOpen } from "lucide-react";
 
 interface CostData {
   summary: {
@@ -589,6 +589,62 @@ export default function MonitoringDashboard() {
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Content Quality & Compliance Overview */}
+      <Card data-testid="card-quality-compliance">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Content Quality &amp; Compliance
+          </CardTitle>
+          <CardDescription>
+            EU AI Act disclosure, information-gain gate, and citation attribution thresholds applied to every article
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* EU AI Act */}
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-blue-600" />
+                <span className="font-semibold text-sm">EU AI Act Article 50</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Every completed article has an AI-generated content disclosure footer injected automatically before publishing. Tracks <code className="text-xs bg-muted px-1 rounded">ai_disclosure_included</code> per article.
+              </p>
+              <Badge variant="secondary" className="text-xs">Auto-injected</Badge>
+            </div>
+
+            {/* Information-Gain Gate */}
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-purple-600" />
+                <span className="font-semibold text-sm">Information-Gain Gate</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Bigram Jaccard novelty scorer measures how much new information each article adds beyond existing batch content.
+              </p>
+              <div className="flex flex-wrap gap-1">
+                <Badge variant="default" className="text-xs">≥55 PASSED</Badge>
+                <Badge variant="secondary" className="text-xs">35–54 FLAGGED</Badge>
+                <Badge variant="destructive" className="text-xs">&lt;35 BLOCKED</Badge>
+              </div>
+            </div>
+
+            {/* Citation Attribution */}
+            <div className="rounded-lg border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-green-600" />
+                <span className="font-semibold text-sm">Citation Attribution</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Citation probes query Gemini with article topics and measure content overlap. Score (0–100) reflects how much AI models draw from your content.
+              </p>
+              <Badge variant="outline" className="text-xs">Async probes, auto-updated</Badge>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

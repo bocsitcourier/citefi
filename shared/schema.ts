@@ -283,6 +283,17 @@ export const articles = pgTable("articles", {
   // Failure tracking — stores the human-readable reason an article reached FAILED status
   errorMessage: text("error_message"),
 
+  // EU AI Act Article 50 compliance (effective Aug 2 2026)
+  aiDisclosureIncluded: boolean("ai_disclosure_included").notNull().default(false),
+
+  // Editorial quality gate — information-gain novelty score vs existing team content
+  informationGainScore: integer("information_gain_score"), // 0-100; higher = more novel
+  qualityGateStatus: varchar("quality_gate_status", { length: 50 }), // PASSED | FLAGGED | BLOCKED
+
+  // Citation attribution — AI citation rate (updated by citation probe worker)
+  citationRate: integer("citation_rate"), // 0-100
+  lastCitationCheckedAt: timestamp("last_citation_checked_at"),
+
   // Soft Delete Support
   deletedAt: timestamp("deleted_at"),
   
@@ -3341,6 +3352,32 @@ export const creditMenuOverrides = pgTable("credit_menu_overrides", {
 export const insertCreditMenuOverrideSchema = createInsertSchema(creditMenuOverrides).omit({ id: true, createdAt: true, updatedAt: true });
 export type CreditMenuOverride = typeof creditMenuOverrides.$inferSelect;
 export type InsertCreditMenuOverride = z.infer<typeof insertCreditMenuOverrideSchema>;
+
+// ============================================================================
+// CITATION ATTRIBUTION — AI citation rate tracking per article
+// ============================================================================
+
+export const citationProbes = pgTable("citation_probes", {
+  id: serial("id").primaryKey(),
+  articleId: integer("article_id").notNull().references(() => articles.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").notNull().references(() => teams.id),
+  targetQuery: text("target_query").notNull(),
+  aiProvider: varchar("ai_provider", { length: 50 }).notNull().default("gemini"),
+  citationDetected: boolean("citation_detected"),
+  confidenceScore: integer("confidence_score"), // 0-100
+  responseSnippet: text("response_snippet"), // Excerpt of AI response for audit
+  probeStatus: varchar("probe_status", { length: 30 }).notNull().default("PENDING"), // PENDING | RUNNING | COMPLETE | FAILED
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  articleIdIdx: index("citation_probes_article_id_idx").on(table.articleId),
+  teamIdIdx: index("citation_probes_team_id_idx").on(table.teamId),
+  statusIdx: index("citation_probes_status_idx").on(table.probeStatus),
+}));
+
+export const insertCitationProbeSchema = createInsertSchema(citationProbes).omit({ id: true, createdAt: true });
+export type CitationProbe = typeof citationProbes.$inferSelect;
+export type InsertCitationProbe = z.infer<typeof insertCitationProbeSchema>;
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

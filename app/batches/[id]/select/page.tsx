@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Sparkles, CheckSquare, ArrowLeft, Send, Upload, X, Users } from "lucide-react";
+import { Loader2, Sparkles, CheckSquare, ArrowLeft, Send, Upload, X, Users, Coins, AlertTriangle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -107,6 +107,18 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
   const { data: connectionsData } = useQuery<{ success: boolean; data: PublishingConnection[] }>({
     queryKey: ["/api/publishing/connections"],
     enabled: autoPublishEnabled,
+  });
+
+  interface CreditPreview {
+    totalCost: number;
+    unitCost: number;
+    totalRemaining: number;
+    sufficient: boolean;
+    insufficientBy: number;
+  }
+  const { data: creditPreview } = useQuery<CreditPreview>({
+    queryKey: [`/api/billing/preview?operationType=article&quantity=${selectedTitles.size}`],
+    enabled: selectedTitles.size > 0,
   });
 
   const submitBatchMutation = useMutation({
@@ -664,9 +676,40 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
               )}
             </div>
 
+            {selectedTitles.size > 0 && creditPreview && (
+              <div
+                className={`flex items-center gap-2 p-3 rounded-md text-sm border ${
+                  creditPreview.sufficient
+                    ? "bg-muted/40 border-border text-muted-foreground"
+                    : "bg-destructive/10 border-destructive/30 text-destructive"
+                }`}
+                data-testid="text-credit-estimate"
+              >
+                {creditPreview.sufficient ? (
+                  <Coins className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span>
+                  {creditPreview.sufficient
+                    ? `${creditPreview.totalCost} credits · ${creditPreview.totalRemaining} remaining`
+                    : `Need ${creditPreview.totalCost} credits — ${creditPreview.totalRemaining} available (${creditPreview.insufficientBy} short)`}
+                </span>
+                {!creditPreview.sufficient && (
+                  <a
+                    href="/client/billing"
+                    className="ml-auto text-xs underline whitespace-nowrap"
+                    data-testid="link-top-up-credits"
+                  >
+                    Top up
+                  </a>
+                )}
+              </div>
+            )}
+
             <Button
               onClick={handleSubmitBatch}
-              disabled={selectedTitles.size === 0 || submitBatchMutation.isPending}
+              disabled={selectedTitles.size === 0 || submitBatchMutation.isPending || creditPreview?.sufficient === false}
               className="w-full"
               size="lg"
               data-testid="button-submit-batch"

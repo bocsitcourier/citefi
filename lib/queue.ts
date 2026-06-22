@@ -257,6 +257,8 @@ async function createPgBoss(): Promise<PgBoss> {
     "journey-scheduler",
     // Journey Orchestrator — durable podcast generation (replaces fire-and-forget)
     PODCAST_GENERATION_QUEUE,
+    // Citation attribution — AI citation rate tracking per article
+    "citation-probe",
   ];
   for (const queueName of ALL_QUEUES) {
     try {
