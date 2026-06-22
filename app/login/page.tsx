@@ -26,7 +26,7 @@ function LoginForm() {
   useEffect(() => {
     if (user) {
       const redirect = searchParams.get("redirect");
-      const dest = redirect && redirect.startsWith("/") ? redirect : "/admin";
+      const dest = redirect && redirect.startsWith("/") ? redirect : "/home";
       window.location.href = dest;
     }
   }, [user, searchParams]);
@@ -50,7 +50,7 @@ function LoginForm() {
         // Full-page navigation clears the Next.js router cache so the
         // middleware sees the fresh auth cookie on the very next request.
         const redirect = searchParams.get("redirect");
-        const dest = redirect && redirect.startsWith("/") ? redirect : "/admin";
+        const dest = redirect && redirect.startsWith("/") ? redirect : "/home";
         window.location.href = dest;
       }
     } catch (error: any) {

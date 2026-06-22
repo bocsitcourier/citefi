@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,15 +27,21 @@ import {
 
 export default function MarketingPage() {
   const router = useRouter();
-  const { user, isLoading } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  // Redirect logged-in users without making any API call — purely client-side
+  // sessionStorage check. The marketing page renders immediately for all visitors.
   useEffect(() => {
-    if (!isLoading && user) {
-      router.replace("/home");
+    try {
+      const token = sessionStorage.getItem("auth_token");
+      if (token) {
+        router.replace("/home");
+      }
+    } catch {
+      // SSR / storage locked — ignore
     }
-  }, [user, isLoading, router]);
+  }, [router]);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 12);
