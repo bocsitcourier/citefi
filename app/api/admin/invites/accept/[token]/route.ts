@@ -116,7 +116,10 @@ export async function POST(
           email: invite.email,
           fullName,
           passwordHash: hashedPassword,
-          role: invite.role,
+          // SECURITY: Always assign team_member at the platform level.
+          // Team-level admin privilege lives only in teamMembers.role — never
+          // elevate a team invite into a global platform admin.
+          role: 'team_member',
           accountStatus: 'active',
           emailVerified: 1,
           ...(teamId ? { defaultTeamId: teamId } : {}),

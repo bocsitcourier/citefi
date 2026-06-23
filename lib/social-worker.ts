@@ -123,14 +123,16 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       payloadJson: { platforms, tone, mood, industry },
     });
 
-    // Register job in tracking table
+    // Register job in tracking table.
+    // Use onConflictDoNothing so pg-boss retries are idempotent — a duplicate
+    // job.id insert on retry simply no-ops instead of crashing the worker.
     await db.insert(socialPostJobs).values({
       socialPostId,
       jobId: job.id,
       jobType: "GENERATION",
       status: "ACTIVE",
       startedAt: new Date(),
-    });
+    }).onConflictDoNothing();
 
     // Import AI providers
     const { generateSocialPostWithGemini } = await import("./gemini-social");
@@ -596,7 +598,11 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
     console.error(`❌ Social post generation failed for ${socialPostId}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // Update status to FAILED
+    // Update status to FAILED — scope by teamId for defence-in-depth write isolation.
+    const catchTeamId = job.data.teamId;
+    const catchUpdateWhere = catchTeamId
+      ? and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, catchTeamId))
+      : eq(socialPosts.id, socialPostId);
     await db
       .update(socialPosts)
       .set({ 
@@ -604,7 +610,7 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
         errorMessage: errorMessage.slice(0, 500),
         updatedAt: new Date() 
       })
-      .where(eq(socialPosts.id, socialPostId));
+      .where(catchUpdateWhere);
 
     // Mark job as failed
     await db

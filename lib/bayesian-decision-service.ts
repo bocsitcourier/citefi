@@ -98,7 +98,13 @@ export async function selectArm(
     .limit(1);
 
   if (existing) {
-    return { armId: existing.armId, isHoldout: existing.isHoldout, cached: true };
+    // If a non-holdout assignment has armId=null the arm was deleted after assignment.
+    // Fall through to re-sample a live arm rather than returning null downstream.
+    if (!existing.isHoldout && existing.armId === null) {
+      // Allow fall-through to fresh arm selection below
+    } else {
+      return { armId: existing.armId, isHoldout: existing.isHoldout, cached: true };
+    }
   }
 
   // Fetch active policy

@@ -1442,26 +1442,34 @@ export async function registerWorkers() {
             .where(eq(articles.id, articleId))
             .limit(1);
           const statusNow = statusCheck?.articleStatus;
-          if (statusNow !== "GEMINI_COMPLETE") {
+          // Preserve any checkpoint status so expensive work is not discarded.
+          // COMPLETE / GPT4_ENHANCED / CHATGPT_REVIEWED: article succeeded — a
+          // post-success error (e.g. debit failure) must not overwrite to FAILED.
+          // GEMINI_COMPLETE: Gemini work done — resumes from ChatGPT on next retry.
+          const PRESERVED_CHECKPOINTS = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
+          if (!PRESERVED_CHECKPOINTS.includes(statusNow ?? "")) {
             await db
               .update(articles)
               .set({ articleStatus: "FAILED", errorMessage: errorMessage.slice(0, 1000) })
               .where(eq(articles.id, articleId));
           } else {
-            // Preserve GEMINI_COMPLETE — update only the error message for observability
+            // Preserve checkpoint — update only the error message for observability
             await db
               .update(articles)
               .set({ errorMessage: errorMessage.slice(0, 1000), updatedAt: new Date() })
               .where(eq(articles.id, articleId));
-            console.warn(`⚠️ Article ${articleId} failed in post-Gemini stages — GEMINI_COMPLETE preserved, will retry from ChatGPT review`);
+            console.warn(`⚠️ Article ${articleId} failed after reaching ${statusNow} — checkpoint preserved, will retry`);
           }
         } catch (dbError) {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
-        // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles)
-        // releaseKey = "article:<id>" ensures per-article idempotency on batch runIds
-        if (articleTeamId && articleCreditRunId) {
+        // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles).
+        // IMPORTANT: Do NOT release on debit-failure paths (DEBIT_FAILED) — the article
+        // reached COMPLETE successfully and pg-boss will retry the debit. Releasing here
+        // would refund credits for successfully generated content.
+        const isDebitFailure = errorMessage.includes("DEBIT_FAILED");
+        if (articleTeamId && articleCreditRunId && !isDebitFailure) {
           const { releaseReservation } = await import("@/lib/billing");
           await releaseReservation({
             teamId: articleTeamId,

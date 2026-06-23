@@ -63,7 +63,7 @@ function hasFaqSection(html: string): { present: boolean; questionCount: number 
   );
   return {
     present: hasFaqHeading || hasQuestionList,
-    questionCount: hasFaqHeading ? Math.max(questions.length, 2) : questions.length,
+    questionCount: questions.length,
   };
 }
 

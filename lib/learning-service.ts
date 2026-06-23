@@ -694,8 +694,11 @@ export class LearningService {
     const patternsUsed = (metric.patternsUsedJson as number[]) || [];
     const isSuccess = metric.isSuccess === 1;
 
+    const metricTeamId = metric.teamId;
+    if (!metricTeamId) return; // Cannot safely scope EMA update without a team boundary
+
     for (const patternId of patternsUsed) {
-      await this.updatePatternWithEMA(patternId, isSuccess, metric.qualityScore);
+      await this.updatePatternWithEMA(patternId, isSuccess, metric.qualityScore, metricTeamId);
     }
 
     await db
@@ -713,12 +716,20 @@ export class LearningService {
   private async updatePatternWithEMA(
     patternId: number,
     isSuccess: boolean,
-    qualityScore: number
+    qualityScore: number,
+    teamId: number
   ): Promise<void> {
+    // SECURITY: scope by BOTH id AND teamId so a poisoned/cross-tenant patternId
+    // in patternsUsedJson cannot mutate another team's learning patterns.
     const [pattern] = await db
       .select()
       .from(learningPatterns)
-      .where(eq(learningPatterns.id, patternId))
+      .where(
+        and(
+          eq(learningPatterns.id, patternId),
+          eq(learningPatterns.teamId, teamId)
+        )
+      )
       .limit(1);
 
     if (!pattern) return;
@@ -749,7 +760,12 @@ export class LearningService {
         lastUsedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(learningPatterns.id, patternId));
+      .where(
+        and(
+          eq(learningPatterns.id, patternId),
+          eq(learningPatterns.teamId, teamId)
+        )
+      );
 
     console.log(
       `📈 Updated pattern ${patternId}: success=${newSuccessRate}%, quality=${newQualityScore}, confidence=${newConfidence}%`
