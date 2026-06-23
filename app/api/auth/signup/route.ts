@@ -8,16 +8,6 @@ import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/
 
 export async function POST(req: Request) {
   try {
-    // Rate limit by IP: 5 signups per hour
-    const ip = getClientIp(req);
-    const limit = await rateLimitDb(`signup:${ip}`, 5, 60 * 60 * 1000);
-    if (!limit.allowed) {
-      return NextResponse.json(
-        { error: "Too many signup attempts. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
-      );
-    }
-
     const body = await req.json();
     const { email, password, fullName, teamName, role } = body;
 
@@ -38,19 +28,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // Validate password strength
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      return NextResponse.json(
-        { 
-          error: passwordValidation.errors.join(". "), 
-          details: passwordValidation.errors 
-        },
-        { status: 400 }
-      );
-    }
-
-    // Check if user already exists
+    // Check if user already exists — do this BEFORE the rate-limit increment so
+    // a duplicate-email attempt returns 409 rather than consuming a rate-limit slot
+    // and potentially returning 429 instead of the expected conflict response.
     const existingUser = await db
       .select()
       .from(users)
@@ -61,6 +41,28 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "User with this email already exists" },
         { status: 409 }
+      );
+    }
+
+    // Rate limit by IP: 5 new (non-duplicate) signups per hour
+    const ip = getClientIp(req);
+    const limit = await rateLimitDb(`signup:${ip}`, 5, 60 * 60 * 1000);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Too many signup attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+      );
+    }
+
+    // Validate password strength
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return NextResponse.json(
+        { 
+          error: passwordValidation.errors.join(". "), 
+          details: passwordValidation.errors 
+        },
+        { status: 400 }
       );
     }
 
