@@ -61,9 +61,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { email, role = 'team_member', message } = body;
 
-    if (!email || !email.includes('@')) {
+    // RFC-5321 simplified check — rejects obvious non-emails without a DNS round-trip.
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!email || !EMAIL_RE.test(email)) {
       return NextResponse.json(
-        { error: 'Valid email is required' },
+        { error: 'Valid email address is required' },
         { status: 400 }
       );
     }

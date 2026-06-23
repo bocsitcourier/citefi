@@ -95,8 +95,11 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    // TODO: In production, send email via email service (e.g., SendGrid, AWS SES)
-    console.log(`📧 Email verification code for ${user.email}: ${code}`);
+    // TODO: Wire to lib/email.ts (SMTP/transactional provider) for production delivery.
+    // SECURITY: Never log auth codes in production — they are valid credentials.
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📧 [DEV] Email verification code for ${user.email}: ${code}`);
+    }
 
     return NextResponse.json({
       message: "Verification code sent successfully",

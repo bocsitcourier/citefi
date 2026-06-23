@@ -95,54 +95,34 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     const { quotaType, limitValue, periodType, enabled } = validationResult.data;
 
-    const [existingQuota] = await db
-      .select()
-      .from(userQuotas)
-      .where(and(
-        eq(userQuotas.userId, userId),
-        eq(userQuotas.quotaType, quotaType)
-      ))
-      .limit(1);
+    // Atomic upsert — avoids TOCTOU race between concurrent admin PUT calls.
+    // Requires the unique index on (userId, quotaType) in the schema.
+    const now = new Date();
+    const effectivePeriodType = periodType || 'day';
+    const periodEnd = new Date(now);
+    if (effectivePeriodType === 'hour') periodEnd.setHours(periodEnd.getHours() + 1);
+    else if (effectivePeriodType === 'day') periodEnd.setDate(periodEnd.getDate() + 1);
+    else if (effectivePeriodType === 'week') periodEnd.setDate(periodEnd.getDate() + 7);
+    else periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-    if (existingQuota) {
-      const updateData: Record<string, unknown> = {
+    await db.insert(userQuotas).values({
+      userId,
+      quotaType,
+      limitValue,
+      periodType: effectivePeriodType,
+      currentUsage: 0,
+      periodStartsAt: now,
+      periodEndsAt: periodEnd,
+      enabled: enabled ?? 1,
+    }).onConflictDoUpdate({
+      target: [userQuotas.userId, userQuotas.quotaType],
+      set: {
         limitValue,
         updatedAt: new Date(),
-      };
-      if (periodType !== undefined) updateData.periodType = periodType;
-      if (enabled !== undefined) updateData.enabled = enabled;
-
-      await db
-        .update(userQuotas)
-        .set(updateData)
-        .where(and(
-          eq(userQuotas.userId, userId),
-          eq(userQuotas.quotaType, quotaType)
-        ));
-    } else {
-      const now = new Date();
-      const periodEnd = new Date(now);
-      if (periodType === 'hour') {
-        periodEnd.setHours(periodEnd.getHours() + 1);
-      } else if (periodType === 'day') {
-        periodEnd.setDate(periodEnd.getDate() + 1);
-      } else if (periodType === 'week') {
-        periodEnd.setDate(periodEnd.getDate() + 7);
-      } else {
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
-      }
-
-      await db.insert(userQuotas).values({
-        userId,
-        quotaType,
-        limitValue,
-        periodType: periodType || 'day',
-        currentUsage: 0,
-        periodStartsAt: now,
-        periodEndsAt: periodEnd,
-        enabled: enabled ?? 1,
-      });
-    }
+        ...(periodType !== undefined ? { periodType } : {}),
+        ...(enabled !== undefined ? { enabled } : {}),
+      },
+    });
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 
                      req.headers.get('x-real-ip') || 

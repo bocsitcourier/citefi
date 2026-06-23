@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { errorLogs, articles, jobBatches, videoIdeas, socialPosts } from "@/shared/schema";
 import { desc, eq, and, or, sql, isNull } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
+import { z } from "zod";
 
 export async function GET(req: NextRequest) {
   try {
@@ -141,11 +142,21 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     await requireAdmin(req);
-    const { id, resolved, source } = await req.json();
+    const body = await req.json();
 
-    if (!id) {
-      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    const patchSchema = z.object({
+      id: z.number().int().positive(),
+      resolved: z.boolean(),
+      source: z.enum(["article", "video_idea", "social_video"]).optional().default("article"),
+    });
+    const parsed = patchSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsed.error.errors },
+        { status: 400 }
+      );
     }
+    const { id, resolved, source } = parsed.data;
 
     // Route resolve/unresolve to the correct table based on the error source
     if (source === "video_idea") {

@@ -812,6 +812,9 @@ export const userQuotas = pgTable("user_quotas", {
   userIdIdx: index("user_quotas_user_id_idx").on(table.userId),
   roleIdx: index("user_quotas_role_idx").on(table.role),
   quotaTypeIdx: index("user_quotas_quota_type_idx").on(table.quotaType),
+  // Unique per (userId, quotaType) so concurrent admin PUT calls use ON CONFLICT
+  // instead of a check-then-insert race. NULL userId (role-based quotas) is excluded.
+  userQuotaUniq: uniqueIndex("user_quotas_user_quota_uniq").on(table.userId, table.quotaType),
 }));
 
 // System Metrics table - health monitoring data
