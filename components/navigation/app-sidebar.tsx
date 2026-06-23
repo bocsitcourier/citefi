@@ -46,15 +46,11 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={300}>
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-1">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Zap className="w-4 h-4" />
-            </div>
-            {!isCollapsed && (
-              <div className="flex flex-col min-w-0">
-                <span className="font-semibold text-sm leading-tight truncate">Citefi</span>
-                <span className="text-xs text-muted-foreground truncate">Engine</span>
-              </div>
+          <div className="flex items-center px-2 py-1">
+            {isCollapsed ? (
+              <span className="font-bold text-base text-foreground tracking-tight">c.</span>
+            ) : (
+              <span className="font-bold text-lg text-foreground tracking-tight">citefi.co</span>
             )}
           </div>
         </SidebarHeader>

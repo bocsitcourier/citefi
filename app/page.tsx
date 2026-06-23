@@ -64,13 +64,8 @@ export default function MarketingPage() {
       >
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-4">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">A</span>
-            </div>
-            <span className={`font-semibold text-sm ${scrolled ? "text-foreground" : "text-white"}`}>
-              Citefi
-            </span>
+          <Link href="/" className="flex items-center shrink-0" data-testid="nav-logo">
+            <span className="font-bold text-xl text-foreground tracking-tight">citefi.co</span>
           </Link>
 
           {/* Desktop Nav */}
@@ -84,9 +79,7 @@ export default function MarketingPage() {
               <button
                 key={item.id}
                 onClick={() => scrollTo(item.id)}
-                className={`px-4 py-2 text-sm rounded-md transition-colors hover-elevate ${
-                  scrolled ? "text-foreground" : "text-white/80 hover:text-white"
-                }`}
+                className="px-4 py-2 text-sm text-muted-foreground rounded-md transition-colors hover:text-foreground hover-elevate"
                 data-testid={`nav-link-${item.id}`}
               >
                 {item.label}
@@ -97,18 +90,12 @@ export default function MarketingPage() {
           {/* Desktop CTAs */}
           <div className="hidden md:flex items-center gap-2 shrink-0">
             <Link href="/login">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={scrolled ? "" : "text-white hover:bg-white/10"}
-                data-testid="nav-button-login"
-              >
+              <Button variant="ghost" size="sm" data-testid="nav-button-login">
                 Log in
               </Button>
             </Link>
             <Button
               size="sm"
-              className="bg-white text-slate-900 hover:bg-white/90"
               onClick={() => scrollTo("pricing")}
               data-testid="nav-button-get-started"
             >
@@ -118,7 +105,7 @@ export default function MarketingPage() {
 
           {/* Mobile hamburger */}
           <button
-            className="md:hidden p-2 text-white"
+            className="md:hidden p-2 text-foreground"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             data-testid="nav-button-mobile-menu"
             aria-label="Toggle menu"
@@ -166,37 +153,35 @@ export default function MarketingPage() {
 
       {/* ── HERO ───────────────────────────────────────────────────────── */}
       <section
-        className="relative min-h-screen flex items-center justify-center text-center px-6 pt-16"
-        style={{ background: "linear-gradient(135deg, #0f0c29 0%, #1a1040 40%, #24243e 100%)" }}
+        className="relative min-h-screen flex items-center justify-center text-center px-6 pt-16 bg-white"
         data-testid="section-hero"
       >
-        {/* Subtle grid pattern overlay */}
+        {/* Subtle dot-grid pattern */}
         <div
-          className="absolute inset-0 opacity-[0.04]"
+          className="absolute inset-0 opacity-[0.4]"
           style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.8) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.8) 1px, transparent 1px)",
-            backgroundSize: "60px 60px",
+            backgroundImage: "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
+            backgroundSize: "32px 32px",
           }}
         />
 
         <div className="relative max-w-4xl mx-auto space-y-8">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/20 bg-white/5 text-white/80 text-sm font-medium" data-testid="hero-badge">
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-slate-200 bg-white text-slate-600 text-sm font-medium shadow-sm" data-testid="hero-badge">
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
             <span>The Local SEO Content Powerhouse</span>
           </div>
 
           {/* Headline */}
-          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.08] tracking-tight" data-testid="hero-headline">
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-slate-900 leading-[1.08] tracking-tight" data-testid="hero-headline">
             The Local SEO<br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-indigo-500">
               Content Engine
             </span>
           </h1>
 
           {/* Sub-copy */}
-          <p className="text-lg sm:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed" data-testid="hero-subtext">
+          <p className="text-lg sm:text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed" data-testid="hero-subtext">
             Citefi blends Gemini and GPT-4 in a 4-stage pipeline that injects real
             ZIP-code intelligence, neighborhood context, and E-E-A-T signals into every article —
             so your content ranks where generic AI tools can&apos;t.
@@ -207,7 +192,7 @@ export default function MarketingPage() {
             <Link href="/signup">
               <Button
                 size="lg"
-                className="bg-white text-slate-900 hover:bg-white/90 px-8 text-base"
+                className="px-8 text-base"
                 data-testid="hero-button-get-demo"
               >
                 Get Started Free
@@ -217,7 +202,7 @@ export default function MarketingPage() {
             <Button
               size="lg"
               variant="outline"
-              className="border-white/30 text-white bg-white/5 hover:bg-white/10 px-8 text-base"
+              className="px-8 text-base"
               onClick={() => scrollTo("pipeline")}
               data-testid="hero-button-see-how"
             >
@@ -226,12 +211,12 @@ export default function MarketingPage() {
           </div>
 
           {/* Metric strip */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 pt-4 text-white/50 text-sm">
-            <span data-testid="hero-metric-1"><strong className="text-white/90 font-semibold">2M+</strong> articles generated</span>
-            <span className="hidden sm:block w-px h-4 bg-white/20" />
-            <span data-testid="hero-metric-2"><strong className="text-white/90 font-semibold">500+</strong> agencies trust us</span>
-            <span className="hidden sm:block w-px h-4 bg-white/20" />
-            <span data-testid="hero-metric-3"><strong className="text-white/90 font-semibold">50+</strong> articles per batch</span>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 pt-4 text-slate-400 text-sm">
+            <span data-testid="hero-metric-1"><strong className="text-slate-700 font-semibold">2M+</strong> articles generated</span>
+            <span className="hidden sm:block w-px h-4 bg-slate-200" />
+            <span data-testid="hero-metric-2"><strong className="text-slate-700 font-semibold">500+</strong> agencies trust us</span>
+            <span className="hidden sm:block w-px h-4 bg-slate-200" />
+            <span data-testid="hero-metric-3"><strong className="text-slate-700 font-semibold">50+</strong> articles per batch</span>
           </div>
         </div>
       </section>
@@ -715,20 +700,19 @@ export default function MarketingPage() {
 
       {/* ── CTA BAND ───────────────────────────────────────────────────── */}
       <section
-        className="py-20 px-6 text-center"
-        style={{ background: "linear-gradient(135deg, #0f0c29 0%, #1a1040 40%, #24243e 100%)" }}
+        className="py-20 px-6 text-center bg-slate-950"
         data-testid="section-cta-band"
       >
         <div className="max-w-2xl mx-auto space-y-6">
           <h2 className="text-3xl sm:text-4xl font-bold text-white leading-tight">
             Ready to own your local search rankings?
           </h2>
-          <p className="text-white/60 text-base">
+          <p className="text-slate-400 text-base">
             Join 500+ agencies and businesses generating local SEO content at scale.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link href="/signup">
-              <Button size="lg" className="bg-white text-slate-900 hover:bg-white/90 px-8" data-testid="cta-band-start">
+              <Button size="lg" className="bg-white text-slate-900 hover:bg-slate-100 px-8" data-testid="cta-band-start">
                 Get Started Free
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -736,7 +720,7 @@ export default function MarketingPage() {
             <Button
               size="lg"
               variant="outline"
-              className="border-white/30 text-white bg-white/5 hover:bg-white/10 px-8"
+              className="border-white/20 text-white hover:bg-white/10 px-8"
               onClick={() => scrollTo("pipeline")}
               data-testid="cta-band-see-how"
             >
@@ -752,11 +736,8 @@ export default function MarketingPage() {
           <div className="flex flex-col md:flex-row justify-between gap-8 pb-10 border-b border-border">
             {/* Brand */}
             <div className="space-y-3 max-w-xs">
-              <Link href="/" className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-md bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center">
-                  <span className="text-white font-bold text-xs">A</span>
-                </div>
-                <span className="font-semibold text-sm text-foreground">Citefi</span>
+              <Link href="/">
+                <span className="font-bold text-xl text-foreground tracking-tight">citefi.co</span>
               </Link>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 The dual-AI local SEO content platform for agencies, local businesses, and multi-location brands.
