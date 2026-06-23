@@ -27,7 +27,36 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, History, RefreshCw } from "lucide-react";
+import { Loader2, Plus, History, RefreshCw, RotateCcw, Search, ChevronRight } from "lucide-react";
+
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+interface ChargeItem {
+  id: string;
+  amount: number;
+  amountRefunded: number;
+  currency: string;
+  description: string;
+  created: string;
+  refunded: boolean;
+  maxRefundable: number;
+}
+
+interface ChargesResponse {
+  userId: number;
+  userEmail: string;
+  teamName: string;
+  charges: ChargeItem[];
+}
+
+type RefundStep = "userId" | "selectCharge" | "confirm";
+
+function fmtMoney(cents: number, currency = "usd") {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +119,16 @@ export default function AdminCreditsPage() {
   const [grantAmount, setGrantAmount] = useState("");
   const [grantReason, setGrantReason] = useState("");
 
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+  const [refundStep, setRefundStep] = useState<RefundStep>("userId");
+  const [refundUserId, setRefundUserId] = useState("");
+  const [loadingCharges, setLoadingCharges] = useState(false);
+  const [chargesData, setChargesData] = useState<ChargesResponse | null>(null);
+  const [selectedCharge, setSelectedCharge] = useState<ChargeItem | null>(null);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [submittingRefund, setSubmittingRefund] = useState(false);
+
   const { data: allBalances, isLoading, refetch, isFetching } = useQuery<{ balances: TeamBalance[] }>({
     queryKey: ["/api/admin/credits"],
     queryFn: () => fetch("/api/admin/credits").then((r) => r.json()),
@@ -121,6 +160,85 @@ export default function AdminCreditsPage() {
       toast({ title: "Error", description: err?.message ?? "Failed to grant credits", variant: "destructive" });
     },
   });
+
+  function openRefundDialog() {
+    setRefundStep("userId");
+    setRefundUserId("");
+    setChargesData(null);
+    setSelectedCharge(null);
+    setRefundAmount("");
+    setRefundReason("");
+    setRefundDialogOpen(true);
+  }
+
+  async function loadCharges() {
+    const userId = parseInt(refundUserId);
+    if (isNaN(userId) || userId <= 0) {
+      toast({ title: "Invalid user ID", variant: "destructive" });
+      return;
+    }
+    setLoadingCharges(true);
+    try {
+      const res = await fetch(`/api/admin/billing/refund?userId=${userId}`, { headers: getAuthHeaders() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error ?? "Failed to load charges");
+      }
+      const data: ChargesResponse = await res.json();
+      setChargesData(data);
+      setRefundStep("selectCharge");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoadingCharges(false);
+    }
+  }
+
+  function selectCharge(charge: ChargeItem) {
+    setSelectedCharge(charge);
+    setRefundAmount(String(charge.maxRefundable));
+    setRefundStep("confirm");
+  }
+
+  async function submitRefund() {
+    if (!selectedCharge || !chargesData) return;
+    const amount = parseInt(refundAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({ title: "Invalid amount", variant: "destructive" });
+      return;
+    }
+    if (amount > selectedCharge.maxRefundable) {
+      toast({ title: `Max refundable is ${fmtMoney(selectedCharge.maxRefundable)}`, variant: "destructive" });
+      return;
+    }
+    setSubmittingRefund(true);
+    try {
+      const res = await fetch("/api/admin/billing/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          userId: parseInt(refundUserId),
+          chargeId: selectedCharge.id,
+          amount,
+          reason: refundReason || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error ?? "Refund failed");
+      }
+      const result = await res.json();
+      toast({
+        title: "Refund issued",
+        description: `${fmtMoney(result.amount)} refund created (${result.refundId})`,
+      });
+      setRefundDialogOpen(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmittingRefund(false);
+    }
+  }
 
   const handleGrant = () => {
     const teamId = parseInt(grantTeamId, 10);
@@ -167,6 +285,14 @@ export default function AdminCreditsPage() {
             data-testid="button-refresh"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={openRefundDialog}
+            data-testid="button-issue-refund"
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Issue Refund
           </Button>
           <Button
             onClick={() => setGrantDialogOpen(true)}
@@ -392,6 +518,123 @@ export default function AdminCreditsPage() {
               Grant Credits
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Issue Refund Dialog */}
+      <Dialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Issue Stripe Refund</DialogTitle>
+            <DialogDescription>
+              {refundStep === "userId" && "Enter the user ID to look up their Stripe payment history."}
+              {refundStep === "selectCharge" && `Select a charge to refund for ${chargesData?.userEmail}.`}
+              {refundStep === "confirm" && `Confirm refund details for ${chargesData?.userEmail}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {refundStep === "userId" && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>User ID</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 123"
+                  value={refundUserId}
+                  onChange={(e) => setRefundUserId(e.target.value)}
+                  data-testid="input-refund-user-id"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setRefundDialogOpen(false)}>Cancel</Button>
+                <Button onClick={loadCharges} disabled={loadingCharges} data-testid="button-load-charges">
+                  {loadingCharges ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
+                  Load Charges
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {refundStep === "selectCharge" && chargesData && (
+            <div className="space-y-3 py-2">
+              {chargesData.charges.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No charges found for this customer.</p>
+              ) : (
+                chargesData.charges.map((charge) => (
+                  <div
+                    key={charge.id}
+                    className={`p-3 rounded-lg border cursor-pointer hover-elevate ${charge.maxRefundable === 0 ? "opacity-50 pointer-events-none" : ""}`}
+                    onClick={() => selectCharge(charge)}
+                    data-testid={`charge-item-${charge.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <p className="text-sm font-medium">{charge.description}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{charge.id}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(charge.created).toLocaleDateString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold">{fmtMoney(charge.amount, charge.currency)}</p>
+                        {charge.amountRefunded > 0 && (
+                          <p className="text-xs text-muted-foreground">−{fmtMoney(charge.amountRefunded)} refunded</p>
+                        )}
+                        {charge.refunded ? (
+                          <Badge variant="secondary" className="text-xs mt-0.5">Fully refunded</Badge>
+                        ) : charge.maxRefundable > 0 ? (
+                          <div className="flex items-center gap-0.5 justify-end mt-0.5">
+                            <span className="text-xs text-muted-foreground">Max: {fmtMoney(charge.maxRefundable)}</span>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+              <DialogFooter className="mt-2">
+                <Button variant="ghost" size="sm" onClick={() => setRefundStep("userId")}>Back</Button>
+              </DialogFooter>
+            </div>
+          )}
+
+          {refundStep === "confirm" && selectedCharge && (
+            <div className="space-y-4 py-2">
+              <div className="p-3 rounded-lg bg-muted/50 text-sm space-y-1">
+                <p><span className="text-muted-foreground">Charge:</span> <span className="font-mono">{selectedCharge.id}</span></p>
+                <p><span className="text-muted-foreground">Original:</span> <strong>{fmtMoney(selectedCharge.amount, selectedCharge.currency)}</strong></p>
+                <p><span className="text-muted-foreground">Max refundable:</span> {fmtMoney(selectedCharge.maxRefundable, selectedCharge.currency)}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Refund Amount (in cents)</Label>
+                <Input
+                  type="number"
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                  max={selectedCharge.maxRefundable}
+                  data-testid="input-refund-amount"
+                />
+                <p className="text-xs text-muted-foreground">
+                  = {refundAmount ? fmtMoney(parseInt(refundAmount) || 0, selectedCharge.currency) : "—"}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reason (optional)</Label>
+                <Input
+                  placeholder="e.g. Billing error, duplicate charge"
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  data-testid="input-refund-reason"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" size="sm" onClick={() => setRefundStep("selectCharge")}>Back</Button>
+                <Button onClick={submitRefund} disabled={submittingRefund} data-testid="button-confirm-refund">
+                  {submittingRefund ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                  Confirm Refund
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

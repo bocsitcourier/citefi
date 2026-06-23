@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Moon, Sun, Loader2, Coins, AlertTriangle } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
+import { NotificationBell } from "@/components/NotificationBell";
 
 function CreditBalancePill() {
   const { data, isLoading } = useQuery<{ balance: number }>({
@@ -128,6 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-2 ml-auto shrink-0">
               <CreditBalancePill />
+              <NotificationBell />
               <ThemeToggle />
             </div>
           </header>

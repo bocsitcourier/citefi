@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone } from "lucide-react";
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import Link from "next/link";
 
 type TotpStep = "idle" | "setup" | "verify" | "backup";
 
@@ -19,6 +20,48 @@ interface TotpSetupData {
   qrCodeUrl: string;
   manualEntryKey: string;
   secret: string;
+}
+
+interface BillingStatus {
+  plan: { id: string; name: string; monthlyCredits: number };
+  billing: { status: string; hasActivePlan: boolean };
+  credits: { totalRemaining: number };
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function formatMemberSince(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const color =
+    role === "admin"
+      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+      : "bg-muted text-muted-foreground";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium capitalize ${color}`}>
+      {role}
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color =
+    status === "active"
+      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+      : status === "pending"
+      ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+      : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium capitalize ${color}`}>
+      {status}
+    </span>
+  );
 }
 
 export default function AccountSettingsPage() {
@@ -35,6 +78,16 @@ export default function AccountSettingsPage() {
   const [verificationCode, setVerificationCode] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [copiedKey, setCopiedKey] = useState(false);
+
+  const { data: billing } = useQuery<BillingStatus>({
+    queryKey: ["/api/billing/status"],
+    queryFn: async () => {
+      const res = await fetch("/api/billing/status", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Failed to load");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
 
   const changePasswordMutation = useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
@@ -125,6 +178,9 @@ export default function AccountSettingsPage() {
     }
   }
 
+  const userAny = user as any;
+  const planLabel = billing ? `${billing.plan.name} · ${billing.credits.totalRemaining.toLocaleString()} credits` : null;
+
   return (
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
       <div>
@@ -132,27 +188,64 @@ export default function AccountSettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">Manage your profile and security preferences</p>
       </div>
 
+      {/* Account Overview */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-3 pb-4">
           <User className="w-5 h-5 text-muted-foreground" />
           <div>
-            <CardTitle className="text-base">Profile</CardTitle>
-            <CardDescription>Your account information</CardDescription>
+            <CardTitle className="text-base">Account Overview</CardTitle>
+            <CardDescription>Your profile and plan at a glance</CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between py-2 border-b">
+        <CardContent className="space-y-0">
+          <div className="flex items-center justify-between py-2.5 border-b">
+            <span className="text-sm text-muted-foreground">Name</span>
+            <span className="text-sm font-medium">{userAny?.fullName || "—"}</span>
+          </div>
+          <div className="flex items-center justify-between py-2.5 border-b">
             <span className="text-sm text-muted-foreground">Email</span>
             <span className="text-sm font-medium">{user?.email}</span>
           </div>
-          <div className="flex items-center justify-between py-2 border-b">
-            <span className="text-sm text-muted-foreground">Name</span>
-            <span className="text-sm font-medium">{(user as any)?.fullName || "—"}</span>
-          </div>
-          <div className="flex items-center justify-between py-2">
+          <div className="flex items-center justify-between py-2.5 border-b">
             <span className="text-sm text-muted-foreground">Role</span>
-            <Badge variant="secondary" className="capitalize">{user?.role || "user"}</Badge>
+            <RoleBadge role={user?.role || "user"} />
           </div>
+          <div className="flex items-center justify-between py-2.5 border-b">
+            <span className="text-sm text-muted-foreground">Account Status</span>
+            <StatusBadge status={userAny?.accountStatus || "active"} />
+          </div>
+          <div className="flex items-center justify-between py-2.5 border-b">
+            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <CalendarDays className="w-3.5 h-3.5" /> Member Since
+            </span>
+            <span className="text-sm font-medium">{formatMemberSince(userAny?.createdAt)}</span>
+          </div>
+
+          <Separator className="my-1" />
+
+          <Link href="/settings/billing" className="flex items-center justify-between py-2.5 border-b hover-elevate rounded-sm px-1 -mx-1 group">
+            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <CreditCard className="w-3.5 h-3.5" /> Plan &amp; Billing
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-medium">
+                {planLabel ?? <Loader2 className="w-3 h-3 animate-spin inline" />}
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+          </Link>
+          <Link href="/client/team" className="flex items-center justify-between py-2.5 border-b hover-elevate rounded-sm px-1 -mx-1 group">
+            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" /> Team
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          </Link>
+          <Link href="/client/usage" className="flex items-center justify-between py-2.5 hover-elevate rounded-sm px-1 -mx-1 group">
+            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <BarChart2 className="w-3.5 h-3.5" /> Usage &amp; Analytics
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          </Link>
         </CardContent>
       </Card>
 

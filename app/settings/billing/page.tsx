@@ -8,8 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, CheckCircle2, CreditCard, Zap, Rocket, TrendingUp,
-  ArrowUpRight, RefreshCw, AlertTriangle,
+  ArrowUpRight, RefreshCw, AlertTriangle, XCircle, Info,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface BillingStatus {
   plan: {
@@ -159,6 +171,7 @@ export default function BillingPage() {
   const { toast } = useToast();
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [annual, setAnnual] = useState(false);
 
   const { data: billing, isLoading, error, refetch } = useQuery<BillingStatus>({
@@ -245,6 +258,34 @@ export default function BillingPage() {
     }
   }
 
+  async function handleCancelSubscription() {
+    setCanceling(true);
+    try {
+      const res = await fetch("/api/billing/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error ?? "Failed to cancel subscription");
+      }
+      toast({
+        title: "Cancellation scheduled",
+        description: `Your plan will remain active until the end of your billing period.`,
+      });
+      refetch();
+    } catch (err: any) {
+      const msg: string = err.message ?? "Failed to cancel";
+      if (msg.toLowerCase().includes("admin")) {
+        toast({ title: "Permission denied", description: "Only team admins can manage billing.", variant: "destructive" });
+      } else {
+        toast({ title: "Error", description: msg, variant: "destructive" });
+      }
+    } finally {
+      setCanceling(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -328,6 +369,63 @@ export default function BillingPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cancellation scheduled alert */}
+      {billing.billing.cancelAtPeriodEnd && periodEnd && (
+        <Alert className="border-amber-200 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-900/10">
+          <Info className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <AlertDescription className="text-amber-800 dark:text-amber-300">
+            <strong>Cancellation scheduled</strong> — your {billing.plan.name} plan remains active until{" "}
+            <strong>{periodEnd}</strong>. After that, you'll be moved to the Free plan.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Cancel plan */}
+      {billing.billing.hasActivePlan && !billing.billing.cancelAtPeriodEnd && (
+        <div className="flex items-center justify-between p-4 rounded-lg border bg-card">
+          <div>
+            <p className="text-sm font-medium">Cancel Plan</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Your {billing.plan.name} plan will stay active until the end of your current billing period.
+            </p>
+          </div>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="text-destructive border-destructive/30 shrink-0"
+                data-testid="button-cancel-plan"
+              >
+                <XCircle className="w-4 h-4 mr-2" />
+                Cancel Plan
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel your {billing.plan.name} plan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Your plan will stay active until{" "}
+                  <strong>{periodEnd ?? "the end of your billing period"}</strong>. After that, you'll
+                  be moved to the Free plan and lose access to paid features. You can resubscribe at any time.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-dialog-dismiss">Keep Plan</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleCancelSubscription}
+                  disabled={canceling}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-confirm-cancel-plan"
+                >
+                  {canceling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Yes, Cancel Plan
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
 
       {/* Paywall notice */}
       {currentPlanId === "free" && totalRemaining === 0 && (

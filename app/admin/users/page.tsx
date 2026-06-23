@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, X, Shield, User, Mail, Calendar, UserPlus, Send, Trash2, Copy, LogOut, MoreVertical, Key, ShieldAlert, ShieldCheck, ShieldOff, Home } from "lucide-react";
+import { Loader2, Check, X, Shield, User, Mail, Calendar, UserPlus, Send, Trash2, Copy, LogOut, MoreVertical, Key, ShieldAlert, ShieldCheck, ShieldOff, Home, Eye } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -98,6 +98,8 @@ export default function AdminUsersPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectUser, setRejectUser] = useState<UserData | null>(null);
   const [rejectSendEmail, setRejectSendEmail] = useState(true);
+  const [cancelSubUser, setCancelSubUser] = useState<UserData | null>(null);
+  const [cancelSubDialogOpen, setCancelSubDialogOpen] = useState(false);
 
   const { data: users, isLoading } = useQuery<UserData[]>({
     queryKey: ["/api/admin/users"],
@@ -174,6 +176,31 @@ export default function AdminUsersPage() {
         variant: "destructive",
         title: "Suspension failed",
         description: error.message || "Failed to suspend user",
+      });
+    },
+  });
+
+  const cancelSubscriptionMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      return apiRequest(`/api/admin/users/${userId}/cancel-subscription`, {
+        method: "POST",
+        body: JSON.stringify({ immediate: false }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "Subscription cancelled",
+        description: `Cancellation scheduled${data?.currentPeriodEnd ? ` — active until ${new Date(data.currentPeriodEnd).toLocaleDateString()}` : " at period end"}.`,
+      });
+      setCancelSubDialogOpen(false);
+      setCancelSubUser(null);
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Cancellation failed",
+        description: error.message || "Failed to cancel subscription",
       });
     },
   });
@@ -749,6 +776,15 @@ export default function AdminUsersPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     {u.id !== user?.id ? (
+                      <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => router.push(`/admin/users/${u.id}`)}
+                        data-testid={`button-view-user-${u.id}`}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" data-testid={`button-actions-${u.id}`}>
@@ -807,6 +843,17 @@ export default function AdminUsersPage() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => {
+                              setCancelSubUser(u);
+                              setCancelSubDialogOpen(true);
+                            }}
+                            data-testid={`action-cancel-sub-${u.id}`}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Cancel Subscription
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => {
                               setSelectedUser(u);
                               setDeleteDialogOpen(true);
                             }}
@@ -818,6 +865,7 @@ export default function AdminUsersPage() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     ) : (
                       <span className="text-sm text-muted-foreground">Current User</span>
                     )}
@@ -1025,6 +1073,39 @@ export default function AdminUsersPage() {
                 </>
               ) : (
                 "Confirm"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel Subscription Dialog */}
+      <AlertDialog open={cancelSubDialogOpen} onOpenChange={setCancelSubDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Subscription for {cancelSubUser?.email}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will schedule the cancellation at the end of the current billing period. The user
+              keeps access until then. You can view the exact date on their detail page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => { setCancelSubUser(null); }}
+              data-testid="button-cancel-sub-dismiss"
+            >
+              Keep Subscription
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (cancelSubUser) cancelSubscriptionMutation.mutate(cancelSubUser.id); }}
+              disabled={cancelSubscriptionMutation.isPending}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-cancel-sub"
+            >
+              {cancelSubscriptionMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Cancelling...</>
+              ) : (
+                "Yes, Cancel Subscription"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

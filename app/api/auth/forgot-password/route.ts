@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
+import { deliverEmail } from "@/lib/email";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
@@ -76,7 +77,22 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    console.log(`🔐 Password reset code for ${user.email}: ${code}`);
+    if (process.env.NODE_ENV === "development") {
+      console.log(`🔐 Password reset code for ${user.email}: ${code}`);
+    }
+
+    await deliverEmail({
+      to: user.email,
+      subject: "Your Citefi password reset code",
+      text: `Your password reset code is: ${code}\n\nThis code expires in 15 minutes.\n\nIf you didn't request a password reset, you can safely ignore this email.`,
+      html: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+<h2 style="margin-bottom:8px">Password Reset</h2>
+<p style="color:#666">Enter this code on the password reset page:</p>
+<div style="font-size:2em;font-weight:bold;letter-spacing:0.4em;padding:16px;background:#f5f5f5;border-radius:6px;text-align:center;margin:16px 0">${code}</div>
+<p style="color:#666;font-size:0.9em">This code expires in <strong>15 minutes</strong>.</p>
+<p style="color:#999;font-size:0.8em">If you didn't request a password reset, you can safely ignore this email.</p>
+</div>`,
+    });
 
     return NextResponse.json({
       message: "If this email is registered, you will receive a reset code.",

@@ -100,6 +100,7 @@ export const PUBLIC_ROUTES = [
   "/signup",
   "/register",
   "/forgot-password",
+  "/reset-password",
   "/verify-2fa",
   "/accept-invite",
   "/embed",

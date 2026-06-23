@@ -117,48 +117,54 @@ export default function AdminDashboard() {
 
         {/* Summary Cards */}
         <div className="grid gap-6 md:grid-cols-5">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Batches</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{data.summary.totalBatches}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {data.batchStatus.RUNNING || 0} running now
-              </p>
-            </CardContent>
-          </Card>
+          <Link href="/admin/analytics" data-testid="card-total-batches">
+            <Card className="hover-elevate cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Batches</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{data.summary.totalBatches}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {data.batchStatus.RUNNING || 0} running now
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Articles</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{data.summary.totalArticles}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {data.articleStatus.COMPLETE || 0} completed
-              </p>
-            </CardContent>
-          </Card>
+          <Link href="/admin/analytics" data-testid="card-total-articles">
+            <Card className="hover-elevate cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Articles</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{data.summary.totalArticles}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {data.articleStatus.COMPLETE || 0} completed
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Users</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{data.summary.totalUsers}</div>
-              <p className="text-xs text-muted-foreground mt-1">Active accounts</p>
-            </CardContent>
-          </Card>
+          <Link href="/admin/users" data-testid="card-total-users">
+            <Card className="hover-elevate cursor-pointer h-full">
+              <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Users</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{data.summary.totalUsers}</div>
+                <p className="text-xs text-muted-foreground mt-1">Active accounts</p>
+              </CardContent>
+            </Card>
+          </Link>
 
-          <Link href="/admin/users" data-testid="card-pending-approvals">
+          <Link href="/admin/users?status=pending" data-testid="card-pending-approvals">
             <Card className="hover-elevate cursor-pointer h-full">
               <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
+                <Users className={`h-4 w-4 ${data.summary.pendingApprovals > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
               </CardHeader>
               <CardContent>
                 <div className={`text-2xl font-bold ${data.summary.pendingApprovals > 0 ? "text-amber-500" : ""}`}>
@@ -171,18 +177,20 @@ export default function AdminDashboard() {
             </Card>
           </Link>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Unresolved Errors</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">
-                {data.summary.unresolvedErrors}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Last 24 hours</p>
-            </CardContent>
-          </Card>
+          <Link href="/admin/error-logs" data-testid="card-unresolved-errors">
+            <Card className={`hover-elevate cursor-pointer h-full ${data.summary.unresolvedErrors > 0 ? "border-destructive/40" : ""}`}>
+              <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Unresolved Errors</CardTitle>
+                <AlertTriangle className={`h-4 w-4 ${data.summary.unresolvedErrors > 0 ? "text-destructive" : "text-muted-foreground"}`} />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${data.summary.unresolvedErrors > 0 ? "text-destructive" : ""}`}>
+                  {data.summary.unresolvedErrors}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Last 24 hours</p>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Active Articles */}
