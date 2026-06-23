@@ -69,21 +69,22 @@ export default function MarketingPage() {
           </Link>
 
           {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1" aria-label="Main navigation">
             {[
               { label: "Features", id: "features" },
               { label: "Use Cases", id: "use-cases" },
               { label: "How It Works", id: "pipeline" },
               { label: "Pricing", id: "pricing" },
             ].map((item) => (
-              <button
+              <a
                 key={item.id}
-                onClick={() => scrollTo(item.id)}
+                href={`#${item.id}`}
+                onClick={(e) => { e.preventDefault(); scrollTo(item.id); }}
                 className="px-4 py-2 text-sm text-muted-foreground rounded-md transition-colors hover:text-foreground hover-elevate"
                 data-testid={`nav-link-${item.id}`}
               >
                 {item.label}
-              </button>
+              </a>
             ))}
           </nav>
 
@@ -123,14 +124,15 @@ export default function MarketingPage() {
               { label: "How It Works", id: "pipeline" },
               { label: "Pricing", id: "pricing" },
             ].map((item) => (
-              <button
+              <a
                 key={item.id}
-                onClick={() => scrollTo(item.id)}
+                href={`#${item.id}`}
+                onClick={(e) => { e.preventDefault(); scrollTo(item.id); }}
                 className="block w-full text-left px-3 py-2.5 text-sm rounded-md text-foreground hover-elevate"
                 data-testid={`mobile-nav-link-${item.id}`}
               >
                 {item.label}
-              </button>
+              </a>
             ))}
             <div className="flex gap-2 pt-2">
               <Link href="/login" className="flex-1">
@@ -851,14 +853,15 @@ export default function MarketingPage() {
                   { label: "How It Works", id: "pipeline" },
                   { label: "Pricing", id: "pricing" },
                 ].map((item) => (
-                  <button
+                  <a
                     key={item.id}
-                    onClick={() => scrollTo(item.id)}
+                    href={`#${item.id}`}
+                    onClick={(e) => { e.preventDefault(); scrollTo(item.id); }}
                     className="block text-xs text-muted-foreground hover:text-foreground transition-colors"
                     data-testid={`footer-link-${item.id}`}
                   >
                     {item.label}
-                  </button>
+                  </a>
                 ))}
               </div>
 
@@ -894,6 +897,84 @@ export default function MarketingPage() {
           </div>
         </div>
       </footer>
+
+      {/* ── JSON-LD STRUCTURED DATA ────────────────────────────────────── */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify([
+            {
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Citefi",
+              url: "https://citefi.co",
+              logo: "https://citefi.co/icon.png",
+              contactPoint: {
+                "@type": "ContactPoint",
+                email: "info@citefi.co",
+                contactType: "customer support",
+              },
+              address: {
+                "@type": "PostalAddress",
+                streetAddress: "3 Cabot Pl",
+                addressLocality: "Stoughton",
+                addressRegion: "MA",
+                postalCode: "02072",
+                addressCountry: "US",
+              },
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              name: "Citefi",
+              url: "https://citefi.co",
+              applicationCategory: "BusinessApplication",
+              operatingSystem: "Web",
+              description:
+                "AI-powered local SEO content engine that generates ZIP-code-level articles, social posts, videos, and podcasts through a 4-stage dual-AI pipeline with E-E-A-T signals and anti-hallucination validation.",
+              offers: [
+                {
+                  "@type": "Offer",
+                  name: "Starter",
+                  price: "99",
+                  priceCurrency: "USD",
+                  priceSpecification: {
+                    "@type": "UnitPriceSpecification",
+                    price: "99",
+                    priceCurrency: "USD",
+                    unitText: "MONTH",
+                  },
+                },
+                {
+                  "@type": "Offer",
+                  name: "Growth",
+                  price: "299",
+                  priceCurrency: "USD",
+                  priceSpecification: {
+                    "@type": "UnitPriceSpecification",
+                    price: "299",
+                    priceCurrency: "USD",
+                    unitText: "MONTH",
+                  },
+                },
+              ],
+              aggregateRating: {
+                "@type": "AggregateRating",
+                ratingValue: "5",
+                reviewCount: "6",
+                bestRating: "5",
+                worstRating: "1",
+              },
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Citefi",
+              url: "https://citefi.co",
+            },
+          ]),
+        }}
+      />
 
     </div>
   );
