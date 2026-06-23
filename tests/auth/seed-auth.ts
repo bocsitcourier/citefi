@@ -108,6 +108,26 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
   };
 }
 
+/**
+ * Clean up users created directly by signup flow tests (no team rows to delete).
+ * Accepts an array of user IDs collected during the test run.
+ */
+export async function cleanupSignupUsers(userIds: number[]): Promise<void> {
+  if (userIds.length === 0) return;
+  try {
+    await db.delete(sessions).where(inArray(sessions.userId, userIds));
+    await db
+      .delete(emailVerificationCodes)
+      .where(inArray(emailVerificationCodes.userId, userIds));
+    await db
+      .delete(activityLogs)
+      .where(inArray(activityLogs.userId, userIds as number[]));
+    await db.delete(users).where(inArray(users.id, userIds));
+  } catch (e) {
+    console.warn("[seed-auth] cleanupSignupUsers warning:", e);
+  }
+}
+
 export async function cleanupAuthUsers(seed: SeedResult): Promise<void> {
   const userIds = [
     seed.activeUser.id,
