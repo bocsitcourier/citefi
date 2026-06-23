@@ -15,13 +15,13 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
     if (countOnly) {
-      const count = await getUnreadCount(auth.teamId);
+      const count = await getUnreadCount(auth.teamId, auth.userId);
       return NextResponse.json({ count });
     }
 
     const notifications = unreadOnly
-      ? await getUnreadNotifications(auth.teamId, limit)
-      : await getAllNotifications(auth.teamId, limit);
+      ? await getUnreadNotifications(auth.teamId, limit, auth.userId)
+      : await getAllNotifications(auth.teamId, limit, auth.userId);
 
     return NextResponse.json({ notifications });
   } catch (error: any) {
@@ -44,12 +44,12 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === "mark_all_read") {
-      await markAllAsRead(auth.teamId);
+      await markAllAsRead(auth.teamId, auth.userId);
       return NextResponse.json({ success: true });
     }
 
     if (action === "dismiss_all") {
-      await dismissAllNotifications(auth.teamId);
+      await dismissAllNotifications(auth.teamId, auth.userId);
       return NextResponse.json({ success: true });
     }
 

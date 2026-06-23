@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
-import { notifications, type InsertNotification } from "@/shared/schema";
-import { eq, and, desc, sql, gte } from "drizzle-orm";
+import { notifications, users, type InsertNotification } from "@/shared/schema";
+import { eq, and, or, isNull, desc, sql, gte } from "drizzle-orm";
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';
 export type NotificationCategory = 'video' | 'article' | 'social_post' | 'batch' | 'system';
@@ -46,11 +46,24 @@ function notificationAgeFilter() {
   return gte(notifications.createdAt, cutoff);
 }
 
-export async function getUnreadNotifications(teamId: number, limit: number = 20) {
+/**
+ * Build the visibility predicate for notification queries.
+ * Matches team-scoped notifications OR user-targeted notifications
+ * (userId = $userId AND teamId IS NULL) so admin-specific alerts are
+ * only surfaced to the intended recipient and not to other team members.
+ */
+function visibilityFilter(teamId: number, userId?: number) {
+  const teamClause = eq(notifications.teamId, teamId);
+  if (!userId) return teamClause;
+  const userClause = and(eq(notifications.userId, userId), isNull(notifications.teamId));
+  return or(teamClause, userClause)!;
+}
+
+export async function getUnreadNotifications(teamId: number, limit: number = 20, userId?: number) {
   return db.select()
     .from(notifications)
     .where(and(
-      eq(notifications.teamId, teamId),
+      visibilityFilter(teamId, userId),
       eq(notifications.read, 0),
       eq(notifications.dismissed, 0),
       notificationAgeFilter()
@@ -59,11 +72,11 @@ export async function getUnreadNotifications(teamId: number, limit: number = 20)
     .limit(limit);
 }
 
-export async function getAllNotifications(teamId: number, limit: number = 50) {
+export async function getAllNotifications(teamId: number, limit: number = 50, userId?: number) {
   return db.select()
     .from(notifications)
     .where(and(
-      eq(notifications.teamId, teamId),
+      visibilityFilter(teamId, userId),
       eq(notifications.dismissed, 0),
       notificationAgeFilter()
     ))
@@ -71,46 +84,46 @@ export async function getAllNotifications(teamId: number, limit: number = 50) {
     .limit(limit);
 }
 
-export async function markNotificationAsRead(notificationId: number, teamId: number) {
+export async function markNotificationAsRead(notificationId: number, teamId: number, userId?: number) {
   const result = await db.update(notifications)
     .set({ read: 1, readAt: new Date() })
     .where(and(
       eq(notifications.id, notificationId),
-      eq(notifications.teamId, teamId)
+      visibilityFilter(teamId, userId)
     ));
   return result;
 }
 
-export async function markAllAsRead(teamId: number) {
+export async function markAllAsRead(teamId: number, userId?: number) {
   await db.update(notifications)
     .set({ read: 1, readAt: new Date() })
     .where(and(
-      eq(notifications.teamId, teamId),
+      visibilityFilter(teamId, userId),
       eq(notifications.read, 0)
     ));
 }
 
-export async function dismissNotification(notificationId: number, teamId: number) {
+export async function dismissNotification(notificationId: number, teamId: number, userId?: number) {
   const result = await db.update(notifications)
     .set({ dismissed: 1 })
     .where(and(
       eq(notifications.id, notificationId),
-      eq(notifications.teamId, teamId)
+      visibilityFilter(teamId, userId)
     ));
   return result;
 }
 
-export async function dismissAllNotifications(teamId: number) {
+export async function dismissAllNotifications(teamId: number, userId?: number) {
   await db.update(notifications)
     .set({ dismissed: 1 })
-    .where(eq(notifications.teamId, teamId));
+    .where(visibilityFilter(teamId, userId));
 }
 
-export async function getUnreadCount(teamId: number): Promise<number> {
+export async function getUnreadCount(teamId: number, userId?: number): Promise<number> {
   const result = await db.select({ count: sql<number>`count(*)` })
     .from(notifications)
     .where(and(
-      eq(notifications.teamId, teamId),
+      visibilityFilter(teamId, userId),
       eq(notifications.read, 0),
       eq(notifications.dismissed, 0),
       notificationAgeFilter()
@@ -201,4 +214,45 @@ export async function notifySocialPostComplete(teamId: number, postId: number, p
     entityType: 'social_post',
     actionUrl: `/social/dashboard`,
   });
+}
+
+/**
+ * Creates a private in-app notification for every active admin user when a new
+ * user registers and is waiting for approval.
+ *
+ * Notifications are stored with userId only (teamId = NULL) so they are
+ * strictly private to each admin — regular team members never see them,
+ * regardless of which team the admin belongs to.  The visibilityFilter in all
+ * query helpers surfaces userId-scoped notifications alongside team-scoped
+ * ones, so the existing NotificationBell will display these to admins.
+ */
+export async function notifyAdminsNewSignup(newUserId: number, newUserEmail: string, newUserName: string | null): Promise<void> {
+  try {
+    const adminUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));
+
+    if (adminUsers.length === 0) return;
+
+    await Promise.all(
+      adminUsers.map((admin) =>
+        createNotification({
+          userId: admin.id,
+          // teamId intentionally omitted — this is a private per-user notification
+          type: 'warning',
+          category: 'system',
+          title: 'New User Awaiting Approval',
+          message: `${newUserName || newUserEmail} has signed up and is pending review.`,
+          entityId: newUserId,
+          entityType: 'user',
+          actionUrl: '/admin/users',
+        }).catch((err) =>
+          console.error(`Failed to notify admin ${admin.id} of new signup:`, err)
+        )
+      )
+    );
+  } catch (err) {
+    console.error("notifyAdminsNewSignup failed:", err);
+  }
 }

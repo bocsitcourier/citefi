@@ -22,12 +22,12 @@ export async function PATCH(
     const { action } = body;
 
     if (action === "read") {
-      await markNotificationAsRead(notificationId, auth.teamId);
+      await markNotificationAsRead(notificationId, auth.teamId, auth.userId);
       return NextResponse.json({ success: true });
     }
 
     if (action === "dismiss") {
-      await dismissNotification(notificationId, auth.teamId);
+      await dismissNotification(notificationId, auth.teamId, auth.userId);
       return NextResponse.json({ success: true });
     }
 

@@ -20,8 +20,10 @@ import {
   ThumbsUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 
 const adminNavItems = [
   {
@@ -40,7 +42,8 @@ const adminNavItems = [
     title: "User Management",
     href: "/admin/users",
     icon: Users,
-    description: "Invites, Roles, Force Logout"
+    description: "Invites, Roles, Force Logout",
+    badgeKey: "pendingApprovals",
   },
   {
     title: "Active Sessions",
@@ -121,6 +124,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const { toast } = useToast();
 
+  const getToken = () => {
+    try { return sessionStorage.getItem("auth_token"); } catch { return null; }
+  };
+
+  const { data: pendingData } = useQuery<{ count: number }>({
+    queryKey: ["/api/admin/pending-count"],
+    queryFn: async () => {
+      const token = getToken();
+      const res = await fetch("/api/admin/pending-count", {
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return { count: 0 };
+      return res.json();
+    },
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    staleTime: 20000,
+  });
+
+  const pendingCount = pendingData?.count ?? 0;
+
   const handleLogout = async () => {
     try {
       const res = await fetch("/api/auth/logout", { method: "POST" });
@@ -155,6 +180,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {adminNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || (item.href !== "/admin" && pathname?.startsWith(item.href));
+            const showBadge = item.badgeKey === "pendingApprovals" && pendingCount > 0;
             
             return (
               <Link key={item.href} href={item.href}>
@@ -167,8 +193,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 >
                   <Icon className={cn("w-5 h-5 mt-0.5 flex-shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                   <div className="flex-1 min-w-0">
-                    <div className={cn("font-medium text-sm", isActive && "text-primary")}>
+                    <div className={cn("font-medium text-sm flex items-center gap-2", isActive && "text-primary")}>
                       {item.title}
+                      {showBadge && (
+                        <Badge
+                          variant="destructive"
+                          className="text-xs px-1.5 py-0 h-5 min-w-5"
+                          data-testid="badge-pending-approvals"
+                        >
+                          {pendingCount > 99 ? "99+" : pendingCount}
+                        </Badge>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {item.description}

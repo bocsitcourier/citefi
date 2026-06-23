@@ -6,6 +6,7 @@ import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { and, eq } from "drizzle-orm";
 import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/email";
 import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
+import { notifyAdminsNewSignup } from "@/lib/notification-service";
 
 export async function POST(req: Request) {
   try {
@@ -127,7 +128,12 @@ export async function POST(req: Request) {
         console.error("Failed to send welcome email to new user:", emailErr);
       }
 
-      // Notify all ACTIVE admin accounts about the new signup
+      // Create in-app notifications for all active admins (fire-and-forget)
+      notifyAdminsNewSignup(newUser.id, newUser.email, newUser.fullName).catch((err) =>
+        console.error("Failed to send in-app admin notifications:", err)
+      );
+
+      // Notify all ACTIVE admin accounts about the new signup via email
       try {
         const adminUsers = await db
           .select({ email: users.email })
