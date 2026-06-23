@@ -9,9 +9,19 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays } from "lucide-react";
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Link from "next/link";
 
 type TotpStep = "idle" | "setup" | "verify" | "backup";
@@ -72,6 +82,8 @@ export default function AccountSettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const [totpStep, setTotpStep] = useState<TotpStep>("idle");
   const [totpSetupData, setTotpSetupData] = useState<TotpSetupData | null>(null);
@@ -154,6 +166,20 @@ export default function AccountSettingsPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("/api/account/delete", { method: "POST" });
+    },
+    onSuccess: () => {
+      sessionStorage.removeItem("auth_token");
+      toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
+      window.location.href = "/login";
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not delete account", description: err.message, variant: "destructive" });
     },
   });
 
@@ -418,6 +444,68 @@ export default function AccountSettingsPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Danger Zone */}
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <TriangleAlert className="h-4 w-4" />
+            Danger Zone
+          </CardTitle>
+          <CardDescription>
+            Permanently delete your account and all associated data. This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Delete account</p>
+              <p className="text-xs text-muted-foreground">
+                Cancels any active subscription, removes all your data, and signs you out permanently.
+                Accounts that own content (batches, posts, teams) must delete that content first.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeleteDialogOpen(true)}
+              data-testid="button-delete-account"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Account
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will immediately cancel any active subscription, delete all your data, and sign you
+              out. <strong>This action cannot be undone.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-account">
+              Keep Account
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteAccountMutation.mutate()}
+              disabled={deleteAccountMutation.isPending}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-delete-account"
+            >
+              {deleteAccountMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deleting...</>
+              ) : (
+                "Yes, Delete My Account"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

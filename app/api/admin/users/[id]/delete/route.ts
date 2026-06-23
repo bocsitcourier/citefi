@@ -13,10 +13,12 @@ import {
   userInvites,
   jobBatches,
   socialPosts,
-  teams
+  teams,
+  teamMembers,
 } from "@/shared/schema";
-import { eq, and, count, or } from "drizzle-orm";
+import { eq, and, count } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
+import { getStripeClient } from "@/lib/stripe";
 
 export async function DELETE(
   req: NextRequest,
@@ -95,6 +97,27 @@ export async function DELETE(
         { status: 400 }
       );
     }
+
+    // Cancel Stripe subscription if user has one (best-effort — never block deletion)
+    try {
+      const [teamMembership] = await db
+        .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+        .where(eq(teamMembers.userId, userId))
+        .limit(1);
+
+      if (teamMembership?.stripeSubscriptionId) {
+        const stripe = await getStripeClient();
+        await stripe.subscriptions.cancel(teamMembership.stripeSubscriptionId).catch((err: any) => {
+          console.error(`[delete-user] Stripe cancel failed for sub ${teamMembership.stripeSubscriptionId}:`, err.message);
+        });
+        await db
+          .update(teams)
+          .set({ billingStatus: "canceled", cancelAtPeriodEnd: false })
+          .where(eq(teams.id, teamMembership.teamId));
+      }
+    } catch (_stripeErr) {}
 
     // Delete all related records before deleting the user
     // This prevents foreign key constraint violations

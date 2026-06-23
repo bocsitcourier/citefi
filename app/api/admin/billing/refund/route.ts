@@ -4,6 +4,7 @@ import { users, teamMembers, teams, adminActionLogs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
 import { getStripeClient } from "@/lib/stripe";
+import { deliverEmail } from "@/lib/email";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
           : "requested_by_customer") as any,
         metadata: { adminUserId: String(adminUserId), reason: reason ?? "" },
       },
-      { idempotencyKey: `refund-${chargeId}-${adminUserId}-${Date.now()}` }
+      { idempotencyKey: `refund-${chargeId}-${adminUserId}` }
     );
 
     await db.insert(adminActionLogs).values({
@@ -136,6 +137,16 @@ export async function POST(req: NextRequest) {
         targetUserEmail: membership.userEmail,
       }),
     });
+
+    const fmtCurrency = (cents: number, currency = "usd") =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+
+    deliverEmail({
+      to: membership.userEmail,
+      subject: "Citefi refund issued",
+      text: `A refund of ${fmtCurrency(refund.amount ?? amount, refund.currency)} has been issued to your account. It typically appears on your statement within 5-10 business days.${reason ? `\n\nReason: ${reason}` : ""}\n\nRefund ID: ${refund.id}`,
+      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Refund Issued</h2><p>A refund of <strong>${fmtCurrency(refund.amount ?? amount, refund.currency)}</strong> has been issued to your account.</p><p style="color:#666">It typically appears on your statement within 5-10 business days.</p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p style="color:#999;font-size:0.85em">Refund ID: ${refund.id}</p></div>`,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

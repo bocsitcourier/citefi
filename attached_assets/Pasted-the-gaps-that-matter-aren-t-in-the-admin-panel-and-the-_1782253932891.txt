@@ -1,0 +1,36 @@
+the gaps that matter aren't in the admin panel — and the admin panel is arguably the one area you've over-built for a product with zero customers. The real gaps are in the layer your pricing page is literally selling, plus a couple of security/compliance items and the two features that are supposed to be your competitive differentiators. Let me group by what blocks launch vs. what's parity vs. what's gold-plating.
+🔴 Launch-blockers — the agency multi-tenancy layer (this is what you're selling and it's barely in this spec):
+Your pricing page promises "Up to 10 client workspaces," "Unlimited client workspaces," and "white-label publishing." But this spec is almost entirely about users and teams — not the things an agency actually does. Verify these exist somewhere in the codebase; if they don't, they're P0, because an agency can't use the product without them:
+
+Team invitations + role management. Is there an invite-teammate-by-email → accept → assign-role flow? Agencies add staff on day one. team_member/team_admin roles exist, but I see no invite flow. This is table stakes for every competitor and it's the first thing an agency tries.
+Client workspace CRUD + switching + isolation. The whole agency model is "manage 10 clients in one place." Creating a client workspace, switching between them, per-client content/usage/reporting isolation — that's the heart of the product, and it's not in this auth spec. If it's not built elsewhere, nothing else matters.
+A connected-accounts / integrations settings page. Your §6.4 publishing layer holds clients' WordPress/social/ESP credentials. Users need a UI to connect, see status, re-auth on token expiry, and revoke. This is both a core feature and your highest-risk security surface — and it's absent here.
+Role granularity for the agency use case. You have admin/team_member. Agencies usually need a client-viewer / approver role so the agency's end client can log in to review and approve content read-only. That's a genuine differentiator for the agency channel, and the current role model is too thin for it.
+
+🟠 Security gaps (you pasted me a security-first framework two turns ago — apply it here):
+
+Login brute-force protection / account lockout. You rate-limited the reset endpoints (good) but I see nothing rate-limiting login. Without lockout-after-N-failures or login rate-limiting, you've got a credential-stuffing hole. This is the most important security gap.
+Reset-flow coherence. forgot-password sends a 6-digit code, but reset-password-token and the admin reset use a token link. You've got two different reset mechanisms — make sure the user-facing UX is coherent (pick code or link for self-serve; don't ship both half-wired).
+SSO/SAML is parity, not a blocker — but your Agency "Custom" tier promises "enterprise support," and SSO is what enterprise agencies mean by that. Flag it for when you sell that tier, not before.
+
+🟠 The two competitive differentiators that aren't in this spec at all:
+This is the strategically important part. The spec shows creditBalances, "credits remaining," and admin "Grant Credits" — but none of the transparency features we designed as your actual moat against AirOps and Replit are here: no usage/spend dashboard, no hard spending caps, no usage alerts, no pre-job cost estimates. That transparency is the wedge ("no surprise bills, no cliff"). If the billing UX is just a credit number and a Stripe portal link, you've built the same opaque experience the incumbents get criticized for. Likewise, there's no onboarding flow here — and "goal-not-pipeline" simplicity (beating AirOps' learning curve) was supposed to be your UX differentiator. Both live adjacent to this auth/dashboard work and both are missing.
+🟡 Compliance (your own privacy policy promises these):
+
+Self-service data export + account deletion. Your privacy policy (the one I just drafted) commits to data export and deletion rights. Admin can delete a user, but there's no user self-service export/delete. Add it before launch — it's a stated commitment.
+Delete-account must cascade. When admin (or a user) deletes an account, does it cancel the Stripe subscription, revoke stored connected-account credentials, and handle the data cascade? The spec's delete doesn't mention this. A delete that leaves a live Stripe sub or live CMS tokens is a real problem.
+
+Two technical nits on the spec itself:
+
+The refund idempotency key uses Date.now() (`refund-chargeId−{chargeId}-
+chargeId−{Date.now()}`). That defeats the purpose — on a retry it generates a new key, so it won't prevent a double-refund. Use a deterministic key tied to the intended operation, not the timestamp.
+No email on cancel/refund. You email on password reset (good) but not when a subscription is cancelled or a refund is issued. Those are exactly the moments a user wants confirmation.
+
+And the counterweight, because it matters as much as the gaps: the admin panel in this spec (user detail with four tabs, suspend/role/force-logout/delete/refund/cancel-on-behalf) is more than you need before customer #1, and a few items in it — admin impersonation, a global audit-log viewer, bulk actions — are things I'd normally suggest but would explicitly tell you not to build yet. You have no users to administer. Building a rich admin console before you have a single customer is the polished version of the same avoidance pattern — it feels like progress and it's safe. Get the admin panel to "good enough to support 5 design-partner agencies" and stop.
+So the honest prioritization:
+
+Build the agency layer (team invites, client workspaces, integrations UI) — this is what you're selling and the spec doesn't cover it.
+Plug the login/lockout security hole and make the reset flow coherent.
+Add the transparent-billing UX (caps/alerts/usage) — it's your differentiator, not a nice-to-have.
+Add self-service export/delete + delete-cascade — your policy requires it.
+Ship the auth/admin spec as-is for the rest (it's good), and resist extending the admin panel further.

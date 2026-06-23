@@ -4,6 +4,7 @@ import { users, teamMembers, teams, adminActionLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
 import { getStripeClient } from "@/lib/stripe";
+import { deliverEmail } from "@/lib/email";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -78,6 +79,21 @@ export async function POST(
         periodEnd: membership.currentPeriodEnd,
       }),
     });
+
+    const periodEnd = membership.currentPeriodEnd
+      ? new Date(membership.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+      : null;
+
+    deliverEmail({
+      to: membership.userEmail,
+      subject: immediate ? "Your Citefi subscription has been cancelled" : "Your Citefi subscription is scheduled for cancellation",
+      text: immediate
+        ? `Your Citefi subscription has been cancelled effective immediately. If you believe this was done in error, please contact support.`
+        : `Your Citefi subscription has been scheduled for cancellation${periodEnd ? ` and will remain active until ${periodEnd}` : " at the end of your current billing period"}. After that date, you will lose access to paid features.\n\nIf you did not request this, please contact support immediately.`,
+      html: immediate
+        ? `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Subscription Cancelled</h2><p>Your Citefi subscription has been <strong>cancelled effective immediately</strong>.</p><p style="color:#666">If you believe this was done in error, please contact support.</p></div>`
+        : `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Subscription Cancellation Scheduled</h2><p>Your Citefi subscription has been scheduled for cancellation${periodEnd ? ` and will remain active until <strong>${periodEnd}</strong>` : " at the end of your current billing period"}.</p><p style="color:#666">After that date, you will lose access to paid features. If you did not request this, please contact support immediately.</p></div>`,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
