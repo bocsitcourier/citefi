@@ -182,6 +182,18 @@ export async function sendAccountRejectedEmail(opts: {
 }
 
 /**
+ * Mutable service object — lets tests replace individual methods via mock.method()
+ * without needing ESM module-level mocking (unavailable in Node 20).
+ * Route handlers call via emailService.sendAccount*Email(...) so the lookup
+ * happens at call-time, making any property replacement on this object visible.
+ */
+export const emailService = {
+  sendPendingApprovalEmail,
+  sendAccountApprovedEmail,
+  sendAccountRejectedEmail,
+};
+
+/**
  * Send a verification code email (login 2FA, email verification, password reset).
  */
 export async function sendEmailVerificationCode(opts: {

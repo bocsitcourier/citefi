@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
-import { sendAccountRejectedEmail } from "@/lib/email";
+import { emailService } from "@/lib/email";
 
 export async function POST(
   req: NextRequest,
@@ -82,7 +82,7 @@ export async function POST(
     });
 
     if (sendEmail) {
-      sendAccountRejectedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
+      emailService.sendAccountRejectedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
         console.error("Failed to send rejection email:", err);
       });
     }

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
-import { sendAccountApprovedEmail } from "@/lib/email";
+import { emailService } from "@/lib/email";
 
 export async function POST(
   req: NextRequest,
@@ -73,7 +73,7 @@ export async function POST(
     });
 
     // Send approval email (best-effort — don't fail the request if email fails)
-    sendAccountApprovedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
+    emailService.sendAccountApprovedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
       console.error("Failed to send approval email:", err);
     });
 
