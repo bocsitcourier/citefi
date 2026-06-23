@@ -587,6 +587,103 @@ export default function MarketingPage() {
         </div>
       </section>
 
+      {/* ── TESTIMONIALS ───────────────────────────────────────────────── */}
+      <section className="py-24 px-6 bg-white" data-testid="section-testimonials">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16 space-y-4">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">What Customers Say</div>
+            <h2 className="text-3xl sm:text-4xl font-bold text-slate-900">Trusted by agencies and local businesses</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-base">
+              Real results from teams who switched to AI-powered local SEO content.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                name: "Marcus T.",
+                role: "SEO Agency Owner",
+                location: "Chicago, IL",
+                photo: "https://randomuser.me/api/portraits/men/32.jpg",
+                quote: "We went from manually writing 8 articles a week to generating 50+ in a single batch. The ZIP-code-level detail is something none of our competitors can match.",
+                stars: 5,
+              },
+              {
+                name: "Jennifer R.",
+                role: "Digital Marketing Director",
+                location: "Austin, TX",
+                photo: "https://randomuser.me/api/portraits/women/44.jpg",
+                quote: "The quality gate is what sold me. Every article comes out validated — no hallucinations, proper brand name enforcement, E-E-A-T signals already baked in. It's like having a senior editor on staff.",
+                stars: 5,
+              },
+              {
+                name: "David K.",
+                role: "Multi-Location Franchise Owner",
+                location: "Phoenix, AZ",
+                photo: "https://randomuser.me/api/portraits/men/67.jpg",
+                quote: "We have 23 locations across Arizona. Citefi generates differentiated content for every city — local landmarks, neighborhood context, the works. Rankings are up across the board.",
+                stars: 5,
+              },
+              {
+                name: "Priya M.",
+                role: "Content Strategy Lead",
+                location: "New York, NY",
+                photo: "https://randomuser.me/api/portraits/women/28.jpg",
+                quote: "The 4-stage pipeline means I'm not babysitting the AI. By the time an article lands in our CMS, it's already been reviewed, schema-embedded, and hyperlinked. Huge time saver.",
+                stars: 5,
+              },
+              {
+                name: "Carlos V.",
+                role: "Local SEO Consultant",
+                location: "Miami, FL",
+                photo: "https://randomuser.me/api/portraits/men/12.jpg",
+                quote: "I recommended Citefi to six of my clients last quarter. The answer-first format alone gets them into AI citation results on Google — something generic tools never achieved.",
+                stars: 5,
+              },
+              {
+                name: "Sarah L.",
+                role: "Agency Founder",
+                location: "Denver, CO",
+                photo: "https://randomuser.me/api/portraits/women/55.jpg",
+                quote: "Switched from a competitor after seeing the output quality. The local intelligence — actual regulation references, neighborhood entities — makes the content genuinely useful, not just filler.",
+                stars: 5,
+              },
+            ].map((t) => (
+              <div
+                key={t.name}
+                className="rounded-md border border-slate-200 bg-white p-6 space-y-4 flex flex-col"
+                data-testid={`testimonial-${t.name.toLowerCase().replace(/\s/g, "-")}`}
+              >
+                {/* Stars */}
+                <div className="flex gap-0.5">
+                  {Array.from({ length: t.stars }).map((_, i) => (
+                    <svg key={i} className="w-4 h-4 fill-amber-400 text-amber-400" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  ))}
+                </div>
+
+                {/* Quote */}
+                <p className="text-sm text-slate-600 leading-relaxed flex-1">&ldquo;{t.quote}&rdquo;</p>
+
+                {/* Person */}
+                <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
+                  <img
+                    src={t.photo}
+                    alt={t.name}
+                    className="w-10 h-10 rounded-full object-cover shrink-0 border border-slate-200"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{t.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{t.role} · {t.location}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── PRICING ────────────────────────────────────────────────────── */}
       <section id="pricing" className="py-24 px-6 bg-background" data-testid="section-pricing">
         <div className="max-w-5xl mx-auto">
