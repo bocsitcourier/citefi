@@ -40,6 +40,15 @@ export async function POST(
       );
     }
 
+    // Only pending_approval users may be approved — prevents re-activating
+    // suspended users or no-op re-approving already-active accounts.
+    if (user.accountStatus !== "pending_approval") {
+      return NextResponse.json(
+        { error: `User is not pending approval (current status: ${user.accountStatus})` },
+        { status: 409 }
+      );
+    }
+
     await db
       .update(users)
       .set({

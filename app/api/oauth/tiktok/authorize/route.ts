@@ -3,7 +3,7 @@ import { requireTeamMember } from '@/lib/api/auth';
 import { db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
-import { generateOAuthState } from '@/lib/publishing/channels/social/oauth-service';
+import { generateOAuthState, signOAuthState } from '@/lib/publishing/channels/social/oauth-service';
 
 const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
 const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] ? 'https://' + process.env.REPLIT_DOMAINS.split(',')[0] : 'http://localhost:5000'}/api/oauth/tiktok/callback`;
@@ -46,22 +46,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'TikTok connection not found' }, { status: 404 });
     }
 
-    const state = generateOAuthState();
-    const stateData = JSON.stringify({
-      connectionId: connection.id,
-      teamId,
-      nonce: state,
-    });
-    const encodedState = Buffer.from(stateData).toString('base64url');
-
-    const csrfState = encodedState;
+    const nonce = generateOAuthState();
+    // HMAC-sign the state so the callback can detect forgery/tampering.
+    const encodedState = signOAuthState({ connectionId: connection.id, teamId, nonce });
 
     const authUrl = new URL('https://www.tiktok.com/v2/auth/authorize/');
     authUrl.searchParams.set('client_key', TIKTOK_CLIENT_KEY);
     authUrl.searchParams.set('scope', TIKTOK_SCOPES);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('redirect_uri', TIKTOK_REDIRECT_URI);
-    authUrl.searchParams.set('state', csrfState);
+    authUrl.searchParams.set('state', encodedState);
 
     return NextResponse.json({
       success: true,

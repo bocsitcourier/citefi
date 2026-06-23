@@ -3,7 +3,7 @@ import { requireTeamMember } from '@/lib/api/auth';
 import { db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
-import { generateOAuthState } from '@/lib/publishing/channels/social/oauth-service';
+import { generateOAuthState, signOAuthState } from '@/lib/publishing/channels/social/oauth-service';
 
 const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const LINKEDIN_REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] ? 'https://' + process.env.REPLIT_DOMAINS.split(',')[0] : 'http://localhost:5000'}/api/oauth/linkedin/callback`;
@@ -46,13 +46,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'LinkedIn connection not found' }, { status: 404 });
     }
 
-    const state = generateOAuthState();
-    const stateData = JSON.stringify({
-      connectionId: connection.id,
-      teamId,
-      nonce: state,
-    });
-    const encodedState = Buffer.from(stateData).toString('base64url');
+    const nonce = generateOAuthState();
+    // HMAC-sign the state so the callback can detect forgery/tampering.
+    const encodedState = signOAuthState({ connectionId: connection.id, teamId, nonce });
 
     const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
     authUrl.searchParams.set('response_type', 'code');

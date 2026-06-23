@@ -80,6 +80,9 @@ export class TikTokChannelAdapter implements ChannelAdapter {
       type: content.type,
       payload: {},
       text: parts.join('\n'),
+      // Set mediaUrls so publish() can find the video URLs directly via
+      // TikTok's PULL_FROM_URL approach (no separate upload step needed).
+      mediaUrls: videoUrls,
       mediaToUpload: videoUrls.map((url, i) => ({
         id: `video_${i}`,
         sourceUrl: url,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
-import { storeOAuthCredentials } from '@/lib/publishing/channels/social/oauth-service';
+import { storeOAuthCredentials, verifyOAuthState } from '@/lib/publishing/channels/social/oauth-service';
 
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     let stateData: { connectionId: number; teamId: number; nonce: string };
     try {
-      stateData = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+      stateData = verifyOAuthState(state);
     } catch {
       return NextResponse.redirect(new URL('/settings/publishing?error=Invalid+state', request.url));
     }

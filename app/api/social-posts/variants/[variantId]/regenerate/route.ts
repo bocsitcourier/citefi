@@ -183,17 +183,28 @@ export async function POST(
     console.error("❌ Variant regeneration failed:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    const { variantId } = await params;
-    const variantIdNum = parseInt(variantId, 10);
-    
-    if (!isNaN(variantIdNum)) {
-      await db
-        .update(socialPostVariants)
-        .set({
-          status: "FAILED",
-          errorMessage: errorMessage.slice(0, 500),
-        })
-        .where(eq(socialPostVariants.id, variantIdNum));
+    // Guard: never mutate variant state for auth/authz failures.
+    // Unauthenticated callers must not be able to force arbitrary variants
+    // into FAILED state by hitting this endpoint with a raw variant ID.
+    const isAuthError =
+      error?.statusCode === 401 || error?.statusCode === 403 ||
+      errorMessage === "Authentication required" ||
+      errorMessage === "Unauthorized" ||
+      errorMessage === "Admin access required";
+
+    if (!isAuthError) {
+      const { variantId } = await params;
+      const variantIdNum = parseInt(variantId, 10);
+
+      if (!isNaN(variantIdNum)) {
+        await db
+          .update(socialPostVariants)
+          .set({
+            status: "FAILED",
+            errorMessage: errorMessage.slice(0, 500),
+          })
+          .where(eq(socialPostVariants.id, variantIdNum));
+      }
     }
 
     return NextResponse.json(

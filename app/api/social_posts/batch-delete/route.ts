@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ 
       success: true,
-      deletedCount: postIds.length
+      deletedCount: verifiedPostIds.length
     });
   } catch (error: any) {
     console.error("Error batch deleting social posts:", error);

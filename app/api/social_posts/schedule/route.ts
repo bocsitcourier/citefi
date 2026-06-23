@@ -18,6 +18,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { socialPostId, scheduleAt } = scheduleSchema.parse(body);
 
+    // Validate scheduleAt is in the future
+    const scheduleDate = new Date(scheduleAt);
+    if (scheduleDate <= new Date()) {
+      return NextResponse.json(
+        { error: "scheduleAt must be a future date/time" },
+        { status: 400 }
+      );
+    }
+
     // CRITICAL: Verify post exists AND belongs to user's team
     const [existingPost] = await db
       .select()
@@ -36,10 +45,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Guard: terminal/already-delivered posts cannot be rescheduled
+    const NON_SCHEDULABLE = ["POSTED", "DELETED"];
+    if (NON_SCHEDULABLE.includes(existingPost.status)) {
+      return NextResponse.json(
+        { error: `Cannot schedule a post with status '${existingPost.status}'` },
+        { status: 409 }
+      );
+    }
+
     const [updatedPost] = await db
       .update(socialPosts)
       .set({ 
-        scheduleAt: new Date(scheduleAt),
+        scheduleAt: scheduleDate,
+        status: "SCHEDULED",
         updatedAt: new Date()
       })
       .where(

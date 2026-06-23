@@ -24,7 +24,8 @@ const grantSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId: adminUserId } = await requireAdmin(request);
+    // requireAdmin returns the admin userId directly (a number, not an object)
+    const adminUserId = await requireAdmin(request);
 
     const body = await request.json();
     const parsed = grantSchema.safeParse(body);

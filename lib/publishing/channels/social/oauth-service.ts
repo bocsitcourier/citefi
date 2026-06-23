@@ -135,6 +135,49 @@ export function generateOAuthState(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+/**
+ * Produce an HMAC-signed, base64url-encoded OAuth state token.
+ * Prevents CSRF and cross-tenant account-linking attacks: an attacker cannot
+ * forge a valid state for a connectionId/teamId they do not own because the
+ * HMAC covers the full payload.
+ */
+export function signOAuthState(data: {
+  connectionId: number;
+  teamId: number;
+  nonce: string;
+}): string {
+  const secret = getEncryptionSecret();
+  const payload = JSON.stringify(data);
+  const mac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return Buffer.from(JSON.stringify({ payload, mac })).toString('base64url');
+}
+
+/**
+ * Decode and verify an HMAC-signed OAuth state token produced by signOAuthState.
+ * Throws if the token is malformed, tampered, or the signature is invalid.
+ */
+export function verifyOAuthState(encodedState: string): {
+  connectionId: number;
+  teamId: number;
+  nonce: string;
+} {
+  const secret = getEncryptionSecret();
+  let parsed: { payload: string; mac: string };
+  try {
+    parsed = JSON.parse(Buffer.from(encodedState, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('Malformed OAuth state');
+  }
+  const { payload, mac } = parsed;
+  if (!payload || !mac) throw new Error('Malformed OAuth state');
+  const expectedMac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  // Constant-time comparison to prevent timing attacks
+  if (!crypto.timingSafeEqual(Buffer.from(mac, 'hex'), Buffer.from(expectedMac, 'hex'))) {
+    throw new Error('Invalid OAuth state signature');
+  }
+  return JSON.parse(payload);
+}
+
 export async function refreshFacebookToken(connectionId: number): Promise<{ success: boolean; error?: string }> {
   const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
   const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
