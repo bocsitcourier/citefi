@@ -3,7 +3,8 @@ import { db, getTxDb } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/email";
 
 export async function POST(req: Request) {
   try {
@@ -110,8 +111,46 @@ export async function POST(req: Request) {
       return createdUser!;
     });
 
-    // TODO: Send email verification email to user
-    // TODO: Notify admin of new user signup for approval
+    // Send emails only for non-first users (first user is auto-approved admin)
+    if (!isFirstUser) {
+      // Welcome / pending-review email to the new registrant
+      // Errors are caught so a transient email failure never blocks account creation.
+      try {
+        await sendPendingApprovalEmail({
+          to: newUser.email,
+          fullName: newUser.fullName,
+        });
+      } catch (emailErr) {
+        console.error("Failed to send welcome email to new user:", emailErr);
+      }
+
+      // Notify all ACTIVE admin accounts about the new signup
+      try {
+        const adminUsers = await db
+          .select({ email: users.email })
+          .from(users)
+          // Only ping admins whose accounts are active (not suspended/locked)
+          .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));
+
+        await Promise.all(
+          adminUsers.map((admin) =>
+            sendNewSignupAdminNotification({
+              adminEmail: admin.email,
+              newUserEmail: newUser.email,
+              newUserName: newUser.fullName,
+              teamName: teamName || null,
+            }).catch((err) =>
+              console.error(
+                `Failed to notify admin ${admin.email} of new signup:`,
+                err
+              )
+            )
+          )
+        );
+      } catch (emailErr) {
+        console.error("Failed to notify admins of new signup:", emailErr);
+      }
+    }
 
     return NextResponse.json({
       message: "Account created successfully! Please check your email to verify your account. An admin will review your registration shortly.",
