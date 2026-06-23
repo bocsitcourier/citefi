@@ -182,6 +182,49 @@ export async function sendAccountRejectedEmail(opts: {
 }
 
 /**
+ * Send a verification code email (login 2FA, email verification, password reset).
+ */
+export async function sendEmailVerificationCode(opts: {
+  to: string;
+  code: string;
+  purpose: "login_2fa" | "email_verification" | "password_reset";
+  fullName?: string | null;
+}): Promise<void> {
+  const namePlain = opts.fullName ?? "there";
+  const name = escapeHtml(namePlain);
+
+  const purposeLabels: Record<typeof opts.purpose, string> = {
+    login_2fa: "sign in",
+    email_verification: "verify your email address",
+    password_reset: "reset your password",
+  };
+  const purposeLabel = purposeLabels[opts.purpose];
+
+  await deliverEmail({
+    to: opts.to,
+    subject: `Your ApexContent Engine verification code`,
+    text: [
+      `Hi ${namePlain},`,
+      "",
+      `Your verification code to ${purposeLabel} is:`,
+      "",
+      `  ${opts.code}`,
+      "",
+      "This code expires in 10 minutes. If you did not request this code, you can safely ignore this email.",
+      "",
+      "— The ApexContent Engine Team",
+    ].join("\n"),
+    html: `
+<p>Hi ${name},</p>
+<p>Your verification code to <strong>${escapeHtml(purposeLabel)}</strong> is:</p>
+<p style="font-size:2em;letter-spacing:0.3em;font-weight:bold;">${escapeHtml(opts.code)}</p>
+<p>This code expires in <strong>10 minutes</strong>. If you did not request this code, you can safely ignore this email.</p>
+<p>— The ApexContent Engine Team</p>
+    `.trim(),
+  });
+}
+
+/**
  * Send a new-signup notification to an admin user.
  */
 export async function sendNewSignupAdminNotification(opts: {

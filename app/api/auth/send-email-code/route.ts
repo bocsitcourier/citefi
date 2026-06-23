@@ -4,6 +4,7 @@ import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and } from "drizzle-orm";
+import { sendEmailVerificationCode } from "@/lib/email";
 
 export async function POST(req: Request) {
   try {
@@ -95,16 +96,31 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    // TODO: Wire to lib/email.ts (SMTP/transactional provider) for production delivery.
-    // SECURITY: Never log auth codes in production — they are valid credentials.
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📧 [DEV] Email verification code for ${user.email}: ${code}`);
+    // Send the code via email. Errors are caught so a transient delivery failure
+    // doesn't block the user — they can re-request a new code.
+    try {
+      await sendEmailVerificationCode({
+        to: user.email,
+        code,
+        purpose: purpose as "login_2fa" | "email_verification" | "password_reset",
+        fullName: user.fullName,
+      });
+    } catch (emailErr) {
+      console.error(`Failed to send ${purpose} code to ${user.email}:`, emailErr);
+      // In development fall through — the code is still in the DB so the caller
+      // can use the returned code field to test without a real SMTP server.
+      if (process.env.NODE_ENV !== "development") {
+        return NextResponse.json(
+          { error: "Failed to send verification email. Please try again." },
+          { status: 503 }
+        );
+      }
     }
 
     return NextResponse.json({
       message: "Verification code sent successfully",
       expiresIn: 600, // 10 minutes in seconds
-      // In development, return code for testing
+      // In development, return code for testing (no live email server required)
       ...(process.env.NODE_ENV === "development" && { code }),
     });
 
