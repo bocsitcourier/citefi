@@ -64,6 +64,44 @@ export function generateApprovalToken(userId: number, action: ApprovalAction): s
 }
 
 /**
+ * Decode a signed approval token without enforcing the expiry check.
+ * Useful for extracting payload data (e.g. userId) from an expired token
+ * so that we can still look up the user and surface their email on the
+ * expiry warning page.
+ *
+ * Throws if the token is structurally invalid or the signature does not match.
+ * Does NOT throw on expiry.
+ */
+export function decodeApprovalTokenIgnoreExpiry(token: string): TokenPayload {
+  const parts = token.split(".");
+  if (parts.length !== 2) {
+    throw new Error("Malformed token");
+  }
+  const [encodedPayload, receivedSig] = parts;
+  const expectedSig = sign(encodedPayload, getSecret());
+
+  if (
+    receivedSig.length !== expectedSig.length ||
+    !Buffer.from(receivedSig).equals(Buffer.from(expectedSig))
+  ) {
+    throw new Error("Invalid token signature");
+  }
+
+  let payload: TokenPayload;
+  try {
+    payload = JSON.parse(b64urlDecode(encodedPayload));
+  } catch {
+    throw new Error("Invalid token payload");
+  }
+
+  if (!payload.userId || !payload.action || !payload.exp) {
+    throw new Error("Incomplete token payload");
+  }
+
+  return payload;
+}
+
+/**
  * Verify and decode a signed approval token.
  * Throws if the token is invalid, tampered, or expired.
  */

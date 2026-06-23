@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
-import { verifyApprovalToken } from "@/lib/approval-token";
+import { verifyApprovalToken, decodeApprovalTokenIgnoreExpiry } from "@/lib/approval-token";
 import { and, eq, sql } from "drizzle-orm";
 import {
   sendAccountApprovedEmail,
@@ -72,6 +72,52 @@ function htmlPage(title: string, heading: string, body: string, success: boolean
 </html>`;
   return new NextResponse(html, {
     status: success ? 200 : 400,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+/**
+ * Render a dedicated expiry warning page that surfaces the user's email
+ * and provides a direct CTA to the admin pending-users list.
+ * emailHtml must be pre-escaped with escapeHtml().
+ */
+function expiredPage(emailHtml: string): NextResponse {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Link Expired — Citefi</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#f9fafb;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:2.5rem 2rem;max-width:500px;width:100%;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    .icon{font-size:3rem;margin-bottom:1rem;color:#f59e0b}
+    h1{font-size:1.4rem;font-weight:700;color:#111827;margin-bottom:.75rem}
+    p{color:#6b7280;line-height:1.6;margin-bottom:.75rem}
+    .email{display:inline-block;margin:.5rem 0 1.25rem;padding:.3rem .75rem;background:#f3f4f6;border-radius:6px;font-weight:600;color:#374151;font-size:.95rem;word-break:break-all}
+    .btn{display:inline-block;margin-top:1rem;padding:10px 24px;border-radius:6px;font-size:.95rem;font-weight:600;cursor:pointer;color:#fff;background:#2563eb;text-decoration:none}
+    .btn:hover{background:#1d4ed8}
+    .note{font-size:.8rem;color:#9ca3af;margin-top:1.25rem}
+    .badge{display:inline-block;margin-top:1rem;padding:.35rem .85rem;border-radius:999px;font-size:.8rem;font-weight:600;background:#fef3c71a;color:#b45309}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">&#9201;</div>
+    <h1>Approval Link Expired</h1>
+    <p>This approval link is no longer valid. Links expire after <strong>7 days</strong>.</p>
+    <p>The account pending review is:</p>
+    <div class="email">${emailHtml}</div>
+    <br/>
+    <a class="btn" href="/admin/users?filter=pending">Go to Pending Users</a>
+    <p class="note">You can approve or reject this account directly from the admin panel.</p>
+    <span class="badge">Link expired</span>
+  </div>
+</body>
+</html>`;
+  return new NextResponse(html, {
+    status: 410,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
@@ -148,12 +194,32 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     const isExpired = msg.includes("expired");
+
+    if (isExpired) {
+      // Token signature is valid but the link is past its 7-day window.
+      // Try to decode the payload (signature already verified above by verifyApprovalToken
+      // up to the expiry check) so we can surface the user's email on the warning page.
+      let emailHtml = "<em>unknown</em>";
+      try {
+        const expiredPayload = decodeApprovalTokenIgnoreExpiry(token);
+        const [expiredUser] = await db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, expiredPayload.userId))
+          .limit(1);
+        if (expiredUser?.email) {
+          emailHtml = escapeHtml(expiredUser.email);
+        }
+      } catch {
+        // If we still can't decode it, fall back to "unknown"
+      }
+      return expiredPage(emailHtml);
+    }
+
     return htmlPage(
-      isExpired ? "Link expired" : "Invalid link",
-      isExpired ? "This link has expired" : "Invalid approval link",
-      isExpired
-        ? "<p>Approval links are valid for 7 days. Please log in to the admin panel to review this account.</p>"
-        : "<p>This link is invalid or has been tampered with. Please use the link from your original notification email.</p>",
+      "Invalid link",
+      "Invalid approval link",
+      "<p>This link is invalid or has been tampered with. Please use the link from your original notification email.</p>",
       false
     );
   }
