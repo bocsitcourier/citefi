@@ -22,6 +22,7 @@ import {
   BarChart2,
   Sparkles,
   GitBranch,
+  ClipboardCheck,
 } from "lucide-react";
 
 export interface NavItem {
@@ -68,6 +69,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: "Agency Clients", href: "/agency", icon: Building2 },
       { title: "Client Dashboard", href: "/client-dashboard", icon: LayoutDashboard },
+      { title: "Content Review", href: "/client/review", icon: ClipboardCheck },
       { title: "My Dashboard", href: "/client/usage", icon: BarChart2 },
     ],
   },
@@ -135,6 +137,8 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   agency: "Agency Clients",
   "client-dashboard": "Client Dashboard",
   client: "My Dashboard",
+  review: "Content Review",
+  onboarding: "Getting Started",
   usage: "Usage",
   billing: "Billing",
   team: "Team",

@@ -294,6 +294,15 @@ export const articles = pgTable("articles", {
   citationRate: integer("citation_rate"), // 0-100
   lastCitationCheckedAt: timestamp("last_citation_checked_at"),
 
+  // Client approval workflow — set by agency; reviewed by client_viewer or team admin
+  // Scoped per client team: approvalTeamId is the client sub-team reviewing this article
+  approvalStatus: varchar("approval_status", { length: 30 }).default("draft"), // draft | in_review | approved | changes_requested
+  approvalTeamId: integer("approval_team_id").references(() => teams.id),
+  approvalRequestedAt: timestamp("approval_requested_at"),
+  approvalReviewedAt: timestamp("approval_reviewed_at"),
+  approvalReviewedBy: integer("approval_reviewed_by").references((): AnyPgColumn => users.id),
+  approvalFeedback: text("approval_feedback"),
+
   // Soft Delete Support
   deletedAt: timestamp("deleted_at"),
   
@@ -305,6 +314,7 @@ export const articles = pgTable("articles", {
   batchIdIdx: index("articles_batch_id_idx").on(table.batchId),
   batchIdStatusIdx: index("articles_batch_id_status_idx").on(table.batchId, table.articleStatus),
   slugIdx: index("articles_slug_idx").on(table.slug),
+  teamApprovalIdx: index("articles_team_approval_idx").on(table.teamId, table.approvalStatus),
 }));
 
 // Article Assets table - stores image/audio/video metadata
@@ -3385,6 +3395,54 @@ export const citationProbes = pgTable("citation_probes", {
 export const insertCitationProbeSchema = createInsertSchema(citationProbes).omit({ id: true, createdAt: true });
 export type CitationProbe = typeof citationProbes.$inferSelect;
 export type InsertCitationProbe = z.infer<typeof insertCitationProbeSchema>;
+
+// ============================================================================
+// SPENDING CAPS & USAGE EVENTS — T107 launch-readiness gap
+// ============================================================================
+
+/** Per-team monthly spending caps + alert configuration */
+export const spendingCaps = pgTable("spending_caps", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }).unique(),
+  /** Monthly cap in cents (USD). 0 = unlimited. */
+  monthlyCapCents: integer("monthly_cap_cents").notNull().default(0),
+  /** 0–100 — send alert email + notification when usage crosses this % of the cap */
+  alertThresholdPct: integer("alert_threshold_pct").notNull().default(80),
+  /** If true, block new generation jobs when the cap is exceeded */
+  hardStop: boolean("hard_stop").notNull().default(false),
+  /** ISO period key (YYYY-MM) of the last alert sent, prevents duplicate alert spam */
+  lastAlertPeriodKey: varchar("last_alert_period_key", { length: 7 }),
+  lastAlertSentAt: timestamp("last_alert_sent_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  teamIdIdx: index("spending_caps_team_id_idx").on(table.teamId),
+}));
+
+export const insertSpendingCapSchema = createInsertSchema(spendingCaps).omit({ id: true, updatedAt: true });
+export type SpendingCap = typeof spendingCaps.$inferSelect;
+export type InsertSpendingCap = z.infer<typeof insertSpendingCapSchema>;
+
+/** Append-only log of billable generation events for cost accounting */
+export const usageEvents = pgTable("usage_events", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  /** Unique identifier for the job that produced this event (pg-boss jobId) */
+  jobId: varchar("job_id", { length: 255 }),
+  /** article_generation | social_post | podcast | video | title_pool */
+  action: varchar("action", { length: 50 }).notNull(),
+  units: integer("units").notNull().default(1),
+  /** Estimated cost in cents for this event */
+  costEstimateCents: integer("cost_estimate_cents").notNull().default(0),
+  metadataJson: jsonb("metadata_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  teamMonthIdx: index("usage_events_team_month_idx").on(table.teamId, table.createdAt),
+  teamIdIdx: index("usage_events_team_id_idx").on(table.teamId),
+}));
+
+export const insertUsageEventSchema = createInsertSchema(usageEvents).omit({ id: true, createdAt: true });
+export type UsageEvent = typeof usageEvents.$inferSelect;
+export type InsertUsageEvent = z.infer<typeof insertUsageEventSchema>;
 
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),

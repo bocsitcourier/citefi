@@ -523,3 +523,47 @@ export function requireTeamResource(resourceTeamId: number, authTeamId: number):
     throw error;
   }
 }
+
+/**
+ * requireClientReviewer — allows admin | member | client_viewer roles.
+ * Use on read-only review routes that client viewers should access.
+ * Returns userId, teamId, and the member's role.
+ */
+export async function requireClientReviewer(req: NextRequest): Promise<{ userId: number; teamId: number; role: string }> {
+  const authResult = await verifyTokenFromRequestImpl(req);
+  if (!authResult) {
+    const error: any = new Error("Authentication required");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, authResult.userId)).limit(1);
+  if (!user) { const e: any = new Error("User not found"); e.statusCode = 404; throw e; }
+  if (user.accountStatus !== "active") { const e: any = new Error("Account is not active"); e.statusCode = 401; throw e; }
+
+  const [membership] = await db.select().from(teamMembers).where(eq(teamMembers.userId, user.id)).limit(1);
+  if (!membership) { const e: any = new Error("Not a team member"); e.statusCode = 403; throw e; }
+
+  const ALLOWED = ["admin", "member", "client_viewer"];
+  if (!ALLOWED.includes(membership.role)) {
+    const e: any = new Error("Access denied");
+    e.statusCode = 403;
+    throw e;
+  }
+
+  return { userId: user.id, teamId: membership.teamId, role: membership.role };
+}
+
+/**
+ * requireContentEditor — allows admin | member roles only.
+ * Blocks client_viewer. Use on write routes (create, update, delete content).
+ */
+export async function requireContentEditor(req: NextRequest): Promise<{ userId: number; teamId: number; role: string }> {
+  const { userId, teamId, role } = await requireClientReviewer(req);
+  if (role === "client_viewer") {
+    const e: any = new Error("Client reviewers have read-only access");
+    e.statusCode = 403;
+    throw e;
+  }
+  return { userId, teamId, role };
+}

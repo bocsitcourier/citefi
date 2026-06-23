@@ -1,0 +1,306 @@
+Citefi — Launch-Readiness Build Spec (Gap-Fill v1)
+
+Agency Multi-Tenancy · Auth Security · Billing Transparency · Compliance
+
+
+READ FIRST (do not skip)
+
+This spec was written WITHOUT repo access. Unlike your prior architect-reviewed spec, I could not verify your schema, existing routes, or what's already built. Therefore:
+
+
+Every task opens with a VERIFY step. If the capability already exists, link/extend it — do not duplicate (same discipline your architect applied to /client/billing, /api/billing/portal, etc.).
+Assumed stack (from your prior spec): Next.js App Router, Drizzle ORM, Stripe via getStripeClient() (lib/stripe.ts), email via deliverEmail() (lib/email.ts), auth helpers requireAuth/requireAdmin/requireTeamAdmin/requireTeamMember (lib/api/auth.ts), hashToken/hashPassword (lib/auth.ts), shadcn/ui, react-query, useAuth(). Tables seen: users, teams, teamMembers, passwordResets, creditBalances, activityLogs, adminActionLogs, loginHistory, jobBatches, articles, emailVerificationCodes.
+Build order is by priority, not convenience. BATCH A (agency layer) is what your pricing page sells; nothing else matters if an agency can't onboard. Do A and B before launch.
+The DEFER list at the bottom is intentional. Do NOT build those before you have paying customers.
+[ARCHITECT REVIEW REQUIRED] tasks involve schema/architecture decisions I can't make blind — your architect must confirm the data model first.
+
+
+
+BATCH A — P0 — Agency Multi-Tenancy (the product you're selling)
+
+
+Your pricing promises "client workspaces," "up to 10/unlimited," and "white-label publishing." If these aren't built, they are P0 launch blockers. VERIFY each before building.
+
+
+
+T101: P0 — Team invitations + accept flow
+
+Blocked By: []
+VERIFY FIRST: Search for an existing invite flow (/api/team/invite, team_invitations table, an invite UI in /client/team). If a working invite→accept→role-assign flow exists, skip this task.
+
+Files:
+
+
+lib/db/schema.ts — add teamInvitations table (MODIFY/migration)
+app/api/team/invitations/route.ts (NEW — POST create, GET list)
+app/api/team/invitations/[id]/route.ts (NEW — DELETE revoke)
+app/api/team/invitations/accept/route.ts (NEW — POST accept)
+app/invite/[token]/page.tsx (NEW — "use client" accept page)
+app/client/team/page.tsx (MODIFY — add invite UI + pending list)
+components/navigation/nav-config.ts (add /invite to PUBLIC_ROUTES)
+
+
+Details:
+
+
+Schema teamInvitations: id, teamId, email, role (enum: team_member|team_admin|client_viewer), invitedBy, tokenHash, status (pending|accepted|revoked|expired), expiresAt, acceptedAt, createdAt. Reuse hashToken() for the token (store hash, email the raw token).
+POST create (requireTeamAdmin): validate email, prevent duplicate pending invite, enforce the plan seat/workspace limit (read teams.billingPlan → cap). Generate token, insert row, deliverEmail() an invite link to /invite/[token]. Insert activityLogs (action='team_invite_sent').
+GET list (requireTeamAdmin): pending + recently accepted invites for the team.
+DELETE (requireTeamAdmin): set status='revoked'.
+POST accept: validate token (hash, status='pending', not expired). If the email already has a user → add teamMembers row with the invited role; if not → create user (set password in the accept UI), then add teamMembers. Set invite status='accepted'. Expire sibling pending invites for that email. activityLogs (action='team_invite_accepted').
+Accept page: useParams() token → validate on mount → if new user, show set-name+password form; if existing, show "Join [team]" confirm → on success redirect to dashboard. Match /forgot-password styling + Citefi branding.
+Team UI: "Invite teammate" button (email + role select) → POST; pending-invites table with Revoke; show seat usage vs plan cap.
+
+
+T102: P0 — Connected Accounts / Integrations settings page
+
+Blocked By: []
+VERIFY FIRST: This is the UI for the publishing/credential layer. Search for an existing connected_accounts/integrations table and any OAuth callback routes. If publishing already works end-to-end with a management UI, skip. If credentials are stored but there's no UI, build the UI only.
+
+
+⚠️ Highest-risk security surface in the app. Credentials/tokens here are the keys to clients' sites. Encrypt at rest, scope per workspace, never return secrets to the client.
+
+
+
+Files:
+
+
+lib/db/schema.ts — add/confirm connectedAccounts table (migration)
+app/api/integrations/route.ts (NEW — GET list, status)
+app/api/integrations/[provider]/connect/route.ts (NEW — start OAuth / store credential)
+app/api/integrations/[provider]/callback/route.ts (NEW — OAuth callback)
+app/api/integrations/[id]/route.ts (NEW — DELETE/revoke)
+app/settings/integrations/page.tsx (NEW — "use client")
+components/navigation/nav-config.ts (add settings nav entry)
+
+
+Details:
+
+
+Schema connectedAccounts: id, teamId, clientWorkspaceId (nullable until T103), provider (wordpress|webflow|shopify|mailchimp|facebook|linkedin|...), displayName, status (connected|expired|revoked|error), credentialRef (pointer to secret store — NOT the secret), scopes, lastSyncAt, expiresAt, createdAt. Store actual secrets/tokens in a dedicated encrypted secret store (Replit secrets/KMS/env-encrypted), referenced by credentialRef — never in a plaintext DB column.
+GET list (requireTeamMember): return providers + status + displayName + masked metadata only. Never return tokens/secrets.
+Connect (requireTeamAdmin): for OAuth providers, start the OAuth flow with a state param bound to teamId; for key-based providers (e.g., WordPress application password), accept the credential server-side, store in the secret store, write a connectedAccounts row. Validate the credential by making one test call before saving.
+Callback: exchange code → store tokens in secret store → upsert row → redirect back to settings.
+DELETE/revoke (requireTeamAdmin): set status='revoked', delete the stored secret, activityLogs (action='integration_revoked').
+UI: card per provider (Connect / Connected ✓ / Reconnect on expired / Revoke). Show status, last sync, expiry. Re-auth CTA when status='expired'.
+Add a validation gate reminder: publishing actions must check status='connected' and correct workspace before any POST (cross-ref your §6.4 design).
+
+
+T103: P0 — Client Workspaces (CRUD + switcher + isolation) [ARCHITECT REVIEW REQUIRED]
+
+Blocked By: [decision on data model]
+VERIFY FIRST + ARCHITECT DECISION: Your pricing sells "client workspaces." Determine how this is modeled today. Two common patterns:
+
+
+(a) Workspace = a row under the agency team (clientWorkspaces table with teamId FK; content/usage/integrations carry clientWorkspaceId). Recommended for "agency manages N clients."
+(b) Workspace = a team and the agency is a parent org. Heavier; only if you already model orgs.
+
+
+Do not build until your architect picks (a) or (b). The spec below assumes (a). If client-workspace isolation already exists, skip.
+
+Files (pattern a):
+
+
+lib/db/schema.ts — add clientWorkspaces (id, teamId, name, status, settings(jsonb), createdBy, createdAt); add nullable clientWorkspaceId to content tables (jobBatches, articles, connectedAccounts, usage records) (migration)
+app/api/workspaces/route.ts (NEW — GET list, POST create)
+app/api/workspaces/[id]/route.ts (NEW — GET/PATCH/DELETE)
+app/client/workspaces/page.tsx (NEW — list/manage)
+components/navigation/workspace-switcher.tsx (NEW — header dropdown)
+components/navigation/app-shell.tsx (MODIFY — add switcher to header)
+Server: a getActiveWorkspace(req) helper + enforce workspace scoping in every content/usage query (the isolation is the whole point — one missed filter is a cross-client leak).
+
+
+Details:
+
+
+POST create (requireTeamAdmin): enforce plan workspace cap (Starter 1, Growth 10, Agency unlimited — read from billingPlan). Insert row.
+Switcher: dropdown in header; selection stored in session/cookie; all content/usage/integration views filter by active clientWorkspaceId.
+Isolation: add clientWorkspaceId to all content reads/writes and to the integrations from T102. Audit every query path. Consider a DB-level guard (RLS or a query wrapper) so it can't be forgotten.
+DELETE: soft-delete; revoke that workspace's connected accounts; confirm cascade for its content.
+This task gates T104 (approver role scopes to a workspace).
+
+
+T104: P1 — Client-approver (read-only review/approve) role
+
+Blocked By: [T101, T103]
+Why: Lets an agency's end client log in to review/approve content read-only — a genuine differentiator for the agency channel; your current admin/team_member split is too thin for it.
+
+Files:
+
+
+lib/api/auth.ts (MODIFY — add requireWorkspaceApprover() / extend role checks)
+app/api/content/[id]/approve/route.ts (NEW — POST approve/request-changes)
+app/client/review/page.tsx (NEW — approver's read-only queue)
+Content schema (MODIFY — add approvalStatus: draft|in_review|approved|changes_requested, approvedBy, approvedAt)
+
+
+Details:
+
+
+Add client_viewer (approver) role (used in T101 invites), scoped to a clientWorkspaceId.
+Approver sees only their workspace's in_review content, read-only, with Approve / Request Changes + comment.
+On approve → approvalStatus='approved', log, optionally notify the agency. Approver cannot edit, publish, see billing, or see other workspaces.
+Gate publishing on approvalStatus='approved' if the workspace has approval enabled (a workspace setting).
+
+
+
+BATCH B — P0 — Auth Security
+
+T105: P0 — Login rate-limit + account lockout
+
+Blocked By: []
+VERIFY FIRST: Confirm the login route (/api/auth/login or NextAuth credentials handler) has NO rate limiting. You rate-limited reset endpoints but (per the prior spec) not login — this is a credential-stuffing hole.
+
+Files:
+
+
+app/api/auth/login/route.ts (or the credentials authorize fn) (MODIFY)
+lib/db/schema.ts — add loginAttempts tracking OR reuse loginHistory (migration if needed)
+
+
+Details:
+
+
+Per-IP rate limit: e.g., 10 attempts / 15 min → 429.
+Per-account lockout: after N (e.g., 5) consecutive failures for an email, lock for a cooldown (e.g., 15 min) or require reset; reset the counter on success. Track via loginHistory/loginAttempts (email, ip, success, createdAt).
+Do not leak which factor failed (don't reveal "email exists"). Generic "invalid credentials."
+Log lockouts to activityLogs (action='account_locked'). Optionally email the user on lockout ("unusual sign-in attempts").
+Apply the same per-IP limiting to the accept/invite and integrations-connect endpoints.
+
+
+T106: P1 — Reset-flow coherence (pick ONE: code OR token)
+
+Blocked By: []
+VERIFY FIRST: Your prior spec has forgot-password sending a 6-digit code but reset-password-token + admin reset using a token link. Two mechanisms = confusing UX and double maintenance.
+
+Files: app/forgot-password/page.tsx, app/api/auth/forgot-password/route.ts, app/reset-password/[token]/page.tsx, app/api/auth/reset-password-token/route.ts (MODIFY as needed)
+
+Details:
+
+
+Decide: self-serve uses the token link (recommended — matches admin flow, one mechanism) OR the 6-digit code. Don't ship both half-wired.
+If token-link: forgot-password should email a link to /reset-password/[token] (not a code), and the UI should reflect "check your email for a reset link."
+Keep dev console fallback. Ensure expiry + single-use + sibling-expiry on whichever path you keep.
+
+
+
+BATCH C — P1 — Billing Transparency (your wedge) + Compliance
+
+T107: P1 — Usage & spend dashboard + hard spending caps + alerts + pre-job estimate
+
+Blocked By: [T103 recommended, so usage scopes per workspace]
+Why this is not optional: Transparent, capped, predictable billing IS your differentiator vs. AirOps' cliff and Replit/Cursor bill-shock. A bare credit number + Stripe portal recreates the exact opacity those tools get criticized for.
+
+Files:
+
+
+lib/db/schema.ts — add spendingCaps (teamId, monthlyCapCents/credits, alertThresholdPct, hardStop boolean) and confirm a per-action usageEvents table (teamId, clientWorkspaceId, action, units, costEstimateCents, createdAt) (migration)
+app/api/usage/route.ts (NEW — GET usage summary + history)
+app/api/billing/caps/route.ts (NEW — GET/PUT caps)
+app/api/jobs/estimate/route.ts (NEW — POST returns pre-job cost estimate)
+app/client/usage/page.tsx (MODIFY — add charts + cap controls) (VERIFY: route already exists per prior spec — extend, don't duplicate)
+Job-execution path (MODIFY — write usageEvents, check caps before expensive LLM calls)
+
+
+Details:
+
+
+Pre-job estimate: before any expensive generation, POST /api/jobs/estimate returns an estimated credit/cost so the UI can show "This batch will use ~N credits" with a confirm.
+Hard caps: user-set monthly cap; when projected usage would exceed it and hardStop=true, block the job with a clear message (not a surprise charge). Always allow raising the cap.
+Alerts: at alertThresholdPct (e.g., 80%), email + in-app NotificationBell alert.
+Dashboard: usage over time (by workspace/action), credits remaining, projected month-end, current cap, spend-to-date. This is the "no surprise bills" promise made visible.
+Never charge for failed operations — only write usageEvents for successful work.
+
+
+T108: P1 — Self-service data export + account deletion + delete cascade
+
+Blocked By: []
+Why: Your Privacy Policy + Terms (the drafts) commit to data export and deletion. Admin-only delete (prior spec) doesn't satisfy a user-facing right, and any delete must cascade.
+
+Files:
+
+
+app/api/account/export/route.ts (NEW — POST/GET, async export)
+app/api/account/delete/route.ts (NEW — POST, user self-delete)
+app/settings/page.tsx (MODIFY — add "Export my data" + "Delete account" danger zone)
+app/api/admin/users/[id]/delete/route.ts (MODIFY — ensure cascade; prior spec's delete didn't mention it)
+
+
+Details:
+
+
+Export (requireAuth): generate a JSON/ZIP of the user's account data + their content; deliver via signed link or email. Rate-limit.
+Delete (self) (requireTeamAdmin for the owner, with strong confirmation typing the team name): triggers the cascade below.
+Delete CASCADE (both self + admin delete must do this):
+
+Cancel Stripe subscription (stripe.subscriptions.cancel) so deletion doesn't leave a live paid sub.
+Revoke + delete all connected-account credentials (T102 secret store) so no live CMS/social tokens remain.
+Delete/anonymize user + team content per retention policy; remove teamMembers, invites, caps, usage.
+Write adminActionLogs/activityLogs (action='account_deleted'), retain minimal audit record only.
+
+
+
+Confirm with counsel what must be retained vs. deleted (matches the Privacy Policy retention section).
+
+
+
+BATCH D — P2 — Polish & Correctness
+
+T109: P2 — Fix refund idempotency key
+
+Blocked By: [your existing T006]
+Bug: `idempotencyKey: refund-chargeId−{chargeId}-
+chargeId−{Date.now()}` defeats idempotency — a retry generates a new key and can double-refund.
+Fix: Use a deterministic key tied to the intended operation, e.g., `refund-chargeId−{chargeId}-
+chargeId−{amount}` or a server-generated refundRequestId created once and reused on retry. File: app/api/admin/billing/refund/route.ts (MODIFY).
+
+T110: P2 — Transactional emails on cancel / refund / invite
+
+Blocked By: []
+Gap: You email on password reset but not on subscription cancel, refund, or (without T101) invites.
+Details: Via deliverEmail(), send confirmations for: subscription cancel requested (self + admin-initiated), refund issued, and (covered in T101) invites. Each is a moment the user expects confirmation. Files: app/api/billing/cancel/route.ts, app/api/admin/users/[id]/cancel-subscription/route.ts, app/api/admin/billing/refund/route.ts (MODIFY).
+
+T111: P2 — First-run onboarding (goal-not-pipeline)
+
+Blocked By: [T101, T102, T103]
+Why: "Set a goal, not a pipeline" simplicity was your UX wedge vs. AirOps' learning curve. New agencies need a guided first run.
+Details: A short first-login flow: create first client workspace → connect one publishing account → generate first batch with a one-field goal/topic + location. Keep it to ≤3 steps; show the pre-job estimate (T107). Files: app/onboarding/page.tsx (NEW), trigger on first login when no workspace/content exists.
+
+
+DEFER — Do NOT build before paying customers
+
+These are real eventually, but building them now is gold-plating an admin panel for users you don't have yet. Explicitly out of scope for launch:
+
+
+Admin impersonation / "log in as user" — useful for support later, real security surface, not now.
+Global audit-log viewer (cross-user adminActionLogs browser) — your prior spec's per-user activity is enough for launch.
+Bulk admin actions (bulk suspend/role/delete) — premature with a handful of users.
+SSO / SAML / SCIM — defer until you actually sell the Agency "Custom"/enterprise tier; that's what those buyers mean by "enterprise support."
+
+
+
+Done Looks Like (launch bar)
+
+
+An agency can invite teammates, they accept and get the right role (T101).
+An agency can connect a publishing account and see/revoke it; secrets are encrypted, never returned to the client (T102).
+An agency can create and switch between client workspaces, and content/usage/integrations are isolated per workspace (T103).
+An end client can log in as an approver and review/approve content read-only (T104).
+Login is rate-limited and locks out brute-force attempts; the reset flow uses one coherent mechanism (T105, T106).
+The billing UX shows usage, a settable hard cap, alerts, and a pre-job estimate — no surprise bills (T107).
+A user can export their data and delete their account, and deletion cancels Stripe + revokes credentials + cascades (T108).
+Refund idempotency is deterministic; cancel/refund/invite send confirmation emails (T109, T110).
+New agencies get a ≤3-step onboarding (T111).
+The DEFER list is not built.
+
+
+
+Sequencing recommendation
+
+
+Pre-launch, must-have: BATCH A (T101–T104) + BATCH B (T105–T106) + T107 + T108. This is the real launch bar — an agency literally cannot use the product without A, and B/C protect you legally and competitively.
+Fast-follow: BATCH D.
+The point of all of this is still to get ONE real local-SEO agency using it. Build A+B, get a design partner in, and let their feedback reprioritize C and D — don't build the full list in a vacuum.
+
+
+Caveat: written without repo access. Treat every task as a plan to verify-then-implement, not guaranteed-correct code. Have your architect review the [ARCHITECT REVIEW REQUIRED] items (esp. T103's data model) before building.

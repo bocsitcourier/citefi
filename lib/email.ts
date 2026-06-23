@@ -45,7 +45,7 @@ function buildTransport(): nodemailer.Transporter | null {
   });
 }
 
-async function deliverEmail(payload: EmailPayload): Promise<void> {
+export async function deliverEmail(payload: EmailPayload): Promise<void> {
   const transport = buildTransport();
 
   if (transport) {

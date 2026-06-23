@@ -1,17 +1,22 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Zap, FileText, Share2, Mic, Video, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, Zap, FileText, Share2, Mic, Video, AlertTriangle, ShieldAlert, Pencil, Check, X } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell,
 } from "recharts";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 
 interface UsageData {
   credits: { balance: number; used: number; allocated: number; usedPct: number };
@@ -259,6 +264,190 @@ export default function UsagePage() {
           <p className="text-xs text-muted-foreground mt-1">Since the start of your billing period</p>
         </CardContent>
       </Card>
+
+      <SpendingCapCard />
     </div>
+  );
+}
+
+interface CapData {
+  cap: {
+    monthlyCapCents: number;
+    alertThresholdPct: number;
+    hardStop: boolean;
+  } | null;
+  status: {
+    monthlyCapCents: number;
+    spentCents: number;
+    remainingCents: number | null;
+    usagePct: number | null;
+    hardStop: boolean;
+    exceeded: boolean;
+    alertThresholdPct: number;
+    periodKey: string;
+  };
+}
+
+function SpendingCapCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+
+  const { data, isLoading } = useQuery<CapData>({
+    queryKey: ["/api/billing/caps"],
+    queryFn: () => apiRequest("/api/billing/caps"),
+    staleTime: 30_000,
+  });
+
+  const [capDollars, setCapDollars] = useState("");
+  const [alertPct, setAlertPct] = useState("80");
+  const [hardStop, setHardStop] = useState(false);
+
+  function startEditing() {
+    const cap = data?.cap;
+    setCapDollars(cap && cap.monthlyCapCents > 0 ? String((cap.monthlyCapCents / 100).toFixed(0)) : "");
+    setAlertPct(String(cap?.alertThresholdPct ?? 80));
+    setHardStop(cap?.hardStop ?? false);
+    setEditing(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const capVal = capDollars.trim() === "" ? 0 : Math.round(parseFloat(capDollars) * 100);
+      return apiRequest("/api/billing/caps", {
+        method: "PUT",
+        body: JSON.stringify({ monthlyCapCents: capVal, alertThresholdPct: Number(alertPct), hardStop }),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Spending cap saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/billing/caps"] });
+      setEditing(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save", description: err?.message ?? "Please try again.", variant: "destructive" });
+    },
+  });
+
+  const status = data?.status;
+  const isUnlimited = !status || status.monthlyCapCents === 0;
+
+  return (
+    <Card data-testid="card-spending-cap">
+      <CardHeader className="flex flex-row items-start justify-between gap-2 flex-wrap pb-3">
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+            Spending Cap
+          </CardTitle>
+          <CardDescription>
+            Set a monthly limit on AI generation costs. Optionally block new jobs once the cap is reached.
+          </CardDescription>
+        </div>
+        {!editing && (
+          <Button variant="ghost" size="sm" onClick={startEditing} data-testid="button-edit-cap">
+            <Pencil className="h-3.5 w-3.5 mr-1.5" />
+            {isUnlimited ? "Set cap" : "Edit"}
+          </Button>
+        )}
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : editing ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="cap-dollars">Monthly cap (USD, blank = unlimited)</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                  <Input
+                    id="cap-dollars"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g. 500"
+                    value={capDollars}
+                    onChange={(e) => setCapDollars(e.target.value)}
+                    className="pl-7"
+                    data-testid="input-cap-dollars"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="alert-pct">Alert threshold (%)</Label>
+                <Input
+                  id="alert-pct"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={alertPct}
+                  onChange={(e) => setAlertPct(e.target.value)}
+                  data-testid="input-alert-pct"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border px-4 py-3">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Hard stop</p>
+                <p className="text-xs text-muted-foreground">Block new generation jobs once the cap is exceeded.</p>
+              </div>
+              <Switch
+                checked={hardStop}
+                onCheckedChange={setHardStop}
+                data-testid="switch-hard-stop"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)} data-testid="button-cancel-cap">
+                <X className="h-3.5 w-3.5 mr-1.5" /> Cancel
+              </Button>
+              <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-cap">
+                {saveMutation.isPending ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Saving…</> : <><Check className="h-3.5 w-3.5 mr-1.5" />Save</>}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {isUnlimited ? (
+              <p className="text-sm text-muted-foreground">No spending cap configured. Generation is unlimited.</p>
+            ) : (
+              <>
+                <div className="flex items-end justify-between gap-2 flex-wrap">
+                  <div>
+                    <span className="text-2xl font-bold" data-testid="text-spent-dollars">
+                      ${((status?.spentCents ?? 0) / 100).toFixed(2)}
+                    </span>
+                    <span className="text-sm text-muted-foreground ml-2">
+                      of ${((status?.monthlyCapCents ?? 0) / 100).toFixed(0)}/month
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {status?.hardStop && (
+                      <Badge variant="secondary" className="text-xs" data-testid="badge-hard-stop">Hard stop on</Badge>
+                    )}
+                    {status?.exceeded && (
+                      <Badge variant="destructive" className="text-xs" data-testid="badge-cap-exceeded">Cap exceeded</Badge>
+                    )}
+                  </div>
+                </div>
+                <Progress
+                  value={status?.usagePct ?? 0}
+                  className={`h-2 ${(status?.usagePct ?? 0) >= (status?.alertThresholdPct ?? 80) ? "[&>div]:bg-amber-500" : ""}`}
+                  data-testid="progress-cap-usage"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Alert at {status?.alertThresholdPct}% · {status?.periodKey}
+                  {status?.remainingCents !== null && ` · $${(status.remainingCents / 100).toFixed(2)} remaining`}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

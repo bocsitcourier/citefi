@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays, Trash2, TriangleAlert } from "lucide-react";
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays, Trash2, TriangleAlert, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -445,6 +445,9 @@ export default function AccountSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Export My Data */}
+      <ExportDataCard />
+
       {/* Danger Zone */}
       <Card className="border-destructive/40">
         <CardHeader>
@@ -509,3 +512,86 @@ export default function AccountSettingsPage() {
     </div>
   );
 }
+
+function ExportDataCard() {
+  const { toast } = useToast();
+  const [isPending, setIsPending] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
+
+  async function handleExport() {
+    setIsPending(true);
+    try {
+      const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+      const res = await fetch("/api/account/export", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          toast({ title: "Rate limit reached", description: body.error ?? "You may request up to 3 exports per hour.", variant: "destructive" });
+        } else {
+          toast({ title: "Export failed", description: body.error ?? "An error occurred.", variant: "destructive" });
+        }
+        return;
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? "citefi-export.json";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Export downloaded", description: "Your account data has been saved to your device." });
+    } catch {
+      toast({ title: "Export failed", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsPending(false);
+      setShowDialog(false);
+    }
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Export Your Data</CardTitle>
+          <CardDescription>
+            Download a JSON file containing your profile, team memberships, activity history, and content metadata. Passwords, tokens, and payment details are never included.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-xs text-muted-foreground">Up to 3 exports per hour. Processing may take a few seconds.</p>
+            <Button variant="outline" size="sm" onClick={() => setShowDialog(true)} data-testid="button-export-data">
+              <Download className="h-4 w-4 mr-2" />
+              Export My Data
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <AlertDialog open={showDialog} onOpenChange={setShowDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Export account data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will generate a JSON file with your profile, activity log, and content metadata. No secrets or payment data are included. The file will download immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-export">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleExport} disabled={isPending} data-testid="button-confirm-export">
+              {isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Preparing...</> : "Download"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+

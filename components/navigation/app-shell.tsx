@@ -92,6 +92,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [mounted, isLoading, isPublicRoute, user, router]);
 
+  // First-run onboarding redirect — agency plan admins with no clients go to /onboarding
+  useEffect(() => {
+    if (!mounted || isLoading || isPublicRoute || !user) return;
+    const ONBOARDING_SKIP = ["/onboarding", "/settings", "/admin", "/auth", "/login", "/signup", "/accept-invite"];
+    if (ONBOARDING_SKIP.some((p) => pathname?.startsWith(p))) return;
+    fetch("/api/onboarding/status", { headers: { Authorization: `Bearer ${typeof window !== "undefined" ? sessionStorage.getItem("auth_token") ?? "" : ""}` } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data && data.isAgency && !data.isComplete && !data.hasClients) {
+          router.replace("/onboarding");
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isLoading, user]);
+
   // While auth is resolving, show a spinner for protected routes
   if (!mounted || isLoading) {
     if (isPublicRoute) return <>{children}</>;

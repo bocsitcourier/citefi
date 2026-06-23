@@ -8,6 +8,7 @@ import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
+import { checkUsageCap } from "@/lib/usage-caps";
 
 const batchSubmitSchema = z.object({
   batchId: z.number(),
@@ -106,6 +107,17 @@ export async function POST(request: NextRequest) {
     if (!paywallCheck.allowed) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       return NextResponse.json(paywallErrorBody(paywallCheck), { status: 402 });
+    }
+
+    // Spending cap gate — throw 402 with SPENDING_CAP_EXCEEDED if hardStop is set and cap exceeded
+    try {
+      await checkUsageCap(teamId, 0);
+    } catch (capErr: any) {
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      return NextResponse.json(
+        { error: capErr.message, code: capErr.code ?? "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
     }
 
     // Intelligence onboarding gate — block first batch until Brand Intelligence is complete.
