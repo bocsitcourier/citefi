@@ -1,51 +1,39 @@
 /**
  * AI Model Configuration - AUTO-UPDATING MODELS
  *
- * Models are configured to automatically use the latest stable versions.
+ * All model aliases automatically resolve to the latest stable version from
+ * each provider. When a provider promotes a new stable release, this app
+ * picks it up with zero code changes.
  *
- * GEMINI MODELS:
- * - Google's auto-updated aliases (e.g., "gemini-3.5-flash") automatically point
- *   to the latest stable version within that generation.
- * - gemini-2.0-flash and gemini-2.5-flash are superseded. All workloads use gemini-3.5-flash.
- *
- * OPENAI MODELS:
- * - "gpt-5.4-mini" is the latest cost-effective mini model (replaces gpt-4o-mini)
- * - "gpt-5.4-mini" is the latest standard model (replaces gpt-4o)
- *
- * To pin to a specific version (disable auto-updates), use dated versions:
- * - Gemini: "gemini-3.5-flash-001" (specific snapshot)
- * - OpenAI: "gpt-5.4-mini-2025-04-14" (specific snapshot)
+ * To pin to a specific snapshot (disable auto-updates), override via env var
+ * with a dated version string:
+ *   GEMINI_ARTICLE_MODEL=gemini-3.5-flash-001
+ *   GPT_ENHANCEMENT_MODEL=gpt-5.4-mini-2025-04-14
  */
 
-// Gemini Models - gemini-3.5-flash/pro are the latest stable aliases
+// Google AI Models — stable aliases auto-point to latest release in each tier
 export const GEMINI_ARTICLE_MODEL = process.env.GEMINI_ARTICLE_MODEL || "gemini-3.5-flash";
 export const GEMINI_FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-3.5-flash";
 export const GEMINI_PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.5-pro";
 export const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.5-flash-image";
 export const GEMINI_EXPERIMENTAL_MODEL = process.env.GEMINI_EXPERIMENTAL_MODEL || "gemini-3.5-pro";
 
-// OpenAI Models
-// gpt-4.5-mini: Latest mini model — fast, cost-effective, used for review / chat tasks
-// gpt-4.1:      Latest standard model — used for advanced/enhancement tasks
+// Google AI — fast/cheap critique pass (override to pro for higher quality)
+export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-3.5-flash-lite";
+
+// OpenAI Models — gpt-5.4-mini is the current latest cost-effective model
 export const GPT_ENHANCEMENT_MODEL = process.env.GPT_ENHANCEMENT_MODEL || "gpt-5.4-mini";
 export const GPT_REVIEW_MODEL = process.env.GPT_REVIEW_MODEL || "gpt-5.4-mini";
 export const GPT_ADVANCED_MODEL = process.env.GPT_ADVANCED_MODEL || "gpt-5.4-mini";
 
-// Keyword hyperlink pipeline models
-// Extraction → gpt-4.1-nano: simple JSON extraction; 92% cheaper than gpt-4.1
-// Correction → gpt-4.1: must reconstruct 35 000–40 000 chars of HTML reliably
+// Hyperlink pipeline — same model handles both extraction and HTML correction
 export const GPT_HYPERLINK_EXTRACT_MODEL = process.env.GPT_HYPERLINK_EXTRACT_MODEL || "gpt-5.4-mini";
 export const GPT_HYPERLINK_CORRECTION_MODEL = process.env.GPT_HYPERLINK_CORRECTION_MODEL || "gpt-5.4-mini";
-
-// Gemini model for article critique / refine pass.
-// Flash-Lite is 80% cheaper than Flash; override to gemini-2.5-flash for higher quality.
-export const GEMINI_CRITIQUE_MODEL = process.env.GEMINI_CRITIQUE_MODEL || "gemini-3.5-flash-lite";
 
 // Veo Video Generation
 export const VEO_VIDEO_MODEL = process.env.VEO_VIDEO_MODEL || "veo-2.0-generate-001";
 
-// TTS Configuration
-// gpt-4o-mini-tts: supports emotional steering via instructions parameter
+// TTS — supports emotional steering via instructions parameter
 export const TTS_MODEL = process.env.TTS_MODEL || "gpt-4o-mini-tts";
 export const TTS_VOICE = process.env.TTS_VOICE || "coral";
 

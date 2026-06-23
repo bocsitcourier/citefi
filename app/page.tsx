@@ -182,7 +182,7 @@ export default function MarketingPage() {
 
           {/* Sub-copy */}
           <p className="text-lg sm:text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed" data-testid="hero-subtext">
-            Citefi blends Gemini and GPT-4 in a 4-stage pipeline that injects real
+            Citefi runs best-in-class AI models through a 4-stage pipeline that injects real
             ZIP-code intelligence, neighborhood context, and E-E-A-T signals into every article —
             so your content ranks where generic AI tools can&apos;t.
           </p>
@@ -335,7 +335,7 @@ export default function MarketingPage() {
                 icon: BarChart3,
                 title: "Title Pool Generation",
                 description:
-                  "Gemini generates 50 location-optimized, answer-first SEO titles using smart topic research and Jaccard uniqueness scoring to avoid competitor duplication.",
+                  "AI generates 50 location-optimized, answer-first SEO titles using smart topic research and Jaccard uniqueness scoring to avoid competitor duplication.",
                 color: "bg-blue-500/10 border-blue-500/20",
                 testId: "pipeline-step-1",
               },
@@ -344,25 +344,25 @@ export default function MarketingPage() {
                 icon: FileText,
                 title: "Content & Image Generation",
                 description:
-                  "Gemini produces 800–2000 word articles integrating deep local intelligence: ZIP codes, neighborhood entities, local regulations, and authority sources.",
+                  "AI produces 800–2000 word articles integrating deep local intelligence: ZIP codes, neighborhood entities, local regulations, and authority sources.",
                 color: "bg-indigo-500/10 border-indigo-500/20",
                 testId: "pipeline-step-2",
               },
               {
                 step: "03",
                 icon: MessageSquare,
-                title: "ChatGPT Review & Enrichment",
+                title: "AI Review & Enrichment",
                 description:
-                  "GPT-4o-mini performs SEO analysis, hashtag generation, social snippets, advanced content validation, and E-E-A-T scoring across every article.",
+                  "A dedicated AI reviewer performs SEO analysis, hashtag generation, social snippets, advanced content validation, and E-E-A-T scoring across every article.",
                 color: "bg-purple-500/10 border-purple-500/20",
                 testId: "pipeline-step-3",
               },
               {
                 step: "04",
                 icon: Code2,
-                title: "GPT-4 Enhancement & Schema",
+                title: "AI Enhancement & Schema",
                 description:
-                  "GPT-4 applies GEO-optimized hyperlinking, embeds comprehensive JSON-LD schema markup, and finalizes with semantic HTML ready for publishing.",
+                  "AI applies GEO-optimized hyperlinking, embeds comprehensive JSON-LD schema markup, and finalizes with semantic HTML ready for publishing.",
                 color: "bg-fuchsia-500/10 border-fuchsia-500/20",
                 testId: "pipeline-step-4",
               },

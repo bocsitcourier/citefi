@@ -132,7 +132,7 @@ export default function PrivacyPage() {
                 <ul className="list-disc pl-6 mt-2 space-y-1">
                   <li><strong>Payment processing:</strong> Stripe, Inc.</li>
                   <li><strong>Cloud infrastructure and storage:</strong> Replit, Inc.; Neon Inc.</li>
-                  <li><strong>AI / large language model providers:</strong> Google LLC (Gemini); OpenAI, Inc. (GPT-4, DALL-E, TTS).</li>
+                  <li><strong>AI / large language model providers:</strong> Leading AI model providers supplying large language models, image generation, and text-to-speech services. We automatically use the latest available model versions from these providers.</li>
                 </ul>
               </div>
               <p><strong>b) At Your Direction.</strong> When you connect or instruct us to publish to or retrieve from a third-party service, we share information with that service as needed to perform the action you authorized.</p>
