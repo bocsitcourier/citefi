@@ -5,7 +5,7 @@
 
 import { db } from "@/lib/db";
 import { spendingCaps, usageEvents, teams, teamMembers, users } from "@/shared/schema";
-import { eq, and, gte, sum, inArray } from "drizzle-orm";
+import { eq, and, gte, sum, inArray, isNull, ne, or } from "drizzle-orm";
 import { deliverEmail } from "@/lib/email";
 
 export type UsageAction = "article_generation" | "social_post" | "podcast" | "video" | "title_pool";
@@ -128,16 +128,21 @@ export async function recordUsageEvent(opts: {
 async function maybeSendAlert(teamId: number, status: CapStatus, projectedPct: number): Promise<void> {
   if (projectedPct < status.alertThresholdPct) return;
 
-  const [cap] = await db.select().from(spendingCaps).where(eq(spendingCaps.teamId, teamId)).limit(1);
-  if (!cap) return;
-
   const periodKey = currentPeriodKey();
-  if (cap.lastAlertPeriodKey === periodKey) return;
 
-  await db
+  // Atomic dedup: conditional UPDATE only succeeds if we haven't sent an alert this period.
+  // Two concurrent requests can both read cap.lastAlertPeriodKey !== periodKey, but only
+  // the first UPDATE to match the WHERE clause will return a row — the second gets 0 rows.
+  const updated = await db
     .update(spendingCaps)
     .set({ lastAlertPeriodKey: periodKey, lastAlertSentAt: new Date() })
-    .where(eq(spendingCaps.teamId, teamId));
+    .where(and(
+      eq(spendingCaps.teamId, teamId),
+      or(isNull(spendingCaps.lastAlertPeriodKey), ne(spendingCaps.lastAlertPeriodKey, periodKey))
+    ))
+    .returning({ id: spendingCaps.id });
+
+  if (!updated.length) return; // Already sent this period (another concurrent request won the race)
 
   const [team] = await db.select({ name: teams.name }).from(teams).where(eq(teams.id, teamId)).limit(1);
   const admins = await db

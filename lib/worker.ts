@@ -1397,6 +1397,18 @@ export async function registerWorkers() {
               `Marking job failed so pg-boss retries the debit. Content was generated successfully.`
             );
           }
+
+          // Record usage event — populates the spending cap meter.
+          // costEstimateCents uses credits as a cent proxy (1 credit ≈ $0.01).
+          const { recordUsageEvent } = await import("@/lib/usage-caps");
+          await recordUsageEvent({
+            teamId: articleTeamId,
+            action: "article_generation",
+            units: 1,
+            costEstimateCents: articleCreditCost,
+            jobId: String(job.id),
+            metadata: { articleId, batchId },
+          }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
         }
 
         // Check if all articles in batch are complete

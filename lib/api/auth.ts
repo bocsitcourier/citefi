@@ -528,6 +528,9 @@ export function requireTeamResource(resourceTeamId: number, authTeamId: number):
  * requireClientReviewer — allows admin | member | client_viewer roles.
  * Use on read-only review routes that client viewers should access.
  * Returns userId, teamId, and the member's role.
+ *
+ * Mirrors requireTeamMember's teamContextId logic so multi-team users
+ * always resolve to the session's active team rather than a random row.
  */
 export async function requireClientReviewer(req: NextRequest): Promise<{ userId: number; teamId: number; role: string }> {
   const authResult = await verifyTokenFromRequestImpl(req);
@@ -541,10 +544,49 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
   if (!user) { const e: any = new Error("User not found"); e.statusCode = 404; throw e; }
   if (user.accountStatus !== "active") { const e: any = new Error("Account is not active"); e.statusCode = 401; throw e; }
 
+  const ALLOWED = ["admin", "member", "client_viewer"];
+
+  if (authResult.teamContextId) {
+    // Validate membership against the session's explicit team context
+    const [directMembership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
+      .limit(1);
+
+    if (directMembership && ALLOWED.includes(directMembership.role)) {
+      return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
+    }
+
+    // Agency-admin inheritance: user is admin of the client team's parent
+    const [targetTeam] = await db
+      .select({ parentTeamId: teams.parentTeamId })
+      .from(teams)
+      .where(and(eq(teams.id, authResult.teamContextId), isNull(teams.deletedAt)))
+      .limit(1);
+
+    if (targetTeam?.parentTeamId) {
+      const [agencyMembership] = await db
+        .select({ role: teamMembers.role })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
+        .limit(1);
+
+      if (agencyMembership?.role === "admin") {
+        return { userId: user.id, teamId: authResult.teamContextId, role: "admin" };
+      }
+    }
+
+    // teamContextId set but no valid membership — hard-fail, never fall through
+    const e: any = new Error("Access denied: team context is no longer authorized");
+    e.statusCode = 403;
+    throw e;
+  }
+
+  // No explicit context — fall back to first membership, but only if role is allowed
   const [membership] = await db.select().from(teamMembers).where(eq(teamMembers.userId, user.id)).limit(1);
   if (!membership) { const e: any = new Error("Not a team member"); e.statusCode = 403; throw e; }
 
-  const ALLOWED = ["admin", "member", "client_viewer"];
   if (!ALLOWED.includes(membership.role)) {
     const e: any = new Error("Access denied");
     e.statusCode = 403;

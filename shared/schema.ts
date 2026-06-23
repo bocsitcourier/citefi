@@ -297,7 +297,7 @@ export const articles = pgTable("articles", {
   // Client approval workflow — set by agency; reviewed by client_viewer or team admin
   // Scoped per client team: approvalTeamId is the client sub-team reviewing this article
   approvalStatus: varchar("approval_status", { length: 30 }).default("draft"), // draft | in_review | approved | changes_requested
-  approvalTeamId: integer("approval_team_id").references(() => teams.id),
+  approvalTeamId: integer("approval_team_id").references(() => teams.id, { onDelete: "set null" }),
   approvalRequestedAt: timestamp("approval_requested_at"),
   approvalReviewedAt: timestamp("approval_reviewed_at"),
   approvalReviewedBy: integer("approval_reviewed_by").references((): AnyPgColumn => users.id),

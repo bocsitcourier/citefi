@@ -5,7 +5,7 @@ description: Approval workflow columns, spending cap enforcement, usage events, 
 
 # Content Approval Workflow (T104)
 - Approval columns live directly on `articles` table (not a separate table): `approvalStatus` (draft|in_review|approved|changes_requested), `approvalTeamId`, `approvalRequestedAt`, `approvalReviewedAt`, `approvalReviewedBy`, `approvalFeedback`.
-- `approvalTeamId` scopes the review to a specific client sub-team.
+- `approvalTeamId` scopes the review to a specific client sub-team. Has `onDelete:"set null"` — deleting a client sub-team nullifies the field instead of cascading deletes.
 - `requireClientReviewer()` in `lib/api/auth.ts` allows admin|member|client_viewer roles.
 - `requireContentEditor()` blocks client_viewer — use on write routes.
 - POST `/api/content/[id]/approve` — sets status, logs to activityLogs.
@@ -21,6 +21,9 @@ description: Approval workflow columns, spending cap enforcement, usage events, 
 - Alert email uses `deliverEmail()` from `lib/email.ts` — this function was previously private; it was exported to enable this.
 
 **Why:** Pre-enqueue cap check prevents wasted pg-boss job slots. Hard stop is opt-in so teams aren't blocked without consent.
+
+## Alert dedup is atomic (MEDIUM fix)
+`maybeSendAlert()` uses a conditional `UPDATE … WHERE lastAlertPeriodKey IS NULL OR lastAlertPeriodKey != periodKey RETURNING id` — if `RETURNING` yields 0 rows, another concurrent request already sent the alert this period and we skip. Eliminates the read-then-write race where two concurrent requests could both "win" the check before either wrote the period key.
 
 # Account Data Export (T108)
 - POST `/api/account/export` — rate-limited 3/hr via `rateLimitDb()` from `lib/db-rate-limit.ts` (NOT `lib/rate-limit.ts`).

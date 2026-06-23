@@ -109,16 +109,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(paywallErrorBody(paywallCheck), { status: 402 });
     }
 
-    // Spending cap gate — throw 402 with SPENDING_CAP_EXCEEDED if hardStop is set and cap exceeded
-    try {
-      await checkUsageCap(teamId, 0);
-    } catch (capErr: any) {
-      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
-      return NextResponse.json(
-        { error: capErr.message, code: capErr.code ?? "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
-        { status: 402 }
-      );
-    }
+    // Spending cap gate is deferred to after creditCostPerUnit is resolved below,
+    // so we can pass the actual projected cost for the batch.
 
     // Intelligence onboarding gate — block first batch until Brand Intelligence is complete.
     // Teams with existing articles are assumed past onboarding and are not gated.
@@ -165,6 +157,18 @@ export async function POST(request: NextRequest) {
     // RESERVE credits — atomic two-bucket reserve; DEBIT fires per-article on success
     // Resolve per-article cost honoring DB overrides (team-specific → global → static default)
     const creditCostPerUnit = (await getEffectiveCreditCost("article", teamId)) ?? getCreditCost("article") ?? 10;
+
+    // Spending cap gate — checked here so we can pass the real projected cost.
+    // Each credit unit ≈ 1 cent (proxy for API cost estimation).
+    try {
+      await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
+    } catch (capErr: any) {
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      return NextResponse.json(
+        { error: capErr.message, code: capErr.code ?? "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
+    }
 
     const creditRunId = `batch:${batchId}:${requestKey}`;
     const creditReserve = await reserveCredits({

@@ -40,9 +40,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (!article) return NextResponse.json({ error: "Article not found" }, { status: 404 });
 
-    // A client_viewer can only approve articles scoped to their own team
+    // A client_viewer can only act on articles explicitly scoped to their team via approvalTeamId.
+    // The article.teamId fallback is intentionally removed — a client_viewer must never
+    // be able to act just because they happen to belong to the content-owning team.
     if (role === "client_viewer") {
-      if (article.approvalTeamId !== teamId && article.teamId !== teamId) {
+      if (article.approvalTeamId !== teamId) {
         return NextResponse.json({ error: "Article not found" }, { status: 404 });
       }
     } else {
