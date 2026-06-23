@@ -104,6 +104,8 @@ export const PUBLIC_ROUTES = [
   "/accept-invite",
   "/embed",
   "/pricing",
+  "/privacy",
+  "/terms",
   "/",
 ];
 

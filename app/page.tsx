@@ -791,8 +791,8 @@ export default function MarketingPage() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 text-xs text-muted-foreground">
             <span data-testid="footer-copyright">&copy; {new Date().getFullYear()} Citefi. All rights reserved.</span>
             <div className="flex items-center gap-4 flex-wrap justify-center">
-              <span className="cursor-not-allowed opacity-50" data-testid="footer-privacy">Privacy Policy</span>
-              <span className="cursor-not-allowed opacity-50" data-testid="footer-terms">Terms of Service</span>
+              <Link href="/privacy" className="hover:text-foreground transition-colors" data-testid="footer-privacy">Privacy Policy</Link>
+              <Link href="/terms" className="hover:text-foreground transition-colors" data-testid="footer-terms">Terms of Use</Link>
             </div>
           </div>
         </div>
