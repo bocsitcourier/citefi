@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches, articles, jobEvents, users } from "@/shared/schema";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
+import { count } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
@@ -12,6 +13,10 @@ export async function GET(request: NextRequest) {
     const [totalBatches] = await db.select({ count: sql<string>`count(*)::text` }).from(jobBatches);
     const [totalArticles] = await db.select({ count: sql<string>`count(*)::text` }).from(articles);
     const [totalUsers] = await db.select({ count: sql<string>`count(*)::text` }).from(users);
+    const [pendingApprovalsResult] = await db
+      .select({ count: count() })
+      .from(users)
+      .where(eq(users.accountStatus, "pending_approval"));
 
     // Get status breakdown for batches
     const batchStatusCounts = await db
@@ -86,6 +91,7 @@ export async function GET(request: NextRequest) {
         totalArticles: parseInt(totalArticles?.count || "0"),
         totalUsers: parseInt(totalUsers?.count || "0"),
         unresolvedErrors: parseInt(unresolvedErrors[0]?.count || "0"),
+        pendingApprovals: pendingApprovalsResult?.count || 0,
       },
       batchStatus: batchStatusCounts.reduce((acc, item) => {
         acc[item.status] = parseInt(item.count);

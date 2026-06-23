@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, activityLogs } from "@/shared/schema";
+import { users, sessions, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
-import { sendAccountApprovedEmail } from "@/lib/email";
+import { sendAccountRejectedEmail } from "@/lib/email";
 
 export async function POST(
   req: NextRequest,
@@ -20,6 +20,9 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    const body = await req.json().catch(() => ({}));
+    const sendEmail: boolean = body.sendEmail !== false;
 
     const [adminUser] = await db
       .select({ email: users.email })
@@ -40,47 +43,63 @@ export async function POST(
       );
     }
 
+    if (user.accountStatus !== "pending_approval") {
+      return NextResponse.json(
+        { error: "User is not pending approval" },
+        { status: 400 }
+      );
+    }
+
     await db
       .update(users)
-      .set({
-        accountStatus: "active",
-        emailVerified: 1,
-      })
+      .set({ accountStatus: "suspended" })
       .where(eq(users.id, userId));
+
+    // Invalidate any existing sessions for the rejected user
+    await db
+      .update(sessions)
+      .set({
+        isActive: 0,
+        forceLogoutAt: new Date(),
+        terminationReason: "registration_rejected",
+      })
+      .where(eq(sessions.userId, userId));
 
     await db.insert(activityLogs).values({
       userId: adminUserId,
-      action: "user_approved",
+      action: "user_rejected",
       resource: "users",
       resourceId: userId,
       ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
       userAgent: req.headers.get("user-agent") || null,
-      details: { 
-        approvedEmail: user.email,
-        approvedBy: adminUser?.email || 'unknown',
+      details: {
+        rejectedEmail: user.email,
+        rejectedBy: adminUser?.email || "unknown",
         previousStatus: user.accountStatus,
+        emailSent: sendEmail,
       },
-      severity: "info",
+      severity: "warning",
     });
 
-    // Send approval email (best-effort — don't fail the request if email fails)
-    sendAccountApprovedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
-      console.error("Failed to send approval email:", err);
-    });
+    if (sendEmail) {
+      sendAccountRejectedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
+        console.error("Failed to send rejection email:", err);
+      });
+    }
 
     return NextResponse.json({
-      message: "User approved successfully",
+      message: "Registration rejected",
       user: {
         id: user.id,
         email: user.email,
-        accountStatus: "active",
+        accountStatus: "suspended",
       },
     });
   } catch (error: unknown) {
-    console.error("Approve user error:", error);
-    
+    console.error("Reject user error:", error);
+
     const message = error instanceof Error ? error.message : "";
-    
+
     if ((error as any).statusCode === 403 || message === "Admin access required") {
       return NextResponse.json(
         { error: "Admin access required" },
@@ -88,10 +107,12 @@ export async function POST(
       );
     }
 
-    if ((error as any).statusCode === 401 ||
-        message === "Authentication required" ||
-        message === "No authentication token provided" || 
-        message === "Invalid or expired token") {
+    if (
+      (error as any).statusCode === 401 ||
+      message === "Authentication required" ||
+      message === "No authentication token provided" ||
+      message === "Invalid or expired token"
+    ) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }

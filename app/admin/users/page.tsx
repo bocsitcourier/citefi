@@ -66,6 +66,7 @@ interface UserData {
   twoFactorEnforced: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  teamName: string | null;
 }
 
 interface InviteData {
@@ -94,6 +95,9 @@ export default function AdminUsersPage() {
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
   const [resetPasswordUrl, setResetPasswordUrl] = useState("");
   const [toggle2FADialogOpen, setToggle2FADialogOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectUser, setRejectUser] = useState<UserData | null>(null);
+  const [rejectSendEmail, setRejectSendEmail] = useState(true);
 
   const { data: users, isLoading } = useQuery<UserData[]>({
     queryKey: ["/api/admin/users"],
@@ -123,6 +127,31 @@ export default function AdminUsersPage() {
         variant: "destructive",
         title: "Approval failed",
         description: error.message || "Failed to approve user",
+      });
+    },
+  });
+
+  const rejectUserMutation = useMutation({
+    mutationFn: async ({ userId, sendEmail }: { userId: number; sendEmail: boolean }) => {
+      return apiRequest(`/api/admin/users/${userId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ sendEmail }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      setRejectDialogOpen(false);
+      setRejectUser(null);
+      toast({
+        title: "Registration rejected",
+        description: "The registration has been rejected.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Rejection failed",
+        description: error.message || "Failed to reject registration",
       });
     },
   });
@@ -571,23 +600,25 @@ export default function AdminUsersPage() {
       )}
 
       {/* Pending Approvals */}
-      {pendingUsers.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5" />
-              Pending Approvals
-              <Badge variant="secondary">{pendingUsers.length}</Badge>
-            </CardTitle>
-            <CardDescription>Review and approve new user registrations</CardDescription>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Pending Approvals
+            <Badge variant="secondary">{pendingUsers.length}</Badge>
+          </CardTitle>
+          <CardDescription>Review and approve new user registrations</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {pendingUsers.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No pending registrations</p>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Email</TableHead>
                   <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>Team</TableHead>
                   <TableHead>Registered</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -597,7 +628,7 @@ export default function AdminUsersPage() {
                   <TableRow key={u.id} data-testid={`row-pending-user-${u.id}`}>
                     <TableCell className="font-medium" data-testid={`text-email-${u.id}`}>{u.email}</TableCell>
                     <TableCell data-testid={`text-name-${u.id}`}>{u.fullName || "-"}</TableCell>
-                    <TableCell data-testid={`badge-role-${u.id}`}>{getRoleBadge(u.role)}</TableCell>
+                    <TableCell data-testid={`text-team-${u.id}`}>{u.teamName || "-"}</TableCell>
                     <TableCell data-testid={`text-created-${u.id}`}>
                       {new Date(u.createdAt).toLocaleDateString()}
                     </TableCell>
@@ -605,7 +636,7 @@ export default function AdminUsersPage() {
                       <Button
                         size="sm"
                         onClick={() => approveUserMutation.mutate(u.id)}
-                        disabled={approveUserMutation.isPending}
+                        disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
                         data-testid={`button-approve-${u.id}`}
                       >
                         {approveUserMutation.isPending ? (
@@ -621,30 +652,66 @@ export default function AdminUsersPage() {
                         size="sm"
                         variant="destructive"
                         onClick={() => {
-                          if (confirm(`Reject registration for ${u.email}? This will permanently delete their account.`)) {
-                            deleteUserMutation.mutate(u.id);
-                          }
+                          setRejectUser(u);
+                          setRejectSendEmail(true);
+                          setRejectDialogOpen(true);
                         }}
-                        disabled={deleteUserMutation.isPending}
+                        disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
                         data-testid={`button-reject-${u.id}`}
                       >
-                        {deleteUserMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <X className="h-4 w-4 mr-1" />
-                            Reject
-                          </>
-                        )}
+                        <X className="h-4 w-4 mr-1" />
+                        Reject
                       </Button>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Reject Registration Dialog */}
+      <AlertDialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject Registration</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reject the registration for <strong>{rejectUser?.email}</strong>? Their account will be suspended and they will not be able to log in.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-center gap-2 px-1 py-2">
+            <input
+              type="checkbox"
+              id="reject-send-email"
+              checked={rejectSendEmail}
+              onChange={(e) => setRejectSendEmail(e.target.checked)}
+              className="h-4 w-4"
+              data-testid="checkbox-reject-send-email"
+            />
+            <label htmlFor="reject-send-email" className="text-sm text-muted-foreground">
+              Notify the user by email
+            </label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-reject-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (rejectUser) {
+                  rejectUserMutation.mutate({ userId: rejectUser.id, sendEmail: rejectSendEmail });
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-reject-confirm"
+            >
+              {rejectUserMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+              ) : null}
+              Reject Registration
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Active Users */}
       <Card>

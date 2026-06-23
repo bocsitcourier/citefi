@@ -117,6 +117,71 @@ You will receive another email once your account has been approved and is ready 
 }
 
 /**
+ * Send an "your account has been approved" email to a user.
+ */
+export async function sendAccountApprovedEmail(opts: {
+  to: string;
+  fullName?: string | null;
+}): Promise<void> {
+  const name = escapeHtml(opts.fullName ?? "there");
+  const namePlain = opts.fullName ?? "there";
+
+  await deliverEmail({
+    to: opts.to,
+    subject: "Your ApexContent Engine account has been approved",
+    text: [
+      `Hi ${namePlain},`,
+      "",
+      "Great news — your ApexContent Engine account has been approved!",
+      "",
+      "You can now log in and start using the platform.",
+      "",
+      "— The ApexContent Engine Team",
+    ].join("\n"),
+    html: `
+<p>Hi ${name},</p>
+<p>Great news — your <strong>ApexContent Engine</strong> account has been <strong>approved</strong>!</p>
+<p>You can now log in and start using the platform.</p>
+<p>— The ApexContent Engine Team</p>
+    `.trim(),
+  });
+}
+
+/**
+ * Send an "your account registration was not approved" email to a user.
+ */
+export async function sendAccountRejectedEmail(opts: {
+  to: string;
+  fullName?: string | null;
+}): Promise<void> {
+  const name = escapeHtml(opts.fullName ?? "there");
+  const namePlain = opts.fullName ?? "there";
+
+  await deliverEmail({
+    to: opts.to,
+    subject: "Your ApexContent Engine account registration",
+    text: [
+      `Hi ${namePlain},`,
+      "",
+      "Thank you for your interest in ApexContent Engine.",
+      "",
+      "After reviewing your registration, we are unable to approve your account at this time.",
+      "",
+      "If you believe this is an error or have any questions, please contact our support team.",
+      "",
+      "— The ApexContent Engine Team",
+    ].join("\n"),
+    html: `
+<p>Hi ${name},</p>
+<p>Thank you for your interest in <strong>ApexContent Engine</strong>.</p>
+<p>After reviewing your registration, we are unable to approve your account at this time.</p>
+<p>If you believe this is an error or have any questions, please contact our support team.</p>
+<p>— The ApexContent Engine Team</p>
+    `.trim(),
+  });
+}
+
+/**
  * Send a new-signup notification to an admin user.
  */
 export async function sendNewSignupAdminNotification(opts: {
