@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, getTxDb } from '@/lib/db';
-import { userInvites, users, teamMembers } from '@/shared/schema';
-import { eq, and, gt } from 'drizzle-orm';
+import { userInvites, users, teamMembers, teams } from '@/shared/schema';
+import { eq, and, gt, count } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
+import { BILLING_PLANS } from '@/lib/billing/plans';
 
 export async function POST(
   req: NextRequest,
@@ -72,8 +73,38 @@ export async function POST(
       );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    // ── Seat limit enforcement (second gate at accept time) ────────────────
+    // Rechecks the limit to handle plan downgrades that occurred after the
+    // invite was created, or edge cases where multiple invites were in-flight.
     const teamId = invite.teamId ?? null;
+    if (teamId !== null) {
+      const [teamRow] = await db
+        .select({ billingPlan: teams.billingPlan })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+        .limit(1);
+
+      const planKey = (teamRow?.billingPlan ?? 'free') as keyof typeof BILLING_PLANS;
+      const plan = BILLING_PLANS[planKey] ?? BILLING_PLANS.free;
+      const maxSeats = plan.maxSeats;
+
+      if (maxSeats !== null) {
+        const [memberCountRow] = await db
+          .select({ n: count() })
+          .from(teamMembers)
+          .where(eq(teamMembers.teamId, teamId));
+
+        const currentMembers = memberCountRow?.n ?? 0;
+        if (currentMembers >= maxSeats) {
+          return NextResponse.json({
+            error: `This team has reached its seat limit (${maxSeats} seat${maxSeats !== 1 ? 's' : ''} on the ${plan.name} plan). Please contact the team admin.`,
+          }, { status: 402 });
+        }
+      }
+    }
+    // ── End seat limit enforcement ──────────────────────────────────────────
+
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const txDb = getTxDb();
     let newUser: typeof users.$inferSelect;

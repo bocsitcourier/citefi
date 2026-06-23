@@ -370,10 +370,26 @@ export class LearningService {
       };
     });
 
-    // Sort by weighted Thompson score desc; take top 8 slots.
-    const selected = scored
-      .sort((a, b) => b.thompsonScore - a.thompsonScore)
-      .slice(0, 8);
+    // Sort by weighted Thompson score desc.
+    const sortedScored = scored.sort((a, b) => b.thompsonScore - a.thompsonScore);
+
+    // Gate external unvalidated patterns to at most 1 exploration slot.
+    // External patterns seeded via competitive intelligence have
+    // validatedByOwnAudience=false and source='external'.  They must not fill
+    // the full exploitation pool before the team has observed their own
+    // performance — cap them to 1 slot in the top 8.
+    const EXTERNAL_EXPLORATION_CAP = 1;
+    let externalSlotsUsed = 0;
+    const selected = sortedScored.filter((s) => {
+      const isUnvalidatedExternal =
+        (s.pattern as any).source === "external" &&
+        (s.pattern as any).validatedByOwnAudience === false;
+      if (isUnvalidatedExternal) {
+        if (externalSlotsUsed >= EXTERNAL_EXPLORATION_CAP) return false;
+        externalSlotsUsed++;
+      }
+      return true;
+    }).slice(0, 8);
 
     let learnedPatterns: LearnedPattern[] = selected.map(s => ({
       id: s.pattern.id,

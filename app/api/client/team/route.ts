@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { teamMembers, users, userInvites } from "@/shared/schema";
-import { eq, and, isNull, gt } from "drizzle-orm";
+import { teamMembers, users, userInvites, teams } from "@/shared/schema";
+import { eq, and, isNull, gt, count } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
+import { BILLING_PLANS } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,6 +73,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Invalid input" }, { status: 400 });
     }
     const { email, role, message } = parsed.data;
+
+    // ── Seat limit enforcement ──────────────────────────────────────────────
+    // Count active members + pending unexpired invites against the plan's maxSeats.
+    // The check runs inside the same request so a concurrent invite cannot sneak
+    // past the limit (the DB unique constraint on active invites also helps).
+    const [teamRow] = await db
+      .select({ billingPlan: teams.billingPlan })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1);
+
+    const planKey = (teamRow?.billingPlan ?? "free") as keyof typeof BILLING_PLANS;
+    const plan = BILLING_PLANS[planKey] ?? BILLING_PLANS.free;
+    const maxSeats = plan.maxSeats;
+
+    if (maxSeats !== null) {
+      const [memberCountRow] = await db
+        .select({ n: count() })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, teamId));
+
+      const [inviteCountRow] = await db
+        .select({ n: count() })
+        .from(userInvites)
+        .where(and(
+          eq(userInvites.teamId, teamId),
+          eq(userInvites.status, "pending"),
+          gt(userInvites.expiresAt, new Date()),
+        ));
+
+      const currentTotal = (memberCountRow?.n ?? 0) + (inviteCountRow?.n ?? 0);
+      if (currentTotal >= maxSeats) {
+        return NextResponse.json({
+          error: `Your ${plan.name} plan allows up to ${maxSeats} seat${maxSeats !== 1 ? "s" : ""}. Remove a member or upgrade your plan to invite more people.`,
+        }, { status: 422 });
+      }
+    }
+    // ── End seat limit enforcement ──────────────────────────────────────────
 
     // Check if user is already a team member
     const [existingMember] = await db

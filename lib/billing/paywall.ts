@@ -86,9 +86,23 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
     return { allowed: true, planId, billingStatus, creditBalance };
   }
 
-  // Zero credits: check plan
+  // Zero credits: check plan status
+  // BLOCK: payment failed states with no credits remaining.
+  // Stripe dunning does not prevent enforcement — teams must resolve payment
+  // or purchase a top-up to continue generating.
+  const isPaymentFailed = ["past_due", "unpaid", "incomplete_expired"].includes(billingStatus);
+  if (isPaymentFailed) {
+    return {
+      allowed: false,
+      planId,
+      billingStatus,
+      creditBalance,
+      reason: "Your payment is past due. Please update your payment method to continue generating content.",
+    };
+  }
+
   const hasActivePaidPlan =
-    planId !== "free" && ["active", "trialing", "past_due"].includes(billingStatus);
+    planId !== "free" && ["active", "trialing"].includes(billingStatus);
 
   if (hasActivePaidPlan) {
     // Paid subscriber with 0 credits: let debitCredits() return the 402

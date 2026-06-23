@@ -106,26 +106,42 @@ export async function POST(req: NextRequest) {
           const priceId = sub.items.data[0]?.price?.id;
           const plan = priceId ? getPlanByStripePriceId(priceId) : null;
 
+          if (!plan) {
+            // Fail closed: unknown Stripe price — preserve existing plan, do not downgrade.
+            // Log for manual review and leave team in current billing state.
+            console.error(
+              `[billing/webhook] checkout.session.completed: unrecognised priceId="${priceId}" ` +
+              `for session ${session.id} team ${teamId}. Preserving existing plan — manual review required.`
+            );
+            await db.update(teams).set({
+              stripeSubscriptionId: subId,
+              stripePriceId: priceId ?? null,
+              billingStatus: sub.status,
+              currentPeriodEnd: new Date(sub.current_period_end * 1000),
+              cancelAtPeriodEnd: sub.cancel_at_period_end,
+              updatedAt: new Date(),
+            }).where(eq(teams.id, teamId));
+            break;
+          }
+
           await db.update(teams).set({
             stripeSubscriptionId: subId,
             stripePriceId: priceId ?? null,
-            billingPlan: plan?.id ?? "free",
+            billingPlan: plan.id,
             billingStatus: sub.status,
             currentPeriodEnd: new Date(sub.current_period_end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             updatedAt: new Date(),
           }).where(eq(teams.id, teamId));
 
-          if (plan) {
-            await grantAllowance({
-              teamId,
-              amount: plan.monthlyCredits,
-              periodStart: new Date(sub.current_period_start * 1000),
-              periodEnd: new Date(sub.current_period_end * 1000),
-              idempotencyKey: `checkout-grant-${session.id}`,
-              reason: `Plan activated: ${plan.name} (${plan.monthlyCredits} credits)`,
-            });
-          }
+          await grantAllowance({
+            teamId,
+            amount: plan.monthlyCredits,
+            periodStart: new Date(sub.current_period_start * 1000),
+            periodEnd: new Date(sub.current_period_end * 1000),
+            idempotencyKey: `checkout-grant-${session.id}`,
+            reason: `Plan activated: ${plan.name} (${plan.monthlyCredits} credits)`,
+          });
         } else if (session.mode === "payment") {
           const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
             limit: 5,
@@ -233,17 +249,33 @@ export async function POST(req: NextRequest) {
         const priceId = sub.items.data[0]?.price?.id;
         const plan = priceId ? getPlanByStripePriceId(priceId) : null;
 
-        await db.update(teams).set({
-          billingStatus: sub.status,
-          billingPlan: plan?.id ?? "free",
-          stripePriceId: priceId ?? null,
-          stripeSubscriptionId: sub.id,
-          currentPeriodEnd: new Date(sub.current_period_end * 1000),
-          cancelAtPeriodEnd: sub.cancel_at_period_end,
-          updatedAt: new Date(),
-        }).where(eq(teams.id, teamId));
+        if (!plan) {
+          // Fail closed: unknown price on subscription update — preserve existing billingPlan.
+          console.error(
+            `[billing/webhook] customer.subscription.updated: unrecognised priceId="${priceId}" ` +
+            `for subscription ${sub.id} team ${teamId}. Preserving existing plan — manual review required.`
+          );
+          await db.update(teams).set({
+            billingStatus: sub.status,
+            stripePriceId: priceId ?? null,
+            stripeSubscriptionId: sub.id,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            updatedAt: new Date(),
+          }).where(eq(teams.id, teamId));
+        } else {
+          await db.update(teams).set({
+            billingStatus: sub.status,
+            billingPlan: plan.id,
+            stripePriceId: priceId ?? null,
+            stripeSubscriptionId: sub.id,
+            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            cancelAtPeriodEnd: sub.cancel_at_period_end,
+            updatedAt: new Date(),
+          }).where(eq(teams.id, teamId));
+        }
 
-        console.log(`[billing/webhook] Team ${teamId} subscription updated: plan=${plan?.id ?? "unknown"} status=${sub.status}`);
+        console.log(`[billing/webhook] Team ${teamId} subscription updated: plan=${plan?.id ?? "preserved"} status=${sub.status}`);
         break;
       }
 

@@ -11,6 +11,8 @@ export interface BillingPlan {
   oneTime?: boolean;
   /** If true, this plan is managed manually (sales-assisted) and not purchasable via self-serve checkout */
   salesAssisted?: boolean;
+  /** Maximum number of team seats (members + pending invites). null = unlimited */
+  maxSeats: number | null;
 }
 
 export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
@@ -21,6 +23,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     priceUsd: 0,
     stripePriceEnvKey: "",
     oneTime: true,
+    maxSeats: 1,
     features: [
       "30 one-time credits",
       "Article generation",
@@ -35,6 +38,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     priceUsd: 29,
     stripePriceEnvKey: "STRIPE_PRICE_STARTER",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_STARTER_ANNUAL",
+    maxSeats: 3,
     features: [
       "50 credits per month",
       "Everything in Free",
@@ -50,6 +54,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     priceUsd: 89,
     stripePriceEnvKey: "STRIPE_PRICE_GROWTH",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_GROWTH_ANNUAL",
+    maxSeats: 10,
     features: [
       "200 credits per month",
       "Everything in Starter",
@@ -66,6 +71,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     priceUsd: 249,
     stripePriceEnvKey: "STRIPE_PRICE_AGENCY",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_AGENCY_ANNUAL",
+    maxSeats: 25,
     features: [
       "1,000 credits per month",
       "Everything in Growth",
@@ -85,6 +91,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripePriceEnvKey: "STRIPE_PRICE_ENTERPRISE",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_ENTERPRISE_ANNUAL",
     salesAssisted: true,
+    maxSeats: null,
     features: [
       "5,000 credits per month",
       "Everything in Agency",

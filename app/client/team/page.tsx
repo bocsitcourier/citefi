@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Users, MailOpen, Clock, UserMinus, Send, Copy } from "lucide-react";
+import { Loader2, Users, MailOpen, Clock, UserMinus, Send, Copy, X } from "lucide-react";
 
 interface TeamMember {
   memberId: number;
@@ -76,6 +76,7 @@ export default function TeamPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [removeTarget, setRemoveTarget] = useState<TeamMember | null>(null);
+  const [cancelInviteTarget, setCancelInviteTarget] = useState<PendingInvite | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<TeamData>({
@@ -119,6 +120,20 @@ export default function TeamPage() {
     onError: (err: Error) => {
       toast({ title: "Remove failed", description: err.message, variant: "destructive" });
       setRemoveTarget(null);
+    },
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (inviteId: number) =>
+      apiRequest(`/api/client/team/invite/${inviteId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast({ title: "Invite cancelled" });
+      setCancelInviteTarget(null);
+      qc.invalidateQueries({ queryKey: ["/api/client/team"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Cancel failed", description: err.message, variant: "destructive" });
+      setCancelInviteTarget(null);
     },
   });
 
@@ -332,6 +347,7 @@ export default function TeamPage() {
                   <TableHead>Email</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden sm:table-cell text-right">Expires</TableHead>
+                  {isAdmin && <TableHead className="w-12" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -347,6 +363,18 @@ export default function TeamPage() {
                     <TableCell className="hidden sm:table-cell text-right text-xs text-muted-foreground">
                       {invite.expiresAt ? relativeTime(invite.expiresAt) + " left" : "—"}
                     </TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setCancelInviteTarget(invite)}
+                          data-testid={`button-cancel-invite-${invite.id}`}
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -354,6 +382,36 @@ export default function TeamPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Cancel invite confirmation */}
+      <AlertDialog open={!!cancelInviteTarget} onOpenChange={(open) => { if (!open) setCancelInviteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel invite?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelInviteTarget && (
+                <>
+                  The invite for <strong>{cancelInviteTarget.email}</strong> will be cancelled immediately.
+                  They will no longer be able to use the invite link.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-invite-dismiss">Keep invite</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => cancelInviteTarget && cancelInviteMutation.mutate(cancelInviteTarget.id)}
+              disabled={cancelInviteMutation.isPending}
+              data-testid="button-confirm-cancel-invite"
+            >
+              {cancelInviteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : null}
+              Cancel invite
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Remove member confirmation */}
       <AlertDialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
