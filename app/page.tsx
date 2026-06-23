@@ -75,6 +75,7 @@ export default function MarketingPage() {
               { label: "Use Cases", id: "use-cases" },
               { label: "How It Works", id: "pipeline" },
               { label: "Pricing", id: "pricing" },
+              { label: "FAQ", id: "faq" },
             ].map((item) => (
               <a
                 key={item.id}
@@ -123,6 +124,7 @@ export default function MarketingPage() {
               { label: "Use Cases", id: "use-cases" },
               { label: "How It Works", id: "pipeline" },
               { label: "Pricing", id: "pricing" },
+              { label: "FAQ", id: "faq" },
             ].map((item) => (
               <a
                 key={item.id}
@@ -153,6 +155,7 @@ export default function MarketingPage() {
         )}
       </header>
 
+      <main>
       {/* ── HERO ───────────────────────────────────────────────────────── */}
       <section
         className="relative min-h-screen flex items-center justify-center text-center px-6 pt-16 bg-white"
@@ -797,6 +800,59 @@ export default function MarketingPage() {
         </div>
       </section>
 
+      {/* ── FAQ ─────────────────────────────────────────────────────────── */}
+      <section id="faq" className="py-24 px-6 bg-muted/40" data-testid="section-faq">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-16 space-y-4">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">FAQ</div>
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Frequently asked questions</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-base">
+              Everything you need to know about Citefi and AI-powered local SEO content.
+            </p>
+          </div>
+
+          <div className="border border-border rounded-md divide-y divide-border" data-testid="faq-list">
+            {[
+              {
+                q: "What is Citefi?",
+                a: "Citefi is an AI-powered local SEO content platform that generates ZIP-code-level articles, social posts, videos, and podcasts through a 4-stage dual-AI pipeline. Every piece of content is injected with real neighborhood context, local regulations, and E-E-A-T signals — at batch scale.",
+                id: "faq-what-is-citefi",
+              },
+              {
+                q: "How does the 4-stage AI pipeline work?",
+                a: "The pipeline runs four sequential stages: (1) Title Pool Generation — AI creates 50 location-optimized, answer-first SEO titles with Jaccard uniqueness scoring; (2) Content & Image Generation — articles are written with deep local intelligence including ZIP codes, neighborhood entities, and local regulations; (3) AI Review & Enrichment — a dedicated reviewer applies SEO analysis and E-E-A-T scoring; (4) AI Enhancement & Schema — JSON-LD schema markup is embedded and GEO-optimized hyperlinking is applied before publishing.",
+                id: "faq-pipeline",
+              },
+              {
+                q: "How much does Citefi cost?",
+                a: "Citefi starts at $99/month for the Starter plan, which includes 1 workspace and 50 articles per batch with the full 4-stage pipeline. The Growth plan starts at $299/month for up to 10 client workspaces and includes AI videos and podcasts. Enterprise Agency plans are custom-priced for organizations with 50+ client accounts.",
+                id: "faq-pricing",
+              },
+              {
+                q: "What makes Citefi different from ChatGPT or other AI writing tools?",
+                a: "Generic AI tools write content for 'any city' without location-specific data. Citefi integrates actual ZIP codes, surrounding neighborhoods, local regulations from city authorities, and named local entities — sources that ChatGPT, Jasper, and similar tools never access. Combined with an anti-hallucination framework and multi-gate E-E-A-T validation, every article is verifiably accurate and locally specific.",
+                id: "faq-difference",
+              },
+              {
+                q: "Can Citefi publish directly to my website and social media?",
+                a: "Yes. Citefi includes a multi-channel publishing pipeline that posts directly to Facebook, LinkedIn, and TikTok via OAuth. The @citefi/receiver npm package can be installed on any website to automatically publish articles with locally-hosted images and JSON-LD schema. Content publishes on a schedule or on-demand.",
+                id: "faq-publishing",
+              },
+              {
+                q: "What types of content does Citefi generate from a single batch?",
+                a: "From a single content batch, Citefi generates: SEO articles (800–2,000 words each) with local intelligence and schema markup; platform-optimized social posts for Facebook, LinkedIn, and TikTok; 60-second AI marketing videos with cinematic images and TTS narration; and two-voice AI podcast episodes summarizing each article.",
+                id: "faq-content-types",
+              },
+            ].map((item) => (
+              <div key={item.id} className="px-6 py-5" data-testid={item.id}>
+                <h3 className="text-sm font-semibold text-foreground mb-2">{item.q}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── CTA BAND ───────────────────────────────────────────────────── */}
       <section
         className="py-20 px-6 text-center bg-slate-950"
@@ -828,6 +884,8 @@ export default function MarketingPage() {
           </div>
         </div>
       </section>
+
+      </main>
 
       {/* ── FOOTER ─────────────────────────────────────────────────────── */}
       <footer className="bg-background border-t border-border px-6 py-12" data-testid="section-footer">
@@ -902,77 +960,152 @@ export default function MarketingPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify([
-            {
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              name: "Citefi",
-              url: "https://citefi.co",
-              logo: "https://citefi.co/icon.png",
-              contactPoint: {
-                "@type": "ContactPoint",
-                email: "info@citefi.co",
-                contactType: "customer support",
-              },
-              address: {
-                "@type": "PostalAddress",
-                streetAddress: "3 Cabot Pl",
-                addressLocality: "Stoughton",
-                addressRegion: "MA",
-                postalCode: "02072",
-                addressCountry: "US",
-              },
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "Citefi",
+            url: "https://citefi.co",
+            logo: "https://citefi.co/icon.png",
+            contactPoint: {
+              "@type": "ContactPoint",
+              email: "info@citefi.co",
+              contactType: "customer support",
             },
-            {
-              "@context": "https://schema.org",
-              "@type": "SoftwareApplication",
-              name: "Citefi",
-              url: "https://citefi.co",
-              applicationCategory: "BusinessApplication",
-              operatingSystem: "Web",
-              description:
-                "AI-powered local SEO content engine that generates ZIP-code-level articles, social posts, videos, and podcasts through a 4-stage dual-AI pipeline with E-E-A-T signals and anti-hallucination validation.",
-              offers: [
-                {
-                  "@type": "Offer",
-                  name: "Starter",
+            address: {
+              "@type": "PostalAddress",
+              streetAddress: "3 Cabot Pl",
+              addressLocality: "Stoughton",
+              addressRegion: "MA",
+              postalCode: "02072",
+              addressCountry: "US",
+            },
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            name: "Citefi",
+            url: "https://citefi.co",
+            applicationCategory: "BusinessApplication",
+            operatingSystem: "Web",
+            description:
+              "AI-powered local SEO content engine that generates ZIP-code-level articles, social posts, videos, and podcasts through a 4-stage dual-AI pipeline with E-E-A-T signals and anti-hallucination validation.",
+            offers: [
+              {
+                "@type": "Offer",
+                name: "Starter",
+                price: "99",
+                priceCurrency: "USD",
+                priceSpecification: {
+                  "@type": "UnitPriceSpecification",
                   price: "99",
                   priceCurrency: "USD",
-                  priceSpecification: {
-                    "@type": "UnitPriceSpecification",
-                    price: "99",
-                    priceCurrency: "USD",
-                    unitText: "MONTH",
-                  },
+                  unitText: "MONTH",
                 },
-                {
-                  "@type": "Offer",
-                  name: "Growth",
+              },
+              {
+                "@type": "Offer",
+                name: "Growth",
+                price: "299",
+                priceCurrency: "USD",
+                priceSpecification: {
+                  "@type": "UnitPriceSpecification",
                   price: "299",
                   priceCurrency: "USD",
-                  priceSpecification: {
-                    "@type": "UnitPriceSpecification",
-                    price: "299",
-                    priceCurrency: "USD",
-                    unitText: "MONTH",
-                  },
+                  unitText: "MONTH",
                 },
-              ],
-              aggregateRating: {
-                "@type": "AggregateRating",
-                ratingValue: "5",
-                reviewCount: "6",
-                bestRating: "5",
-                worstRating: "1",
               },
+            ],
+            aggregateRating: {
+              "@type": "AggregateRating",
+              ratingValue: "5",
+              reviewCount: "6",
+              bestRating: "5",
+              worstRating: "1",
             },
-            {
-              "@context": "https://schema.org",
-              "@type": "WebSite",
-              name: "Citefi",
-              url: "https://citefi.co",
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "Citefi",
+            url: "https://citefi.co",
+            potentialAction: {
+              "@type": "SearchAction",
+              target: {
+                "@type": "EntryPoint",
+                urlTemplate: "https://citefi.co/?s={search_term_string}",
+              },
+              "query-input": "required name=search_term_string",
             },
-          ]),
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+              {
+                "@type": "Question",
+                name: "What is Citefi?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Citefi is an AI-powered local SEO content platform that generates ZIP-code-level articles, social posts, videos, and podcasts through a 4-stage dual-AI pipeline. Every piece of content is injected with real neighborhood context, local regulations, and E-E-A-T signals — at batch scale.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "How does the 4-stage AI pipeline work?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "The pipeline runs four sequential stages: (1) Title Pool Generation — AI creates 50 location-optimized, answer-first SEO titles with Jaccard uniqueness scoring; (2) Content & Image Generation — articles are written with deep local intelligence including ZIP codes, neighborhood entities, and local regulations; (3) AI Review & Enrichment — a dedicated reviewer applies SEO analysis and E-E-A-T scoring; (4) AI Enhancement & Schema — JSON-LD schema markup is embedded and GEO-optimized hyperlinking is applied before publishing.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "How much does Citefi cost?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Citefi starts at $99/month for the Starter plan, which includes 1 workspace and 50 articles per batch with the full 4-stage pipeline. The Growth plan starts at $299/month for up to 10 client workspaces and includes AI videos and podcasts. Enterprise Agency plans are custom-priced.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "What makes Citefi different from ChatGPT or other AI writing tools?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Generic AI tools write content without location-specific data. Citefi integrates actual ZIP codes, local regulations from city authorities, and named local entities — sources that ChatGPT and similar tools never access. Combined with an anti-hallucination framework and E-E-A-T validation, every article is verifiably accurate and locally specific.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "Can Citefi publish directly to my website and social media?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "Yes. Citefi includes a multi-channel publishing pipeline that posts directly to Facebook, LinkedIn, and TikTok via OAuth. The @citefi/receiver npm package can be installed on any website to automatically publish articles with locally-hosted images and JSON-LD schema.",
+                },
+              },
+              {
+                "@type": "Question",
+                name: "What types of content does Citefi generate from a single batch?",
+                acceptedAnswer: {
+                  "@type": "Answer",
+                  text: "From a single batch, Citefi generates: SEO articles (800–2,000 words each) with local intelligence and schema markup; platform-optimized social posts for Facebook, LinkedIn, and TikTok; 60-second AI marketing videos with cinematic images and TTS narration; and two-voice AI podcast episodes.",
+                },
+              },
+            ],
+          }),
         }}
       />
 

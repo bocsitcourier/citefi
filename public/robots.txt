@@ -1,0 +1,44 @@
+User-agent: *
+Allow: /
+
+# AI engine crawlers — explicitly allowed for citation indexing
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# Disallow authenticated app routes
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /home
+Disallow: /api/
+Disallow: /batches
+Disallow: /client
+Disallow: /client-dashboard
+Disallow: /content
+Disallow: /learning
+Disallow: /media
+Disallow: /monitoring
+Disallow: /personas
+Disallow: /settings
+Disallow: /seo-tools
+Disallow: /intelligence
+Disallow: /journeys
+Disallow: /agency
+Disallow: /accept-invite
+Disallow: /embed
+
+Sitemap: https://citefi.co/sitemap.xml
