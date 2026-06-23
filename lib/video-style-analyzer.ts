@@ -84,7 +84,7 @@ function isDirectVideoUrl(url: string): boolean {
 async function downloadImageToFile(imageUrl: string, outputPath: string): Promise<boolean> {
   try {
     const res = await fetch(imageUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentEngine/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)" },
       redirect: "follow",
     });
     if (!res.ok) return false;
@@ -143,7 +143,7 @@ async function getVimeoThumbnailFrames(videoId: string, outputDir: string): Prom
 
   const oembedUrl = `https://vimeo.com/api/v2/video/${videoId}.json`;
   const res = await fetch(oembedUrl, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentEngine/1.0)" },
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)" },
   });
 
   if (!res.ok) throw new Error(`Vimeo API returned ${res.status} for video ${videoId}`);
@@ -174,7 +174,7 @@ async function downloadVideo(url: string, outputDir: string): Promise<string> {
 
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; ApexContentEngine/1.0)",
+      "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)",
     },
     redirect: "follow",
   });

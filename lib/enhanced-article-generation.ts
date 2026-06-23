@@ -107,7 +107,7 @@ export async function generateEnhancedArticle(
         data: {
           title,
           meta_description: baseArticle.metaDescription,
-          author_name: "ApexContent Engine",
+          author_name: "Citefi",
           published_date: new Date().toISOString(),
           modified_date: new Date().toISOString(),
         },

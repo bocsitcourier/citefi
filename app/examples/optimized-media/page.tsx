@@ -203,7 +203,7 @@ export default function OptimizedMediaExamplesPage() {
                   keywords={["courier services", "same-day delivery", "Boston", "legal delivery"]}
                   duration="PT1M30S"
                   uploadDate="2024-01-15T00:00:00Z"
-                  author="ApexContent Engine"
+                  author="Citefi"
                   transcript="This video demonstrates professional courier services available in Boston. We provide same-day delivery for legal documents, medical supplies, and business packages throughout the greater Boston area..."
                   controls
                   includeSchema
@@ -283,7 +283,7 @@ export default function OptimizedMediaExamplesPage() {
                 keywords={["podcast", "business", "courier services", "Boston"]}
                 duration="PT15M30S"
                 uploadDate="2024-01-15T00:00:00Z"
-                author="ApexContent Engine"
+                author="Citefi"
                 podcastName="Local Business Insights"
                 episodeNumber={5}
                 seasonNumber={1}

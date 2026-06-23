@@ -231,7 +231,7 @@ async function safeFetchPageWithRedirects(
       res = await fetch(current, {
         signal: controller.signal,
         headers: {
-          "User-Agent": "ApexContentBot/1.0 (Brand Intelligence Analyzer)",
+          "User-Agent": "CitefiBot/1.0 (Brand Intelligence Analyzer)",
           "Accept": "text/html,application/xhtml+xml",
         },
         redirect: "manual", // never let the runtime follow redirects silently
@@ -556,7 +556,7 @@ async function fetchRedditPainPoints(businessType: string): Promise<string[]> {
       const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(q)}&sort=top&t=year&limit=8&type=link`;
       const res = await fetch(url, {
         signal: AbortSignal.timeout(8000),
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; ApexContentBot/1.0; +research)" },
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; CitefiBot/1.0; +research)" },
       });
       if (!res.ok) continue;
       const data = await res.json();

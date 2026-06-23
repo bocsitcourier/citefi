@@ -1,23 +1,23 @@
-# @apex/receiver
+# @citefi/receiver
 
-Content receiver package for ApexContent Engine. Receives articles, images, videos, and podcasts with full SEO preservation and stores them locally on your website.
+Content receiver package for Citefi. Receives articles, images, videos, and podcasts with full SEO preservation and stores them locally on your website.
 
 ## Features
 
 - **Full SEO Preservation**: Creates pages with proper slugs, meta titles, descriptions, keywords, JSON-LD schema, and Open Graph tags
 - **Dofollow Links**: All hyperlinks are preserved as dofollow
 - **Local Media Storage**: Downloads and stores all images, videos, and audio files locally
-- **HMAC Authentication**: Secure communication with ApexContent Engine
-- **Callback System**: Reports delivery status back to ApexContent Engine
+- **HMAC Authentication**: Secure communication with Citefi
+- **Callback System**: Reports delivery status back to Citefi
 
 ## Quick Start
 
 ### 1. Installation
 
 ```bash
-npm install @apex/receiver
+npm install @citefi/receiver
 # or
-yarn add @apex/receiver
+yarn add @citefi/receiver
 ```
 
 ### 2. Configuration
@@ -25,7 +25,7 @@ yarn add @apex/receiver
 Create a `.env` file:
 
 ```env
-APEX_API_KEY=your-api-key-from-apex-engine
+CITEFI_API_KEY=your-api-key-from-apex-engine
 APEX_ENGINE_URL=https://your-apex-engine.replit.app
 BASE_URL=https://yoursite.com
 PORT=3000
@@ -34,14 +34,14 @@ STORAGE_PATH=./uploads
 
 **Getting Your API Key:**
 
-1. Log in to ApexContent Engine
+1. Log in to Citefi
 2. Go to Settings → Publishing Connections
 3. Click "Add Connection" and select "Website"
 4. Enter your website URL and a name
 5. Copy the API key shown (it's only displayed once!)
-6. Paste the API key as APEX_API_KEY in your receiver's .env file
+6. Paste the API key as CITEFI_API_KEY in your receiver's .env file
 
-The API key is used for HMAC signature verification. Both ApexContent Engine and the receiver must have the same key to authenticate requests.
+The API key is used for HMAC signature verification. Both Citefi and the receiver must have the same key to authenticate requests.
 
 ### 3. Run the Server
 
@@ -63,22 +63,22 @@ npm start
 
 ```bash
 # Clone your repo
-git clone https://github.com/your-org/apex-receiver.git
-cd apex-receiver
+git clone https://github.com/your-org/citefi-receiver.git
+cd citefi-receiver
 
 # Create .env file
 cp .env.example .env
 nano .env  # Edit with your values
 
 # Build and run
-docker build -t apex-receiver .
+docker build -t citefi-receiver .
 docker run -d \
-  --name apex-receiver \
+  --name citefi-receiver \
   -p 3000:3000 \
   --env-file .env \
   -v $(pwd)/uploads:/app/uploads \
   -v $(pwd)/pages:/app/pages \
-  apex-receiver
+  citefi-receiver
 ```
 
 ### Option 3: PM2 (without Docker)
@@ -86,7 +86,7 @@ docker run -d \
 ```bash
 npm install
 npm run build
-pm2 start dist/bin/start.js --name apex-receiver
+pm2 start dist/bin/start.js --name citefi-receiver
 ```
 
 ## API Endpoints
@@ -95,14 +95,14 @@ pm2 start dist/bin/start.js --name apex-receiver
 ```
 GET /api/v1/status/ping
 ```
-No authentication required. Used by ApexContent Engine to verify receiver is online.
+No authentication required. Used by Citefi to verify receiver is online.
 
 ### Receive Article
 ```
 POST /api/v1/articles
 Headers:
-  X-Apex-Signature: <hmac-signature>
-  X-Apex-Timestamp: <unix-timestamp-ms>
+  X-Citefi-Signature: <hmac-signature>
+  X-Citefi-Timestamp: <unix-timestamp-ms>
 ```
 Creates an SEO-optimized HTML page with:
 - Meta title, description, keywords
@@ -158,7 +158,7 @@ location / {
 Use the receiver as a library and customize page generation:
 
 ```typescript
-import { createApp } from '@apex/receiver';
+import { createApp } from '@citefi/receiver';
 
 const app = createApp({
   enableCors: true,
@@ -182,8 +182,8 @@ app.listen(3000);
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| APEX_API_KEY | Yes | - | API key for authentication |
-| APEX_ENGINE_URL | Yes | - | URL of ApexContent Engine |
+| CITEFI_API_KEY | Yes | - | API key for authentication |
+| APEX_ENGINE_URL | Yes | - | URL of Citefi |
 | BASE_URL | Yes | - | Public URL of this website |
 | PORT | No | 3000 | Server port |
 | STORAGE_PATH | No | ./uploads | Media storage directory |

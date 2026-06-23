@@ -75,7 +75,7 @@ const TOP_UPS = [
 ];
 
 export const metadata = {
-  title: "Pricing — ApexContent Engine",
+  title: "Pricing — Citefi",
   description: "Simple, credit-based pricing. Generate SEO articles, podcasts, videos, and social posts. Pay only for what you use.",
 };
 

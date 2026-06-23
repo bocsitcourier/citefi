@@ -39,8 +39,8 @@ export function UpgradeModal() {
       setDetail(ce.detail ?? null);
       setOpen(true);
     }
-    window.addEventListener("apex:paywall", handlePaywall);
-    return () => window.removeEventListener("apex:paywall", handlePaywall);
+    window.addEventListener("citefi:paywall", handlePaywall);
+    return () => window.removeEventListener("citefi:paywall", handlePaywall);
   }, []);
 
   const checkoutMutation = useMutation({

@@ -288,7 +288,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       console.log(`[PUBLISH] sanitize slug=${article.slug} title="${titleSanitized.slice(0,80)}" metaTitle="${metaTitleSanitized.slice(0,80)}" metaDesc="${metaDescSanitized.slice(0,80)}..."`);
     }
 
-    // Beacon script wiring — tells the receiver to inject the ApexContent Engine
+    // Beacon script wiring — tells the receiver to inject the Citefi
     // engagement tracking beacon. Required for conversion attribution and learning
     // system feedback loop. All three fields must be set for injection to occur.
     const beaconEngineUrl = (
@@ -511,10 +511,10 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Apex-Signature': signature,
-          'X-Apex-Timestamp': timestamp,
+          'X-Citefi-Signature': signature,
+          'X-Citefi-Timestamp': timestamp,
           // Some receiver deployments check X-Api-Key directly (plain key) in addition
-          // to or instead of the HMAC X-Apex-Signature scheme.
+          // to or instead of the HMAC X-Citefi-Signature scheme.
           'X-Api-Key': apiKey,
         },
         body,

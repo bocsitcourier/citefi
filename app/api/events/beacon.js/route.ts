@@ -1,6 +1,6 @@
 /**
  * GET /api/events/beacon.js
- * Serves the ApexContent Engine engagement beacon script with correct
+ * Serves the Citefi engagement beacon script with correct
  * Content-Type: application/javascript so client sites can load it as:
  *   <script src="https://ENGINE_URL/api/events/beacon.js" ...></script>
  */

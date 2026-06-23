@@ -52,7 +52,7 @@ function runCheck(name: string, command: string, failOnWarning = false): CheckRe
 }
 
 console.log('═'.repeat(60));
-console.log('🔬 APEXCONTENT ENGINE - COMPREHENSIVE CHECK');
+console.log('🔬 CITEFI - COMPREHENSIVE CHECK');
 console.log('═'.repeat(60));
 
 results.push(runCheck(

@@ -303,14 +303,14 @@ export async function generateSchemaMarkup(params: {
         description: data.meta_description,
         author: {
           "@type": "Organization",
-          name: data.author_name || "ApexContent Engine",
+          name: data.author_name || "Citefi",
         },
         datePublished: data.published_date || new Date().toISOString(),
         dateModified: data.modified_date || new Date().toISOString(),
         image: data.image_url || "",
         publisher: {
           "@type": "Organization",
-          name: data.publisher_name || "ApexContent Engine",
+          name: data.publisher_name || "Citefi",
           logo: {
             "@type": "ImageObject",
             url: data.publisher_logo || "",

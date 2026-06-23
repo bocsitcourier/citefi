@@ -96,7 +96,7 @@ async function sendSlackNotification(params: LogErrorParams & { severity: Severi
     elements: [
       {
         type: "mrkdwn",
-        text: `ApexContent Engine • ${new Date().toISOString()}`,
+        text: `Citefi • ${new Date().toISOString()}`,
       },
     ],
   });

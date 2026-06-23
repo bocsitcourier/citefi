@@ -1,7 +1,7 @@
-# ApexContent Engine - Advanced Local SEO Powerhouse
+# Citefi - Advanced Local SEO Powerhouse
 
 ## Overview
-ApexContent Engine is a dual-AI SEO content generation platform specializing in scalable, high-quality, and SEO-optimized content, with a primary focus on local SEO. It integrates deep local intelligence (ZIP codes, neighborhoods, regulations, authority entities) and E-E-A-T signals into all generated content. The platform aims to provide a robust solution for businesses needing advanced local SEO content generation, ensuring content is location-based and answer-first optimized for AI citations.
+Citefi is a dual-AI SEO content generation platform specializing in scalable, high-quality, and SEO-optimized content, with a primary focus on local SEO. It integrates deep local intelligence (ZIP codes, neighborhoods, regulations, authority entities) and E-E-A-T signals into all generated content. The platform aims to provide a robust solution for businesses needing advanced local SEO content generation, ensuring content is location-based and answer-first optimized for AI citations.
 
 ## User Preferences
 - **Communication style:** Simple, everyday language
@@ -37,7 +37,7 @@ ApexContent Engine is a dual-AI SEO content generation platform specializing in 
 - **Article Shadow Run Pre-Flight System:** Before each Gemini call, a shadow run reads the last 50 error log entries, classifies them into failure patterns (brand-lock, structured-output, review-readiness, generation-discipline, format-discipline), and injects a mandatory pre-flight prompt section. This teaches the model to avoid repeating previous failures on every article generation. Results are logged as `ARTICLE_PREFLIGHT` events for observability.
 - **Psychographic Targeting System:** OCEAN-based content personalization using the Big Five Personality Model, audience personas, adaptive messaging, and behavioral learning. Fully integrated across all content generators (articles, social posts, video scripts, podcasts) - each accepts optional teamId/personaId and injects persona-specific messaging guidelines into AI prompts.
 - **Wisdom Pipeline:** 8-step cross-referencing system that forces AI to analyze persona data before generating content: Identity Check, Moral Foundation, Psychological Profile, Pain Point Injection, Motivation Alignment, Objection Pre-Handling, Emotional Anchor, Content Strategy.
-- **Content Publishing Pipeline:** Creates publishing jobs, enqueues them in pg-boss, and processes them to deliver to `@apex/receiver`. Supports articles, podcasts, and videos with inline image re-hosting. Auto-publish functionality is included.
+- **Content Publishing Pipeline:** Creates publishing jobs, enqueues them in pg-boss, and processes them to deliver to `@citefi/receiver`. Supports articles, podcasts, and videos with inline image re-hosting. Auto-publish functionality is included.
 - **Global Slug Map Hyperlink System:** A single source of truth for hyperlink injection, building a keyword-to-URL dictionary from crawled site pages or batch context terms. Uses Cheerio DOM for injection.
 - **Site Map Crawl & Contextual Hyperlinking:** Crawls client websites to index pages, then matches article topics to relevant pages for multi-URL hyperlinking.
 - **Reddit JSON API + Expert Discovery:** Utilizes Reddit JSON API for intent research and Brave Search API for identifying SMEs.
@@ -69,11 +69,11 @@ ApexContent Engine is a dual-AI SEO content generation platform specializing in 
 - **Real-Time Notification System:** Database-backed notification system for job completion/failure alerts with team isolation, type categorization, and read/dismiss tracking.
 
 ### Multi-Channel Publishing System
-- **Content Receiver Package (@apex/receiver v2.0.0):** An npm package for client websites that receives articles, images, videos, and podcasts. Upgraded to "Platinum" architecture: Cheerio-based image hydration rewrites all `<img>` src values in bodyHtml to locally-saved URLs; `upsertArticleByTitle()` writes a unified JSON data record (`data/articles/{slug}.json`) with metadata + hydrated HTML for the CMS card grid and article view; maintains a `data/articles/index.json` master index; and writes a standalone HTML page. Supports base64-encoded images in the payload for zero-hotlink delivery.
+- **Content Receiver Package (@citefi/receiver v2.0.0):** An npm package for client websites that receives articles, images, videos, and podcasts. Upgraded to "Platinum" architecture: Cheerio-based image hydration rewrites all `<img>` src values in bodyHtml to locally-saved URLs; `upsertArticleByTitle()` writes a unified JSON data record (`data/articles/{slug}.json`) with metadata + hydrated HTML for the CMS card grid and article view; maintains a `data/articles/index.json` master index; and writes a standalone HTML page. Supports base64-encoded images in the payload for zero-hotlink delivery.
 - **Channel Adapters Pattern:** Each publishing channel implements `validate()`, `format()`, `publish()`, and `verify()` methods.
 - **Database Schema Additions:** Tables for `publishing_connections`, `publishing_jobs`, `publishing_callbacks`, and `oauth_credentials`.
 - **API Endpoints:** Dedicated endpoints for receiver-side content/media handling and engine-side connection management, job queuing, callback processing, and OAuth.
-- **Media Flow:** Content and media are generated, sent to the client-side receiver, stored locally on the client site, and then the local copy on the ApexContent Engine is deleted.
+- **Media Flow:** Content and media are generated, sent to the client-side receiver, stored locally on the client site, and then the local copy on the Citefi is deleted.
 - **Social Platform Integration:** Supports Facebook (Meta Graph API), LinkedIn (Marketing API), and TikTok (Content Posting API) via OAuth.
 
 ### AI Model Configuration

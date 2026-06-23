@@ -41,8 +41,8 @@ function verifyHmacSignature(
 
 export async function POST(request: NextRequest) {
   try {
-    const signature = request.headers.get('x-apex-signature');
-    const timestamp = request.headers.get('x-apex-timestamp');
+    const signature = request.headers.get('x-citefi-signature');
+    const timestamp = request.headers.get('x-citefi-timestamp');
     
     if (!signature || !timestamp) {
       return NextResponse.json(

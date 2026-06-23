@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
       }
       blocks.push({
         type: "context",
-        elements: [{ type: "mrkdwn", text: `ApexContent Engine • ${new Date().toISOString()}` }],
+        elements: [{ type: "mrkdwn", text: `Citefi • ${new Date().toISOString()}` }],
       });
 
       fetch(webhookUrl, {

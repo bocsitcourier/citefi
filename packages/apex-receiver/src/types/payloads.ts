@@ -45,7 +45,7 @@ export interface ArticlePayload {
   }>;
 
   /**
-   * ApexContent Engine beacon script URL.
+   * Citefi beacon script URL.
    * When provided, the receiver injects:
    *   <script src="{beaconScriptUrl}"
    *     data-team-id="{beaconTeamId}"

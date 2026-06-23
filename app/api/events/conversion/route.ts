@@ -2,7 +2,7 @@
  * POST /api/events/conversion
  * Unauthenticated, HMAC-SHA256 signature-gated conversion webhook.
  * External systems (e.g. CRM, checkout) POST here with:
- *   X-Apex-Signature: sha256=<HMAC-SHA256(teamSecret, rawBody)>
+ *   X-Citefi-Signature: sha256=<HMAC-SHA256(teamSecret, rawBody)>
  *
  * Supports visitor-based attribution: if contentId is omitted but visitorId
  * is provided, the endpoint resolves contentId from the visitor's last event.
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const signatureHeader = req.headers.get("x-apex-signature");
+  const signatureHeader = req.headers.get("x-citefi-signature");
   if (!verifyHmacSignature(teamRow.conversionWebhookSecret, rawBody, signatureHeader)) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }

@@ -3,7 +3,7 @@ config({ path: '.env.local' });
 
 import { spawn } from 'child_process';
 
-console.log('🚀 Starting ApexContent Engine (Production)...\n');
+console.log('🚀 Starting Citefi (Production)...\n');
 
 console.log('🔧 Starting pg-boss workers in dedicated process...\n');
 const workerProcess = spawn('tsx', ['server/worker-process.ts'], {

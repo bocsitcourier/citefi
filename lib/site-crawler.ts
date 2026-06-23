@@ -158,7 +158,7 @@ async function fetchPage(url: string): Promise<string | null> {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "ApexContentBot/1.0 (SEO Content Indexer)",
+        "User-Agent": "CitefiBot/1.0 (SEO Content Indexer)",
         "Accept": "text/html",
       },
       redirect: "follow",

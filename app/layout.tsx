@@ -8,7 +8,7 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "ApexContent Engine - Dual-AI SEO Content Factory",
+  title: "Citefi - Dual-AI SEO Content Factory",
   description: "Enterprise-grade dual-AI SEO content generation platform",
 };
 

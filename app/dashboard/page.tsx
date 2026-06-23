@@ -430,7 +430,7 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-bold mb-2" data-testid="text-page-title">ApexContent Engine</h1>
+            <h1 className="text-4xl font-bold mb-2" data-testid="text-page-title">Citefi</h1>
             <p className="text-muted-foreground" data-testid="text-page-description">
               Generate SEO-optimized content with dual-AI orchestration
             </p>

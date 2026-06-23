@@ -1,5 +1,5 @@
 /**
- * Seed Stripe products and prices for ApexContent Engine billing plans.
+ * Seed Stripe products and prices for Citefi billing plans.
  *
  * Run with: npx tsx scripts/seed-stripe-products.ts
  *

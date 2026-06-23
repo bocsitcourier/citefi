@@ -2955,7 +2955,7 @@ export const contentEvents = pgTable("content_events", {
   socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
   eventType: varchar("event_type", { length: 30 }).notNull(), // "view"|"click"|"share"|"conversion"|"page_view"|"heartbeat"|"scroll_milestone"|"cta_click"|"read_complete"
   sessionId: varchar("session_id", { length: 100 }), // anonymous client session token
-  visitorId: varchar("visitor_id", { length: 100 }), // first-party _apex_vid cookie value (UUID, 365d)
+  visitorId: varchar("visitor_id", { length: 100 }), // first-party _citefi_vid cookie value (UUID, 365d)
   variantId: varchar("variant_id", { length: 100 }), // A/B variant identifier (string for polymorphism)
   armId: integer("arm_id"), // decisionArms.id — Thompson Sampling arm that served this content
   ipHash: varchar("ip_hash", { length: 64 }), // SHA-256 of IP for dedup; never raw IP
@@ -2980,7 +2980,7 @@ export const contentEvents = pgTable("content_events", {
   // Journey tracking (cross-session funnel attribution)
   journeyId: varchar("journey_id", { length: 100 }), // UUID linking sessions in a conversion journey
   journeyStep: smallint("journey_step"), // ordinal step within the journey (1-based)
-  isReturn: boolean("is_return").default(false), // visitor has seen this content before (from _apex_seen_ localStorage)
+  isReturn: boolean("is_return").default(false), // visitor has seen this content before (from _citefi_seen_ localStorage)
   sessionCount: smallint("session_count"), // number of sessions this visitor has had across all content
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

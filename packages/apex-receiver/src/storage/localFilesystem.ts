@@ -342,7 +342,7 @@ function generateFullPage(
   };
 
   // Beacon script injection — only when beaconScriptUrl, beaconTeamId, and beaconContentId
-  // are all provided by the ApexContent Engine in the publish payload.
+  // are all provided by the Citefi in the publish payload.
   // The engine auto-constructs the script URL as: {APEX_ENGINE_URL}/api/events/beacon.js
   const beaconTag = (article.beaconScriptUrl && article.beaconTeamId && article.beaconContentId)
     ? `\n  <script

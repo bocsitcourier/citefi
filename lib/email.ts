@@ -1,5 +1,5 @@
 /**
- * Email utility for ApexContent Engine.
+ * Email utility for Citefi.
  *
  * Delivery strategy (in priority order):
  * 1. SMTP via Nodemailer when SMTP_HOST + SMTP_USER + SMTP_PASS are set.
@@ -11,7 +11,7 @@
  *   SMTP_PORT   — defaults to 587
  *   SMTP_USER   — SMTP username
  *   SMTP_PASS   — SMTP password
- *   SMTP_FROM   — From address, e.g. "ApexContent Engine <noreply@example.com>"
+ *   SMTP_FROM   — From address, e.g. "Citefi <noreply@example.com>"
  */
 
 import nodemailer from "nodemailer";
@@ -50,7 +50,7 @@ async function deliverEmail(payload: EmailPayload): Promise<void> {
 
   if (transport) {
     const from =
-      process.env.SMTP_FROM ?? "ApexContent Engine <noreply@example.com>";
+      process.env.SMTP_FROM ?? "Citefi <noreply@example.com>";
     try {
       await transport.sendMail({
         from,
@@ -92,26 +92,26 @@ export async function sendPendingApprovalEmail(opts: {
 
   await deliverEmail({
     to: opts.to,
-    subject: "Your ApexContent Engine account is pending review",
+    subject: "Your Citefi account is pending review",
     text: [
       `Hi ${namePlain},`,
       "",
-      "Thanks for signing up for ApexContent Engine!",
+      "Thanks for signing up for Citefi!",
       "",
       "Your account has been created and is currently pending review by our admin team.",
       "You will receive another email once your account has been approved and is ready to use.",
       "",
       "If you have any questions in the meantime, please reach out to support.",
       "",
-      "— The ApexContent Engine Team",
+      "— The Citefi Team",
     ].join("\n"),
     html: `
 <p>Hi ${name},</p>
-<p>Thanks for signing up for <strong>ApexContent Engine</strong>!</p>
+<p>Thanks for signing up for <strong>Citefi</strong>!</p>
 <p>Your account has been created and is currently <strong>pending review</strong> by our admin team.
 You will receive another email once your account has been approved and is ready to use.</p>
 <p>If you have any questions in the meantime, please reach out to support.</p>
-<p>— The ApexContent Engine Team</p>
+<p>— The Citefi Team</p>
     `.trim(),
   });
 }
@@ -128,21 +128,21 @@ export async function sendAccountApprovedEmail(opts: {
 
   await deliverEmail({
     to: opts.to,
-    subject: "Your ApexContent Engine account has been approved",
+    subject: "Your Citefi account has been approved",
     text: [
       `Hi ${namePlain},`,
       "",
-      "Great news — your ApexContent Engine account has been approved!",
+      "Great news — your Citefi account has been approved!",
       "",
       "You can now log in and start using the platform.",
       "",
-      "— The ApexContent Engine Team",
+      "— The Citefi Team",
     ].join("\n"),
     html: `
 <p>Hi ${name},</p>
-<p>Great news — your <strong>ApexContent Engine</strong> account has been <strong>approved</strong>!</p>
+<p>Great news — your <strong>Citefi</strong> account has been <strong>approved</strong>!</p>
 <p>You can now log in and start using the platform.</p>
-<p>— The ApexContent Engine Team</p>
+<p>— The Citefi Team</p>
     `.trim(),
   });
 }
@@ -159,24 +159,24 @@ export async function sendAccountRejectedEmail(opts: {
 
   await deliverEmail({
     to: opts.to,
-    subject: "Your ApexContent Engine account registration",
+    subject: "Your Citefi account registration",
     text: [
       `Hi ${namePlain},`,
       "",
-      "Thank you for your interest in ApexContent Engine.",
+      "Thank you for your interest in Citefi.",
       "",
       "After reviewing your registration, we are unable to approve your account at this time.",
       "",
       "If you believe this is an error or have any questions, please contact our support team.",
       "",
-      "— The ApexContent Engine Team",
+      "— The Citefi Team",
     ].join("\n"),
     html: `
 <p>Hi ${name},</p>
-<p>Thank you for your interest in <strong>ApexContent Engine</strong>.</p>
+<p>Thank you for your interest in <strong>Citefi</strong>.</p>
 <p>After reviewing your registration, we are unable to approve your account at this time.</p>
 <p>If you believe this is an error or have any questions, please contact our support team.</p>
-<p>— The ApexContent Engine Team</p>
+<p>— The Citefi Team</p>
     `.trim(),
   });
 }
@@ -208,7 +208,7 @@ export async function sendNewSignupAdminNotification(opts: {
       "",
       "Please log in to the admin panel to review and approve or reject this account.",
       "",
-      "— ApexContent Engine",
+      "— Citefi",
     ].join("\n"),
     html: `
 <p>A new user has registered and is awaiting account approval.</p>
@@ -218,7 +218,7 @@ export async function sendNewSignupAdminNotification(opts: {
   <tr><td><strong>Team</strong></td><td>${teamName}</td></tr>
 </table>
 <p>Please log in to the <strong>admin panel</strong> to review and approve or reject this account.</p>
-<p>— ApexContent Engine</p>
+<p>— Citefi</p>
     `.trim(),
   });
 }

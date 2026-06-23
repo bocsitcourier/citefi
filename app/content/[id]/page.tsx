@@ -971,7 +971,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                             ? `${window.location.origin}${article.podcastUrl}`
                             : article.podcastUrl!;
                           
-                          const embedCode = `<!-- ApexContent Podcast Player - ${article.title} -->
+                          const embedCode = `<!-- Citefi Podcast Player - ${article.title} -->
 <div style="max-width: 600px; margin: 2rem auto; padding: 1.5rem; background: #f9fafb; border-radius: 0.5rem; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
   <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

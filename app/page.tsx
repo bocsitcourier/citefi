@@ -69,7 +69,7 @@ export default function MarketingPage() {
               <span className="text-white font-bold text-sm">A</span>
             </div>
             <span className={`font-semibold text-sm ${scrolled ? "text-foreground" : "text-white"}`}>
-              ApexContent Engine
+              Citefi
             </span>
           </Link>
 
@@ -197,7 +197,7 @@ export default function MarketingPage() {
 
           {/* Sub-copy */}
           <p className="text-lg sm:text-xl text-white/70 max-w-2xl mx-auto leading-relaxed" data-testid="hero-subtext">
-            ApexContent Engine blends Gemini and GPT-4 in a 4-stage pipeline that injects real
+            Citefi blends Gemini and GPT-4 in a 4-stage pipeline that injects real
             ZIP-code intelligence, neighborhood context, and E-E-A-T signals into every article —
             so your content ranks where generic AI tools can&apos;t.
           </p>
@@ -261,7 +261,7 @@ export default function MarketingPage() {
             <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Built for every local SEO workflow</h2>
             <p className="text-muted-foreground max-w-xl mx-auto text-base">
               Whether you run an agency, a local business, or a brand with dozens of locations —
-              ApexContent Engine scales to your exact needs.
+              Citefi scales to your exact needs.
             </p>
           </div>
 
@@ -415,7 +415,7 @@ export default function MarketingPage() {
                 Content that knows your neighborhood
               </h2>
               <p className="text-muted-foreground text-base leading-relaxed">
-                Generic AI tools write content for "any city." ApexContent Engine generates content
+                Generic AI tools write content for "any city." Citefi generates content
                 that references the specific ZIP code, surrounding neighborhoods, local regulations,
                 authority entities, and community landmarks — the signals that actually earn local rankings.
               </p>
@@ -477,7 +477,7 @@ export default function MarketingPage() {
                 Every article is validated before it leaves the engine
               </h2>
               <p className="text-muted-foreground text-base leading-relaxed">
-                ApexContent Engine runs every article through a multi-gate quality system — catching
+                Citefi runs every article through a multi-gate quality system — catching
                 hallucinations, enforcing brand name accuracy, validating E-E-A-T signals, and
                 embedding AI disclosure compliance automatically.
               </p>
@@ -578,11 +578,11 @@ export default function MarketingPage() {
               </div>
             </div>
 
-            {/* ApexContent */}
+            {/* Citefi */}
             <div className="rounded-md border border-primary/30 bg-background p-6 space-y-4" data-testid="comparison-apex">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-400" />
-                <span className="text-xs font-semibold text-primary uppercase tracking-wide">ApexContent Engine Output</span>
+                <span className="text-xs font-semibold text-primary uppercase tracking-wide">Citefi Output</span>
               </div>
               <div className="font-mono text-sm text-muted-foreground leading-relaxed space-y-3 border border-primary/20 rounded p-4 bg-primary/5">
                 <p className="font-semibold text-foreground text-base">Emergency Plumbers in Silver Lake, Los Angeles (90026)</p>
@@ -756,7 +756,7 @@ export default function MarketingPage() {
                 <div className="w-7 h-7 rounded-md bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center">
                   <span className="text-white font-bold text-xs">A</span>
                 </div>
-                <span className="font-semibold text-sm text-foreground">ApexContent Engine</span>
+                <span className="font-semibold text-sm text-foreground">Citefi</span>
               </Link>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 The dual-AI local SEO content platform for agencies, local businesses, and multi-location brands.
@@ -808,7 +808,7 @@ export default function MarketingPage() {
 
           {/* Bottom bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 text-xs text-muted-foreground">
-            <span data-testid="footer-copyright">&copy; {new Date().getFullYear()} ApexContent Engine. All rights reserved.</span>
+            <span data-testid="footer-copyright">&copy; {new Date().getFullYear()} Citefi. All rights reserved.</span>
             <div className="flex items-center gap-4 flex-wrap justify-center">
               <span className="cursor-not-allowed opacity-50" data-testid="footer-privacy">Privacy Policy</span>
               <span className="cursor-not-allowed opacity-50" data-testid="footer-terms">Terms of Service</span>

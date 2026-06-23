@@ -12,9 +12,9 @@ export interface ReceiverConfig {
 }
 
 export function loadConfig(): ReceiverConfig {
-  const apiKey = process.env.APEX_API_KEY;
+  const apiKey = process.env.CITEFI_API_KEY;
   if (!apiKey) {
-    throw new Error('APEX_API_KEY environment variable is required');
+    throw new Error('CITEFI_API_KEY environment variable is required');
   }
 
   const apexEngineUrl = process.env.APEX_ENGINE_URL;

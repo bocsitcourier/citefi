@@ -4,8 +4,8 @@ import { getConfig } from '../config';
 import { logger } from '../utils/logger';
 
 export function validateSignature(req: Request, res: Response, next: NextFunction): void {
-  const signature = req.headers['x-apex-signature'] as string;
-  const timestamp = req.headers['x-apex-timestamp'] as string;
+  const signature = req.headers['x-citefi-signature'] as string;
+  const timestamp = req.headers['x-citefi-timestamp'] as string;
   
   if (!signature || !timestamp) {
     logger.warn('Missing authentication headers', {

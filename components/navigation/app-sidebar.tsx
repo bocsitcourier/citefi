@@ -52,7 +52,7 @@ export function AppSidebar() {
             </div>
             {!isCollapsed && (
               <div className="flex flex-col min-w-0">
-                <span className="font-semibold text-sm leading-tight truncate">ApexContent</span>
+                <span className="font-semibold text-sm leading-tight truncate">Citefi</span>
                 <span className="text-xs text-muted-foreground truncate">Engine</span>
               </div>
             )}

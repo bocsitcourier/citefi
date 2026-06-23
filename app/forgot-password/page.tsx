@@ -128,7 +128,7 @@ export default function ForgotPasswordPage() {
               <span className="text-white font-bold text-xl">A</span>
             </div>
             <div>
-              <h2 className="text-lg font-semibold">ApexContent Engine</h2>
+              <h2 className="text-lg font-semibold">Citefi</h2>
               <p className="text-xs text-muted-foreground">By AI Innovation</p>
             </div>
           </div>

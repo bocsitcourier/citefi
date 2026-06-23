@@ -1,5 +1,5 @@
 {
-  "name": "@apex/receiver",
+  "name": "@citefi/receiver",
   "version": "2.0.0",
   "description": "Content receiver package for ApexContent Engine - receives articles, images, videos, and podcasts with full SEO preservation",
   "main": "dist/index.js",

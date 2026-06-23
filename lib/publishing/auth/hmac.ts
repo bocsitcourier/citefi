@@ -21,7 +21,7 @@ export function hashApiKey(apiKey: string): string {
 }
 
 export function generateApiKey(): string {
-  return `apex_${crypto.randomBytes(32).toString('hex')}`;
+  return `citefi_${crypto.randomBytes(32).toString('hex')}`;
 }
 
 export function verifyApiKeyHash(apiKey: string, hash: string): boolean {

@@ -43,7 +43,7 @@ export default function Home() {
             )}
           </div>
           <h1 className="text-5xl font-bold bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent" data-testid="text-page-title">
-            ApexContent Engine
+            Citefi
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-page-description">
             Enterprise-grade dual-AI SEO content factory powered by advanced AI

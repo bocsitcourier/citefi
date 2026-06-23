@@ -54,7 +54,7 @@ export async function apiRequest(url: string, options?: RequestInit) {
       errorMessage = `Server error (${response.status}): ${response.statusText || "Unknown error"}`;
     }
     if (response.status === 402 && typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("apex:paywall", { detail: errorData ?? { message: errorMessage } }));
+      window.dispatchEvent(new CustomEvent("citefi:paywall", { detail: errorData ?? { message: errorMessage } }));
     }
     const err = new Error(errorMessage) as any;
     err.status = response.status;

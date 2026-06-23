@@ -5,7 +5,7 @@ config({ path: '.env.local' });
 import { spawn, execSync } from 'child_process';
 import * as net from 'net';
 
-console.log('🚀 Starting ApexContent Engine (Next.js)...\n');
+console.log('🚀 Starting Citefi (Next.js)...\n');
 
 // ── Port guard ──────────────────────────────────────────────────────────────
 // On Replit, restarts send SIGTERM to the parent but the Next.js child process

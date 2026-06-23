@@ -8,8 +8,8 @@ async function main() {
   } catch (error) {
     console.error('Configuration error:', error instanceof Error ? error.message : error);
     console.error('\nRequired environment variables:');
-    console.error('  APEX_API_KEY      - API key for authentication with ApexContent Engine');
-    console.error('  APEX_ENGINE_URL   - URL of the ApexContent Engine (e.g., https://your-apex-engine.com)');
+    console.error('  CITEFI_API_KEY      - API key for authentication with Citefi');
+    console.error('  APEX_ENGINE_URL   - URL of the Citefi (e.g., https://your-apex-engine.com)');
     console.error('  BASE_URL          - Public URL of this receiver site (e.g., https://yoursite.com)');
     console.error('\nOptional environment variables:');
     console.error('  PORT              - Server port (default: 3000)');
@@ -28,14 +28,14 @@ async function main() {
   const port = cfg.port;
 
   app.listen(port, '0.0.0.0', () => {
-    logger.info('ApexContent Receiver started', {
+    logger.info('Citefi Receiver started', {
       port,
       baseUrl: cfg.baseUrl,
       apexEngineUrl: cfg.apexEngineUrl,
       storagePath: cfg.storagePath,
     });
     
-    console.log(`\n🚀 ApexContent Receiver is running on port ${port}`);
+    console.log(`\n🚀 Citefi Receiver is running on port ${port}`);
     console.log(`   Base URL: ${cfg.baseUrl}`);
     console.log(`   Apex Engine: ${cfg.apexEngineUrl}`);
     console.log(`   Storage: ${cfg.storagePath}`);

@@ -821,7 +821,7 @@ export default function PublishingDashboard() {
                       <div className="text-sm text-muted-foreground">
                         Add to your receiver's <code className="bg-muted px-1 rounded">.env</code> file:
                         <pre className="mt-2 bg-muted p-2 rounded text-xs">
-                          APEX_API_KEY={showApiKey ? generatedApiKey : "your-api-key-here"}
+                          CITEFI_API_KEY={showApiKey ? generatedApiKey : "your-api-key-here"}
                         </pre>
                       </div>
                     </div>
@@ -881,7 +881,7 @@ export default function PublishingDashboard() {
                             data-testid="input-connection-url"
                           />
                           <p className="text-xs text-muted-foreground">
-                            The base URL where your @apex/receiver is deployed.
+                            The base URL where your @citefi/receiver is deployed.
                           </p>
                         </div>
                       )}
@@ -1013,26 +1013,26 @@ export default function PublishingDashboard() {
             <CardHeader>
               <CardTitle>Receiver Setup Guide</CardTitle>
               <CardDescription>
-                Install and configure the @apex/receiver package on your website.
+                Install and configure the @citefi/receiver package on your website.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5 text-sm">
               <div>
                 <h4 className="font-medium mb-2">1. Install the Receiver Package</h4>
-                <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs">npm install @apex/receiver</pre>
+                <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs">npm install @citefi/receiver</pre>
               </div>
               <div>
                 <h4 className="font-medium mb-2">2. Configure Environment Variables</h4>
                 <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs">
-{`APEX_API_KEY=your-api-key
-APEX_ENGINE_URL=${typeof window !== "undefined" ? window.location.origin : "https://your-engine.replit.app"}
+{`CITEFI_API_KEY=your-api-key
+CITEFI_ENGINE_URL=${typeof window !== "undefined" ? window.location.origin : "https://your-engine.replit.app"}
 BASE_URL=https://yoursite.com`}
                 </pre>
               </div>
               <div>
                 <h4 className="font-medium mb-2">3. Add to Your Express App</h4>
                 <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs">
-{`import { createReceiverApp } from '@apex/receiver';
+{`import { createReceiverApp } from '@citefi/receiver';
 const receiver = createReceiverApp();
 app.use('/api/v1', receiver);`}
                 </pre>

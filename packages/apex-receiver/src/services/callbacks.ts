@@ -30,8 +30,8 @@ export async function sendCallback(payload: CallbackPayload): Promise<boolean> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Apex-Signature': signature,
-          'X-Apex-Timestamp': timestamp,
+          'X-Citefi-Signature': signature,
+          'X-Citefi-Timestamp': timestamp,
         },
         body,
       });

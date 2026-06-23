@@ -79,7 +79,7 @@ export interface TOTPSetup {
   manualEntryKey: string;
 }
 
-export async function generateTOTPSecret(userEmail: string, appName: string = "ApexContent Engine"): Promise<TOTPSetup> {
+export async function generateTOTPSecret(userEmail: string, appName: string = "Citefi"): Promise<TOTPSetup> {
   const secret = speakeasy.generateSecret({
     name: `${appName} (${userEmail})`,
     issuer: appName,

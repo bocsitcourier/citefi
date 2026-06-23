@@ -330,7 +330,7 @@ test.describe("/client/team — non-admin read-only view", () => {
 // ── UpgradeModal — appears on 402 paywall response ───────────────────────────
 
 test.describe("UpgradeModal — paywall 402 response", () => {
-  test("UpgradeModal appears when apex:paywall event is dispatched", async ({ page }) => {
+  test("UpgradeModal appears when citefi:paywall event is dispatched", async ({ page }) => {
     // Log in as admin (any authenticated page will do)
     await loginAs(page, seed.adminUser.email, seed.password);
     await page.goto(`${BASE_URL}/client/usage`);
@@ -341,7 +341,7 @@ test.describe("UpgradeModal — paywall 402 response", () => {
     // Dispatch the paywall event as apiRequest does on a 402 response
     await page.evaluate(() => {
       window.dispatchEvent(
-        new CustomEvent("apex:paywall", {
+        new CustomEvent("citefi:paywall", {
           detail: {
             error: "TRIAL_EXPIRED",
             trialExpired: true,
@@ -368,7 +368,7 @@ test.describe("UpgradeModal — paywall 402 response", () => {
     // Open modal
     await page.evaluate(() => {
       window.dispatchEvent(
-        new CustomEvent("apex:paywall", { detail: { error: "TRIAL_EXPIRED", trialExpired: true } })
+        new CustomEvent("citefi:paywall", { detail: { error: "TRIAL_EXPIRED", trialExpired: true } })
       );
     });
 

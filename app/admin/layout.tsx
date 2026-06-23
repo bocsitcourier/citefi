@@ -148,7 +148,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="w-72 border-r bg-card flex flex-col">
         <div className="p-6 border-b">
           <h1 className="text-2xl font-bold text-primary">Admin Panel</h1>
-          <p className="text-sm text-muted-foreground mt-1">ApexContent Engine</p>
+          <p className="text-sm text-muted-foreground mt-1">Citefi</p>
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
