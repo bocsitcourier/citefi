@@ -5,6 +5,7 @@ import { hashPassword, validatePassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { and, eq } from "drizzle-orm";
 import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/email";
+import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
 
 export async function POST(req: Request) {
   try {
@@ -134,6 +135,17 @@ export async function POST(req: Request) {
           // Only ping admins whose accounts are active (not suspended/locked)
           .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));
 
+        // Build one-click approve/reject URLs signed for this user
+        let approveUrl: string | null = null;
+        let rejectUrl: string | null = null;
+        try {
+          const urls = buildApprovalUrls(newUser.id, getBaseUrl());
+          approveUrl = urls.approveUrl;
+          rejectUrl = urls.rejectUrl;
+        } catch (tokenErr) {
+          console.error("Failed to generate approval token URLs:", tokenErr);
+        }
+
         await Promise.all(
           adminUsers.map((admin) =>
             sendNewSignupAdminNotification({
@@ -141,6 +153,8 @@ export async function POST(req: Request) {
               newUserEmail: newUser.email,
               newUserName: newUser.fullName,
               teamName: teamName || null,
+              approveUrl,
+              rejectUrl,
             }).catch((err) =>
               console.error(
                 `Failed to notify admin ${admin.email} of new signup:`,

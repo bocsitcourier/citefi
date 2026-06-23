@@ -226,18 +226,55 @@ export async function sendEmailVerificationCode(opts: {
 
 /**
  * Send a new-signup notification to an admin user.
+ * When approveUrl / rejectUrl are provided, one-click action buttons are
+ * embedded directly in the email so the admin can act without logging in.
  */
 export async function sendNewSignupAdminNotification(opts: {
   adminEmail: string;
   newUserEmail: string;
   newUserName?: string | null;
   teamName?: string | null;
+  approveUrl?: string | null;
+  rejectUrl?: string | null;
 }): Promise<void> {
   const userNamePlain = opts.newUserName ?? "(no name provided)";
   const teamNamePlain = opts.teamName ?? "(no team name provided)";
   const userName = escapeHtml(userNamePlain);
   const teamName = escapeHtml(teamNamePlain);
   const userEmail = escapeHtml(opts.newUserEmail);
+
+  const hasActionLinks = !!(opts.approveUrl && opts.rejectUrl);
+
+  const textActionSection = hasActionLinks
+    ? [
+        "",
+        "To approve this account, visit:",
+        opts.approveUrl!,
+        "",
+        "To reject this account, visit:",
+        opts.rejectUrl!,
+        "",
+        "These links expire in 7 days. You can also manage accounts via the admin panel.",
+      ].join("\n")
+    : [
+        "",
+        "Please log in to the admin panel to review and approve or reject this account.",
+      ].join("\n");
+
+  const htmlActionSection = hasActionLinks
+    ? `
+<p style="margin-top:1.5em;">
+  <a href="${escapeHtml(opts.approveUrl!)}" style="display:inline-block;padding:10px 22px;background:#16a34a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;margin-right:10px;">
+    Approve Account
+  </a>
+  <a href="${escapeHtml(opts.rejectUrl!)}" style="display:inline-block;padding:10px 22px;background:#dc2626;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">
+    Reject Account
+  </a>
+</p>
+<p style="font-size:0.85em;color:#6b7280;margin-top:0.75em;">
+  These links expire in 7 days. You can also manage accounts via the admin panel.
+</p>`
+    : `<p>Please log in to the <strong>admin panel</strong> to review and approve or reject this account.</p>`;
 
   await deliverEmail({
     to: opts.adminEmail,
@@ -248,8 +285,7 @@ export async function sendNewSignupAdminNotification(opts: {
       `Name:  ${userNamePlain}`,
       `Email: ${opts.newUserEmail}`,
       `Team:  ${teamNamePlain}`,
-      "",
-      "Please log in to the admin panel to review and approve or reject this account.",
+      textActionSection,
       "",
       "— Citefi",
     ].join("\n"),
@@ -260,7 +296,7 @@ export async function sendNewSignupAdminNotification(opts: {
   <tr><td><strong>Email</strong></td><td>${userEmail}</td></tr>
   <tr><td><strong>Team</strong></td><td>${teamName}</td></tr>
 </table>
-<p>Please log in to the <strong>admin panel</strong> to review and approve or reject this account.</p>
+${htmlActionSection}
 <p>— Citefi</p>
     `.trim(),
   });
