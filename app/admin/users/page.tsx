@@ -119,6 +119,7 @@ export default function AdminUsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-count"] });
       toast({
         title: "User approved",
         description: "The user can now log in to the system.",
@@ -142,6 +143,7 @@ export default function AdminUsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-count"] });
       setRejectDialogOpen(false);
       setRejectUser(null);
       toast({
