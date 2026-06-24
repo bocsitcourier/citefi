@@ -1,0 +1,35 @@
+Code audit — Citefi. Report only, do not fix anything.
+
+Audit the entire codebase for gaps, bugs, errors, and security issues. Cover both the user-facing app and the admin app, as separate sections. Do not just read files in isolation — trace each critical flow end-to-end (UI action → endpoint → auth guard → DB query → response → UI update) and assume "a file exists" does NOT mean "it's wired and reachable." Verify each item in the launch-readiness spec is actually implemented and connected.
+
+Check every category below and report findings as a table: Severity (🔴 critical / 🟠 high / 🟡 minor) | file:line | Category | Problem | Suggested fix.
+
+
+
+
+
+Auth & access control — every endpoint has the correct guard; admin routes reject non-admins server-side; multi-tenant isolation (can a user or client_viewer from one team reach another team's data by changing an ID? test IDOR on every [id] route); object-level ownership checks.
+
+
+
+API endpoints — input validation on all params/bodies; correct status codes; no unhandled throws or leaked stack traces; rate limiting on login/reset/export/jobs; no secrets/hashes/tokens in responses.
+
+
+
+Websockets/realtime — is the socket connection authenticated and team-scoped? per-message authorization? cleanup on disconnect? does a user only receive their own job/event streams?
+
+
+
+Database/Drizzle — every team-scoped query has the right WHERE; atomic transactions for multi-step writes (esp. delete-cascade); migration/schema drift; missing indexes; N+1 queries.
+
+
+
+Stripe/billing — webhook signature verification; deterministic idempotency keys; local DB ↔ Stripe sync; no double-charge/refund paths.
+
+
+
+State/correctness — race conditions (esp. cap check vs. concurrent submits), missing awaits, unhandled rejections, React loading/empty/error states.
+
+Then provide: (a) findings grouped by user-facing vs admin, (b) an end-to-end trace for these flows — login, batch-submit-with-cap-enforcement, content approval (editor→reviewer), admin refund, account-delete cascade — noting exactly where each breaks or is unverified, and (c) an explicit "verified working" list of what you confirmed is correctly wired, so I know what was actually checked vs. skipped.
+
+Prioritize the findings: what blocks launch vs. what's polish.
