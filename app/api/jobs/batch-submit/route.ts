@@ -43,6 +43,9 @@ const batchSubmitSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Declared outside the outer try so the outer catch can cancel any pending
+  // spending-cap reservation that was created before an unexpected error occurred.
+  let capReservationId: number | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
     const { teamId, userId } = await requireTeamMember(request);
@@ -161,8 +164,7 @@ export async function POST(request: NextRequest) {
     // Spending cap gate — checked here so we can pass the real projected cost.
     // Each credit unit ≈ 1 cent (proxy for API cost estimation).
     // checkUsageCap now inserts a PENDING reservation so concurrent submissions see it.
-    // The reservation is cancelled on queue failure to release the held capacity.
-    let capReservationId: number | null = null;
+    // The reservation is cancelled on all failure paths to release the held capacity.
     try {
       capReservationId = await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
     } catch (capErr: any) {
@@ -249,6 +251,7 @@ export async function POST(request: NextRequest) {
         personaId,
         creditRunId,
         creditCostPerUnit,
+        capReservationId,
       });
 
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
@@ -282,6 +285,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Batch submission error:", error);
+    // Best-effort: release any spending-cap reservation created before the error.
+    // The 2-hour auto-expiry is the safety net if this call also fails.
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

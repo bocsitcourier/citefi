@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { users, passwordResets, activityLogs } from "@/shared/schema";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and, lt, ne } from "drizzle-orm";
+import { eq, and, lt, ne, gt } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   try {
@@ -88,51 +88,49 @@ export async function POST(req: NextRequest) {
     const tokenHash = hashToken(token);
     const now = new Date();
 
-    const [reset] = await db
-      .select({
-        id: passwordResets.id,
-        userId: passwordResets.userId,
-        status: passwordResets.status,
-        expiresAt: passwordResets.expiresAt,
-      })
-      .from(passwordResets)
+    // Atomically consume the reset token in a single conditional UPDATE.
+    // A two-step SELECT → UPDATE pattern allows two concurrent requests to both
+    // read status='pending' before either marks it used, enabling a race where
+    // both requests successfully reset the password to different values.
+    // A single UPDATE with all predicates in the WHERE clause ensures only one
+    // concurrent request can win; the other gets 0 rows back.
+    const [consumed] = await db
+      .update(passwordResets)
+      .set({ status: "used", usedAt: now })
       .where(
         and(
           eq(passwordResets.tokenHash, tokenHash),
-          eq(passwordResets.status, "pending")
+          eq(passwordResets.status, "pending"),
+          gt(passwordResets.expiresAt, now)
         )
       )
-      .limit(1);
+      .returning({ userId: passwordResets.userId, id: passwordResets.id });
 
-    if (!reset || reset.expiresAt <= now) {
+    if (!consumed) {
       return NextResponse.json({ error: "Invalid or expired link. Please request a new one." }, { status: 400 });
     }
 
     const passwordHash = await hashPassword(newPassword);
 
-    await db.update(users).set({ passwordHash }).where(eq(users.id, reset.userId));
+    await db.update(users).set({ passwordHash }).where(eq(users.id, consumed.userId));
 
-    await db
-      .update(passwordResets)
-      .set({ status: "used", usedAt: now })
-      .where(eq(passwordResets.id, reset.id));
-
+    // Cancel any other pending resets for this user (e.g. multiple forgot-password clicks)
     await db
       .update(passwordResets)
       .set({ status: "cancelled" })
       .where(
         and(
-          eq(passwordResets.userId, reset.userId),
+          eq(passwordResets.userId, consumed.userId),
           eq(passwordResets.status, "pending"),
-          ne(passwordResets.id, reset.id)
+          ne(passwordResets.id, consumed.id)
         )
       );
 
     await db.insert(activityLogs).values({
-      userId: reset.userId,
+      userId: consumed.userId,
       action: "password_reset_completed",
       resource: "users",
-      resourceId: reset.userId,
+      resourceId: consumed.userId,
       ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
       userAgent: req.headers.get("user-agent") || null,
       details: { resetType: "token_link" },

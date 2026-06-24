@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
           : "requested_by_customer") as any,
         metadata: { adminUserId: String(adminUserId), reason: reason ?? "" },
       },
-      { idempotencyKey: `refund-${chargeId}-${adminUserId}` }
+      { idempotencyKey: `refund-${chargeId}-${adminUserId}-${amount}` }
     );
 
     // Reverse any credit grants associated with this charge's invoice.
@@ -182,6 +182,8 @@ export async function POST(req: NextRequest) {
       }),
     });
 
+    const escHtml = (s: string) =>
+      String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     const fmtCurrency = (cents: number, currency = "usd") =>
       new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
 
@@ -189,7 +191,7 @@ export async function POST(req: NextRequest) {
       to: membership.userEmail,
       subject: "Citefi refund issued",
       text: `A refund of ${fmtCurrency(refund.amount ?? amount, refund.currency)} has been issued to your account. It typically appears on your statement within 5-10 business days.${reason ? `\n\nReason: ${reason}` : ""}\n\nRefund ID: ${refund.id}`,
-      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Refund Issued</h2><p>A refund of <strong>${fmtCurrency(refund.amount ?? amount, refund.currency)}</strong> has been issued to your account.</p><p style="color:#666">It typically appears on your statement within 5-10 business days.</p>${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}<p style="color:#999;font-size:0.85em">Refund ID: ${refund.id}</p></div>`,
+      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Refund Issued</h2><p>A refund of <strong>${fmtCurrency(refund.amount ?? amount, refund.currency)}</strong> has been issued to your account.</p><p style="color:#666">It typically appears on your statement within 5-10 business days.</p>${reason ? `<p><strong>Reason:</strong> ${escHtml(reason)}</p>` : ""}<p style="color:#999;font-size:0.85em">Refund ID: ${refund.id}</p></div>`,
     }).catch(() => {});
 
     return NextResponse.json({

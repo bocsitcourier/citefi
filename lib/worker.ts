@@ -28,7 +28,8 @@ import {
   addPodcastGenerationJob,
   PODCAST_GENERATION_QUEUE,
   type PodcastJobData,
-} from "./queue";
+} from "@/lib/queue";
+import { cancelCapReservation } from "@/lib/usage-caps";
 import { db } from "./db";
 import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas, creditLedger } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
@@ -96,7 +97,17 @@ export async function registerWorkers() {
     async (jobs) => {
       for (const job of jobs) {
         console.log(`📦 Processing batch generation job ${job.id}`);
-        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit } = job.data;
+        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
+
+        // Delete the PENDING spending-cap reservation now that the worker is running.
+        // Per-article COMPLETED events (written by recordUsageEvent) are the real
+        // source of truth for spend. Keeping the reservation alive while articles
+        // are being generated would double-count against the cap for up to 2 hours.
+        if (capReservationId != null) {
+          cancelCapReservation(capReservationId).catch(err =>
+            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
+          );
+        }
 
       try {
         await db

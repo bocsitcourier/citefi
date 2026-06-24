@@ -226,6 +226,11 @@ export async function notifySocialPostComplete(teamId: number, postId: number, p
  * Creates a private in-app notification for every active admin user when a new
  * user registers and is waiting for approval.
  *
+ * All active admins — whether they belong to a team or not — are intentionally
+ * notified, because any admin may need to act on pending approvals regardless of
+ * their team membership.  Task #83 ensured team-less admins can also READ these
+ * notifications; the write side has always targeted every active admin.
+ *
  * Notifications are stored with userId only (teamId = NULL) so they are
  * strictly private to each admin — regular team members never see them,
  * regardless of which team the admin belongs to.  The visibilityFilter in all

@@ -35,6 +35,10 @@ export interface BatchJobData {
   // Per-unit credit cost from the credit menu (including DB overrides) stored at enqueue
   // time so workers debit/release the exact amount reserved, not a hardcoded constant.
   creditCostPerUnit?: number;
+  // Spending-cap reservation ID created at submission time. The batch worker deletes
+  // the PENDING reservation when it starts so per-article COMPLETED events take over
+  // as the source of truth, eliminating double-counting during a running batch.
+  capReservationId?: number | null;
 }
 
 export interface ArticleJobData {

@@ -35,10 +35,116 @@ export async function POST(req: Request) {
       );
     }
 
-    // Atomically consume the challenge token in a single conditional UPDATE.
-    // A two-step SELECT→UPDATE pattern allows two concurrent verify-2fa requests to both
-    // read isUsed=0 before either marks it used, enabling replay. The single UPDATE with
-    // all predicates in the WHERE clause ensures only one concurrent request can succeed.
+    // Fetch user first — needed for TOTP secret lookup and session creation.
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // Step 1: Validate the 2FA code BEFORE consuming the challenge token.
+    //
+    // With the old order (consume challenge → validate code), a wrong TOTP digit
+    // would burn the challenge and force the user to restart the entire login flow.
+    // By validating first, a typo lets the user retry within the 5-minute window.
+    //
+    // Concurrency: two requests that both pass code validation then race to consume
+    // the challenge; only one wins — the other gets 0 rows back and returns 401.
+    // This is the correct serialisation behaviour.
+    let verified = false;
+
+    if (method === "totp") {
+      const [totpSecret] = await db
+        .select()
+        .from(totpSecrets)
+        .where(eq(totpSecrets.userId, userId))
+        .limit(1);
+
+      if (!totpSecret) {
+        return NextResponse.json(
+          { error: "TOTP not set up for this user" },
+          { status: 400 }
+        );
+      }
+
+      verified = verifyTOTPToken(code, totpSecret.secret);
+
+      if (verified) {
+        await db
+          .update(totpSecrets)
+          .set({ lastUsedAt: new Date() })
+          .where(eq(totpSecrets.userId, userId));
+      }
+    } else if (method === "email") {
+      // Atomically validate + consume the email code in a single conditional UPDATE.
+      const [emailCode] = await db
+        .select()
+        .from(emailVerificationCodes)
+        .where(
+          and(
+            eq(emailVerificationCodes.userId, userId),
+            eq(emailVerificationCodes.code, code),
+            eq(emailVerificationCodes.purpose, "login_2fa"),
+            eq(emailVerificationCodes.isUsed, 0),
+            gt(emailVerificationCodes.expiresAt, new Date())
+          )
+        )
+        .limit(1);
+
+      if (!emailCode) {
+        return NextResponse.json(
+          { error: "Invalid or expired verification code" },
+          { status: 401 }
+        );
+      }
+
+      if (emailCode.attempts >= 5) {
+        return NextResponse.json(
+          { error: "Too many verification attempts" },
+          { status: 429 }
+        );
+      }
+
+      await db
+        .update(emailVerificationCodes)
+        .set({ isUsed: 1, attempts: emailCode.attempts + 1 })
+        .where(
+          and(
+            eq(emailVerificationCodes.id, emailCode.id),
+            eq(emailVerificationCodes.isUsed, 0)
+          )
+        );
+
+      verified = true;
+    }
+
+    if (!verified) {
+      await db.insert(activityLogs).values({
+        userId: user.id,
+        action: "2fa_verification_failed",
+        resource: "users",
+        resourceId: user.id,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: { method },
+        severity: "warning",
+      });
+
+      // Challenge token is NOT consumed here — the user can retry with the
+      // correct code without needing to log in again (within the 5-min window).
+      return NextResponse.json(
+        { error: "Invalid verification code" },
+        { status: 401 }
+      );
+    }
+
+    // Step 2: Code is confirmed valid — now atomically consume the challenge token.
+    // Using a single conditional UPDATE prevents two concurrent successful requests
+    // from both creating sessions off the same login challenge.
     const [consumed] = await db
       .update(emailVerificationCodes)
       .set({ isUsed: 1 })
@@ -58,120 +164,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch user
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
-
-    // Verify 2FA based on method
-    let verified = false;
-
-    if (method === "totp") {
-      // Verify TOTP (Google Authenticator)
-      const [totpSecret] = await db
-        .select()
-        .from(totpSecrets)
-        .where(eq(totpSecrets.userId, userId))
-        .limit(1);
-
-      if (!totpSecret) {
-        return NextResponse.json(
-          { error: "TOTP not set up for this user" },
-          { status: 400 }
-        );
-      }
-
-      verified = verifyTOTPToken(code, totpSecret.secret);
-
-      if (verified) {
-        // Update last used timestamp
-        await db
-          .update(totpSecrets)
-          .set({ lastUsedAt: new Date() })
-          .where(eq(totpSecrets.userId, userId));
-      }
-    } else if (method === "email") {
-      // Verify email code
-      const [emailCode] = await db
-        .select()
-        .from(emailVerificationCodes)
-        .where(
-          and(
-            eq(emailVerificationCodes.userId, userId),
-            eq(emailVerificationCodes.code, code),
-            eq(emailVerificationCodes.purpose, "login_2fa"),
-            eq(emailVerificationCodes.isUsed, 0)
-          )
-        )
-        .limit(1);
-
-      if (!emailCode) {
-        return NextResponse.json(
-          { error: "Invalid or expired verification code" },
-          { status: 401 }
-        );
-      }
-
-      // Check if expired
-      if (new Date() > new Date(emailCode.expiresAt)) {
-        return NextResponse.json(
-          { error: "Verification code has expired" },
-          { status: 401 }
-        );
-      }
-
-      // Check attempts
-      if (emailCode.attempts >= 5) {
-        return NextResponse.json(
-          { error: "Too many verification attempts" },
-          { status: 429 }
-        );
-      }
-
-      // Increment attempts
-      await db
-        .update(emailVerificationCodes)
-        .set({ attempts: emailCode.attempts + 1 })
-        .where(eq(emailVerificationCodes.id, emailCode.id));
-
-      verified = true;
-
-      // Mark code as used
-      await db
-        .update(emailVerificationCodes)
-        .set({ isUsed: 1 })
-        .where(eq(emailVerificationCodes.id, emailCode.id));
-    }
-
-    if (!verified) {
-      // Log failed 2FA attempt
-      await db.insert(activityLogs).values({
-        userId: user.id,
-        action: "2fa_verification_failed",
-        resource: "users",
-        resourceId: user.id,
-        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-        userAgent: req.headers.get("user-agent") || null,
-        details: { method },
-        severity: "warning",
-      });
-
-      return NextResponse.json(
-        { error: "Invalid verification code" },
-        { status: 401 }
-      );
-    }
-
-    // 2FA verified - generate access token
+    // 2FA verified — generate access token and create session.
     const accessToken = generateAccessToken({
       userId: user.id,
       email: user.email,
@@ -180,7 +173,6 @@ export async function POST(req: Request) {
 
     const tokenHash = hashToken(accessToken);
 
-    // Create session
     await db
       .insert(sessions)
       .values({
@@ -189,10 +181,9 @@ export async function POST(req: Request) {
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
         isActive: 1,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       });
 
-    // Update last login
     await db
       .update(users)
       .set({
@@ -202,7 +193,6 @@ export async function POST(req: Request) {
       })
       .where(eq(users.id, user.id));
 
-    // Log successful 2FA verification
     await db.insert(activityLogs).values({
       userId: user.id,
       action: "2fa_verification_success",
@@ -226,16 +216,14 @@ export async function POST(req: Request) {
       },
     });
 
-    // Set HttpOnly session cookie so the token is never exposed to JavaScript (XSS-safe)
-    // Always secure=true — Replit serves over HTTPS in both dev and prod.
-    // sameSite:"none" is required so the cookie is sent when the app is embedded
-    // in an iframe (e.g. the Replit preview pane). secure:true is mandatory with none.
+    // HttpOnly session cookie — XSS-safe; secure+sameSite:none required for
+    // Replit iframe embedding (dev preview pane uses a cross-origin iframe).
     response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
       path: "/",
-      maxAge: 24 * 60 * 60, // 24 hours
+      maxAge: 24 * 60 * 60,
     });
 
     return response;

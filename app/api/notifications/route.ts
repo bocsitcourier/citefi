@@ -34,7 +34,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const unreadOnly = searchParams.get("unread") === "true";
     const countOnly = searchParams.get("count") === "true";
-    const limit = parseInt(searchParams.get("limit") || "20", 10);
+    const rawLimit = parseInt(searchParams.get("limit") || "20", 10);
+    const limit = Math.max(1, Math.min(100, isNaN(rawLimit) ? 20 : rawLimit));
 
     if (countOnly) {
       const count = await getUnreadCount(auth.teamId, auth.userId);

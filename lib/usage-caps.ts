@@ -10,9 +10,14 @@
  */
 
 import { db } from "@/lib/db";
+
 import { spendingCaps, usageEvents, teams, teamMembers, users } from "@/shared/schema";
 import { eq, and, gte, sum, inArray, isNull, ne, or } from "drizzle-orm";
 import { deliverEmail } from "@/lib/email";
+
+/** Escape user-controlled strings before inserting them into HTML email bodies. */
+const escHtml = (s: string) =>
+  String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 export type UsageAction = "article_generation" | "social_post" | "podcast" | "video" | "title_pool" | "cap_reservation";
 
@@ -254,7 +259,7 @@ async function maybeSendAlert(teamId: number, status: CapStatus, projectedPct: n
       to: adminUser.email,
       subject: `Citefi spending alert: ${projectedPct}% of monthly cap used`,
       text: `Your team "${team?.name}" has used ${projectedPct}% of its $${capDollars}/month spending cap ($${spentDollars} of $${capDollars}). Adjust your cap in Settings → Usage if needed.`,
-      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Spending Alert</h2><p>Your team <strong>"${team?.name}"</strong> has used <strong>${projectedPct}%</strong> of its $${capDollars}/month spending cap.</p><p><strong>$${spentDollars}</strong> of <strong>$${capDollars}</strong> used this month.</p><p>Adjust your cap in <a href="${process.env.NEXTAUTH_URL ?? ""}/client/usage">Settings → Usage</a>.</p></div>`,
+      html: `<div style="font-family:sans-serif;max-width:520px;margin:0 auto"><h2>Spending Alert</h2><p>Your team <strong>"${escHtml(team?.name ?? "")}"</strong> has used <strong>${projectedPct}%</strong> of its $${capDollars}/month spending cap.</p><p><strong>$${spentDollars}</strong> of <strong>$${capDollars}</strong> used this month.</p><p>Adjust your cap in <a href="${process.env.NEXTAUTH_URL ?? ""}/client/usage">Settings → Usage</a>.</p></div>`,
     }).catch(() => {});
   }
 }

@@ -33,7 +33,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid notification ID" }, { status: 400 });
     }
 
-    const body = await request.json();
+    let body: { action?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
     const { action } = body;
 
     if (action === "read") {
