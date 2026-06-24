@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUnreadNotifications, getAllNotifications, markAllAsRead, getUnreadCount, dismissAllNotifications } from "@/lib/notification-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+
+/**
+ * Resolve auth context for the notifications endpoints.
+ *
+ * - Team members: full requireTeamMember validation (direct + agency-admin membership checks).
+ * - Global admins with no team: requireAdmin validates users.role = "admin" from DB, then
+ *   returns teamId = null so the service layer uses the userId-only notification path.
+ *
+ * This preserves the strict team-context authorization of requireTeamMember for all users
+ * that have a team, while unblocking team-less admins from seeing their signup alerts.
+ */
+async function resolveNotificationAuth(request: NextRequest): Promise<{ userId: number; teamId: number | null; role: string }> {
+  try {
+    const auth = await requireTeamMember(request);
+    return auth;
+  } catch (err: any) {
+    // 403 with this specific message means "no team assignment" — not an unauthorized team context.
+    // Any other 403/401 (stale context, suspended account, etc.) is re-thrown as-is.
+    if (err.statusCode === 403 && err.message === "Access denied: User must be assigned to a team") {
+      const userId = await requireAdmin(request);
+      return { userId, teamId: null, role: "admin" };
+    }
+    throw err;
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireTeamMember(request);
-    if (!auth.teamId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await resolveNotificationAuth(request);
 
     const { searchParams } = new URL(request.url);
     const unreadOnly = searchParams.get("unread") === "true";
@@ -35,10 +57,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireTeamMember(request);
-    if (!auth.teamId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await resolveNotificationAuth(request);
 
     const body = await request.json();
     const { action } = body;

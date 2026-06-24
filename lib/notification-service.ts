@@ -47,7 +47,7 @@ function notificationAgeFilter() {
 }
 
 /**
- * Build the visibility predicate for notification queries.
+ * Build the visibility predicate for notification queries when a team context is present.
  * Matches team-scoped notifications OR user-targeted notifications
  * (userId = $userId AND teamId IS NULL) so admin-specific alerts are
  * only surfaced to the intended recipient and not to other team members.
@@ -59,75 +59,81 @@ function visibilityFilter(teamId: number, userId?: number) {
   return or(teamClause, userClause)!;
 }
 
-export async function getUnreadNotifications(teamId: number, limit: number = 20, userId?: number) {
+/**
+ * Visibility predicate for team-less admins: only userId-scoped notifications
+ * (teamId IS NULL) that were explicitly addressed to this user.
+ */
+function userOnlyFilter(userId: number) {
+  return and(eq(notifications.userId, userId), isNull(notifications.teamId))!;
+}
+
+export async function getUnreadNotifications(teamId: number | null, limit: number = 20, userId?: number) {
+  const filter = teamId === null
+    ? and(userOnlyFilter(userId!), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter())
+    : and(visibilityFilter(teamId, userId), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter());
   return db.select()
     .from(notifications)
-    .where(and(
-      visibilityFilter(teamId, userId),
-      eq(notifications.read, 0),
-      eq(notifications.dismissed, 0),
-      notificationAgeFilter()
-    ))
+    .where(filter)
     .orderBy(desc(notifications.createdAt))
     .limit(limit);
 }
 
-export async function getAllNotifications(teamId: number, limit: number = 50, userId?: number) {
+export async function getAllNotifications(teamId: number | null, limit: number = 50, userId?: number) {
+  const filter = teamId === null
+    ? and(userOnlyFilter(userId!), eq(notifications.dismissed, 0), notificationAgeFilter())
+    : and(visibilityFilter(teamId, userId), eq(notifications.dismissed, 0), notificationAgeFilter());
   return db.select()
     .from(notifications)
-    .where(and(
-      visibilityFilter(teamId, userId),
-      eq(notifications.dismissed, 0),
-      notificationAgeFilter()
-    ))
+    .where(filter)
     .orderBy(desc(notifications.createdAt))
     .limit(limit);
 }
 
-export async function markNotificationAsRead(notificationId: number, teamId: number, userId?: number) {
+export async function markNotificationAsRead(notificationId: number, teamId: number | null, userId?: number) {
+  const ownershipFilter = teamId === null
+    ? and(eq(notifications.id, notificationId), userOnlyFilter(userId!))
+    : and(eq(notifications.id, notificationId), visibilityFilter(teamId, userId));
   const result = await db.update(notifications)
     .set({ read: 1, readAt: new Date() })
-    .where(and(
-      eq(notifications.id, notificationId),
-      visibilityFilter(teamId, userId)
-    ));
+    .where(ownershipFilter);
   return result;
 }
 
-export async function markAllAsRead(teamId: number, userId?: number) {
+export async function markAllAsRead(teamId: number | null, userId?: number) {
+  const filter = teamId === null
+    ? and(userOnlyFilter(userId!), eq(notifications.read, 0))
+    : and(visibilityFilter(teamId, userId), eq(notifications.read, 0));
   await db.update(notifications)
     .set({ read: 1, readAt: new Date() })
-    .where(and(
-      visibilityFilter(teamId, userId),
-      eq(notifications.read, 0)
-    ));
+    .where(filter);
 }
 
-export async function dismissNotification(notificationId: number, teamId: number, userId?: number) {
+export async function dismissNotification(notificationId: number, teamId: number | null, userId?: number) {
+  const ownershipFilter = teamId === null
+    ? and(eq(notifications.id, notificationId), userOnlyFilter(userId!))
+    : and(eq(notifications.id, notificationId), visibilityFilter(teamId, userId));
   const result = await db.update(notifications)
     .set({ dismissed: 1 })
-    .where(and(
-      eq(notifications.id, notificationId),
-      visibilityFilter(teamId, userId)
-    ));
+    .where(ownershipFilter);
   return result;
 }
 
-export async function dismissAllNotifications(teamId: number, userId?: number) {
+export async function dismissAllNotifications(teamId: number | null, userId?: number) {
+  const filter = teamId === null
+    ? userOnlyFilter(userId!)
+    : visibilityFilter(teamId, userId);
   await db.update(notifications)
     .set({ dismissed: 1 })
-    .where(visibilityFilter(teamId, userId));
+    .where(filter);
 }
 
-export async function getUnreadCount(teamId: number, userId?: number): Promise<number> {
+export async function getUnreadCount(teamId: number | null, userId?: number): Promise<number> {
+  const filter = teamId === null
+    ? and(userOnlyFilter(userId!), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter())
+    : and(visibilityFilter(teamId, userId), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter());
   const result = await db.select({ count: sql<number>`count(*)` })
     .from(notifications)
-    .where(and(
-      visibilityFilter(teamId, userId),
-      eq(notifications.read, 0),
-      eq(notifications.dismissed, 0),
-      notificationAgeFilter()
-    ));
+    .where(filter);
   return result[0]?.count ?? 0;
 }
 

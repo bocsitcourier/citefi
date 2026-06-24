@@ -1,16 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { markNotificationAsRead, dismissNotification } from "@/lib/notification-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+
+/**
+ * Resolve auth context for per-notification endpoints.
+ * Same two-path strategy as the collection route: full requireTeamMember for team users,
+ * requireAdmin fallback (userId only, teamId = null) for global admins with no team.
+ */
+async function resolveNotificationAuth(request: NextRequest): Promise<{ userId: number; teamId: number | null; role: string }> {
+  try {
+    const auth = await requireTeamMember(request);
+    return auth;
+  } catch (err: any) {
+    if (err.statusCode === 403 && err.message === "Access denied: User must be assigned to a team") {
+      const userId = await requireAdmin(request);
+      return { userId, teamId: null, role: "admin" };
+    }
+    throw err;
+  }
+}
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireTeamMember(request);
-    if (!auth.teamId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await resolveNotificationAuth(request);
 
     const { id } = await params;
     const notificationId = parseInt(id, 10);
