@@ -3444,6 +3444,36 @@ export const insertUsageEventSchema = createInsertSchema(usageEvents).omit({ id:
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type InsertUsageEvent = z.infer<typeof insertUsageEventSchema>;
 
+// ============================================================================
+// APPROVAL TOKEN INVALIDATION — replay-attack prevention for one-click links
+// ============================================================================
+
+/**
+ * Stores the signatures of approval tokens that have already been used.
+ * The review POST handler writes here immediately after a successful action;
+ * subsequent replays are rejected before any DB mutation occurs.
+ *
+ * Rows are pruned when their expiresAt passes (matching the 7-day token TTL)
+ * — the POST handler runs a cheap DELETE of expired rows on each request.
+ */
+export const usedApprovalTokens = pgTable("used_approval_tokens", {
+  id: serial("id").primaryKey(),
+  /** The HMAC-SHA256 signature extracted from the token (second segment). */
+  tokenSignature: varchar("token_signature", { length: 512 }).notNull().unique(),
+  /** Unix timestamp (ms) copied from the token's `exp` field, used for pruning. */
+  expiresAt: timestamp("expires_at").notNull(),
+  /** Which action was performed so the audit trail is clear. */
+  action: varchar("action", { length: 10 }).notNull(), // 'approve' | 'reject'
+  usedAt: timestamp("used_at").notNull().defaultNow(),
+}, (table) => ({
+  signatureIdx: uniqueIndex("used_approval_tokens_signature_idx").on(table.tokenSignature),
+  expiresAtIdx: index("used_approval_tokens_expires_at_idx").on(table.expiresAt),
+}));
+
+export const insertUsedApprovalTokenSchema = createInsertSchema(usedApprovalTokens).omit({ id: true, usedAt: true });
+export type UsedApprovalToken = typeof usedApprovalTokens.$inferSelect;
+export type InsertUsedApprovalToken = z.infer<typeof insertUsedApprovalTokenSchema>;
+
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),
   numTitles: z.number().int().min(10).max(100).default(50),

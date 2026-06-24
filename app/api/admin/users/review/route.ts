@@ -14,13 +14,19 @@
  *   Multiple bots or double-clicks could both pass a pre-check then race to update.
  *   Adding `AND accountStatus='pending_approval'` to the UPDATE's WHERE ensures only
  *   one concurrent request will affect a row; 0 rows updated means already actioned.
+ *
+ * Replay-attack prevention:
+ *   After a successful POST the token signature is written to `used_approval_tokens`.
+ *   Subsequent POST requests with the same token are rejected immediately, before any
+ *   DB mutation, even if the forwarded email is used by someone else within the 7-day
+ *   window.  Expired rows are pruned on each POST to keep the table small.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, sessions, activityLogs } from "@/shared/schema";
+import { users, sessions, activityLogs, usedApprovalTokens } from "@/shared/schema";
 import { verifyApprovalToken, decodeApprovalTokenIgnoreExpiry } from "@/lib/approval-token";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import {
   sendAccountApprovedEmail,
   sendAccountRejectedEmail,
@@ -174,6 +180,57 @@ function confirmationPage(
   });
 }
 
+/**
+ * Extract the signature segment from a raw token string.
+ * Tokens are structured as "<encodedPayload>.<signature>".
+ */
+function extractSignature(token: string): string {
+  const dotIndex = token.lastIndexOf(".");
+  return dotIndex !== -1 ? token.slice(dotIndex + 1) : token;
+}
+
+/**
+ * Prune expired invalidation records from used_approval_tokens.
+ * Runs best-effort — failure is logged but does not block the main request.
+ */
+async function pruneExpiredTokens(): Promise<void> {
+  try {
+    await db.delete(usedApprovalTokens).where(lt(usedApprovalTokens.expiresAt, new Date()));
+  } catch (err) {
+    console.error("[approval-token] Failed to prune expired invalidation records:", err);
+  }
+}
+
+/**
+ * Check whether a token signature has already been used.
+ * Returns true if the signature is present in the invalidation set.
+ */
+async function isTokenAlreadyUsed(signature: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: usedApprovalTokens.id })
+    .from(usedApprovalTokens)
+    .where(eq(usedApprovalTokens.tokenSignature, signature))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Record a token signature as used so replays are rejected.
+ * expiresAt is set to match the token's own exp so the row is pruned after
+ * the token would have expired anyway.
+ */
+async function invalidateToken(
+  signature: string,
+  action: "approve" | "reject",
+  expMs: number,
+): Promise<void> {
+  await db.insert(usedApprovalTokens).values({
+    tokenSignature: signature,
+    expiresAt: new Date(expMs),
+    action,
+  }).onConflictDoNothing();
+}
+
 // ─── GET: confirmation page (read-only, safe for crawlers) ──────────────────
 
 export async function GET(req: NextRequest) {
@@ -304,7 +361,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { userId, action } = payload;
+  const { userId, action, exp } = payload;
+  const signature = extractSignature(token);
+
+  // ── Replay-attack check ────────────────────────────────────────────────────
+  // Prune stale rows first (best-effort, non-blocking), then check if this
+  // token's signature has already been consumed.
+  pruneExpiredTokens(); // fire-and-forget
+
+  const alreadyUsed = await isTokenAlreadyUsed(signature);
+  if (alreadyUsed) {
+    return htmlPage(
+      "Link already used",
+      "This approval link has already been used",
+      "<p>Each approval link can only be used once. If you need to change this account's status, please log in to the admin panel.</p>",
+      false
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Fetch user details needed for follow-up email and audit log
   const [user] = await db
@@ -343,6 +417,9 @@ export async function POST(req: NextRequest) {
         true
       );
     }
+
+    // Invalidate the token so it cannot be replayed
+    await invalidateToken(signature, action, exp);
 
     await db.insert(activityLogs).values({
       userId: userId,
@@ -386,6 +463,9 @@ export async function POST(req: NextRequest) {
         true
       );
     }
+
+    // Invalidate the token so it cannot be replayed
+    await invalidateToken(signature, action, exp);
 
     await db
       .update(sessions)
