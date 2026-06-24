@@ -363,6 +363,27 @@ export default function AdminUsersPage() {
     },
   });
 
+  const resendApprovalMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      return apiRequest(`/api/admin/users/${userId}/resend-approval`, {
+        method: "POST",
+      });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Approval email resent",
+        description: `A fresh approval email with a new 7-day link has been sent to ${data.adminCount ?? "all"} admin(s).`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to resend email",
+        description: error.message || "Failed to resend approval email",
+      });
+    },
+  });
+
   const toggle2FAMutation = useMutation({
     mutationFn: async (userId: number) => {
       return apiRequest(`/api/admin/users/${userId}/toggle-2fa`, {
@@ -661,36 +682,54 @@ export default function AdminUsersPage() {
                     <TableCell data-testid={`text-created-${u.id}`}>
                       {new Date(u.createdAt).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button
-                        size="sm"
-                        onClick={() => approveUserMutation.mutate(u.id)}
-                        disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
-                        data-testid={`button-approve-${u.id}`}
-                      >
-                        {approveUserMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Check className="h-4 w-4 mr-1" />
-                            Approve
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => {
-                          setRejectUser(u);
-                          setRejectSendEmail(true);
-                          setRejectDialogOpen(true);
-                        }}
-                        disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
-                        data-testid={`button-reject-${u.id}`}
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Reject
-                      </Button>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          onClick={() => approveUserMutation.mutate(u.id)}
+                          disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
+                          data-testid={`button-approve-${u.id}`}
+                        >
+                          {approveUserMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Check className="h-4 w-4 mr-1" />
+                              Approve
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => {
+                            setRejectUser(u);
+                            setRejectSendEmail(true);
+                            setRejectDialogOpen(true);
+                          }}
+                          disabled={approveUserMutation.isPending || rejectUserMutation.isPending}
+                          data-testid={`button-reject-${u.id}`}
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => resendApprovalMutation.mutate(u.id)}
+                          disabled={resendApprovalMutation.isPending}
+                          data-testid={`button-resend-approval-${u.id}`}
+                        >
+                          {resendApprovalMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Mail className="h-4 w-4 mr-1" />
+                              Resend Email
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
