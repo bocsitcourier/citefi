@@ -27,10 +27,7 @@ import { db } from "@/lib/db";
 import { users, sessions, activityLogs, usedApprovalTokens } from "@/shared/schema";
 import { verifyApprovalToken, decodeApprovalTokenIgnoreExpiry } from "@/lib/approval-token";
 import { and, eq, lt, sql } from "drizzle-orm";
-import {
-  sendAccountApprovedEmail,
-  sendAccountRejectedEmail,
-} from "@/lib/email";
+import { emailService } from "@/lib/email";
 
 /** Escape characters that are dangerous inside HTML text nodes and attribute values. */
 function escapeHtml(raw: string): string {
@@ -437,7 +434,7 @@ export async function POST(req: NextRequest) {
       severity: "info",
     });
 
-    sendAccountApprovedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
+    emailService.sendAccountApprovedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
       console.error("Failed to send approval email:", err);
     });
 
@@ -493,7 +490,7 @@ export async function POST(req: NextRequest) {
       severity: "warning",
     });
 
-    sendAccountRejectedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
+    emailService.sendAccountRejectedEmail({ to: user.email, fullName: user.fullName }).catch((err) => {
       console.error("Failed to send rejection email:", err);
     });
 
