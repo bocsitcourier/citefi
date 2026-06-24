@@ -57,7 +57,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const now = new Date();
     const isReview = action === "approved" || action === "changes_requested";
 
-    await db
+    // Include the same ownership predicate used during the auth read to prevent
+    // TOCTOU: if the article is reassigned between the read and write, this
+    // UPDATE returns 0 rows and we 404 rather than mutate the wrong article.
+    const ownershipWhere =
+      role === "client_viewer"
+        ? and(eq(articles.id, articleId), eq(articles.approvalTeamId, teamId), isNull(articles.deletedAt))
+        : and(eq(articles.id, articleId), eq(articles.teamId, teamId), isNull(articles.deletedAt));
+
+    const updated = await db
       .update(articles)
       .set({
         approvalStatus: action,
@@ -67,7 +75,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         approvalFeedback: feedback ?? null,
         updatedAt: now,
       })
-      .where(eq(articles.id, articleId));
+      .where(ownershipWhere)
+      .returning({ id: articles.id });
+
+    if (!updated.length) return NextResponse.json({ error: "Article not found" }, { status: 404 });
 
     await db.insert(activityLogs).values({
       userId,

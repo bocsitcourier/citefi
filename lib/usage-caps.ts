@@ -1,6 +1,12 @@
 /**
  * Usage caps enforcement — T107 launch-readiness gap.
  * Provides: getCapStatus, checkUsageCap (throws on hard stop), recordUsageEvent, sendCapAlert.
+ *
+ * Concurrent cap bypass fix (T005):
+ * checkUsageCap atomically inserts a PENDING reservation BEFORE reading the total spend.
+ * Subsequent concurrent cap checks will see the reservation in their SUM query, preventing
+ * double-booking within the 2-hour stale-reservation expiry window.
+ * Call cancelCapReservation(id) on job failure to release the hold.
  */
 
 import { db } from "@/lib/db";
@@ -8,7 +14,7 @@ import { spendingCaps, usageEvents, teams, teamMembers, users } from "@/shared/s
 import { eq, and, gte, sum, inArray, isNull, ne, or } from "drizzle-orm";
 import { deliverEmail } from "@/lib/email";
 
-export type UsageAction = "article_generation" | "social_post" | "podcast" | "video" | "title_pool";
+export type UsageAction = "article_generation" | "social_post" | "podcast" | "video" | "title_pool" | "cap_reservation";
 
 /** Returns the current period key (YYYY-MM) in UTC */
 function currentPeriodKey(): string {
@@ -25,7 +31,7 @@ function startOfMonth(): Date {
 export interface CapStatus {
   /** Monthly cap in cents. 0 = unlimited. */
   monthlyCapCents: number;
-  /** Total estimated cost spent this period in cents */
+  /** Total confirmed spend this period in cents (completed events only) */
   spentCents: number;
   /** Remaining headroom in cents. null if unlimited. */
   remainingCents: number | null;
@@ -39,7 +45,8 @@ export interface CapStatus {
   periodKey: string;
 }
 
-/** Get current spend + cap status for a team this month */
+/** Get confirmed spend + cap status for a team this month.
+ *  Counts only COMPLETED events — pending reservations are excluded for UI clarity. */
 export async function getCapStatus(teamId: number): Promise<CapStatus> {
   const [cap] = await db
     .select()
@@ -51,7 +58,11 @@ export async function getCapStatus(teamId: number): Promise<CapStatus> {
   const [spendRow] = await db
     .select({ total: sum(usageEvents.costEstimateCents) })
     .from(usageEvents)
-    .where(and(eq(usageEvents.teamId, teamId), gte(usageEvents.createdAt, periodStart)));
+    .where(and(
+      eq(usageEvents.teamId, teamId),
+      gte(usageEvents.createdAt, periodStart),
+      eq(usageEvents.status, "completed")
+    ));
 
   const spentCents = Number(spendRow?.total ?? 0);
   const monthlyCapCents = cap?.monthlyCapCents ?? 0;
@@ -80,29 +91,105 @@ export async function getCapStatus(teamId: number): Promise<CapStatus> {
 
 /**
  * Pre-flight cap check — call BEFORE enqueuing an expensive job.
- * Throws 402 with a clear message if hardStop is set and cap is exceeded.
- * Also fires alert email/notification if threshold crossed (non-blocking).
+ *
+ * Atomically inserts a PENDING reservation event FIRST, then reads the running total
+ * (completed + recent pending). This means two concurrent cap checks both see each
+ * other's reservations, preventing double-booking.
+ *
+ * Returns the reservation event ID if a cap is configured (null = unlimited).
+ * Throws 402 with SPENDING_CAP_EXCEEDED if hardStop is set and cap would be exceeded.
+ * Call cancelCapReservation(id) on job failure to release the hold.
  */
-export async function checkUsageCap(teamId: number, estimatedCents: number = 0): Promise<void> {
-  const status = await getCapStatus(teamId);
+export async function checkUsageCap(teamId: number, estimatedCents: number = 0): Promise<number | null> {
+  const [cap] = await db
+    .select()
+    .from(spendingCaps)
+    .where(eq(spendingCaps.teamId, teamId))
+    .limit(1);
 
-  if (status.monthlyCapCents > 0) {
-    const projectedSpend = status.spentCents + estimatedCents;
-    const projectedPct = Math.round((projectedSpend / status.monthlyCapCents) * 100);
-
-    if (status.hardStop && projectedSpend > status.monthlyCapCents) {
-      const error: any = new Error(
-        `Monthly spending cap of $${(status.monthlyCapCents / 100).toFixed(2)} would be exceeded by this job. ` +
-        `You have $${(Math.max(0, status.monthlyCapCents - status.spentCents) / 100).toFixed(2)} remaining. ` +
-        `Raise your cap in Settings → Usage to continue.`
-      );
-      error.statusCode = 402;
-      error.code = "SPENDING_CAP_EXCEEDED";
-      throw error;
+  if (!cap || cap.monthlyCapCents === 0) {
+    // No cap configured — just fire a soft alert if threshold crossed (non-blocking)
+    const status = await getCapStatus(teamId);
+    if (status.monthlyCapCents > 0 && estimatedCents > 0) {
+      const projectedPct = Math.round(((status.spentCents + estimatedCents) / status.monthlyCapCents) * 100);
+      await maybeSendAlert(teamId, status, projectedPct).catch(() => {});
     }
-
-    await maybeSendAlert(teamId, status, projectedPct).catch(() => {});
+    return null;
   }
+
+  // INSERT the pending reservation FIRST so concurrent cap checks include it in their SUM.
+  const [reserved] = await db
+    .insert(usageEvents)
+    .values({
+      teamId,
+      action: "cap_reservation",
+      units: 0,
+      costEstimateCents: estimatedCents,
+      status: "pending",
+    })
+    .returning({ id: usageEvents.id });
+
+  const reservationId = reserved.id;
+  const periodStart = startOfMonth();
+  // Stale-reservation expiry: only count pending events < 2 hours old.
+  // This ensures a crashed job can't permanently block the cap.
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+  // Count completed events + recent pending events (both contribute to the projected spend)
+  const [spendRow] = await db
+    .select({ total: sum(usageEvents.costEstimateCents) })
+    .from(usageEvents)
+    .where(and(
+      eq(usageEvents.teamId, teamId),
+      gte(usageEvents.createdAt, periodStart),
+      or(
+        eq(usageEvents.status, "completed"),
+        and(eq(usageEvents.status, "pending"), gte(usageEvents.createdAt, twoHoursAgo))
+      )
+    ));
+
+  const totalProjected = Number(spendRow?.total ?? 0);
+
+  if (cap.hardStop && totalProjected > cap.monthlyCapCents) {
+    // Over cap — cancel the reservation immediately and throw
+    await db.delete(usageEvents).where(eq(usageEvents.id, reservationId)).catch(() => {});
+    const alreadySpent = totalProjected - estimatedCents;
+    const remaining = Math.max(0, cap.monthlyCapCents - alreadySpent);
+    const error: any = new Error(
+      `Monthly spending cap of $${(cap.monthlyCapCents / 100).toFixed(2)} would be exceeded by this job. ` +
+      `You have $${(remaining / 100).toFixed(2)} remaining. ` +
+      `Raise your cap in Settings → Usage to continue.`
+    );
+    error.statusCode = 402;
+    error.code = "SPENDING_CAP_EXCEEDED";
+    throw error;
+  }
+
+  // Fire soft alert if threshold crossed (non-blocking)
+  const projectedPct = Math.round((totalProjected / cap.monthlyCapCents) * 100);
+  const alertStatus: CapStatus = {
+    monthlyCapCents: cap.monthlyCapCents,
+    spentCents: totalProjected,
+    remainingCents: Math.max(0, cap.monthlyCapCents - totalProjected),
+    usagePct: projectedPct,
+    hardStop: cap.hardStop ?? false,
+    exceeded: totalProjected >= cap.monthlyCapCents,
+    alertThresholdPct: cap.alertThresholdPct ?? 80,
+    periodKey: currentPeriodKey(),
+  };
+  await maybeSendAlert(teamId, alertStatus, projectedPct).catch(() => {});
+
+  return reservationId;
+}
+
+/**
+ * Cancel a pending cap reservation — call when a job fails before completing.
+ * Safe to call even if the reservation was already deleted.
+ */
+export async function cancelCapReservation(reservationId: number): Promise<void> {
+  await db
+    .delete(usageEvents)
+    .where(and(eq(usageEvents.id, reservationId), eq(usageEvents.status, "pending")));
 }
 
 /** Write a usage event after successful billable work completion */
@@ -121,6 +208,7 @@ export async function recordUsageEvent(opts: {
     costEstimateCents: opts.costEstimateCents,
     jobId: opts.jobId ?? null,
     metadataJson: opts.metadata ?? null,
+    status: "completed",
   });
 }
 

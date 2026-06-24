@@ -244,3 +244,66 @@ export async function refundCredits(opts: {
     return { balance: updated.balance };
   });
 }
+
+/**
+ * Reverse a credit grant that was issued by the billing webhook (subscription or top-up).
+ * Atomically marks the grant ledger entry as reversed and subtracts the credits from the
+ * team balance. The balance may go negative — this is intentional and correct when a
+ * customer is refunded credits they've already partially spent.
+ *
+ * Safe to call multiple times: the WHERE reversedAt IS NULL makes it idempotent.
+ */
+export async function revokeGrantCredits(opts: {
+  teamId: number;
+  adminUserId: number;
+  grantLedgerRowId: number;
+  amount: number;
+  reason: string;
+}): Promise<{ balance: number }> {
+  const { teamId, adminUserId, grantLedgerRowId, amount, reason } = opts;
+  const txDb = await getTxDb();
+
+  return txDb.transaction(async (tx) => {
+    // Atomically mark the grant as reversed (idempotent via reversedAt IS NULL check)
+    const [marked] = await tx
+      .update(creditLedger)
+      // Preserve idempotencyKey so Stripe webhook retries with the same invoice ID
+      // still find this row and short-circuit — preventing re-grant of refunded credits.
+      .set({ reversedAt: new Date() })
+      .where(and(
+        eq(creditLedger.id, grantLedgerRowId),
+        eq(creditLedger.teamId, teamId),
+        isNull(creditLedger.reversedAt)
+      ))
+      .returning({ id: creditLedger.id });
+
+    if (!marked) {
+      // Already reversed by a previous call — return current balance without double-subtracting
+      const [row] = await tx
+        .select({ balance: creditBalances.balance })
+        .from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId));
+      return { balance: row?.balance ?? 0 };
+    }
+
+    // Subtract the previously-granted credits. Balance may go negative if the customer
+    // has already spent some of the refunded credits.
+    const [updated] = await tx
+      .update(creditBalances)
+      .set({ balance: sql`${creditBalances.balance} - ${amount}`, updatedAt: new Date() })
+      .where(eq(creditBalances.teamId, teamId))
+      .returning({ balance: creditBalances.balance });
+
+    // Record the reversal in the ledger for audit trail
+    await tx.insert(creditLedger).values({
+      teamId,
+      userId: adminUserId,
+      amount: -amount,
+      balanceAfter: updated?.balance ?? 0,
+      eventType: "grant_reversal",
+      reason,
+    });
+
+    return { balance: updated?.balance ?? 0 };
+  });
+}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { randomInt } from "crypto";
 import { db } from "@/lib/db";
-import { users, sessions, activityLogs } from "@/shared/schema";
+import { users, sessions, activityLogs, emailVerificationCodes } from "@/shared/schema";
 import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
@@ -149,11 +150,23 @@ export async function POST(req: Request) {
 
     // Check if 2FA is enabled
     if (user.twoFactorEnabled) {
-      // Return partial token that requires 2FA verification
+      // Generate a short-lived challenge token to bind the 2FA step to this
+      // completed password-verification. Without it, anyone who knows a user's
+      // TOTP code could call /api/auth/verify-2fa directly without proving the
+      // password step first.
+      const challengeCode = randomInt(100000, 1000000).toString();
+      await db.insert(emailVerificationCodes).values({
+        userId: user.id,
+        code: challengeCode,
+        purpose: "2fa_challenge_token",
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute window
+      });
+
       return NextResponse.json({
         requiresTwoFactor: true,
         userId: user.id,
         twoFactorMethod: user.twoFactorMethod,
+        challengeToken: challengeCode,
         message: "Please complete 2FA verification",
       });
     }

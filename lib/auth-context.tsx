@@ -85,6 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (response.requiresTwoFactor) {
+      // Persist the challenge token so verify2FA can include it in the next request.
+      // The challenge token binds the 2FA step to this completed password step.
+      if (response.challengeToken) {
+        try { sessionStorage.setItem("auth_2fa_challenge", String(response.challengeToken)); } catch { /* SSR / locked */ }
+      }
       return {
         requiresTwoFactor: true,
         userId: response.userId,
@@ -103,10 +108,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const verify2FA = async (code: string, userId: number, method: string) => {
+    const challengeToken = (() => {
+      try { return sessionStorage.getItem("auth_2fa_challenge"); } catch { return null; }
+    })();
+
     const response = await apiRequest("/api/auth/verify-2fa", {
       method: "POST",
-      body: JSON.stringify({ userId, code, method }),
+      body: JSON.stringify({ userId, code, method, challengeToken }),
     });
+
+    // Clear the one-time challenge token regardless of outcome
+    try { sessionStorage.removeItem("auth_2fa_challenge"); } catch { /* ignore */ }
 
     if (response.token) {
       saveToken(response.token);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, getTxDb } from "@/lib/db";
 import { 
   users, 
   sessions, 
@@ -78,7 +78,7 @@ export async function DELETE(
       }
     }
 
-    // Check for content ownership and references - block deletion if user owns content or is referenced
+    // Block deletion if user owns content or is referenced
     const [ownedBatches] = await db.select({ count: count() }).from(jobBatches).where(eq(jobBatches.userId, userId));
     const [ownedPosts] = await db.select({ count: count() }).from(socialPosts).where(eq(socialPosts.userId, userId));
     const [createdTeams] = await db.select({ count: count() }).from(teams).where(eq(teams.createdBy, userId));
@@ -98,7 +98,7 @@ export async function DELETE(
       );
     }
 
-    // Cancel Stripe subscription if user has one (best-effort — never block deletion)
+    // Cancel Stripe subscription best-effort (outside transaction — external side-effect)
     try {
       const [teamMembership] = await db
         .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
@@ -119,32 +119,24 @@ export async function DELETE(
       }
     } catch (_stripeErr) {}
 
-    // Delete all related records before deleting the user
-    // This prevents foreign key constraint violations
-    await db.delete(sessions).where(eq(sessions.userId, userId));
-    await db.delete(activityLogs).where(eq(activityLogs.userId, userId));
-    await db.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
-    await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
-    await db.delete(loginHistory).where(eq(loginHistory.userId, userId));
-    await db.delete(passwordResets).where(eq(passwordResets.userId, userId));
-    await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
-    // team_members has CASCADE delete, so it will auto-delete
-
-    // Set NULL for nullable foreign keys where user is referenced
-    await db.update(userInvites)
-      .set({ acceptedBy: null })
-      .where(eq(userInvites.acceptedBy, userId));
-    
-    await db.update(sessions)
-      .set({ terminatedBy: null })
-      .where(eq(sessions.terminatedBy, userId));
-    
-    await db.update(passwordResets)
-      .set({ initiatedBy: null })
-      .where(eq(passwordResets.initiatedBy, userId));
-
-    // Finally, delete the user
-    await db.delete(users).where(eq(users.id, userId));
+    // Wrap all sequential deletes in a transaction so a mid-sequence failure
+    // cannot leave the user record orphaned with auth data partially deleted.
+    const txDb = await getTxDb();
+    await txDb.transaction(async (tx) => {
+      await tx.delete(sessions).where(eq(sessions.userId, userId));
+      await tx.delete(activityLogs).where(eq(activityLogs.userId, userId));
+      await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
+      await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
+      await tx.delete(loginHistory).where(eq(loginHistory.userId, userId));
+      await tx.delete(passwordResets).where(eq(passwordResets.userId, userId));
+      await tx.delete(userQuotas).where(eq(userQuotas.userId, userId));
+      // Null out nullable FK references where this user is referenced
+      await tx.update(userInvites).set({ acceptedBy: null }).where(eq(userInvites.acceptedBy, userId));
+      await tx.update(sessions).set({ terminatedBy: null }).where(eq(sessions.terminatedBy, userId));
+      await tx.update(passwordResets).set({ initiatedBy: null }).where(eq(passwordResets.initiatedBy, userId));
+      // team_members has ON DELETE CASCADE — deleted automatically when user row is removed
+      await tx.delete(users).where(eq(users.id, userId));
+    });
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 
                      req.headers.get('x-real-ip') || 

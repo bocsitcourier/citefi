@@ -3434,10 +3434,13 @@ export const usageEvents = pgTable("usage_events", {
   /** Estimated cost in cents for this event */
   costEstimateCents: integer("cost_estimate_cents").notNull().default(0),
   metadataJson: jsonb("metadata_json"),
+  /** pending = cap reservation (not yet confirmed); completed = actual recorded cost */
+  status: varchar("status", { length: 20 }).notNull().default("completed"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   teamMonthIdx: index("usage_events_team_month_idx").on(table.teamId, table.createdAt),
   teamIdIdx: index("usage_events_team_id_idx").on(table.teamId),
+  statusIdx: index("usage_events_status_idx").on(table.status, table.createdAt),
 }));
 
 export const insertUsageEventSchema = createInsertSchema(usageEvents).omit({ id: true, createdAt: true });

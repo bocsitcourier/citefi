@@ -4,7 +4,7 @@ import { users, sessions, activityLogs, totpSecrets, emailVerificationCodes } fr
 import { generateAccessToken, hashToken, verifyTOTPToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
@@ -18,11 +18,11 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { userId, code, method } = body;
+    const { userId, code, method, challengeToken } = body;
 
-    if (!userId || !code || !method) {
+    if (!userId || !code || !method || !challengeToken) {
       return NextResponse.json(
-        { error: "userId, code, and method are required" },
+        { error: "userId, code, method, and challengeToken are required" },
         { status: 400 }
       );
     }
@@ -32,6 +32,29 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Too many verification attempts for this account. Please try again later." },
         { status: 429, headers: { "Retry-After": String(userRl.retryAfter) } }
+      );
+    }
+
+    // Atomically consume the challenge token in a single conditional UPDATE.
+    // A two-step SELECT→UPDATE pattern allows two concurrent verify-2fa requests to both
+    // read isUsed=0 before either marks it used, enabling replay. The single UPDATE with
+    // all predicates in the WHERE clause ensures only one concurrent request can succeed.
+    const [consumed] = await db
+      .update(emailVerificationCodes)
+      .set({ isUsed: 1 })
+      .where(and(
+        eq(emailVerificationCodes.userId, userId),
+        eq(emailVerificationCodes.code, String(challengeToken)),
+        eq(emailVerificationCodes.purpose, "2fa_challenge_token"),
+        eq(emailVerificationCodes.isUsed, 0),
+        gt(emailVerificationCodes.expiresAt, new Date())
+      ))
+      .returning({ id: emailVerificationCodes.id });
+
+    if (!consumed) {
+      return NextResponse.json(
+        { error: "Invalid or expired login session. Please log in again." },
+        { status: 401 }
       );
     }
 

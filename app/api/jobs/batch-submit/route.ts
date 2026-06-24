@@ -8,7 +8,7 @@ import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
-import { checkUsageCap } from "@/lib/usage-caps";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 const batchSubmitSchema = z.object({
   batchId: z.number(),
@@ -160,8 +160,11 @@ export async function POST(request: NextRequest) {
 
     // Spending cap gate — checked here so we can pass the real projected cost.
     // Each credit unit ≈ 1 cent (proxy for API cost estimation).
+    // checkUsageCap now inserts a PENDING reservation so concurrent submissions see it.
+    // The reservation is cancelled on queue failure to release the held capacity.
+    let capReservationId: number | null = null;
     try {
-      await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
+      capReservationId = await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
     } catch (capErr: any) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       return NextResponse.json(
@@ -181,6 +184,9 @@ export async function POST(request: NextRequest) {
 
     if (!creditReserve.ok) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      if (capReservationId !== null) {
+        cancelCapReservation(capReservationId).catch(() => {});
+      }
       return NextResponse.json(
         {
           error: "CREDITS_EXHAUSTED",
@@ -255,6 +261,10 @@ export async function POST(request: NextRequest) {
         userId,
         reason: `Release: batch ${batchId} queue failure`,
       }).catch(() => {});
+      // Cancel the spending-cap reservation so the held capacity is freed
+      if (capReservationId !== null) {
+        cancelCapReservation(capReservationId).catch(() => {});
+      }
       return NextResponse.json(
         { error: "Failed to queue batch generation job. Please try again." },
         { status: 500 }

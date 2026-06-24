@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, getTxDb } from "@/lib/db";
 import {
   users,
   sessions,
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cancel Stripe subscription best-effort
+    // Cancel Stripe subscription best-effort (outside transaction — external side-effect)
     try {
       const [teamMembership] = await db
         .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
@@ -65,22 +65,26 @@ export async function POST(req: NextRequest) {
       }
     } catch (_) {}
 
-    // Delete all related records
-    await db.delete(sessions).where(eq(sessions.userId, userId));
-    await db.delete(activityLogs).where(eq(activityLogs.userId, userId));
-    await db.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
-    await db.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
-    await db.delete(loginHistory).where(eq(loginHistory.userId, userId));
-    await db.delete(passwordResets).where(eq(passwordResets.userId, userId));
-    await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
-    // team_members has CASCADE delete
-    await db.update(userInvites).set({ acceptedBy: null }).where(eq(userInvites.acceptedBy, userId));
-    await db.update(sessions).set({ terminatedBy: null }).where(eq(sessions.terminatedBy, userId));
-    await db.update(passwordResets).set({ initiatedBy: null }).where(eq(passwordResets.initiatedBy, userId));
+    // Wrap all sequential deletes in a transaction so a mid-sequence failure
+    // cannot leave the user record orphaned with auth data partially deleted.
+    const txDb = await getTxDb();
+    await txDb.transaction(async (tx) => {
+      await tx.delete(sessions).where(eq(sessions.userId, userId));
+      await tx.delete(activityLogs).where(eq(activityLogs.userId, userId));
+      await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
+      await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
+      await tx.delete(loginHistory).where(eq(loginHistory.userId, userId));
+      await tx.delete(passwordResets).where(eq(passwordResets.userId, userId));
+      await tx.delete(userQuotas).where(eq(userQuotas.userId, userId));
+      // Null out nullable FK references where this user is referenced
+      await tx.update(userInvites).set({ acceptedBy: null }).where(eq(userInvites.acceptedBy, userId));
+      await tx.update(sessions).set({ terminatedBy: null }).where(eq(sessions.terminatedBy, userId));
+      await tx.update(passwordResets).set({ initiatedBy: null }).where(eq(passwordResets.initiatedBy, userId));
+      // team_members has ON DELETE CASCADE — deleted automatically when user row is removed
+      await tx.delete(users).where(eq(users.id, userId));
+    });
 
-    await db.delete(users).where(eq(users.id, userId));
-
-    // Send confirmation email (fire-and-forget)
+    // Send confirmation email (fire-and-forget, outside transaction)
     deliverEmail({
       to: targetUser.email,
       subject: "Your Citefi account has been deleted",

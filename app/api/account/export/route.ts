@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
     const { userId, teamId } = await requireAuth(req);
 
-    const rlResult = await rateLimitDb(`export:${userId}`, 3, 60 * 60);
+    const rlResult = await rateLimitDb(`export:${userId}`, 3, 60 * 60 * 1000);
     if (!rlResult.allowed) {
       return NextResponse.json(
         { error: "Export rate limit reached. You may request up to 3 exports per hour." },
