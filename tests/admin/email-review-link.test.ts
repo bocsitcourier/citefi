@@ -355,10 +355,10 @@ describe("POST /api/admin/users/review — approve", () => {
     );
   });
 
-  test("expired token returns 400 HTML 'expired'", async () => {
+  test("expired token returns 410 HTML 'expired'", async () => {
     const expiredToken = createExpiredToken(seed.pendingApproveId, "approve");
     const res = await POST(makePostReq(expiredToken));
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 410);
     const html = await res.text();
     assert.ok(
       html.toLowerCase().includes("expired"),
@@ -567,14 +567,74 @@ describe("POST /api/admin/users/review — reject", () => {
     );
   });
 
-  test("expired reject token returns 400 HTML 'expired'", async () => {
+  test("expired reject token returns 410 HTML 'expired'", async () => {
     const expiredToken = createExpiredToken(seed.pendingRejectId, "reject");
     const res = await POST(makePostReq(expiredToken));
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 410);
     const html = await res.text();
     assert.ok(
       html.toLowerCase().includes("expired"),
       `Expected 'expired' for expired reject token — got:\n${html.slice(0, 300)}`
+    );
+  });
+});
+
+// ── Pruning tests ─────────────────────────────────────────────────────────────
+
+describe("POST /api/admin/users/review — expired token pruning", () => {
+  test("expired used_approval_tokens rows are pruned when a POST is processed", async () => {
+    // Insert two rows that are already past their expiresAt so they qualify for pruning.
+    // Use unique fake signatures that won't collide with real tokens in this run.
+    const sig1 = `fake_expired_sig_${RUN_ID}_a`;
+    const sig2 = `fake_expired_sig_${RUN_ID}_b`;
+    const pastDate = new Date(Date.now() - 60_000); // 1 minute ago
+
+    await db.insert(usedApprovalTokens).values([
+      { tokenSignature: sig1, expiresAt: pastDate, action: "approve" },
+      { tokenSignature: sig2, expiresAt: pastDate, action: "reject" },
+    ]);
+
+    // Confirm the rows are present before the POST
+    const before = await db
+      .select({ id: usedApprovalTokens.id })
+      .from(usedApprovalTokens)
+      .where(inArray(usedApprovalTokens.tokenSignature, [sig1, sig2]));
+    assert.equal(before.length, 2, "Precondition: both expired rows must be present before the POST");
+
+    // Seed a fresh pending user to have a valid token for the POST
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_prune_test@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Prune Test User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    const token = generateApprovalToken(fp.id, "approve");
+
+    // This POST triggers pruneExpiredTokens() as a fire-and-forget side-effect.
+    const res = await POST(makePostReq(token));
+    assert.equal(res.status, 200, `Expected 200 to confirm POST succeeded — got ${res.status}`);
+
+    // pruneExpiredTokens() is fire-and-forget (not awaited by the route), so give
+    // it a short window to complete before checking the DB.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // The two expired rows must now be gone
+    const after = await db
+      .select({ id: usedApprovalTokens.id })
+      .from(usedApprovalTokens)
+      .where(inArray(usedApprovalTokens.tokenSignature, [sig1, sig2]));
+    assert.equal(
+      after.length,
+      0,
+      `Expected 0 expired rows after pruning — found ${after.length}. ` +
+        "pruneExpiredTokens() may not have deleted rows with expiresAt in the past."
     );
   });
 });

@@ -38,6 +38,10 @@ args = "Start application"
 task = "workflow.run"
 args = "auth-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "approval-link-tests"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -54,6 +58,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node --env-file=.env.local --import tsx/esm --test tests/auth/auth-api.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "approval-link-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --env-file=.env.local --import tsx/esm --test tests/admin/email-review-link.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true
