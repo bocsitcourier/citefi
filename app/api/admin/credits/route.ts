@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { creditBalances, creditLedger, teams } from "@shared/schema";
+import { creditBalances, creditLedger, teams } from "@/shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
