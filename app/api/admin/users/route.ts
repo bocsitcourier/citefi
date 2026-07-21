@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, teams } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   try {
     // Verify admin access
     await requireAdmin(req);
 
-    // Fetch all users with their default team name (join via defaultTeamId to avoid duplicates)
+    // Fetch all users with their default team name (join via defaultTeamId to avoid duplicates).
+    // Also surface whether a one-click approval email-link was consumed for this user so the
+    // admin panel can show a "Link used" badge next to any still-pending registrations.
     const allUsers = await db
       .select({
         id: users.id,
@@ -21,6 +23,20 @@ export async function GET(req: NextRequest) {
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
         teamName: teams.name,
+        approvalLinkUsedAt: sql<string | null>`(
+          SELECT uat.used_at
+          FROM used_approval_tokens uat
+          WHERE uat.user_id = ${users.id}
+          ORDER BY uat.used_at DESC
+          LIMIT 1
+        )`.as("approvalLinkUsedAt"),
+        approvalLinkAction: sql<string | null>`(
+          SELECT uat.action
+          FROM used_approval_tokens uat
+          WHERE uat.user_id = ${users.id}
+          ORDER BY uat.used_at DESC
+          LIMIT 1
+        )`.as("approvalLinkAction"),
       })
       .from(users)
       .leftJoin(teams, eq(teams.id, users.defaultTeamId))

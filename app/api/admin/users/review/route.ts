@@ -220,11 +220,13 @@ async function invalidateToken(
   signature: string,
   action: "approve" | "reject",
   expMs: number,
+  userId: number,
 ): Promise<void> {
   await db.insert(usedApprovalTokens).values({
     tokenSignature: signature,
     expiresAt: new Date(expMs),
     action,
+    userId,
   }).onConflictDoNothing();
 }
 
@@ -433,7 +435,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Invalidate the token so it cannot be replayed
-    await invalidateToken(signature, action, exp);
+    await invalidateToken(signature, action, exp, userId);
 
     await db.insert(activityLogs).values({
       userId: userId,
@@ -479,7 +481,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Invalidate the token so it cannot be replayed
-    await invalidateToken(signature, action, exp);
+    await invalidateToken(signature, action, exp, userId);
 
     await db
       .update(sessions)

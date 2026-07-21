@@ -3468,9 +3468,12 @@ export const usedApprovalTokens = pgTable("used_approval_tokens", {
   /** Which action was performed so the audit trail is clear. */
   action: varchar("action", { length: 10 }).notNull(), // 'approve' | 'reject'
   usedAt: timestamp("used_at").notNull().defaultNow(),
+  /** The userId from the token payload — lets the admin panel surface "link used" per pending user. */
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
 }, (table) => ({
   signatureIdx: uniqueIndex("used_approval_tokens_signature_idx").on(table.tokenSignature),
   expiresAtIdx: index("used_approval_tokens_expires_at_idx").on(table.expiresAt),
+  userIdIdx: index("used_approval_tokens_user_id_idx").on(table.userId),
 }));
 
 export const insertUsedApprovalTokenSchema = createInsertSchema(usedApprovalTokens).omit({ id: true, usedAt: true });

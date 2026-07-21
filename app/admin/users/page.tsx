@@ -67,6 +67,8 @@ interface UserData {
   createdAt: string;
   lastLoginAt: string | null;
   teamName: string | null;
+  approvalLinkUsedAt: string | null;
+  approvalLinkAction: string | null;
 }
 
 interface InviteData {
@@ -670,6 +672,7 @@ export default function AdminUsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Registered</TableHead>
+                  <TableHead>Link Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -681,6 +684,23 @@ export default function AdminUsersPage() {
                     <TableCell data-testid={`text-team-${u.id}`}>{u.teamName || "-"}</TableCell>
                     <TableCell data-testid={`text-created-${u.id}`}>
                       {new Date(u.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell data-testid={`text-link-status-${u.id}`}>
+                      {u.approvalLinkUsedAt ? (
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="secondary" className="w-fit" data-testid={`badge-link-used-${u.id}`}>
+                            Link used
+                          </Badge>
+                          <span className="text-xs text-muted-foreground" data-testid={`text-link-used-at-${u.id}`}>
+                            {new Date(u.approvalLinkUsedAt).toLocaleString()}
+                            {u.approvalLinkAction && (
+                              <span className="ml-1">({u.approvalLinkAction})</span>
+                            )}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2 flex-wrap">
