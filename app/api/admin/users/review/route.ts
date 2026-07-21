@@ -348,12 +348,29 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     const isExpired = msg.includes("expired");
+
+    if (isExpired) {
+      let emailHtml = "<em>unknown</em>";
+      try {
+        const expiredPayload = decodeApprovalTokenIgnoreExpiry(token);
+        const [expiredUser] = await db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, expiredPayload.userId))
+          .limit(1);
+        if (expiredUser?.email) {
+          emailHtml = escapeHtml(expiredUser.email);
+        }
+      } catch {
+        // If we still can't decode it, fall back to "unknown"
+      }
+      return expiredPage(emailHtml);
+    }
+
     return htmlPage(
-      isExpired ? "Link expired" : "Invalid link",
-      isExpired ? "This link has expired" : "Invalid approval link",
-      isExpired
-        ? "<p>Approval links are valid for 7 days. Please log in to the admin panel to review this account.</p>"
-        : "<p>This link is invalid or has been tampered with.</p>",
+      "Invalid link",
+      "Invalid approval link",
+      "<p>This link is invalid or has been tampered with.</p>",
       false
     );
   }
