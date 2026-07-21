@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Sparkles, CheckCircle2, Clock, Network, ChevronDown, ChevronUp, Home, Calendar, Send, Settings } from "lucide-react";
+import {
+  Loader2, Sparkles, CheckCircle2, Clock, Network, ChevronDown, ChevronUp,
+  Calendar, Send, UploadCloud, X, RefreshCw, ArrowRight, FileText,
+  BadgeCheck,
+} from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { GenerationProgress } from "./components/GenerationProgress";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +20,14 @@ import { AdvancedOptions } from "./components/AdvancedOptions";
 import Link from "next/link";
 import { BrandConfirmationModal } from "@/components/BrandConfirmationModal";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TitlePoolData {
   titles: string[];
@@ -48,54 +56,323 @@ const TONE_OPTIONS = [
   { value: "authoritative", label: "Authoritative" },
 ];
 
+const WIZARD_STEPS = [
+  { id: 1, label: "Campaign Setup", desc: "Topic & location" },
+  { id: 2, label: "Select Titles", desc: "Choose articles to write" },
+  { id: 3, label: "Configure", desc: "Settings & cost review" },
+  { id: 4, label: "Generating", desc: "AI writing your articles" },
+];
+
+const GENERATING_STATUSES = ["QUEUED", "IN_PROGRESS", "RUNNING", "PROCESSING"];
+const TERMINAL_STATUSES = ["COMPLETE", "PARTIAL_COMPLETE", "FAILED", "CANCELLED"];
+
+// ─── Step Indicator Bar ───────────────────────────────────────────────────────
+
+function StepBar({ current }: { current: number }) {
+  return (
+    <div className="flex items-center w-full">
+      {WIZARD_STEPS.map((step, i) => (
+        <div key={step.id} className="flex items-center flex-1 last:flex-none">
+          <div className="flex items-center gap-2 shrink-0">
+            <div className={cn(
+              "flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold border-2 transition-colors",
+              current === step.id
+                ? "border-primary bg-primary text-primary-foreground"
+                : current > step.id
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-muted-foreground/25 bg-background text-muted-foreground"
+            )}>
+              {current > step.id ? <CheckCircle2 className="w-4 h-4" /> : step.id}
+            </div>
+            <div className="hidden sm:block">
+              <p className={cn(
+                "text-sm font-medium leading-none",
+                current === step.id ? "text-foreground" : "text-muted-foreground"
+              )}>
+                {step.label}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
+            </div>
+          </div>
+          {i < WIZARD_STEPS.length - 1 && (
+            <div className={cn(
+              "flex-1 h-0.5 mx-3 transition-colors",
+              current > step.id ? "bg-primary/50" : "bg-muted"
+            )} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Logo Dropzone ────────────────────────────────────────────────────────────
+
+function LogoDropzone({
+  url,
+  busy,
+  onFile,
+  onClear,
+}: {
+  url: string;
+  busy: boolean;
+  onFile: (file: File) => void;
+  onClear: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const ACCEPTED_MIME = ["image/png", "image/jpeg", "image/webp"];
+
+  const validate = useCallback((file: File) => {
+    if (!ACCEPTED_MIME.includes(file.type)) return "Only PNG, JPG, or WebP files are accepted.";
+    if (file.size > 5 * 1024 * 1024) return "File must be under 5 MB.";
+    return null;
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const err = validate(file);
+    if (err) { alert(err); return; }
+    onFile(file);
+  }, [onFile, validate]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const err = validate(file);
+    if (err) { alert(err); return; }
+    onFile(file);
+    e.target.value = "";
+  }, [onFile, validate]);
+
+  return (
+    <div
+      onClick={() => !url && !busy && inputRef.current?.click()}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={handleDrop}
+      className={cn(
+        "rounded-lg border-2 border-dashed transition-colors",
+        url ? "border-transparent p-3" : "p-8 text-center cursor-pointer",
+        dragging ? "border-primary bg-primary/5" : !url && "border-muted-foreground/25 hover:border-primary/40"
+      )}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp"
+        className="hidden"
+        onChange={handleChange}
+        disabled={busy}
+        data-testid="input-company-logo"
+      />
+
+      {busy && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" /> Uploading…
+        </div>
+      )}
+
+      {!busy && url && (
+        <div className="flex items-center gap-3">
+          <img src={url} alt="Company logo" className="h-12 w-12 object-contain rounded border bg-white p-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-green-700 dark:text-green-400 flex items-center gap-1">
+              <BadgeCheck className="w-4 h-4 shrink-0" /> Logo uploaded
+            </p>
+            <p className="text-xs text-muted-foreground">AI will use this in branded image generation</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+            >
+              Replace
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(e) => { e.stopPropagation(); onClear(); }}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!busy && !url && (
+        <>
+          <UploadCloud className="w-8 h-8 mx-auto mb-2 text-muted-foreground/50" />
+          <p className="text-sm font-medium">Drop your logo here, or click to browse</p>
+          <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP · max 5 MB</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Credit Preview Banner ────────────────────────────────────────────────────
+
+function CreditPreviewBanner({ units }: { units: number }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["credit-preview", "article", units],
+    queryFn: () => apiRequest(`/api/credits/preview?product=article&units=${units}`),
+    enabled: units > 0,
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-4 flex items-center gap-3">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Calculating cost…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(
+      "rounded-lg border p-4 space-y-2",
+      data.canAfford
+        ? "border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20"
+        : "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20"
+    )}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">Generation cost</span>
+        <span className="font-semibold">{data.creditCost.toLocaleString()} credits</span>
+      </div>
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span>Your balance</span>
+        <span className={data.canAfford ? "text-green-700 dark:text-green-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+          {data.currentBalance.toLocaleString()} credits
+        </span>
+      </div>
+      <div className="border-t pt-2 mt-2">
+        {data.canAfford ? (
+          <p className="text-xs text-muted-foreground">
+            {data.creditCostPerUnit} credit{data.creditCostPerUnit !== 1 ? "s" : ""} × {units} article{units !== 1 ? "s" : ""}
+          </p>
+        ) : (
+          <p className="text-xs text-red-600 dark:text-red-400">
+            You need {data.deficit.toLocaleString()} more credits.{" "}
+            <Link href="/client/billing" className="underline font-medium">Purchase credits →</Link>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+
 export default function Dashboard() {
   const { toast } = useToast();
+
+  // Wizard step
+  const [step, setStep] = useState(1);
+
+  // Step 1 — Campaign
   const [coreTopic, setCoreTopic] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
   const [numTitles, setNumTitles] = useState(25);
   const [tone, setTone] = useState("professional");
-  const [wordCountMin, setWordCountMin] = useState(800);
-  const [wordCountMax, setWordCountMax] = useState(2000);
-  const [selectedTitles, setSelectedTitles] = useState<Set<string>>(new Set());
-  const [currentBatch, setCurrentBatch] = useState<Batch | null>(null);
-  const [generatingBatchId, setGeneratingBatchId] = useState<number | null>(null);
-  
-  // NAP (Name, Address, Phone) Location Data
+  const [geographicFocus, setGeographicFocus] = useState("");
+  const [audience, setAudience] = useState("");
+
+  // Step 1 — Business profile
   const [businessName, setBusinessName] = useState("");
   const [businessAddress, setBusinessAddress] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
-  const [companyLogoUrl, setCompanyLogoUrl] = useState("");
-  const [uploadingLogo, setUploadingLogo] = useState(false);
-  
-  // Brand Confirmation State
-  const [showBrandModal, setShowBrandModal] = useState(false);
-  const [confirmedBrandName, setConfirmedBrandName] = useState("");
 
-  // Intelligence gate state
-  const [showIntelGateDialog, setShowIntelGateDialog] = useState(false);
-  
-  // Pillar/Cluster Strategy State
+  // Step 1 — Advanced / optional
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [competitorUrls, setCompetitorUrls] = useState<string[]>([]);
+  const [serpFeatureTarget, setSerpFeatureTarget] = useState("none");
+  const [semanticClusterId, setSemanticClusterId] = useState<number | undefined>();
+
+  // Step 1 — Pillar strategy planner
   const [showPillarStrategy, setShowPillarStrategy] = useState(false);
   const [pillarTopic, setPillarTopic] = useState("");
   const [pillarIndustry, setPillarIndustry] = useState("");
   const [pillarAudience, setPillarAudience] = useState("");
   const [pillarPages, setPillarPages] = useState("8");
   const [pillarStrategy, setPillarStrategy] = useState<any>(null);
-  
-  // Advanced SEO Features State
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [competitorUrls, setCompetitorUrls] = useState<string[]>([]);
-  const [serpFeatureTarget, setSerpFeatureTarget] = useState("none");
-  const [geographicFocus, setGeographicFocus] = useState("");
-  const [semanticClusterId, setSemanticClusterId] = useState<number | undefined>();
-  const [audience, setAudience] = useState("");
+
+  // Step 2 — Titles
+  const [currentBatch, setCurrentBatch] = useState<Batch | null>(null);
+  const [selectedTitles, setSelectedTitles] = useState<Set<string>>(new Set());
+
+  // Step 3 — Config
+  const [wordCountMin, setWordCountMin] = useState(800);
+  const [wordCountMax, setWordCountMax] = useState(2000);
+  const [companyLogoUrl, setCompanyLogoUrl] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Step 4 — Progress
+  const [generatingBatchId, setGeneratingBatchId] = useState<number | null>(null);
+  const [generationComplete, setGenerationComplete] = useState(false);
+
+  // Modals
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [confirmedBrandName, setConfirmedBrandName] = useState("");
+  const [showIntelGateDialog, setShowIntelGateDialog] = useState(false);
+
+  // ── Brand profile autofill ──────────────────────────────────────────────────
+  const { data: brandProfileData } = useQuery({
+    queryKey: ["intelligence"],
+    queryFn: () => apiRequest("/api/intelligence"),
+  });
+
+  useEffect(() => {
+    const profile = (brandProfileData as any)?.profile;
+    if (!profile) return;
+    if (profile.companyName && !businessName) setBusinessName(profile.companyName);
+    if (profile.websiteUrl && !targetUrl) setTargetUrl(profile.websiteUrl);
+  }, [brandProfileData]);
+
+  // ── Batch resume on mount ───────────────────────────────────────────────────
+  const { data: recentBatches } = useQuery({
+    queryKey: ["batches"],
+    queryFn: () => apiRequest("/api/batches"),
+  });
+
+  const resumeAttempted = useRef(false);
+
+  useEffect(() => {
+    if (resumeAttempted.current || !recentBatches?.length || step !== 1 || currentBatch) return;
+    resumeAttempted.current = true;
+
+    const latest = (recentBatches as any[])[0];
+    if (!latest || TERMINAL_STATUSES.includes(latest.status)) return;
+
+    if (GENERATING_STATUSES.includes(latest.status)) {
+      setGeneratingBatchId(latest.id);
+      setStep(4);
+      return;
+    }
+
+    // Check if title pool is ready
+    apiRequest(`/api/jobs/status/${latest.id}`).then((s: any) => {
+      if (s?.titlePool?.titles?.length) {
+        setCurrentBatch(s);
+        setCoreTopic(latest.coreTopic ?? "");
+        setStep(2);
+        toast({ title: "Session resumed", description: "Your previous title pool is ready to select from." });
+      }
+    }).catch(() => {});
+  }, [recentBatches]);
+
+  // ── Mutations ────────────────────────────────────────────────────────────────
 
   const generateTitlesMutation = useMutation({
-    mutationFn: async (data: { 
-      userId: number; 
-      coreTopic: string; 
-      targetUrl: string; 
-      numTitles: number; 
+    mutationFn: async (data: {
+      coreTopic: string;
+      targetUrl: string;
+      numTitles: number;
       tone: string;
       competitorUrls?: string[];
       serpFeatureTarget?: string;
@@ -103,40 +380,39 @@ export default function Dashboard() {
       geographicFocus?: string;
       audience?: string;
       businessName?: string;
-      businessAddress?: string;
-      businessPhone?: string;
-      companyLogoUrl?: string;
-    }) => {
-      return await apiRequest("/api/jobs/title-pool", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-    },
+    }) => apiRequest("/api/jobs/title-pool", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: async (data) => {
-      toast({
-        title: "Title pool generated!",
-        description: `${data.titles.length} SEO-optimized titles ready for selection.`,
-      });
-      
       const statusData = await apiRequest(`/api/jobs/status/${data.batchId}`);
       setCurrentBatch(statusData);
+      toast({ title: "Titles generated!", description: `${data.titles.length} titles ready to select.` });
+      setStep(2);
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Generation failed",
-        description: error.message || "Failed to generate titles",
-        variant: "destructive",
-      });
+    onError: (err: Error) => {
+      toast({ title: "Generation failed", description: err.message || "Failed to generate titles.", variant: "destructive" });
+    },
+  });
+
+  const regenerateTitlesMutation = useMutation({
+    mutationFn: (batchId: number) =>
+      apiRequest(`/api/batches/${batchId}/regenerate-titles`, { method: "POST" }),
+    onSuccess: async (data) => {
+      const statusData = await apiRequest(`/api/jobs/status/${data.batch.id}`);
+      setCurrentBatch(statusData);
+      setSelectedTitles(new Set());
+      toast({ title: "Titles regenerated!", description: `${data.titles.length} fresh titles ready.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Regeneration failed", description: err.message, variant: "destructive" });
     },
   });
 
   const submitBatchMutation = useMutation({
-    mutationFn: async (data: { 
-      batchId: number; 
-      selectedTitles: string[]; 
-      targetUrl: string; 
-      wordCountMin: number; 
-      wordCountMax: number; 
+    mutationFn: async (opts: {
+      batchId: number;
+      selectedTitles: string[];
+      targetUrl: string;
+      wordCountMin: number;
+      wordCountMax: number;
       tone: string;
       competitorUrls?: string[];
       serpFeatureTarget?: string;
@@ -149,65 +425,33 @@ export default function Dashboard() {
       companyLogoUrl?: string;
       skipIntelGate?: boolean;
     }) => {
-      const { skipIntelGate, ...body } = data;
-      return await apiRequest("/api/jobs/batch-submit", {
+      const { skipIntelGate, ...body } = opts;
+      return apiRequest("/api/jobs/batch-submit", {
         method: "POST",
         headers: skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {},
         body: JSON.stringify(body),
       });
     },
     onSuccess: (data: any) => {
-      toast({
-        title: "Batch submitted!",
-        description: `${selectedTitles.size} articles are being generated.`,
-      });
-      setGeneratingBatchId(data.batchId || currentBatch?.id || null);
-      setSelectedTitles(new Set());
-      setCurrentBatch(null);
-      setCoreTopic("");
-      setTargetUrl("");
+      const bid = data.batchId || currentBatch?.id || null;
+      setGeneratingBatchId(bid);
+      setGenerationComplete(false);
+      setStep(4);
+      toast({ title: "Batch submitted!", description: `${selectedTitles.size} articles queued.` });
     },
-    onError: (error: Error) => {
-      const err = error as any;
-      if (err.status === 428 && err.data?.intelligenceGate) {
+    onError: (err: Error) => {
+      const e = err as any;
+      if (e.status === 428 && e.data?.intelligenceGate) {
         setShowIntelGateDialog(true);
         return;
       }
-      toast({
-        title: "Submission failed",
-        description: error.message || "Failed to submit batch",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const regenerateTitlesMutation = useMutation({
-    mutationFn: async (batchId: number) => {
-      return await apiRequest(`/api/batches/${batchId}/regenerate-titles`, {
-        method: "POST",
-      });
-    },
-    onSuccess: async (data) => {
-      toast({
-        title: "Titles regenerated!",
-        description: `${data.titles.length} new SEO-optimized titles ready.`,
-      });
-      const statusData = await apiRequest(`/api/jobs/status/${data.batch.id}`);
-      setCurrentBatch(statusData);
-      setSelectedTitles(new Set());
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Regeneration failed",
-        description: error.message || "Failed to regenerate titles",
-        variant: "destructive",
-      });
+      toast({ title: "Submission failed", description: err.message || "Failed to submit.", variant: "destructive" });
     },
   });
 
   const pillarStrategyMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest("/api/seo/pillar-cluster", {
+    mutationFn: () =>
+      apiRequest("/api/seo/pillar-cluster", {
         method: "POST",
         body: JSON.stringify({
           main_topic: pillarTopic,
@@ -215,152 +459,41 @@ export default function Dashboard() {
           target_audience: pillarAudience,
           num_cluster_pages: parseInt(pillarPages),
         }),
-      });
-    },
+      }),
     onSuccess: (data) => {
       setPillarStrategy(data);
-      toast({
-        title: "Strategy Generated!",
-        description: "Your pillar-cluster content plan is ready.",
-      });
+      toast({ title: "Strategy generated!", description: "Your pillar-cluster plan is ready." });
     },
-    onError: (error: any) => {
-      toast({
-        title: "Generation Failed",
-        description: error.message || "Failed to generate strategy",
-        variant: "destructive",
-      });
+    onError: (err: any) => {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
     },
   });
 
-  const handleGenerateTitles = async () => {
-    if (!coreTopic || !targetUrl) {
-      toast({
-        title: "Missing information",
-        description: "Please provide both core topic and target URL.",
-        variant: "destructive",
-      });
-      return;
-    }
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
-    if (!geographicFocus) {
-      toast({
-        title: "Location required",
-        description: "Geographic focus is required for local SEO-optimized titles. Please specify a location (city, region, or area).",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (uploadingLogo) {
-      toast({
-        title: "Upload in progress",
-        description: "Please wait for the logo upload to finish before generating titles.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Logo URL is validated at upload time — no need to re-verify here
-
-    if (businessName && businessName.trim().length > 0 && confirmedBrandName !== businessName) {
-      setShowBrandModal(true);
-      return;
-    }
-
-    proceedWithGeneration();
-  };
-
-  const proceedWithGeneration = (overrideBrandName?: string) => {
-    const finalBrandName = overrideBrandName 
-      ? overrideBrandName
-      : (businessName && businessName.trim().length > 0 
-          ? (confirmedBrandName || businessName) 
-          : undefined);
-    
-    generateTitlesMutation.mutate({
-      userId: 1,
-      coreTopic,
-      targetUrl,
-      numTitles,
-      tone,
-      competitorUrls: competitorUrls.length > 0 ? competitorUrls : undefined,
-      serpFeatureTarget: serpFeatureTarget !== "none" ? serpFeatureTarget : undefined,
-      semanticClusterId,
-      geographicFocus,
-      audience: audience || undefined,
-      businessName: finalBrandName,
-      businessAddress: businessAddress || undefined,
-      businessPhone: businessPhone || undefined,
-      companyLogoUrl: companyLogoUrl || undefined,
-    });
-  };
-
-  const handleBrandConfirm = (confirmedName: string) => {
-    setConfirmedBrandName(confirmedName);
-    setBusinessName(confirmedName);
-    setShowBrandModal(false);
-    proceedWithGeneration(confirmedName);
-  };
-
-  const handleBusinessNameChange = (newName: string) => {
-    setBusinessName(newName);
-    if (newName.trim().length === 0 || newName !== confirmedBrandName) {
-      setConfirmedBrandName("");
-    }
-  };
-
-  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      toast({
-        title: "Invalid file",
-        description: "Please upload an image file (PNG, JPG, etc.)",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Logo must be under 5MB",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  const handleLogoFile = async (file: File) => {
     setUploadingLogo(true);
     try {
-      const formData = new FormData();
-      formData.append('logo', file);
-
+      const fd = new FormData();
+      fd.append("logo", file);
       const token = sessionStorage.getItem("auth_token");
-      const response = await fetch('/api/upload/logo', {
-        method: 'POST',
+      const res = await fetch("/api/upload/logo", {
+        method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
+        body: fd,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed');
+      if (res.status === 401) {
+        toast({ title: "Session expired", description: "Please log in again to upload your logo.", variant: "destructive" });
+        return;
       }
-
-      setCompanyLogoUrl(data.url);
-      
-      toast({
-        title: "Logo uploaded",
-        description: "Your company logo has been uploaded successfully",
-      });
-    } catch (error) {
-      console.error('Logo upload error:', error);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error || "Upload failed");
+      setCompanyLogoUrl(d.url);
+      toast({ title: "Logo uploaded", description: "Your logo will appear in AI-generated branded images." });
+    } catch (err) {
       toast({
         title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload logo. Please try again.",
+        description: err instanceof Error ? err.message : "Failed to upload logo.",
         variant: "destructive",
       });
     } finally {
@@ -368,596 +501,673 @@ export default function Dashboard() {
     }
   };
 
-  const handleSubmitBatch = () => {
-    if (!currentBatch || selectedTitles.size === 0) {
-      toast({
-        title: "No titles selected",
-        description: "Please select at least one title to generate.",
-        variant: "destructive",
-      });
+  const triggerGenerate = useCallback((overrideName?: string) => {
+    const name = overrideName ?? businessName;
+    generateTitlesMutation.mutate({
+      coreTopic: coreTopic.trim(),
+      targetUrl: targetUrl.trim(),
+      numTitles,
+      tone,
+      competitorUrls: competitorUrls.length ? competitorUrls : undefined,
+      serpFeatureTarget: serpFeatureTarget !== "none" ? serpFeatureTarget : undefined,
+      semanticClusterId,
+      geographicFocus: geographicFocus.trim() || undefined,
+      audience: audience.trim() || undefined,
+      businessName: name.trim() || undefined,
+    });
+  }, [coreTopic, targetUrl, numTitles, tone, competitorUrls, serpFeatureTarget, semanticClusterId, geographicFocus, audience, businessName]);
+
+  const handleGenerateTitles = () => {
+    if (!coreTopic.trim()) {
+      toast({ title: "Topic required", description: "Enter your content topic.", variant: "destructive" });
       return;
     }
+    if (!targetUrl.trim()) {
+      toast({ title: "URL required", description: "Enter your target website URL.", variant: "destructive" });
+      return;
+    }
+    if (!geographicFocus.trim()) {
+      toast({ title: "Location required", description: "Geographic focus is required for local SEO.", variant: "destructive" });
+      return;
+    }
+    if (!businessName.trim()) {
+      toast({ title: "Business name required", description: "Enter your business name to prevent AI hallucinations.", variant: "destructive" });
+      return;
+    }
+    if (confirmedBrandName !== businessName) {
+      setShowBrandModal(true);
+      return;
+    }
+    triggerGenerate();
+  };
 
+  const handleBrandConfirm = (confirmed: string) => {
+    setConfirmedBrandName(confirmed);
+    setBusinessName(confirmed);
+    setShowBrandModal(false);
+    triggerGenerate(confirmed);
+  };
+
+  const handleSubmitBatch = (skipIntelGate = false) => {
+    if (!currentBatch || selectedTitles.size === 0) return;
     submitBatchMutation.mutate({
       batchId: currentBatch.id,
       selectedTitles: Array.from(selectedTitles),
-      targetUrl: currentBatch.targetUrl,
+      targetUrl: currentBatch.targetUrl || targetUrl,
       wordCountMin,
       wordCountMax,
       tone,
-      competitorUrls: competitorUrls.length > 0 ? competitorUrls : undefined,
+      competitorUrls: competitorUrls.length ? competitorUrls : undefined,
       serpFeatureTarget: serpFeatureTarget !== "none" ? serpFeatureTarget : undefined,
       semanticClusterId,
-      geographicFocus: geographicFocus || undefined,
-      audience: audience || undefined,
-      businessName: businessName || undefined,
-      businessAddress: businessAddress || undefined,
-      businessPhone: businessPhone || undefined,
+      geographicFocus: geographicFocus.trim() || undefined,
+      audience: audience.trim() || undefined,
+      businessName: businessName.trim() || undefined,
+      businessAddress: businessAddress.trim() || undefined,
+      businessPhone: businessPhone.trim() || undefined,
       companyLogoUrl: companyLogoUrl || undefined,
+      skipIntelGate,
     });
   };
 
-  const toggleTitle = (title: string) => {
-    const newSelected = new Set(selectedTitles);
-    if (newSelected.has(title)) {
-      newSelected.delete(title);
-    } else {
-      newSelected.add(title);
-    }
-    setSelectedTitles(newSelected);
+  const handleStartNew = () => {
+    setStep(1);
+    setCurrentBatch(null);
+    setSelectedTitles(new Set());
+    setGeneratingBatchId(null);
+    setGenerationComplete(false);
+    setCoreTopic("");
+    setGeographicFocus("");
+    setCompanyLogoUrl("");
+    setCompetitorUrls([]);
+    setSerpFeatureTarget("none");
+    setSemanticClusterId(undefined);
+    resumeAttempted.current = false;
+    queryClient.invalidateQueries({ queryKey: ["batches"] });
   };
 
-  const handleUsePillarPage = (title: string, description: string, targetKeywords: string[]) => {
-    setCoreTopic(`${title} - ${description}`);
-    setShowPillarStrategy(false);
-    toast({
-      title: "Pillar Page Selected",
-      description: "Generate titles for this pillar page",
-    });
+  const titles = currentBatch?.titlePool?.titles ?? [];
+  const selectAll = () => setSelectedTitles(new Set(titles));
+  const deselectAll = () => setSelectedTitles(new Set());
+  const toggleTitle = (t: string) => {
+    const next = new Set(selectedTitles);
+    next.has(t) ? next.delete(t) : next.add(t);
+    setSelectedTitles(next);
   };
 
-  const handleUseClusterPage = (title: string, description: string, targetKeywords: string[]) => {
-    setCoreTopic(`${title} - ${description}`);
-    setShowPillarStrategy(false);
-    toast({
-      title: "Cluster Page Selected",
-      description: "Generate titles for this cluster page",
-    });
-  };
+  // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-4xl font-bold mb-2" data-testid="text-page-title">Citefi</h1>
-            <p className="text-muted-foreground" data-testid="text-page-description">
-              Generate SEO-optimized content with dual-AI orchestration
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Content Generator</h1>
+            <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-page-description">
+              Generate SEO-optimized local content with dual-AI orchestration
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <NotificationBell />
             <Link href="/settings/schedules">
-              <Button variant="outline" data-testid="button-schedules">
-                <Calendar className="w-4 h-4 mr-2" />
-                Schedules
+              <Button variant="outline" size="sm" data-testid="button-schedules">
+                <Calendar className="w-4 h-4 mr-1.5" /> Schedules
               </Button>
             </Link>
             <Link href="/settings/publishing">
-              <Button variant="outline" data-testid="button-publishing">
-                <Send className="w-4 h-4 mr-2" />
-                Publishing
+              <Button variant="outline" size="sm" data-testid="button-publishing">
+                <Send className="w-4 h-4 mr-1.5" /> Publishing
               </Button>
             </Link>
-            <Link href="/home">
-              <Button variant="default" className="bg-primary hover:bg-primary/90" data-testid="button-home">
-                <Home className="w-4 h-4 mr-2" />
-                Home
+            <Link href="/content">
+              <Button variant="outline" size="sm">
+                <FileText className="w-4 h-4 mr-1.5" /> Library
               </Button>
             </Link>
           </div>
         </div>
 
-        <Card>
-          <CardHeader 
-            className="cursor-pointer"
-            onClick={() => setShowPillarStrategy(!showPillarStrategy)}
-          >
-            <div className="flex justify-between items-center">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Network className="w-5 h-5 text-primary" />
-                  Step 1: SEO Strategy Planner (Optional)
-                </CardTitle>
-                <CardDescription>
-                  Create pillar-cluster content strategies. Use cluster IDs in Step 2 below for semantic linking between articles.
-                </CardDescription>
-              </div>
-              {showPillarStrategy ? <ChevronUp /> : <ChevronDown />}
-            </div>
-          </CardHeader>
-          {showPillarStrategy && (
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="pillar-topic">Main Topic *</Label>
-                  <Input
-                    id="pillar-topic"
-                    data-testid="input-pillar-topic"
-                    placeholder="e.g., Last-Mile Delivery Solutions"
-                    value={pillarTopic}
-                    onChange={(e) => setPillarTopic(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pillar-industry">Industry *</Label>
-                  <Input
-                    id="pillar-industry"
-                    data-testid="input-pillar-industry"
-                    placeholder="e.g., Courier Services"
-                    value={pillarIndustry}
-                    onChange={(e) => setPillarIndustry(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pillar-audience">Target Audience *</Label>
-                  <Input
-                    id="pillar-audience"
-                    data-testid="input-pillar-audience"
-                    placeholder="e.g., Business owners in Massachusetts"
-                    value={pillarAudience}
-                    onChange={(e) => setPillarAudience(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pillar-pages">Number of Cluster Pages</Label>
-                  <Input
-                    id="pillar-pages"
-                    type="number"
-                    min={3}
-                    max={20}
-                    data-testid="input-pillar-pages"
-                    value={pillarPages}
-                    onChange={(e) => setPillarPages(e.target.value)}
-                  />
-                </div>
-              </div>
-              <Button
-                onClick={() => pillarStrategyMutation.mutate()}
-                disabled={!pillarTopic || !pillarIndustry || !pillarAudience || pillarStrategyMutation.isPending}
-                className="w-full"
-                data-testid="button-generate-strategy"
-              >
-                {pillarStrategyMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating Strategy...
-                  </>
-                ) : (
-                  <>
-                    <Network className="w-4 h-4 mr-2" />
-                    Generate Content Strategy
-                  </>
-                )}
-              </Button>
+        {/* Step indicator (hidden on progress step) */}
+        {step < 4 && (
+          <Card className="p-5">
+            <StepBar current={step} />
+          </Card>
+        )}
 
-              {pillarStrategy && (
-                <div className="mt-6 space-y-6">
-                  <div className="border-t pt-4">
-                    <h3 className="text-lg font-semibold mb-3">🎯 Pillar Page</h3>
-                    <Card className="hover-elevate">
-                      <CardHeader>
-                        <CardTitle className="text-base">{pillarStrategy.pillar_page?.title}</CardTitle>
-                        <CardDescription>{pillarStrategy.pillar_page?.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div>
-                          <p className="text-sm font-medium mb-2">Target Keywords:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {pillarStrategy.pillar_page?.target_keywords?.map((kw: string, i: number) => (
-                              <Badge key={i} variant="default">{kw}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() => handleUsePillarPage(
-                            pillarStrategy.pillar_page.title,
-                            pillarStrategy.pillar_page.description,
-                            pillarStrategy.pillar_page.target_keywords
-                          )}
-                          className="w-full"
+        {/* ═══════════════════════════════════════════════════════════════════
+            STEP 1 — Campaign Setup
+        ═══════════════════════════════════════════════════════════════════ */}
+        {step === 1 && (
+          <div className="space-y-5">
+
+            {/* Optional: SEO Strategy Planner */}
+            <Card>
+              <CardHeader
+                className="cursor-pointer"
+                onClick={() => setShowPillarStrategy(!showPillarStrategy)}
+              >
+                <div className="flex justify-between items-center gap-2 flex-wrap">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Network className="w-4 h-4 text-primary" />
+                      SEO Strategy Planner
+                      <Badge variant="outline" className="text-xs font-normal">Optional</Badge>
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Build a pillar-cluster content map first, then use those topics below.
+                    </CardDescription>
+                  </div>
+                  {showPillarStrategy
+                    ? <ChevronUp className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    : <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />}
+                </div>
+              </CardHeader>
+              {showPillarStrategy && (
+                <CardContent className="pt-0 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pillar-topic">Main Topic *</Label>
+                      <Input id="pillar-topic" data-testid="input-pillar-topic" placeholder="e.g., HVAC Repair Services" value={pillarTopic} onChange={(e) => setPillarTopic(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pillar-industry">Industry *</Label>
+                      <Input id="pillar-industry" data-testid="input-pillar-industry" placeholder="e.g., Home Services" value={pillarIndustry} onChange={(e) => setPillarIndustry(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pillar-audience">Target Audience</Label>
+                      <Input id="pillar-audience" data-testid="input-pillar-audience" placeholder="e.g., Homeowners" value={pillarAudience} onChange={(e) => setPillarAudience(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pillar-pages">Cluster Pages</Label>
+                      <Input id="pillar-pages" data-testid="input-pillar-pages" type="number" min={4} max={20} value={pillarPages} onChange={(e) => setPillarPages(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => pillarStrategyMutation.mutate()}
+                    disabled={pillarStrategyMutation.isPending || !pillarTopic || !pillarIndustry}
+                    data-testid="button-generate-strategy"
+                  >
+                    {pillarStrategyMutation.isPending
+                      ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      : <Sparkles className="w-4 h-4 mr-2" />}
+                    Generate Strategy
+                  </Button>
+
+                  {pillarStrategy && (
+                    <div className="space-y-2 pt-2">
+                      <p className="text-sm font-medium text-muted-foreground">Click a page to use it as your topic:</p>
+                      {pillarStrategy.pillarPage && (
+                        <div
+                          className="p-3 rounded-lg border bg-primary/5 cursor-pointer hover-elevate"
+                          onClick={() => { setCoreTopic(`${pillarStrategy.pillarPage.title} — ${pillarStrategy.pillarPage.description}`); setShowPillarStrategy(false); }}
                           data-testid="button-use-pillar"
                         >
-                          Use This Pillar Page
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <div className="border-t pt-4">
-                    <h3 className="text-lg font-semibold mb-3">📚 Cluster Pages</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {pillarStrategy.cluster_pages?.map((cluster: any, i: number) => (
-                        <Card key={i} className="hover-elevate">
-                          <CardHeader>
-                            <CardTitle className="text-sm">{cluster.title}</CardTitle>
-                            <CardDescription className="text-xs">{cluster.description}</CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            <div>
-                              <p className="text-xs font-medium mb-2">Keywords:</p>
-                              <div className="flex flex-wrap gap-1">
-                                {cluster.target_keywords?.slice(0, 3).map((kw: string, j: number) => (
-                                  <Badge key={j} variant="secondary" className="text-xs">{kw}</Badge>
-                                ))}
-                              </div>
-                            </div>
-                            <Button
-                              onClick={() => handleUseClusterPage(
-                                cluster.title,
-                                cluster.description,
-                                cluster.target_keywords
-                              )}
-                              size="sm"
-                              className="w-full"
-                              data-testid={`button-use-cluster-${i}`}
-                            >
-                              Use This Cluster
-                            </Button>
-                          </CardContent>
-                        </Card>
+                          <Badge variant="secondary" className="mb-1 text-xs">Pillar</Badge>
+                          <p className="text-sm font-semibold">{pillarStrategy.pillarPage.title}</p>
+                          <p className="text-xs text-muted-foreground">{pillarStrategy.pillarPage.description}</p>
+                        </div>
+                      )}
+                      {pillarStrategy.clusterPages?.map((page: any, i: number) => (
+                        <div
+                          key={i}
+                          className="p-3 rounded-lg border cursor-pointer hover-elevate"
+                          onClick={() => { setCoreTopic(`${page.title} — ${page.description}`); setShowPillarStrategy(false); }}
+                          data-testid={`button-use-cluster-${i}`}
+                        >
+                          <Badge variant="outline" className="mb-1 text-xs">Cluster {i + 1}</Badge>
+                          <p className="text-sm font-medium">{page.title}</p>
+                          <p className="text-xs text-muted-foreground">{page.description}</p>
+                        </div>
                       ))}
                     </div>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+
+            {/* Campaign Details */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Campaign Details</CardTitle>
+                <CardDescription>The topic and location that will shape every generated title.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="coreTopic">Core Topic *</Label>
+                    <Input
+                      id="coreTopic"
+                      data-testid="input-core-topic"
+                      placeholder="e.g., Plumbing Repair Services"
+                      value={coreTopic}
+                      onChange={(e) => setCoreTopic(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="targetUrl">Target URL *</Label>
+                    <Input
+                      id="targetUrl"
+                      data-testid="input-target-url"
+                      type="url"
+                      placeholder="https://yourdomain.com/services"
+                      value={targetUrl}
+                      onChange={(e) => setTargetUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="geo-focus">
+                      Geographic Focus *{" "}
+                      <span className="text-xs font-normal text-primary">required for local SEO</span>
+                    </Label>
+                    <Input
+                      id="geo-focus"
+                      data-testid="input-geo-focus"
+                      placeholder="e.g., Austin, Texas"
+                      value={geographicFocus}
+                      onChange={(e) => setGeographicFocus(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="tone">Content Tone</Label>
+                    <Select value={tone} onValueChange={setTone}>
+                      <SelectTrigger id="tone" data-testid="select-tone">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TONE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="numTitles">Titles to Generate (5–100)</Label>
+                    <Input
+                      id="numTitles"
+                      data-testid="input-num-titles"
+                      type="number"
+                      min={5}
+                      max={100}
+                      value={numTitles}
+                      onChange={(e) => setNumTitles(Math.min(100, Math.max(5, parseInt(e.target.value) || 25)))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="audience">Target Audience</Label>
+                    <Input
+                      id="audience"
+                      data-testid="input-audience"
+                      placeholder="e.g., Homeowners, Small business owners"
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                    />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Business Profile */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Business Profile</CardTitle>
+                <CardDescription>
+                  Grounds AI content to prevent hallucinations.
+                  {brandProfileData && " Auto-filled from your Brand Intelligence profile."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label htmlFor="businessName">Business Name *</Label>
+                    <Input
+                      id="businessName"
+                      data-testid="input-business-name"
+                      placeholder="Exact legal business name"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">AI uses this exact spelling — double-check it carefully.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="businessAddress">Business Address</Label>
+                    <Input
+                      id="businessAddress"
+                      data-testid="input-business-address"
+                      placeholder="123 Main St, Austin, TX 78701"
+                      value={businessAddress}
+                      onChange={(e) => setBusinessAddress(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="businessPhone">Business Phone</Label>
+                    <Input
+                      id="businessPhone"
+                      data-testid="input-business-phone"
+                      placeholder="(555) 123-4567"
+                      value={businessPhone}
+                      onChange={(e) => setBusinessPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Advanced SEO Options (collapsible) */}
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                data-testid="button-toggle-advanced"
+              >
+                {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <span className="font-medium">Advanced SEO Options</span>
+                <span className="text-xs">(competitor URLs, SERP targeting, cluster linking)</span>
+              </button>
+              {showAdvanced && (
+                <AdvancedOptions
+                  competitorUrls={competitorUrls}
+                  setCompetitorUrls={setCompetitorUrls}
+                  serpFeatureTarget={serpFeatureTarget}
+                  setSerpFeatureTarget={setSerpFeatureTarget}
+                  geographicFocus={geographicFocus}
+                  setGeographicFocus={setGeographicFocus}
+                  semanticClusterId={semanticClusterId}
+                  setSemanticClusterId={setSemanticClusterId}
+                />
               )}
-            </CardContent>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              Step 2: Article Generation with Advanced SEO
-            </CardTitle>
-            <CardDescription>
-              Generate SEO-optimized content with competitor analysis, SERP targeting, geo-optimization, and semantic clustering. All features below are integrated into each article.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="coreTopic">Core Topic</Label>
-                <Input
-                  id="coreTopic"
-                  data-testid="input-core-topic"
-                  placeholder="e.g., Email Marketing Best Practices"
-                  value={coreTopic}
-                  onChange={(e) => setCoreTopic(e.target.value)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="targetUrl">Target URL</Label>
-                <Input
-                  id="targetUrl"
-                  data-testid="input-target-url"
-                  placeholder="https://example.com"
-                  value={targetUrl}
-                  onChange={(e) => setTargetUrl(e.target.value)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                />
-              </div>
             </div>
 
-            <div className="border-t pt-4">
-              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                📍 NAP Local SEO Data (Optional)
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Provide business location details to optimize articles for local search and geo-targeting
-              </p>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="businessName">Business Name</Label>
-                  <Input
-                    id="businessName"
-                    data-testid="input-business-name"
-                    placeholder="e.g., Acme Marketing Inc."
-                    value={businessName}
-                    onChange={(e) => handleBusinessNameChange(e.target.value)}
-                    disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="businessAddress">Business Address</Label>
-                  <Input
-                    id="businessAddress"
-                    data-testid="input-business-address"
-                    placeholder="e.g., 123 Main St, Boston, MA 02101"
-                    value={businessAddress}
-                    onChange={(e) => setBusinessAddress(e.target.value)}
-                    disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="businessPhone">Business Phone</Label>
-                  <Input
-                    id="businessPhone"
-                    data-testid="input-business-phone"
-                    placeholder="e.g., (555) 123-4567"
-                    value={businessPhone}
-                    onChange={(e) => setBusinessPhone(e.target.value)}
-                    disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                  />
-                </div>
-              </div>
-              
-              <div className="mt-4 space-y-2">
-                <Label htmlFor="companyLogo">Company Logo (for AI-generated images)</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Upload your logo so AI can reference it when generating branded images with your company uniforms and branding
-                </p>
-                <div className="flex items-center gap-4">
-                  <Input
-                    id="companyLogo"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    disabled={uploadingLogo || generateTitlesMutation.isPending || currentBatch !== null}
-                    data-testid="input-company-logo"
-                    className="max-w-md"
-                  />
-                  {uploadingLogo && (
-                    <span className="text-sm text-muted-foreground">Uploading...</span>
-                  )}
-                  {companyLogoUrl && !uploadingLogo && (
-                    <div className="flex items-center gap-2">
-                      <img src={companyLogoUrl} alt="Company logo preview" className="h-8 w-8 object-contain rounded border" />
-                      <span className="text-sm text-green-600">✓ Uploaded</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="numTitles">Number of Titles (5-100)</Label>
-                <Input
-                  id="numTitles"
-                  type="number"
-                  min={5}
-                  max={100}
-                  data-testid="input-num-titles"
-                  value={numTitles}
-                  onChange={(e) => setNumTitles(parseInt(e.target.value) || 25)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="tone">Tone</Label>
-                <select
-                  id="tone"
-                  data-testid="select-tone"
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {TONE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Article Length</Label>
-                <div className="text-sm text-muted-foreground">
-                  {wordCountMin} - {wordCountMax} words
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="wordCountMin">Min Words (500-5000)</Label>
-                <Input
-                  id="wordCountMin"
-                  type="number"
-                  min={500}
-                  max={5000}
-                  data-testid="input-word-count-min"
-                  value={wordCountMin}
-                  onChange={(e) => setWordCountMin(parseInt(e.target.value) || 800)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="wordCountMax">Max Words (500-5000)</Label>
-                <Input
-                  id="wordCountMax"
-                  type="number"
-                  min={500}
-                  max={5000}
-                  data-testid="input-word-count-max"
-                  value={wordCountMax}
-                  onChange={(e) => setWordCountMax(parseInt(e.target.value) || 2000)}
-                  disabled={generateTitlesMutation.isPending || currentBatch !== null}
-                />
-              </div>
-            </div>
-
-            <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Network className="w-5 h-5 text-primary" />
-                Advanced SEO Features
-              </h3>
-              <AdvancedOptions
-                competitorUrls={competitorUrls}
-                setCompetitorUrls={setCompetitorUrls}
-                serpFeatureTarget={serpFeatureTarget}
-                setSerpFeatureTarget={setSerpFeatureTarget}
-                geographicFocus={geographicFocus}
-                setGeographicFocus={setGeographicFocus}
-                semanticClusterId={semanticClusterId}
-                setSemanticClusterId={setSemanticClusterId}
-              />
-            </div>
-
-            <div className="flex gap-3 pt-4">
+            {/* CTA */}
+            <div className="flex justify-end">
               <Button
+                size="lg"
                 onClick={handleGenerateTitles}
-                disabled={generateTitlesMutation.isPending || currentBatch !== null || uploadingLogo}
-                className="flex-1"
+                disabled={generateTitlesMutation.isPending}
                 data-testid="button-generate-titles"
               >
-                {generateTitlesMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                <Sparkles className="w-4 h-4 mr-2" />
-                Generate Title Pool with Advanced SEO
+                {generateTitlesMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating Titles…</>
+                ) : (
+                  <><Sparkles className="w-4 h-4 mr-2" /> Generate Titles <ArrowRight className="w-4 h-4 ml-2" /></>
+                )}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        )}
 
-        {currentBatch && currentBatch.titlePool && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                    Select Titles to Generate ({selectedTitles.size} selected)
-                  </CardTitle>
-                  <CardDescription>
-                    Choose which articles you want to generate from the title pool
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
+        {/* ═══════════════════════════════════════════════════════════════════
+            STEP 2 — Select Titles
+        ═══════════════════════════════════════════════════════════════════ */}
+        {step === 2 && (
+          <div className="space-y-5">
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <CardTitle className="text-base">Choose Titles to Write</CardTitle>
+                    <CardDescription className="mt-1">
+                      Each selected title becomes a full SEO article with local intelligence.
+                    </CardDescription>
+                  </div>
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setCurrentBatch(null);
-                      setSelectedTitles(new Set());
-                    }}
-                    data-testid="button-cancel-batch"
-                  >
-                    Cancel & Edit
-                  </Button>
-                  <Button
-                    variant="outline"
+                    size="sm"
                     onClick={() => currentBatch && regenerateTitlesMutation.mutate(currentBatch.id)}
                     disabled={regenerateTitlesMutation.isPending}
                     data-testid="button-regenerate-titles"
                   >
-                    {regenerateTitlesMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    Regenerate Titles
+                    {regenerateTitlesMutation.isPending
+                      ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                      : <RefreshCw className="w-4 h-4 mr-1.5" />}
+                    Regenerate
                   </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {currentBatch.titlePool.titles.map((title, index) => (
-                  <div
-                    key={index}
-                    className="flex items-start gap-3 p-3 rounded-lg border hover-elevate"
-                    data-testid={`title-item-${index}`}
-                  >
-                    <Checkbox
-                      id={`title-${index}`}
-                      checked={selectedTitles.has(title)}
-                      onCheckedChange={() => toggleTitle(title)}
-                      data-testid={`checkbox-title-${index}`}
-                    />
-                    <label
-                      htmlFor={`title-${index}`}
-                      className="text-sm cursor-pointer flex-1"
-                    >
-                      {title}
-                    </label>
+              </CardHeader>
+              <CardContent>
+                {/* Bulk actions */}
+                <div className="flex items-center justify-between pb-4 mb-4 border-b gap-2 flex-wrap">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={selectAll} data-testid="button-select-all">
+                      Select All ({titles.length})
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={deselectAll} disabled={selectedTitles.size === 0} data-testid="button-deselect-all">
+                      Clear
+                    </Button>
                   </div>
-                ))}
-              </div>
+                  <Badge variant="secondary">{selectedTitles.size} / {titles.length} selected</Badge>
+                </div>
+
+                {titles.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground">
+                    <Clock className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-sm">Titles still generating…</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {titles.map((title, i) => {
+                      const checked = selectedTitles.has(title);
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => toggleTitle(title)}
+                          className={cn(
+                            "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                            checked
+                              ? "border-primary/30 bg-primary/5"
+                              : "border-transparent bg-muted/30 hover:bg-muted/50"
+                          )}
+                          data-testid={`title-item-${i}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleTitle(title)}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <span className="text-sm leading-snug">{title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex justify-between">
               <Button
-                onClick={handleSubmitBatch}
-                disabled={selectedTitles.size === 0 || submitBatchMutation.isPending}
-                className="w-full"
-                data-testid="button-submit-batch"
+                variant="outline"
+                onClick={() => { setStep(1); setCurrentBatch(null); setSelectedTitles(new Set()); }}
+                data-testid="button-back-to-setup"
               >
-                {submitBatchMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Generate {selectedTitles.size} Articles
+                ← Back
               </Button>
-            </CardContent>
-          </Card>
+              <Button
+                onClick={() => setStep(3)}
+                disabled={selectedTitles.size === 0}
+                data-testid="button-go-to-configure"
+              >
+                Configure & Review Cost <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
         )}
 
-        {generatingBatchId && (
-          <GenerationProgress
-            batchId={generatingBatchId}
-            onComplete={() => {
-              toast({
-                title: "Generation complete!",
-                description: "Your articles are ready to view.",
-              });
-            }}
-          />
+        {/* ═══════════════════════════════════════════════════════════════════
+            STEP 3 — Configure & Submit
+        ═══════════════════════════════════════════════════════════════════ */}
+        {step === 3 && (
+          <div className="space-y-5">
+
+            {/* Summary pill */}
+            <Card className="bg-muted/30">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <p className="text-sm font-medium">{selectedTitles.size} article{selectedTitles.size !== 1 ? "s" : ""} selected</p>
+                    <p className="text-xs text-muted-foreground truncate max-w-sm">{coreTopic}</p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setStep(2)}>
+                    Edit selection
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Logo */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Company Logo</CardTitle>
+                <CardDescription>AI references this when generating branded images with your company identity.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LogoDropzone
+                  url={companyLogoUrl}
+                  busy={uploadingLogo}
+                  onFile={handleLogoFile}
+                  onClear={() => setCompanyLogoUrl("")}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Content settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Content Settings</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wc-min">Min Word Count</Label>
+                    <Input
+                      id="wc-min"
+                      data-testid="input-word-count-min"
+                      type="number"
+                      min={500}
+                      max={5000}
+                      value={wordCountMin}
+                      onChange={(e) => setWordCountMin(parseInt(e.target.value) || 800)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="wc-max">Max Word Count</Label>
+                    <Input
+                      id="wc-max"
+                      data-testid="input-word-count-max"
+                      type="number"
+                      min={500}
+                      max={5000}
+                      value={wordCountMax}
+                      onChange={(e) => setWordCountMax(parseInt(e.target.value) || 2000)}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Recommended: 800–2,000 words for optimal local SEO and E-E-A-T signals.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Credit cost preview */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Cost Estimate</p>
+              <CreditPreviewBanner units={selectedTitles.size} />
+            </div>
+
+            <div className="flex justify-between gap-3 flex-wrap">
+              <Button variant="outline" onClick={() => setStep(2)} data-testid="button-back-to-titles">
+                ← Back
+              </Button>
+              <Button
+                size="lg"
+                onClick={() => handleSubmitBatch()}
+                disabled={submitBatchMutation.isPending || selectedTitles.size === 0}
+                data-testid="button-start-generating"
+              >
+                {submitBatchMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting…</>
+                ) : (
+                  <><Sparkles className="w-4 h-4 mr-2" /> Start Generating {selectedTitles.size} Article{selectedTitles.size !== 1 ? "s" : ""}</>
+                )}
+              </Button>
+            </div>
+          </div>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-primary" />
-              Recent Batches
-            </CardTitle>
-            <CardDescription>
-              Track your content generation jobs
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Batch tracking coming soon. Use the job status API to monitor progress.
-            </p>
-          </CardContent>
-        </Card>
+        {/* ═══════════════════════════════════════════════════════════════════
+            STEP 4 — Generation Progress
+        ═══════════════════════════════════════════════════════════════════ */}
+        {step === 4 && (
+          <div className="space-y-5">
+            {generatingBatchId ? (
+              <GenerationProgress
+                batchId={generatingBatchId}
+                onComplete={() => setGenerationComplete(true)}
+              />
+            ) : (
+              <Card className="p-8 text-center">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Starting generation…</p>
+              </Card>
+            )}
+
+            {generationComplete && (
+              <Card className="border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20">
+                <CardContent className="p-6 text-center space-y-4">
+                  <CheckCircle2 className="w-10 h-10 text-green-600 mx-auto" />
+                  <div>
+                    <p className="font-semibold text-lg">Generation Complete</p>
+                    <p className="text-sm text-muted-foreground">Your articles are ready in the Content Library.</p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
+                    <Link href="/content">
+                      <Button><FileText className="w-4 h-4 mr-2" /> View Articles</Button>
+                    </Link>
+                    <Button variant="outline" onClick={handleStartNew}>
+                      <Sparkles className="w-4 h-4 mr-2" /> Generate More
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {!generationComplete && (
+              <div className="flex justify-center">
+                <Button variant="ghost" size="sm" onClick={handleStartNew} data-testid="button-start-new">
+                  Start New Campaign
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Modals */}
       <BrandConfirmationModal
         open={showBrandModal}
         onOpenChange={setShowBrandModal}
         initialBrandName={businessName}
         onConfirm={handleBrandConfirm}
-        title="Confirm Company Name for Content Generation"
-        description="Please verify the exact spelling of your company name. This will be used across all generated articles, podcasts, and videos. The spelling cannot be changed after generation starts."
+        title="Confirm Your Business Name"
+        description="This exact spelling will be used across all generated articles, images, and schemas. It cannot be changed after generation starts."
       />
 
-      {/* Intelligence Gate Dialog */}
       <Dialog open={showIntelGateDialog} onOpenChange={setShowIntelGateDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Set up Brand Intelligence first?</DialogTitle>
             <DialogDescription>
-              Brand Intelligence researches your brand, competitors, and customer pain points so every article is on-brand and strategically targeted. This is a one-time setup that takes a few minutes.
+              Brand Intelligence researches your brand, competitors, and customer pain points so every article is on-brand and strategically targeted. One-time setup, takes a few minutes.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowIntelGateDialog(false);
-                if (submitBatchMutation.variables) {
-                  submitBatchMutation.mutate({ ...submitBatchMutation.variables, skipIntelGate: true });
-                }
-              }}
-            >
+            <Button variant="outline" onClick={() => { setShowIntelGateDialog(false); handleSubmitBatch(true); }}>
               Skip for now
             </Button>
             <Link href="/intelligence">
               <Button>
-                <Sparkles className="w-4 h-4 mr-2" />
-                Set up Brand Intelligence
+                <Sparkles className="w-4 h-4 mr-2" /> Set up Brand Intelligence
               </Button>
             </Link>
           </DialogFooter>
