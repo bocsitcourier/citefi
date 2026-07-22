@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import Link from "next/link";
 import { 
   Users, 
@@ -17,13 +18,15 @@ import {
   AlertTriangle,
   Send,
   Coins,
-  ThumbsUp
+  ThumbsUp,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth-context";
 
 const adminNavItems = [
   {
@@ -123,6 +126,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const router = useRouter();
   const { toast } = useToast();
+  const { user, isLoading } = useAuth();
+
+  // Auth guard — redirect unauthenticated or non-admin users
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) { router.replace("/login"); return; }
+    if (user.role !== "admin") { router.replace("/home"); return; }
+  }, [isLoading, user, router]);
+
+  // Show spinner while auth resolves or while redirecting
+  if (isLoading || !user || user.role !== "admin") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const getToken = () => {
     try { return sessionStorage.getItem("auth_token"); } catch { return null; }

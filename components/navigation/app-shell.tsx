@@ -84,6 +84,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/accept-invite/") ||
     pathname.startsWith("/examples/");
 
+  // Admin routes have their own full-page layout + auth guard.
+  // Bypass the main app shell so both sidebars don't stack on top of each other.
+  const isAdminRoute = pathname?.startsWith("/admin");
+
   // Client-side auth guard — redirect unauthenticated users on protected routes
   useEffect(() => {
     if (!mounted || isLoading || isPublicRoute) return;
@@ -120,6 +124,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Public routes — render without shell
   if (isPublicRoute) {
+    return <>{children}</>;
+  }
+
+  // Admin routes — auth-guarded but rendered without the main app shell.
+  // The admin layout has its own sidebar; stacking both sidebars breaks the UI.
+  if (isAdminRoute) {
+    if (!user) return null; // auth guard effect above redirects to /login
     return <>{children}</>;
   }
 
