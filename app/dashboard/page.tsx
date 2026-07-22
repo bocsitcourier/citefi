@@ -63,7 +63,7 @@ const WIZARD_STEPS = [
   { id: 4, label: "Generating", desc: "AI writing your articles" },
 ];
 
-const GENERATING_STATUSES = ["QUEUED", "IN_PROGRESS", "RUNNING", "PROCESSING"];
+const GENERATING_STATUSES = ["QUEUED", "IN_PROGRESS", "RUNNING", "PROCESSING", "SUBMITTING"];
 const TERMINAL_STATUSES = ["COMPLETE", "PARTIAL_COMPLETE", "FAILED", "CANCELLED"];
 
 // ─── Step Indicator Bar ───────────────────────────────────────────────────────
@@ -113,11 +113,13 @@ function LogoDropzone({
   busy,
   onFile,
   onClear,
+  onError,
 }: {
   url: string;
   busy: boolean;
   onFile: (file: File) => void;
   onClear: () => void;
+  onError?: (msg: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -136,18 +138,18 @@ function LogoDropzone({
     const file = e.dataTransfer.files[0];
     if (!file) return;
     const err = validate(file);
-    if (err) { alert(err); return; }
+    if (err) { onError?.(err); return; }
     onFile(file);
-  }, [onFile, validate]);
+  }, [onFile, onError, validate]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const err = validate(file);
-    if (err) { alert(err); return; }
+    if (err) { onError?.(err); return; }
     onFile(file);
     e.target.value = "";
-  }, [onFile, validate]);
+  }, [onFile, onError, validate]);
 
   return (
     <div
@@ -218,12 +220,19 @@ function LogoDropzone({
 
 // ─── Credit Preview Banner ────────────────────────────────────────────────────
 
-function CreditPreviewBanner({ units }: { units: number }) {
+function CreditPreviewBanner({ units, onCanAffordChange }: {
+  units: number;
+  onCanAffordChange?: (canAfford: boolean) => void;
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ["credit-preview", "article", units],
     queryFn: () => apiRequest(`/api/credits/preview?product=article&units=${units}`),
     enabled: units > 0,
   });
+
+  useEffect(() => {
+    if (data?.canAfford !== undefined) onCanAffordChange?.(data.canAfford);
+  }, [data?.canAfford]);
 
   if (isLoading || !data) {
     return (
@@ -311,6 +320,7 @@ export default function Dashboard() {
   const [wordCountMax, setWordCountMax] = useState(2000);
   const [companyLogoUrl, setCompanyLogoUrl] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [creditCanAfford, setCreditCanAfford] = useState(true);
 
   // Step 4 — Progress
   const [generatingBatchId, setGeneratingBatchId] = useState<number | null>(null);
@@ -341,6 +351,7 @@ export default function Dashboard() {
   });
 
   const resumeAttempted = useRef(false);
+  const abandonedBatchId = useRef<number | null>(null);
 
   useEffect(() => {
     if (resumeAttempted.current || !recentBatches?.length || step !== 1 || currentBatch) return;
@@ -348,6 +359,8 @@ export default function Dashboard() {
 
     const latest = (recentBatches as any[])[0];
     if (!latest || TERMINAL_STATUSES.includes(latest.status)) return;
+    // Don't resume a batch the user explicitly abandoned this session
+    if (latest.id === abandonedBatchId.current) return;
 
     if (GENERATING_STATUSES.includes(latest.status)) {
       setGeneratingBatchId(latest.id);
@@ -355,11 +368,17 @@ export default function Dashboard() {
       return;
     }
 
-    // Check if title pool is ready
+    // Check if title pool is ready — also hydrate NAP fields saved on the batch
     apiRequest(`/api/jobs/status/${latest.id}`).then((s: any) => {
       if (s?.titlePool?.titles?.length) {
         setCurrentBatch(s);
         setCoreTopic(latest.coreTopic ?? "");
+        if (s.targetUrl) setTargetUrl(s.targetUrl);
+        if (s.businessName) setBusinessName(s.businessName);
+        const gp = s.generationParams as any;
+        if (gp?.geographicFocus) setGeographicFocus(gp.geographicFocus);
+        if (gp?.tone) setTone(gp.tone);
+        if (gp?.audience) setAudience(gp.audience);
         setStep(2);
         toast({ title: "Session resumed", description: "Your previous title pool is ready to select from." });
       }
@@ -382,9 +401,22 @@ export default function Dashboard() {
       businessName?: string;
     }) => apiRequest("/api/jobs/title-pool", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: async (data) => {
-      const statusData = await apiRequest(`/api/jobs/status/${data.batchId}`);
-      setCurrentBatch(statusData);
-      toast({ title: "Titles generated!", description: `${data.titles.length} titles ready to select.` });
+      try {
+        const statusData = await apiRequest(`/api/jobs/status/${data.batchId}`);
+        setCurrentBatch(statusData);
+      } catch {
+        // Status fetch failed but title pool was created — synthesise a minimal batch object
+        setCurrentBatch({
+          id: data.batchId,
+          status: "PENDING",
+          coreTopic,
+          targetUrl,
+          numArticlesRequested: data.titles?.length ?? 0,
+          titlePool: { titles: data.titles ?? [], primaryKeywords: [], contentStrategy: "", isMultiCity: false },
+          createdAt: new Date().toISOString(),
+        } as any);
+      }
+      toast({ title: "Titles generated!", description: `${data.titles?.length ?? 0} titles ready to select.` });
       setStep(2);
     },
     onError: (err: Error) => {
@@ -571,6 +603,12 @@ export default function Dashboard() {
   };
 
   const handleStartNew = () => {
+    // Mark the current batch as abandoned so the resume effect ignores it
+    const currentId = generatingBatchId ?? currentBatch?.id ?? null;
+    if (currentId !== null) abandonedBatchId.current = currentId;
+    // Reset resumeAttempted so user CAN resume a different (older) batch if present,
+    // but abandonedBatchId guard above prevents the current one from re-triggering.
+    resumeAttempted.current = false;
     setStep(1);
     setCurrentBatch(null);
     setSelectedTitles(new Set());
@@ -582,7 +620,6 @@ export default function Dashboard() {
     setCompetitorUrls([]);
     setSerpFeatureTarget("none");
     setSemanticClusterId(undefined);
-    resumeAttempted.current = false;
     queryClient.invalidateQueries({ queryKey: ["batches"] });
   };
 
@@ -1027,6 +1064,7 @@ export default function Dashboard() {
                   busy={uploadingLogo}
                   onFile={handleLogoFile}
                   onClear={() => setCompanyLogoUrl("")}
+                  onError={(msg) => toast({ title: "Invalid file", description: msg, variant: "destructive" })}
                 />
               </CardContent>
             </Card>
@@ -1072,7 +1110,7 @@ export default function Dashboard() {
             {/* Credit cost preview */}
             <div className="space-y-1.5">
               <p className="text-sm font-medium">Cost Estimate</p>
-              <CreditPreviewBanner units={selectedTitles.size} />
+              <CreditPreviewBanner units={selectedTitles.size} onCanAffordChange={setCreditCanAfford} />
             </div>
 
             <div className="flex justify-between gap-3 flex-wrap">
@@ -1082,7 +1120,7 @@ export default function Dashboard() {
               <Button
                 size="lg"
                 onClick={() => handleSubmitBatch()}
-                disabled={submitBatchMutation.isPending || selectedTitles.size === 0}
+                disabled={submitBatchMutation.isPending || selectedTitles.size === 0 || !creditCanAfford}
                 data-testid="button-start-generating"
               >
                 {submitBatchMutation.isPending ? (

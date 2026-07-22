@@ -34,6 +34,8 @@ export async function GET(
         targetUrl: jobBatches.targetUrl,
         numArticlesRequested: jobBatches.numArticlesRequested,
         titlePoolJson: jobBatches.titlePoolJson,
+        businessName: jobBatches.businessName,
+        generationParams: jobBatches.generationParams,
         createdAt: jobBatches.createdAt,
         completedAt: jobBatches.completedAt,
       })
@@ -86,6 +88,8 @@ export async function GET(
       targetUrl: batch.targetUrl,
       numArticlesRequested: batch.numArticlesRequested,
       titlePool: structuredTitlePool,
+      businessName: batch.businessName ?? null,
+      generationParams: batch.generationParams ?? null,
       createdAt: batch.createdAt,
       completedAt: batch.completedAt,
       articles: {
