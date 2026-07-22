@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useInvalidatePendingCount } from "@/hooks/use-invalidate-pending-count";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, X, Shield, User, Mail, Calendar, UserPlus, Send, Trash2, Copy, LogOut, MoreVertical, Key, ShieldAlert, ShieldCheck, ShieldOff, Home, Eye } from "lucide-react";
 import {
@@ -87,6 +88,7 @@ export default function AdminUsersPage() {
   const { toast } = useToast();
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
+  const invalidatePendingCount = useInvalidatePendingCount();
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"admin" | "team_member">("team_member");
@@ -121,7 +123,7 @@ export default function AdminUsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-count"] });
+      invalidatePendingCount();
       toast({
         title: "User approved",
         description: "The user can now log in to the system.",
@@ -145,7 +147,7 @@ export default function AdminUsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-count"] });
+      invalidatePendingCount();
       setRejectDialogOpen(false);
       setRejectUser(null);
       toast({
