@@ -135,23 +135,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (user.role !== "admin") { router.replace("/home"); return; }
   }, [isLoading, user, router]);
 
-  // Show spinner while auth resolves or while redirecting
-  if (isLoading || !user || user.role !== "admin") {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  const getToken = () => {
-    try { return sessionStorage.getItem("auth_token"); } catch { return null; }
-  };
+  // ALL hooks must be called unconditionally before any early return.
+  // This satisfies React Rules of Hooks even during the loading/redirect state.
+  const isAdmin = !isLoading && !!user && user.role === "admin";
 
   const { data: pendingData } = useQuery<{ count: number }>({
     queryKey: ["/api/admin/pending-count"],
     queryFn: async () => {
-      const token = getToken();
+      const token = (() => { try { return sessionStorage.getItem("auth_token"); } catch { return null; } })();
       const res = await fetch("/api/admin/pending-count", {
         credentials: "include",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -159,12 +150,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       if (!res.ok) return { count: 0 };
       return res.json();
     },
+    enabled: isAdmin,
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
     staleTime: 20000,
   });
 
   const pendingCount = pendingData?.count ?? 0;
+
+  // Show spinner while auth resolves or while redirecting
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const handleLogout = async () => {
     try {
