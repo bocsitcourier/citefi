@@ -93,6 +93,10 @@ export async function GET(
         titlePoolJson: batch.titlePoolJson,
         createdAt: batch.createdAt,
         completedAt: batch.completedAt,
+        businessName: batch.businessName ?? null,
+        businessAddress: batch.businessAddress ?? null,
+        businessPhone: batch.businessPhone ?? null,
+        companyLogoUrl: batch.companyLogoUrl ?? null,
       },
       seoCache: seoCache ? {
         cacheVersion: seoCache.cacheVersion,

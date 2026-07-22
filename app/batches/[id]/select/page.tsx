@@ -1,6 +1,6 @@
 "use client";
 
-import { use, Suspense, useState } from "react";
+import { use, Suspense, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,10 @@ interface BatchData {
     numArticlesRequested: number;
     titlePoolJson: TitlePoolData | null;
     createdAt: string;
+    businessName: string | null;
+    businessAddress: string | null;
+    businessPhone: string | null;
+    companyLogoUrl: string | null;
   };
 }
 
@@ -91,6 +95,16 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
   const { data, isLoading, error } = useQuery<BatchData>({
     queryKey: [`/api/batches/${batchId}`],
   });
+
+  // Pre-populate business info from the batch (collected during title generation)
+  useEffect(() => {
+    if (!data?.batch) return;
+    const b = data.batch;
+    if (b.businessName) setBusinessName(b.businessName);
+    if (b.businessAddress) setBusinessAddress(b.businessAddress);
+    if (b.businessPhone) setBusinessPhone(b.businessPhone);
+    if (b.companyLogoUrl) setCompanyLogoUrl(b.companyLogoUrl);
+  }, [data?.batch?.id]);
 
   const { data: personasData, isLoading: personasLoading } = useQuery<{ success: boolean; personas: Persona[] }>({
     queryKey: ["/api/personas"],
@@ -461,8 +475,10 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
                               try {
                                 const formData = new FormData();
                                 formData.append('logo', file);
+                                const token = sessionStorage.getItem("auth_token");
                                 const res = await fetch('/api/upload/logo', {
                                   method: 'POST',
+                                  headers: token ? { Authorization: `Bearer ${token}` } : {},
                                   body: formData,
                                 });
                                 const data = await res.json();
