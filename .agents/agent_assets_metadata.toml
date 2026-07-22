@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "f8YavHTVb5Oo1bc12JBPH"
+uri = "file://DO_SSH_PRIVATE_KEY.txt"
+type = "text"
+title = "Private Key → paste into GitHub secret DO_SSH_KEY"
+
+[[outputs]]
+id = "ktgqGFWtgiJC6vis1C37-"
+uri = "file://DO_SSH_PUBLIC_KEY.txt"
+type = "text"
+title = "Public Key → paste on your DO droplet"
