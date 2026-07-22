@@ -42,6 +42,10 @@ args = "auth-tests"
 task = "workflow.run"
 args = "approval-link-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Push to GitHub"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -69,6 +73,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/admin/email-review-link.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Push to GitHub"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/push-to-github.sh"
 
 [workflows.workflow.metadata]
 outputType = "console"

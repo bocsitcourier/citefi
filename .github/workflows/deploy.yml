@@ -1,0 +1,47 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+
+# Only one deploy at a time — never cancel a running deploy
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy to droplet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: citefi
+          key: ${{ secrets.DO_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /var/www/citefi
+
+            echo "==> Pulling latest code..."
+            git pull --ff-only origin main
+
+            echo "==> Installing dependencies..."
+            npm ci
+
+            echo "==> Type-checking..."
+            npm run check
+
+            echo "==> Building Next.js..."
+            npm run build
+
+            echo "==> Restarting PM2 apps..."
+            pm2 restart all
+
+            echo ""
+            echo "Deploy complete at $(date -u '+%Y-%m-%d %H:%M UTC')"
+            pm2 list
