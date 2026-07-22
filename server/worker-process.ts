@@ -24,12 +24,33 @@ process.on("uncaughtException", (err: Error) => {
     console.error(`⚠️ [worker] DB connection error (non-fatal, continuing): ${msg}`);
   } else {
     console.error(`❌ [worker] Uncaught exception — logging but NOT exiting:`, err);
+    // Fire-and-forget — do not await; uncaughtException handlers must not block
+    import("../lib/error-logger").then(({ logError }) => {
+      logError({
+        errorType: "SYSTEM",
+        errorMessage: `[worker:uncaughtException] ${msg}`,
+        stackTrace: err.stack,
+        severity: "critical",
+        component: "worker-process",
+        context: { name: err.name },
+      }).catch(() => {});
+    }).catch(() => {});
   }
 });
 
 process.on("unhandledRejection", (reason: unknown) => {
-  const msg = (reason as Error)?.message ?? String(reason);
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  const msg = err.message;
   console.error(`⚠️ [worker] Unhandled promise rejection (non-fatal): ${msg}`);
+  import("../lib/error-logger").then(({ logError }) => {
+    logError({
+      errorType: "SYSTEM",
+      errorMessage: `[worker:unhandledRejection] ${msg}`,
+      stackTrace: err.stack,
+      severity: "error",
+      component: "worker-process",
+    }).catch(() => {});
+  }).catch(() => {});
 });
 
 // ── Neon keep-alive pinger ────────────────────────────────────────────────────

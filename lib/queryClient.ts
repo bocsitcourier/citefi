@@ -1,11 +1,61 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 
 function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   try { return sessionStorage.getItem("auth_token"); } catch { return null; }
 }
 
+function showErrorToast(message: string) {
+  if (typeof window === "undefined") return;
+  import("@/hooks/use-toast").then(({ toast }) => {
+    toast({
+      title: "Something went wrong",
+      description: message,
+      variant: "destructive",
+    });
+  }).catch(() => {});
+}
+
+function reportClientError(type: string, error: Error) {
+  if (typeof window === "undefined") return;
+  const token = getStoredToken();
+  fetch("/api/client-errors", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      type,
+      message: error.message || String(error),
+      stack: error.stack,
+      url: window.location.href,
+    }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      // Skip 401/403 — auth-context handles those (redirect to login)
+      const status = (error as any)?.status;
+      if (status === 401 || status === 403) return;
+      // Skip if query opted out of the global toast
+      if ((query.meta as any)?.suppressGlobalError) return;
+      reportClientError("QUERY_ERROR", error as Error);
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      const status = (error as any)?.status;
+      if (status === 401 || status === 403 || status === 402) return;
+      if ((mutation.meta as any)?.suppressGlobalError) return;
+      const message = (error as Error)?.message || "Request failed";
+      showErrorToast(message);
+      reportClientError("MUTATION_ERROR", error as Error);
+    },
+  }),
   defaultOptions: {
     queries: {
       queryFn: async ({ queryKey }) => {
@@ -18,7 +68,9 @@ export const queryClient = new QueryClient({
           headers,
         });
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const err = new Error(`HTTP error! status: ${response.status}`) as any;
+          err.status = response.status;
+          throw err;
         }
         return response.json();
       },
