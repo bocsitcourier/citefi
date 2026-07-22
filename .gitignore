@@ -19,3 +19,7 @@ tsconfig.tsbuildinfo
 # Local env files
 .env.local
 .env*.local
+
+# Test output
+test-results/
+playwright-report/
