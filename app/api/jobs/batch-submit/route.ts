@@ -171,9 +171,12 @@ export async function POST(request: NextRequest) {
     try {
       capReservationId = await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
     } catch (capErr: any) {
+      // Only swallow typed cap-exceeded errors — rethrow infra crashes to the outer catch
+      // so they are logged and don't masquerade as "spending cap exceeded" to the user.
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       return NextResponse.json(
-        { error: capErr.message, code: capErr.code ?? "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
         { status: 402 }
       );
     }
@@ -261,6 +264,16 @@ export async function POST(request: NextRequest) {
     } catch (queueErr) {
       console.error(`❌ Batch ${batchId} submission failed:`, queueErr);
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
+      // Log to Admin Error Log so queue failures are always visible
+      const { logError } = await import("@/lib/error-logger");
+      await logError({
+        errorType: "QUEUE",
+        errorMessage: `Batch ${batchId} queue submission failed: ${queueErr instanceof Error ? queueErr.message : String(queueErr)}`,
+        stackTrace: queueErr instanceof Error ? queueErr.stack : undefined,
+        severity: "error",
+        batchId,
+        component: "batch-submit",
+      }).catch(() => {});
       await releaseReservation({
         teamId,
         runId: creditRunId,
@@ -291,11 +304,20 @@ export async function POST(request: NextRequest) {
     // Best-effort: release any spending-cap reservation created before the error.
     // The 2-hour auto-expiry is the safety net if this call also fails.
     if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-    // Reset batch to PENDING so the user can retry — the batch may have been
-    // advanced to SUBMITTING before the unexpected error was thrown.
+    // Reset batch to PENDING so the user can retry
     if (_batchId !== null) {
       await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, _batchId)).catch(() => {});
     }
+    // Log to Admin Error Log so infra crashes are visible instead of silent
+    const { logError: _logError } = await import("@/lib/error-logger");
+    await _logError({
+      errorType: "SYSTEM",
+      errorMessage: `Batch submit unexpected error (batch ${_batchId ?? "unknown"}): ${error instanceof Error ? error.message : String(error)}`,
+      stackTrace: error instanceof Error ? error.stack : undefined,
+      severity: "error",
+      batchId: _batchId ?? undefined,
+      component: "batch-submit-outer",
+    }).catch(() => {});
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
