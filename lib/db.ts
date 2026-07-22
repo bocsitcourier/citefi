@@ -1,10 +1,52 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import type { NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { drizzle as drizzlePooled } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import pLimit from "p-limit";
 import * as schema from "@/shared/schema";
+
+// ─── Neon rows:null shim ─────────────────────────────────────────────────────
+// @neondatabase/serverless v0.10.x returns `"rows": null` (not `[]`) when a
+// query matches zero rows. The driver then crashes inside processQueryResult
+// with `TypeError: Cannot read properties of null (reading 'map')`.
+// This shim intercepts every HTTP response from the Neon endpoint and
+// normalises null → [] before the driver ever sees the body.
+// Applied globally via neonConfig so it covers every neon() instance in the
+// process, including statelessDb / neonHttpDb aliases created below.
+const _globalFetch = globalThis.fetch.bind(globalThis);
+const _neonFetch: typeof fetch = async (input, init) => {
+  const res = await _globalFetch(input, init);
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return res;
+
+  const text = await res.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return new Response(text, { status: res.status, headers: { "content-type": ct } });
+  }
+
+  function fixRows(obj: Record<string, unknown>) {
+    if (obj !== null && typeof obj === "object") {
+      if ("rows" in obj && obj.rows === null) obj.rows = [];
+      if ("fields" in obj && obj.fields === null) obj.fields = [];
+    }
+    return obj;
+  }
+
+  const normalized = Array.isArray(body)
+    ? body.map((item) => fixRows({ ...(item as Record<string, unknown>) }))
+    : fixRows({ ...(body as Record<string, unknown>) });
+
+  const headers = new Headers(res.headers);
+  headers.set("content-type", "application/json");
+  return new Response(JSON.stringify(normalized), { status: res.status, headers });
+};
+
+// Apply globally so all neon() instances in this process use the shim
+neonConfig.fetchFunction = _neonFetch;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");

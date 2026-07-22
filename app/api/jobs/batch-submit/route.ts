@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
   // Declared outside the outer try so the outer catch can cancel any pending
   // spending-cap reservation that was created before an unexpected error occurred.
   let capReservationId: number | null = null;
+  // Hoisted so the outer catch can reset status to PENDING on unexpected errors
+  let _batchId: number | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
     const { teamId, userId } = await requireTeamMember(request);
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
     const validatedData = batchSubmitSchema.parse(body);
 
     const { 
-      batchId, 
+      batchId,
       selectedTitles, 
       targetUrl, 
       tone, 
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest) {
       // Psychographic targeting
       personaId,
     } = validatedData;
+    _batchId = batchId; // hoist for outer catch PENDING reset
 
     // Atomically claim PENDING → SUBMITTING — prevents concurrent double-submit race
     const [batch] = await db
@@ -288,6 +291,11 @@ export async function POST(request: NextRequest) {
     // Best-effort: release any spending-cap reservation created before the error.
     // The 2-hour auto-expiry is the safety net if this call also fails.
     if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+    // Reset batch to PENDING so the user can retry — the batch may have been
+    // advanced to SUBMITTING before the unexpected error was thrown.
+    if (_batchId !== null) {
+      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, _batchId)).catch(() => {});
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

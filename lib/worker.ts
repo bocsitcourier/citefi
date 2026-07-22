@@ -31,7 +31,7 @@ import {
 } from "@/lib/queue";
 import { cancelCapReservation } from "@/lib/usage-caps";
 import { db } from "./db";
-import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, errorLogs, userQuotas, creditLedger } from "@/shared/schema";
+import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
@@ -41,6 +41,7 @@ import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator } from "./generation-orchestrator";
 import { createNotification } from "./notification-service";
+import { logError } from "./error-logger";
 import { auditArticle } from "./guardian-agent";
 import { applySurgicalFix } from "./surgical-fix";
 import { ContentType } from "@/shared/schema";
@@ -253,14 +254,15 @@ export async function registerWorkers() {
         console.error(`❌ Batch generation failed for batch ${batchId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         
-        // Log to error_logs table
-        await db.insert(errorLogs).values({
-          batchId,
+        // Write to error_logs + fire Slack alert
+        await logError({
           errorType: "QUEUE",
           errorMessage: `Batch orchestration failed: ${errorMessage}`,
           stackTrace: error instanceof Error ? error.stack : undefined,
           severity: "error",
-        });
+          batchId,
+          component: "batch-worker",
+        }).catch((e) => console.error("[worker] logError failed:", e));
         
         // Log batch failure event
         const { jobEvents } = await import("@/shared/schema");
@@ -832,14 +834,15 @@ export async function registerWorkers() {
             console.error(`❌ Batched ChatGPT review failed after 3 attempts for article ${articleId}`);
             console.log(`💾 Preserving Gemini content at GEMINI_COMPLETE status for recovery`);
             
-            await db.insert(errorLogs).values({
-              articleId,
-              batchId,
-              errorType: "CHATGPT_REVIEW",
+            await logError({
+              errorType: "GPT4",
               errorMessage: `Batched ChatGPT review failed after 3 retries (work preserved at GEMINI_COMPLETE for recovery): ${lastError.message}`,
               stackTrace: lastError.stack,
               severity: "error",
-            });
+              batchId,
+              articleId,
+              component: "chatgpt-review",
+            }).catch((e) => console.error("[worker] logError failed:", e));
             
             // LEAVE STATUS AT GEMINI_COMPLETE instead of FAILED
             // This preserves the Gemini content and allows manual review/regeneration
@@ -878,14 +881,15 @@ export async function registerWorkers() {
           console.log(`💾 Preserving Gemini content at GEMINI_COMPLETE status for recovery`);
           
           // Log detailed error for diagnosis
-          await db.insert(errorLogs).values({
-            articleId,
-            batchId,
-            errorType: "CHATGPT_REVIEW_CRITICAL",
+          await logError({
+            errorType: "GPT4",
             errorMessage: `ChatGPT review failed (work preserved at GEMINI_COMPLETE for recovery): ${reviewError instanceof Error ? reviewError.message : String(reviewError)}`,
             stackTrace: reviewError instanceof Error ? reviewError.stack : undefined,
             severity: "error",
-          });
+            batchId,
+            articleId,
+            component: "chatgpt-review-critical",
+          }).catch((e) => console.error("[worker] logError failed:", e));
           
           // LEAVE STATUS AT GEMINI_COMPLETE instead of FAILED
           // This preserves the Gemini content and allows manual review/regeneration
@@ -1074,13 +1078,14 @@ export async function registerWorkers() {
               .set({ articleStatus: "FAILED", errorMessage: `Missing required fields: ${missing.join(", ")}` })
               .where(eq(articles.id, articleId));
             
-            await db.insert(errorLogs).values({
-              articleId,
-              batchId,
-              errorType: "VALIDATION",
+            await logError({
+              errorType: "SCHEMA",
               errorMessage: `Article missing required enrichment fields: ${missing.join(", ")}`,
               severity: "error",
-            });
+              batchId,
+              articleId,
+              component: "article-validation",
+            }).catch((e) => console.error("[worker] logError failed:", e));
             
             throw new Error(`Article ${articleId} failed validation - missing: ${missing.join(", ")}`);
           }
@@ -1110,13 +1115,14 @@ export async function registerWorkers() {
                 .set({ articleStatus: "FAILED", errorMessage: `Brand name validation failed: ${brandValidation.errors.join(", ")}` })
                 .where(eq(articles.id, articleId));
               
-              await db.insert(errorLogs).values({
-                articleId,
-                batchId,
-                errorType: "BRAND_VALIDATION",
+              await logError({
+                errorType: "SYSTEM",
                 errorMessage: `Brand name validation failed: ${brandValidation.errors.join(", ")}`,
                 severity: "error",
-              });
+                batchId,
+                articleId,
+                component: "brand-validation",
+              }).catch((e) => console.error("[worker] logError failed:", e));
               
               throw new Error(`Article ${articleId} failed brand validation: ${brandValidation.errors.join(", ")}`);
             }
@@ -1325,13 +1331,14 @@ export async function registerWorkers() {
               });
               
               // Log to error_logs for operator visibility
-              await db.insert(errorLogs).values({
-                articleId,
-                batchId,
-                errorType: "IMAGE_BRAND_VALIDATION",
+              await logError({
+                errorType: "HERO_IMAGE",
                 errorMessage: `Image prompts contain brand safety violations: ${promptValidation.errors.join('; ')}`,
-                severity: "warning", // warning level - article is still complete
-              });
+                severity: "warning",
+                batchId,
+                articleId,
+                component: "image-brand-validation",
+              }).catch((e) => console.error("[worker] logError failed:", e));
               
               shouldQueueImages = false;
             }
@@ -1428,16 +1435,32 @@ export async function registerWorkers() {
       } catch (error) {
         console.error(`❌ Article generation failed for article ${articleId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        // Log to error_logs table
-        await db.insert(errorLogs).values({
-          articleId,
-          batchId,
-          errorType: "GENERATION",
+
+        // Classify the error type for the admin error log
+        const lowerErrMsg = errorMessage.toLowerCase();
+        const errType =
+          lowerErrMsg.includes("rate limit") || lowerErrMsg.includes("429")
+            ? "GEMINI"
+            : lowerErrMsg.includes("json") || lowerErrMsg.includes("parse") || lowerErrMsg.includes("unexpected token")
+            ? "GEMINI"
+            : lowerErrMsg.includes("token") && (lowerErrMsg.includes("limit") || lowerErrMsg.includes("exceed"))
+            ? "GEMINI"
+            : lowerErrMsg.includes("gpt") || lowerErrMsg.includes("openai")
+            ? "GPT4"
+            : "SYSTEM";
+
+        // Write to error_logs table AND fire Slack webhook so every article
+        // failure is visible in the Admin Error Log panel and alert channel.
+        await logError({
+          errorType: errType,
           errorMessage: `Article generation failed: ${errorMessage}`,
           stackTrace: error instanceof Error ? error.stack : undefined,
           severity: "error",
-        });
+          batchId,
+          articleId,
+          component: "article-worker",
+          context: { title: title?.slice(0, 120) },
+        }).catch((e) => console.error("[worker] logError failed:", e));
         
         // Log article failure event
         const { jobEvents } = await import("@/shared/schema");
