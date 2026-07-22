@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomInt } from "crypto";
-import { db } from "@/lib/db";
+import { getTxDb } from "@/lib/db";
 import { users, sessions, activityLogs, emailVerificationCodes } from "@/shared/schema";
 import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     }
 
     // Find user
-    const [user] = await db
+    const [user] = await getTxDb()
       .select()
       .from(users)
       .where(eq(users.email, email.toLowerCase()))
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     if (!user) {
       // Log failed login attempt (no user found)
-      await db.insert(activityLogs).values({
+      await getTxDb().insert(activityLogs).values({
         action: "login_failed",
         resource: "users",
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     if (isAccountLocked(user.lockedUntil)) {
       const lockoutRemaining = Math.ceil((new Date(user.lockedUntil!).getTime() - Date.now()) / 1000 / 60);
       
-      await db.insert(activityLogs).values({
+      await getTxDb().insert(activityLogs).values({
         userId: user.id,
         action: "login_blocked",
         resource: "users",
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
 
     // Check account status
     if (user.accountStatus !== "active") {
-      await db.insert(activityLogs).values({
+      await getTxDb().insert(activityLogs).values({
         userId: user.id,
         action: "login_blocked",
         resource: "users",
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
       const lockoutDuration = calculateLockoutDuration(newFailedAttempts);
       const lockedUntil = lockoutDuration > 0 ? new Date(Date.now() + lockoutDuration) : null;
 
-      await db
+      await getTxDb()
         .update(users)
         .set({
           failedLoginAttempts: newFailedAttempts,
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
         })
         .where(eq(users.id, user.id));
 
-      await db.insert(activityLogs).values({
+      await getTxDb().insert(activityLogs).values({
         userId: user.id,
         action: "login_failed",
         resource: "users",
@@ -155,7 +155,7 @@ export async function POST(req: Request) {
       // TOTP code could call /api/auth/verify-2fa directly without proving the
       // password step first.
       const challengeCode = randomInt(100000, 1000000).toString();
-      await db.insert(emailVerificationCodes).values({
+      await getTxDb().insert(emailVerificationCodes).values({
         userId: user.id,
         code: challengeCode,
         purpose: "2fa_challenge_token",
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
     const tokenHash = hashToken(accessToken);
 
     // Create session
-    const [session] = await db
+    const [session] = await getTxDb()
       .insert(sessions)
       .values({
         userId: user.id,
@@ -194,7 +194,7 @@ export async function POST(req: Request) {
       .returning();
 
     // Reset failed login attempts and update last login
-    await db
+    await getTxDb()
       .update(users)
       .set({
         failedLoginAttempts: 0,
@@ -204,7 +204,7 @@ export async function POST(req: Request) {
       .where(eq(users.id, user.id));
 
     // Log successful login
-    await db.insert(activityLogs).values({
+    await getTxDb().insert(activityLogs).values({
       userId: user.id,
       action: "login_success",
       resource: "users",

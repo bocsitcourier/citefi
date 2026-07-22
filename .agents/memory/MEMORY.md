@@ -17,3 +17,4 @@
 - [Security audit fixes T001-T005](security-audit-fixes.md) — atomic UPDATE for 2FA token consumption; preserve idempotencyKey on grant reversals (not null); pending-reservation-first for concurrent cap enforcement; 2h stale-expiry as safety net.
 - [Turbopack silent 404 from module-scope throw](turbopack-silent-404.md) — module-scope throw in any imported lib silently caches 404 for every route in its import chain; fix with lazy getters + clear .next + pre-warm all affected routes.
 - [Neon null rows shim](neon-null-rows-shim.md) — v0.10.x returns rows:null not [] for zero-row results; shim in lib/db.ts via neonConfig.fetchFunction; all worker errors must use logError() not db.insert(errorLogs) directly.
+- [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — fire-and-forget Neon HTTP tasks exhaust Node.js's 5-socket-per-host limit; always use getTxDb() (TCP pooled pg) for any async DB call that may run concurrently.

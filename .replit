@@ -57,10 +57,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --env-file=.env.local --import tsx/esm --test tests/auth/auth-api.test.ts"
+args = "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/auth/auth-api.test.ts"
 
 [workflows.workflow.metadata]
-isValidation = true
+outputType = "console"
 
 [[workflows.workflow]]
 name = "approval-link-tests"
@@ -68,10 +68,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --env-file=.env.local --import tsx/esm --test tests/admin/email-review-link.test.ts"
+args = "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/admin/email-review-link.test.ts"
 
 [workflows.workflow.metadata]
-isValidation = true
+outputType = "console"
 
 [agent]
 integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascript_database:1.0.0", "javascript_object_storage:1.0.0"]

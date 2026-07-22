@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, getTxDb } from "@/lib/db";
+import { getTxDb } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
@@ -33,7 +33,8 @@ export async function POST(req: Request) {
     // Check if user already exists — do this BEFORE the rate-limit increment so
     // a duplicate-email attempt returns 409 rather than consuming a rate-limit slot
     // and potentially returning 429 instead of the expected conflict response.
-    const existingUser = await db
+    const txDb = getTxDb();
+    const existingUser = await txDb
       .select()
       .from(users)
       .where(eq(users.email, email.toLowerCase()))
@@ -76,7 +77,7 @@ export async function POST(req: Request) {
     const emailVerificationToken = crypto.randomBytes(32).toString('hex');
     const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    const userCount = await db.select({ id: users.id }).from(users).limit(1);
+    const userCount = await txDb.select({ id: users.id }).from(users).limit(1);
     const isFirstUser = userCount.length === 0;
     
     // First user becomes admin with active status, others are always team_member and need approval
@@ -86,7 +87,6 @@ export async function POST(req: Request) {
     
     // Atomically create the user and its signup activity log. If the activity
     // log insert fails, the user insert is rolled back too (no orphan accounts).
-    const txDb = getTxDb();
     const newUser = await txDb.transaction(async (tx) => {
       const [createdUser] = await tx
         .insert(users)
@@ -135,7 +135,7 @@ export async function POST(req: Request) {
 
       // Notify all ACTIVE admin accounts about the new signup via email
       try {
-        const adminUsers = await db
+        const adminUsers = await txDb
           .select({ email: users.email })
           .from(users)
           // Only ping admins whose accounts are active (not suspended/locked)

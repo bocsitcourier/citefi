@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { getTxDb } from "@/lib/db";
 import { notifications, users, type InsertNotification } from "@/shared/schema";
 import { eq, and, or, isNull, desc, sql, gte } from "drizzle-orm";
 
@@ -19,9 +19,9 @@ interface CreateNotificationParams {
 
 export async function createNotification(params: CreateNotificationParams): Promise<void> {
   try {
-    await db.insert(notifications).values({
-      userId: params.userId ?? null,
-      teamId: params.teamId ?? null,
+    await getTxDb().insert(notifications).values({
+      userId: params.userId || null,
+      teamId: params.teamId || null,
       type: params.type,
       category: params.category,
       title: params.title,
@@ -71,7 +71,7 @@ export async function getUnreadNotifications(teamId: number | null, limit: numbe
   const filter = teamId === null
     ? and(userOnlyFilter(userId!), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter())
     : and(visibilityFilter(teamId, userId), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter());
-  return db.select()
+  return getTxDb().select()
     .from(notifications)
     .where(filter)
     .orderBy(desc(notifications.createdAt))
@@ -82,7 +82,7 @@ export async function getAllNotifications(teamId: number | null, limit: number =
   const filter = teamId === null
     ? and(userOnlyFilter(userId!), eq(notifications.dismissed, 0), notificationAgeFilter())
     : and(visibilityFilter(teamId, userId), eq(notifications.dismissed, 0), notificationAgeFilter());
-  return db.select()
+  return getTxDb().select()
     .from(notifications)
     .where(filter)
     .orderBy(desc(notifications.createdAt))
@@ -93,7 +93,7 @@ export async function markNotificationAsRead(notificationId: number, teamId: num
   const ownershipFilter = teamId === null
     ? and(eq(notifications.id, notificationId), userOnlyFilter(userId!))
     : and(eq(notifications.id, notificationId), visibilityFilter(teamId, userId));
-  const result = await db.update(notifications)
+  const result = await getTxDb().update(notifications)
     .set({ read: 1, readAt: new Date() })
     .where(ownershipFilter);
   return result;
@@ -103,7 +103,7 @@ export async function markAllAsRead(teamId: number | null, userId?: number) {
   const filter = teamId === null
     ? and(userOnlyFilter(userId!), eq(notifications.read, 0))
     : and(visibilityFilter(teamId, userId), eq(notifications.read, 0));
-  await db.update(notifications)
+  await getTxDb().update(notifications)
     .set({ read: 1, readAt: new Date() })
     .where(filter);
 }
@@ -112,7 +112,7 @@ export async function dismissNotification(notificationId: number, teamId: number
   const ownershipFilter = teamId === null
     ? and(eq(notifications.id, notificationId), userOnlyFilter(userId!))
     : and(eq(notifications.id, notificationId), visibilityFilter(teamId, userId));
-  const result = await db.update(notifications)
+  const result = await getTxDb().update(notifications)
     .set({ dismissed: 1 })
     .where(ownershipFilter);
   return result;
@@ -122,7 +122,7 @@ export async function dismissAllNotifications(teamId: number | null, userId?: nu
   const filter = teamId === null
     ? userOnlyFilter(userId!)
     : visibilityFilter(teamId, userId);
-  await db.update(notifications)
+  await getTxDb().update(notifications)
     .set({ dismissed: 1 })
     .where(filter);
 }
@@ -131,7 +131,7 @@ export async function getUnreadCount(teamId: number | null, userId?: number): Pr
   const filter = teamId === null
     ? and(userOnlyFilter(userId!), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter())
     : and(visibilityFilter(teamId, userId), eq(notifications.read, 0), eq(notifications.dismissed, 0), notificationAgeFilter());
-  const result = await db.select({ count: sql<number>`count(*)` })
+  const result = await getTxDb().select({ count: sql<number>`count(*)` })
     .from(notifications)
     .where(filter);
   return result[0]?.count ?? 0;
@@ -152,7 +152,7 @@ export async function notifyVideoComplete(teamId: number, videoId: number, title
 
 export async function notifyVideoFailed(teamId: number, videoId: number, title: string, error: string) {
   const windowStart = new Date(Date.now() - 30 * 60 * 1000);
-  const existing = await db
+  const existing = await getTxDb()
     .select({ id: notifications.id })
     .from(notifications)
     .where(
@@ -239,7 +239,7 @@ export async function notifySocialPostComplete(teamId: number, postId: number, p
  */
 export async function notifyAdminsNewSignup(newUserId: number, newUserEmail: string, newUserName: string | null): Promise<void> {
   try {
-    const adminUsers = await db
+    const adminUsers = await getTxDb()
       .select({ id: users.id })
       .from(users)
       .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));

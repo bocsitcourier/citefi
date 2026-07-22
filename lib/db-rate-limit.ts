@@ -8,7 +8,7 @@
  */
 import crypto from "crypto";
 import { sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { getTxDb } from "@/lib/db";
 
 export { getClientIp } from "@/lib/rate-limit";
 
@@ -40,14 +40,14 @@ async function ensureTable(): Promise<void> {
   if (tableReady) return;
   if (!tableInitPromise) {
     tableInitPromise = (async () => {
-      await db.execute(sql`
+      await getTxDb().execute(sql`
         CREATE TABLE IF NOT EXISTS rate_limit_windows (
           key_hash VARCHAR(64) PRIMARY KEY,
           count    INTEGER     NOT NULL DEFAULT 1,
           reset_at TIMESTAMPTZ NOT NULL
         )
       `);
-      await db.execute(sql`
+      await getTxDb().execute(sql`
         CREATE INDEX IF NOT EXISTS rate_limit_windows_reset_at_idx
         ON rate_limit_windows (reset_at)
       `);
@@ -69,7 +69,7 @@ function scheduleCleanup(): void {
   const now = Date.now();
   if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
   lastCleanup = now;
-  db.execute(sql`DELETE FROM rate_limit_windows WHERE reset_at < NOW()`)
+  getTxDb().execute(sql`DELETE FROM rate_limit_windows WHERE reset_at < NOW()`)
     .catch(() => {});
 }
 
@@ -94,7 +94,7 @@ export async function rateLimitDb(
 
   // Atomic upsert — PostgreSQL guarantees the CASE WHEN runs under a row lock.
   // If reset_at has expired, treat as a fresh window (count resets to 1).
-  const result = await db.execute(sql`
+  const result = await getTxDb().execute(sql`
     INSERT INTO rate_limit_windows (key_hash, count, reset_at)
     VALUES (${keyHash}, 1, ${newResetAt})
     ON CONFLICT (key_hash) DO UPDATE SET
