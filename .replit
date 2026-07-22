@@ -50,6 +50,10 @@ args = "approval-link-tests"
 task = "workflow.run"
 args = "Push to GitHub"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "admin-notification-tests"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -88,6 +92,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash scripts/push-to-github.sh"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "admin-notification-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/admin/admin-notifications.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"
