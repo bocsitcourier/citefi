@@ -3,8 +3,7 @@ import { db } from "@/lib/db";
 import { jobBatches, articles } from "@/shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
-import { neonHttpDb } from "@/lib/db";
-import { sql } from "drizzle-orm";
+import { getQueue, ARTICLE_GENERATION_QUEUE } from "@/lib/queue";
 
 export async function POST(
   request: NextRequest,
@@ -40,18 +39,23 @@ export async function POST(
       .set({ status: "CANCELLED" })
       .where(eq(jobBatches.id, batchId));
 
-    // Cancel all pending pg-boss article-generation jobs for this batch.
-    // Jobs in 'created' state (not yet picked up) can be cancelled directly.
-    // Jobs in 'active' state will be intercepted by the CANCELLED check in the worker.
-    const cancelResult = await neonHttpDb.execute(sql`
-      UPDATE pgboss.job
-      SET state = 'cancelled', completed_on = NOW()
-      WHERE name = 'article-generation'
-        AND state = 'created'
-        AND data->>'batchId' = ${batchId.toString()}
-    `);
-
-    const cancelledJobs = (cancelResult as any).rowCount || 0;
+    // Cancel all waiting/delayed BullMQ article-generation jobs for this batch.
+    // Active jobs will be intercepted by the CANCELLED check in the worker.
+    let cancelledJobs = 0;
+    try {
+      const queue = getQueue(ARTICLE_GENERATION_QUEUE);
+      const [waitingJobs, delayedJobs] = await Promise.all([
+        queue.getWaiting(0, 1000),
+        queue.getDelayed(0, 1000),
+      ]);
+      const batchJobs = [...waitingJobs, ...delayedJobs].filter(
+        (job) => job.data.batchId === batchId
+      );
+      await Promise.all(batchJobs.map((job) => job.remove().catch(() => {})));
+      cancelledJobs = batchJobs.length;
+    } catch (queueErr) {
+      console.warn(`⚠️ Could not remove BullMQ jobs for batch ${batchId}:`, queueErr);
+    }
 
     // Mark PENDING articles as FAILED so the UI reflects the cancellation clearly.
     await db
@@ -68,7 +72,7 @@ export async function POST(
         )
       );
 
-    console.log(`🛑 Batch ${batchId} cancelled by team ${teamId}: ${cancelledJobs} pg-boss jobs cancelled`);
+    console.log(`🛑 Batch ${batchId} cancelled by team ${teamId}: ${cancelledJobs} BullMQ jobs removed`);
 
     return NextResponse.json({
       success: true,

@@ -1,51 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPgBoss } from "@/lib/queue";
+import { addVideoGenerationJob } from "@/lib/queue";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { and, eq, sql } from "drizzle-orm";
 
-const CONN_ERROR_PATTERNS = ["connection terminated", "connection refused", "ECONNRESET", "ECONNREFUSED", "fetch failed"];
-function isConnectionError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return CONN_ERROR_PATTERNS.some((p) => msg.toLowerCase().includes(p.toLowerCase()));
-}
-
-/** Queue send with up to 2 retries + jitter on transient connection failures. */
-async function resilientSend(
-  queueName: string,
-  data: object,
-  opts: object,
-  socialPostId: number
-): Promise<string> {
-  const MAX_ATTEMPTS = 3;
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const boss = await getPgBoss();
-      const jobId = await boss.send(queueName, data, opts);
-      if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
-      return jobId;
-    } catch (err: any) {
-      lastErr = err;
-      if (isConnectionError(err) && attempt < MAX_ATTEMPTS) {
-        const jitter = Math.floor(Math.random() * 500) + 500 * attempt;
-        console.warn(`⚠️ send() attempt ${attempt} failed (connection), retrying in ${jitter}ms…`);
-        await new Promise((r) => setTimeout(r, jitter));
-        continue;
-      }
-      break;
-    }
-  }
-  throw lastErr;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const { userId, teamId } = await requireTeamMember(request);
 
-    // Paywall gate — plan-level check before acquiring the GENERATING lock
     const { checkTeamPaywall, paywallErrorBody } = await import("@/lib/billing/paywall");
     const paywallResult = await checkTeamPaywall(teamId);
     if (!paywallResult.allowed) {
@@ -63,7 +27,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "videoType must be 'slideshow' or 'veo'" }, { status: 400 });
     }
 
-    // Fetch post — scoped to this team to prevent cross-team access
     const [post] = await db
       .select()
       .from(socialPosts)
@@ -88,8 +51,6 @@ export async function POST(request: NextRequest) {
     const timeEstimate = isVeo ? "60-80 minutes" : "2-3 minutes";
     console.log(`📹 Queueing ${isVeo ? "Veo AI" : "slideshow"} video generation for Social Post ${socialPostId}`);
 
-    // Atomically acquire GENERATING lock — this is both the duplicate-guard AND the state transition
-    // force=true overrides the GENERATING guard for stuck jobs
     const [locked] = await db
       .update(socialPosts)
       .set({ videoType, videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
@@ -119,13 +80,8 @@ export async function POST(request: NextRequest) {
     if (force) {
       console.log(`🔄 Force-reset applied for social post ${socialPostId}`);
     }
-    console.log(`✅ Video status set to GENERATING (progress: 0%, stage: queued)`);
 
-    // Per-request idempotency key: stable for network retries, unique per generation attempt
     const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
-
-    // Two-bucket billing: RESERVE credits atomically after acquiring the lock.
-    // Worker debits on success or releases on failure — no charge for failed jobs.
     const creditRunId = `video:${teamId}:${socialPostId}:${requestKey}`;
     const reservation = await reserveCredits({
       teamId,
@@ -135,7 +91,6 @@ export async function POST(request: NextRequest) {
     });
 
     if (!reservation.ok) {
-      // Reset the GENERATING lock so the user can retry after topping up
       await db
         .update(socialPosts)
         .set({ videoStatus: post.videoStatus ?? null, videoProgress: post.videoProgress ?? 0, videoStage: post.videoStage ?? null })
@@ -157,19 +112,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Queue the job — release reservation + reset to FAILED on any send failure
-    const expireInSeconds = isVeo ? 5400 : 900;
-    let jobId: string;
+    let jobId: string | null;
     try {
-      jobId = await resilientSend(
-        "social-video-generation",
-        { socialPostId, platform, videoType, teamId, creditRunId },
-        { retryLimit: 0, retryDelay: 0, expireInSeconds },
-        socialPostId
-      );
+      jobId = await addVideoGenerationJob({ socialPostId, platform, videoType, teamId, creditRunId });
+      if (!jobId) throw new Error("BullMQ returned null — queue may be unhealthy");
     } catch (sendError) {
       const errMsg = sendError instanceof Error ? sendError.message : String(sendError);
-      console.error(`❌ pg-boss.send() failed for post ${socialPostId}:`, errMsg);
+      console.error(`❌ addVideoGenerationJob() failed for post ${socialPostId}:`, errMsg);
       await db
         .update(socialPosts)
         .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })

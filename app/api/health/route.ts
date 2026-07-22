@@ -14,7 +14,7 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       services: {
         database: "connected",
-        queue: "pg-boss",
+        queue: "bullmq",
         gemini: geminiAvailable ? "configured" : "not_configured",
         openai: openaiAvailable ? "configured" : "not_configured",
       },

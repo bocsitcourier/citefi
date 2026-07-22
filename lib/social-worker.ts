@@ -1,6 +1,7 @@
 import type { Job } from "bullmq";
 import { isBareGeoAnchor } from "./seo-policy";
 import { db } from "./db";
+import { createNotification } from "./notification-service";
 import {
   socialPosts,
   socialPostVariants,
@@ -554,6 +555,17 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
     console.log(`✅ Social post ${socialPostId} generation completed successfully`);
 
+    void createNotification({
+      teamId: job.data.teamId ?? postDetails?.teamId,
+      type: "success",
+      category: "content",
+      title: "Social Post Ready",
+      message: `Your social post has been generated successfully across ${successfulPlatforms.length} platform(s).`,
+      entityId: socialPostId,
+      entityType: "social_post",
+      actionUrl: `/social/${socialPostId}`,
+    }).catch(() => {});
+
     // Two-bucket billing: DEBIT reservation on success
     const teamIdForBilling = job.data.teamId ?? postDetails?.teamId;
     if (job.data.creditRunId && teamIdForBilling) {
@@ -635,6 +647,17 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         platforms,
       },
     });
+
+    void createNotification({
+      teamId: job.data.teamId,
+      type: "error",
+      category: "content",
+      title: "Social Post Failed",
+      message: `Social post generation failed: ${errorMessage.slice(0, 200)}`,
+      entityId: socialPostId,
+      entityType: "social_post",
+      actionUrl: `/social/${socialPostId}`,
+    }).catch(() => {});
 
     // Two-bucket billing: RELEASE reservation on failure (no charge)
     const teamIdForRelease = job.data.teamId;

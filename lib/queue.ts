@@ -93,6 +93,8 @@ export interface SocialVideoJobData {
   creditRunId?: string;
   socialPostId: number;
   platform?: string;
+  videoType?: string;
+  teamId?: number;
 }
 
 export interface CleanupJobData {
@@ -126,6 +128,7 @@ export interface VideoIdeaJobData {
   videoIdeaId: number;
   teamId?: number;
   userId?: number;
+  creditRunId?: string;
 }
 
 // ============================================================================
@@ -145,7 +148,7 @@ export const CONTENT_PUBLISHING_QUEUE = "content-publishing";
 export const INTELLIGENCE_RESEARCH_QUEUE = "intelligence-research";
 export const PODCAST_GENERATION_QUEUE = "article-podcast";
 
-const ALL_QUEUE_NAMES = [
+export const ALL_QUEUE_NAMES = [
   BATCH_GENERATION_QUEUE,
   ARTICLE_GENERATION_QUEUE,
   SOCIAL_POST_GENERATION_QUEUE,
@@ -432,13 +435,13 @@ export async function addPodcastGenerationJob(data: PodcastJobData) {
   return job.id ?? null;
 }
 
-export async function addVideoGenerationJob(data: SocialVideoJobData) {
+export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { delayMs?: number }) {
   const job = await getQueue(SOCIAL_VIDEO_GENERATION_QUEUE).add(
     "social-video",
     data,
     {
-      attempts: 2,
-      backoff: { type: "exponential", delay: 30000 },
+      attempts: 1, // No retries — each attempt consumes a credit reservation
+      ...(opts?.delayMs ? { delay: opts.delayMs } : {}),
     }
   );
 
@@ -453,8 +456,7 @@ export async function addVideoIdeaJob(data: VideoIdeaJobData) {
     "video-idea",
     data,
     {
-      attempts: 2,
-      backoff: { type: "exponential", delay: 30000 },
+      attempts: 1, // No retries — each attempt consumes a credit reservation
     }
   );
   console.log(`🎬 Video idea job queued: ${job.id} for video ${data.videoIdeaId}`);

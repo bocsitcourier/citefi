@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
-import { getPgBoss } from "@/lib/queue";
+import { addVideoIdeaJob } from "@/lib/queue";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { randomUUID } from "crypto";
@@ -12,7 +12,6 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Lifted outside the try block so the outer catch can release on unexpected errors
   let teamId: number | undefined;
   let creditRunId: string | undefined;
 
@@ -59,13 +58,11 @@ export async function POST(
       });
     }
 
-    // Paywall gate: check plan and credit balance before reserving
     const paywallResult = await checkTeamPaywall(teamId);
     if (!paywallResult.allowed) {
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
-    // Reserve credits atomically — blocks if balance insufficient
     creditRunId = randomUUID();
     const reservation = await reserveCredits({
       teamId,
@@ -75,7 +72,7 @@ export async function POST(
     });
 
     if (!reservation.ok) {
-      creditRunId = undefined; // nothing to release
+      creditRunId = undefined;
       return NextResponse.json(
         {
           error: "CREDITS_EXHAUSTED",
@@ -104,25 +101,13 @@ export async function POST(
       })
       .where(eq(videoIdeas.id, ideaId));
 
-    const queue = await getPgBoss();
-
-    const jobId = await queue.send(
-      "video-idea-generation",
-      { videoIdeaId: ideaId, creditRunId },
-      {
-        retryLimit: 0, // No retries - each attempt costs money
-        retryDelay: 0,
-        expireInSeconds: 5400,
-      }
-    );
+    const jobId = await addVideoIdeaJob({ videoIdeaId: ideaId, teamId, userId, creditRunId });
 
     if (!jobId) {
       console.error(`❌ Failed to queue video idea generation job`);
-
-      // Release the reservation — job never started, so no charge
       await releaseReservation({ teamId, runId: creditRunId, reason: "Queue send failed" })
         .catch((e) => console.warn("[billing] releaseReservation on queue failure:", e));
-      creditRunId = undefined; // prevent double-release in outer catch
+      creditRunId = undefined;
 
       await db.update(videoIdeas)
         .set({
@@ -142,7 +127,7 @@ export async function POST(
       .set({ jobId })
       .where(eq(videoIdeas.id, ideaId));
 
-    creditRunId = undefined; // worker owns the runId from here on
+    creditRunId = undefined;
     console.log(`✅ Video idea generation job queued: ${jobId}`);
 
     return NextResponse.json({
@@ -154,7 +139,6 @@ export async function POST(
     });
 
   } catch (error: any) {
-    // Release any outstanding credit reservation so balance isn't stranded
     if (creditRunId && teamId) {
       await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in idea-to-video route" })
         .catch((e) => console.warn("[billing] emergency releaseReservation:", e));

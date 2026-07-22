@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { createNotification } from "./notification-service";
 import { articles, articleAssets, jobBatches, ContentType } from "../shared/schema";
 import { eq } from "drizzle-orm";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
@@ -289,6 +290,17 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     }
     
     console.log(`[Podcast Worker] Podcast generated successfully for article ${articleId}`);
+
+    void createNotification({
+      teamId: teamId ?? article?.teamId,
+      type: "success",
+      category: "content",
+      title: "Podcast Ready",
+      message: `Podcast for "${article?.chosenTitle?.slice(0, 80) ?? `article ${articleId}`}" is ready to play.`,
+      entityId: articleId,
+      entityType: "article",
+      actionUrl: `/content/${articleId}`,
+    }).catch(() => {});
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
@@ -323,6 +335,17 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         console.error(`[Podcast Worker] Failed to refund credits for article ${articleId}:`, refundErr);
       });
     }
+
+    void createNotification({
+      teamId: job.teamId,
+      type: "error",
+      category: "content",
+      title: "Podcast Generation Failed",
+      message: `Podcast generation failed for article ${articleId}: ${errMsg.slice(0, 200)}`,
+      entityId: articleId,
+      entityType: "article",
+      actionUrl: `/content/${articleId}`,
+    }).catch(() => {});
 
     await logError({
       errorType: "PODCAST",
