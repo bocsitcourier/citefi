@@ -88,6 +88,15 @@ const PAGES_TO_WARM = [
   // Read-only pages only — never warm auth mutation endpoints or protected
   // pages that just redirect (e.g. /admin → /login).
   '/api/health',
+  // Auth module graph — any 401/400/405 response still triggers Turbopack
+  // compilation, making startup failures visible immediately in logs instead
+  // of silently caching a 404 on the user's first login attempt.
+  // GET triggers compilation even for POST-only routes (Next.js returns 405).
+  '/api/auth/me',
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/verify-2fa',
+  '/api/auth/send-email-code',
   '/home',
   '/content',
   '/monitoring',

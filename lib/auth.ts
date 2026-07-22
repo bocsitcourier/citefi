@@ -5,12 +5,19 @@ import qrcode from "qrcode";
 import { nanoid } from "nanoid";
 import crypto from "crypto";
 
-// CRITICAL: JWT secret must be set in environment - fail fast if missing
-if (!process.env.JWT_SECRET) {
-  throw new Error("FATAL: JWT_SECRET environment variable is not set. Authentication cannot proceed.");
+// Lazy getter — throws at call time, not module load time.
+// A module-scope throw in Next.js 16 Turbopack silently converts every route
+// in the import chain to a cached 404 with no terminal output. Throwing inside
+// the functions that actually need the secret gives the same "fail fast" safety
+// while keeping the module loadable at cold-boot even if dotenv hasn't fired yet.
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("FATAL: JWT_SECRET environment variable is not set. Authentication cannot proceed.");
+  }
+  return secret;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = "24h"; // 24 hours - prevents frequent re-login
 const REFRESH_TOKEN_EXPIRES_IN = "7d"; // 7 days
 
@@ -43,7 +50,7 @@ export function generateAccessToken(payload: JWTPayload): string {
   // same user within the same second, preventing tokenHash unique-key collisions.
   return jwt.sign(
     { ...payload, jti: crypto.randomBytes(16).toString("hex") },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: JWT_EXPIRES_IN }
   );
 }
@@ -51,14 +58,14 @@ export function generateAccessToken(payload: JWTPayload): string {
 export function generateRefreshToken(payload: JWTPayload): string {
   return jwt.sign(
     { ...payload, jti: crypto.randomBytes(16).toString("hex") },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
   );
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JWTPayload;
     return decoded;
   } catch (error) {
     return null;
