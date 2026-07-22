@@ -5,9 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, Clock, AlertCircle, ArrowRight } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, ArrowRight, ExternalLink } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import Link from "next/link";
+
+const COMPLETED_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
 
 interface Article {
   id: number;
@@ -44,10 +46,9 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED") {
+      if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED" || status === "CANCELLED") {
         return false;
       }
-      // Light status endpoint — poll every 3s while running
       return 3000;
     },
     refetchIntervalInBackground: false,
@@ -62,10 +63,9 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
     },
     refetchInterval: (query) => {
       const status = batchStatus?.status;
-      if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED") {
+      if (status === "COMPLETE" || status === "PARTIAL_COMPLETE" || status === "FAILED" || status === "CANCELLED") {
         return false;
       }
-      // Heavier endpoint (article list) — poll every 5s, not 2s
       return 5000;
     },
     refetchIntervalInBackground: false,
@@ -73,7 +73,11 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
   });
 
   useEffect(() => {
-    if (batchStatus?.status === "COMPLETE" || batchStatus?.status === "PARTIAL_COMPLETE") {
+    if (
+      batchStatus?.status === "COMPLETE" ||
+      batchStatus?.status === "PARTIAL_COMPLETE" ||
+      batchStatus?.status === "CANCELLED"
+    ) {
       onComplete?.();
     }
   }, [batchStatus?.status, onComplete]);
@@ -135,26 +139,37 @@ export function GenerationProgress({ batchId, onComplete }: GenerationProgressPr
         {articles.length > 0 && (
           <div className="space-y-2 max-h-60 overflow-y-auto">
             <h4 className="text-sm font-medium text-muted-foreground">Articles:</h4>
-            {articles.map((article) => (
-              <div
-                key={article.id}
-                className="flex items-center justify-between p-2 bg-secondary/50 rounded text-sm"
-                data-testid={`article-status-${article.id}`}
-              >
-                <span className="truncate flex-1">{article.chosenTitle}</span>
-                <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
-                    article.articleStatus === "COMPLETE"
-                      ? "bg-green-500/20 text-green-700 dark:text-green-400"
-                      : article.articleStatus === "PENDING"
-                      ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400"
-                      : "bg-blue-500/20 text-blue-700 dark:text-blue-400"
-                  }`}
+            {articles.map((article) => {
+              const done = COMPLETED_STATUSES.includes(article.articleStatus);
+              const failed = article.articleStatus === "FAILED";
+              const row = (
+                <div
+                  className={`flex items-center justify-between p-2 bg-secondary/50 rounded text-sm ${done ? "cursor-pointer hover-elevate" : ""}`}
+                  data-testid={`article-status-${article.id}`}
                 >
-                  {article.articleStatus === "COMPLETE" ? "✓ Complete" : article.articleStatus}
-                </span>
-              </div>
-            ))}
+                  <span className="truncate flex-1">{article.chosenTitle}</span>
+                  <span
+                    className={`px-2 py-1 rounded text-xs font-medium shrink-0 ml-2 ${
+                      done
+                        ? "bg-green-500/20 text-green-700 dark:text-green-400"
+                        : failed
+                        ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                        : article.articleStatus === "PENDING"
+                        ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400"
+                        : "bg-blue-500/20 text-blue-700 dark:text-blue-400"
+                    }`}
+                  >
+                    {done ? "Complete" : failed ? "Failed" : article.articleStatus}
+                  </span>
+                  {done && <ExternalLink className="w-3 h-3 ml-1 shrink-0 text-muted-foreground" />}
+                </div>
+              );
+              return done ? (
+                <Link key={article.id} href={`/content/${article.id}`}>{row}</Link>
+              ) : (
+                <div key={article.id}>{row}</div>
+              );
+            })}
           </div>
         )}
 

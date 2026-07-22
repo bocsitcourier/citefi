@@ -2,13 +2,35 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Sparkles, FileText, Zap, Shield, LogIn, UserPlus, Brain, Users, Globe } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Sparkles, FileText, Zap, Shield, LogIn, UserPlus, Brain, Users, Globe, Activity, ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useQuery } from "@tanstack/react-query";
+
+const ACTIVE_STATUSES = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
+
+interface RecentBatch {
+  id: number;
+  coreTopic: string;
+  status: string;
+  numArticlesRequested: number;
+  createdAt: string;
+}
 
 export default function Home() {
   const { user, logout } = useAuth();
+
+  const { data: recentBatches, isLoading: batchesLoading } = useQuery<RecentBatch[]>({
+    queryKey: ["/api/batches"],
+    enabled: !!user,
+    refetchInterval: (query) => {
+      const list = query.state.data as RecentBatch[] | undefined;
+      return list?.some(b => ACTIVE_STATUSES.includes(b.status)) ? 5000 : false;
+    },
+    refetchIntervalInBackground: false,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,6 +71,65 @@ export default function Home() {
             Enterprise-grade dual-AI SEO content factory powered by advanced AI
           </p>
         </div>
+
+        {/* Recent Jobs strip — only for logged-in users */}
+        {user && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary" />
+                Recent Jobs
+              </h2>
+              <Link href="/content">
+                <Button variant="ghost" size="sm" data-testid="button-view-all-batches">
+                  View all
+                  <ArrowRight className="w-4 h-4 ml-1" />
+                </Button>
+              </Link>
+            </div>
+            {batchesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading recent jobs…
+              </div>
+            ) : recentBatches && recentBatches.length > 0 ? (
+              <div className="grid gap-2">
+                {recentBatches.slice(0, 5).map(batch => (
+                  <Link key={batch.id} href={`/batches/${batch.id}`}>
+                    <div className="flex items-center justify-between p-3 rounded-md bg-card border hover-elevate cursor-pointer" data-testid={`batch-row-${batch.id}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-sm font-medium truncate">{batch.coreTopic}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {batch.numArticlesRequested} articles
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        <Badge
+                          variant={
+                            batch.status === "COMPLETE" ? "default"
+                            : ["FAILED", "CANCELLED"].includes(batch.status) ? "destructive"
+                            : "secondary"
+                          }
+                          className={ACTIVE_STATUSES.includes(batch.status) ? "animate-pulse" : ""}
+                        >
+                          {batch.status}
+                        </Badge>
+                        <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground p-4 rounded-md border text-center">
+                No jobs yet.{" "}
+                <Link href="/dashboard" className="text-primary underline underline-offset-2">
+                  Start your first batch
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Card className="hover-elevate border-primary/30">

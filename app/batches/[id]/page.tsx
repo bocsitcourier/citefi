@@ -77,6 +77,8 @@ interface PublishingConnection {
   status: string;
 }
 
+const ACTIVE_STATUSES = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
+
 function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: string }> }) {
   const resolvedParams = use(paramsPromise);
   const batchId = resolvedParams.id;
@@ -92,14 +94,18 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
     queryKey: [`/api/batches/${batchId}`],
     refetchInterval: (query) => {
       const batchData = query.state.data as BatchResponse | undefined;
-      if (batchData?.batch.status !== "RUNNING") return false;
-      // Record the first moment we see it running
-      if (!runningStartRef.current) runningStartRef.current = Date.now();
-      const elapsedMs = Date.now() - runningStartRef.current;
-      // Adaptive: 3s → 5s (after 1 min) → 10s (after 5 min)
-      if (elapsedMs < 60_000) return 3000;
-      if (elapsedMs < 300_000) return 5000;
-      return 10_000;
+      const status = batchData?.batch.status;
+      if (!status || !ACTIVE_STATUSES.includes(status)) return false;
+      // Adaptive clock only starts once RUNNING
+      if (status === "RUNNING") {
+        if (!runningStartRef.current) runningStartRef.current = Date.now();
+        const elapsedMs = Date.now() - runningStartRef.current;
+        if (elapsedMs < 60_000) return 3000;
+        if (elapsedMs < 300_000) return 5000;
+        return 10_000;
+      }
+      // SUBMITTING / QUEUED / PROCESSING — poll every 3s
+      return 3000;
     },
     refetchIntervalInBackground: false,
   });
@@ -265,7 +271,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
 
   const retryArticleMutation = useMutation({
     mutationFn: async (articleId: number) => {
-      return await apiRequest("/api/admin/requeue-failed", {
+      return await apiRequest(`/api/batches/${batchId}/requeue`, {
         method: "POST",
         body: JSON.stringify({ articleIds: [articleId] }),
       });
@@ -367,7 +373,9 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
 
   const hasTitlePool = batch.titlePoolJson && batch.titlePoolJson.titles && batch.titlePoolJson.titles.length > 0;
   const isPending = batch.status === "PENDING";
-  
+  const isSubmitting = batch.status === "SUBMITTING";
+  const isActive = ACTIVE_STATUSES.includes(batch.status);
+
   const completedArticles = articles.filter(a => ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(a.articleStatus));
   const articlesWithoutImages = completedArticles.filter(a => !a.heroImageUrl || a.heroImageUrl === "");
   const hasArticlesWithoutImages = articlesWithoutImages.length > 0;
@@ -420,7 +428,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                 Launch Journey
               </Button>
             )}
-            {batch.status === "RUNNING" && (
+            {(batch.status === "RUNNING" || batch.status === "SUBMITTING") && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="outline" data-testid="button-stop-generation" disabled={cancelBatchMutation.isPending}>
@@ -495,6 +503,20 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
         </AlertDialog>
 
         {/* ── PENDING hero card: shown instead of empty stats when no articles yet ── */}
+        {isSubmitting && articles.length === 0 && (
+          <Card className="border-yellow-500/20 bg-yellow-500/5">
+            <CardContent className="flex flex-col items-center text-center py-10 gap-4">
+              <Loader2 className="w-12 h-12 text-yellow-600 animate-spin" />
+              <div>
+                <p className="text-lg font-semibold mb-1">Submitting articles to the queue…</p>
+                <p className="text-sm text-muted-foreground">
+                  Your articles are being prepared and queued for generation. This page will update automatically.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {isPending && articles.length === 0 && hasTitlePool && (
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="flex flex-col items-center text-center py-10 gap-4">
@@ -517,8 +539,8 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
           </Card>
         )}
 
-        {/* Stats tiles — hidden for PENDING batches with no articles yet (all zeros is confusing) */}
-        {!(isPending && articles.length === 0) && (
+        {/* Stats tiles — hidden when no articles exist yet (PENDING or SUBMITTING shows own hero) */}
+        {!((isPending || isSubmitting) && articles.length === 0) && (
           <div className="grid gap-4 md:grid-cols-5">
             <Card>
               <CardHeader className="pb-3">
@@ -563,7 +585,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
           </div>
         )}
         
-        {batch.status === "RUNNING" && summary.total > 0 && (
+        {isActive && summary.total > 0 && (
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -585,12 +607,13 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                   {summary.total > 0 ? Math.round(((summary.completed + summary.failed) / summary.total) * 100) : 0}%
                 </span>
               </div>
-              {summary.inProgress > 0 && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  {summary.inProgress} article(s) currently being generated... Auto-refreshing every 5 seconds.
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {summary.inProgress > 0
+                  ? `${summary.inProgress} article(s) currently being generated…`
+                  : "Queuing articles…"}{" "}
+                Auto-refreshing.
+              </p>
             </CardContent>
           </Card>
         )}
@@ -609,18 +632,23 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
             <CardContent>
               <Button
                 onClick={async () => {
-                  const failedArticles = articles.filter(a => a.articleStatus === "FAILED");
-                  const token = sessionStorage.getItem("auth_token");
-                  const response = await fetch("/api/admin/requeue-failed", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                    },
-                    body: JSON.stringify({ articleIds: failedArticles.map(a => a.id) }),
-                  });
-                  if (response.ok) {
+                  const failedIds = articles.filter(a => a.articleStatus === "FAILED").map(a => a.id);
+                  try {
+                    const res = await apiRequest(`/api/batches/${batchId}/requeue`, {
+                      method: "POST",
+                      body: JSON.stringify({ articleIds: failedIds }),
+                    });
+                    toast({
+                      title: "Articles requeued",
+                      description: (res as any).message || `${failedIds.length} article(s) queued for retry.`,
+                    });
                     refetch();
+                  } catch (err) {
+                    toast({
+                      title: "Requeue failed",
+                      description: err instanceof Error ? err.message : "Failed to requeue articles",
+                      variant: "destructive",
+                    });
                   }
                 }}
                 variant="destructive"
@@ -848,10 +876,13 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
           <CardContent>
             {articles.length > 0 ? (
               <div className="space-y-3">
-                {articles.map((article) => (
+                {articles.map((article) => {
+                  const isCompleted = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus);
+                  return (
                 <div
                   key={article.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover-elevate"
+                  className={`flex items-center justify-between p-4 rounded-lg border hover-elevate ${isCompleted ? "cursor-pointer" : ""}`}
+                  onClick={isCompleted ? () => router.push(`/content/${article.id}`) : undefined}
                   data-testid={`article-item-${article.id}`}
                 >
                   <div className="flex-1">
@@ -880,8 +911,8 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                       {["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus) && <AlertCircle className="w-3 h-3 mr-1" />}
                       {article.articleStatus === "REFORMATTING" ? "Reformatting…" : article.articleStatus}
                     </Badge>
-                    {["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus) && article.wordCount && (
-                      <Link href={`/content/${article.id}`}>
+                    {isCompleted && (
+                      <Link href={`/content/${article.id}`} onClick={(e) => e.stopPropagation()}>
                         <Button variant="outline" size="sm" data-testid={`button-view-article-${article.id}`}>
                           <ExternalLink className="w-4 h-4 mr-2" />
                           View & Edit
@@ -902,7 +933,8 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                     )}
                   </div>
                 </div>
-              ))}
+              );
+                })}
               </div>
             ) : null}
           </CardContent>

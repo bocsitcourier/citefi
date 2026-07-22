@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +83,22 @@ export default function MonitoringDashboard() {
   const [numArticles, setNumArticles] = useState<number>(50);
   const [includeImages, setIncludeImages] = useState(true);
   const [includePodcasts, setIncludePodcasts] = useState(false);
+
+  const MONITORING_ACTIVE = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
+
+  const { data: recentBatches } = useQuery<Array<{ id: number; coreTopic: string; status: string }>>({
+    queryKey: ["/api/batches"],
+  });
+
+  // Auto-select the most recent active batch (or latest batch) on first load
+  useEffect(() => {
+    if (recentBatches && recentBatches.length > 0 && monitoringBatchId === null) {
+      const active = recentBatches.find(b => MONITORING_ACTIVE.includes(b.status));
+      const pick = active ?? recentBatches[0];
+      setMonitoringBatchId(pick.id);
+      setBatchId(String(pick.id));
+    }
+  }, [recentBatches]);
 
   // Fetch cost estimates
   const { data: costData, isLoading: costLoading } = useQuery<CostData>({
@@ -297,9 +314,29 @@ export default function MonitoringDashboard() {
           <CardDescription>Track real-time progress and performance metrics</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {recentBatches && recentBatches.length > 0 && (
+            <Select
+              value={monitoringBatchId?.toString() ?? ""}
+              onValueChange={(val) => {
+                setMonitoringBatchId(parseInt(val));
+                setBatchId(val);
+              }}
+            >
+              <SelectTrigger data-testid="select-recent-batch">
+                <SelectValue placeholder="Select a recent batch…" />
+              </SelectTrigger>
+              <SelectContent>
+                {recentBatches.slice(0, 15).map(b => (
+                  <SelectItem key={b.id} value={b.id.toString()}>
+                    #{b.id} — {b.coreTopic.slice(0, 45)}{b.coreTopic.length > 45 ? "…" : ""} ({b.status})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <div className="flex gap-2">
             <Input
-              placeholder="Enter Batch ID"
+              placeholder="Or enter Batch ID manually"
               data-testid="input-batch-id"
               value={batchId}
               onChange={(e) => setBatchId(e.target.value)}

@@ -40,6 +40,8 @@ interface ArticleResult {
   article_status: string;
 }
 
+const ACTIVE_STATUSES = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
+
 export default function ContentLibrary() {
   const { toast } = useToast();
   const router = useRouter();
@@ -47,6 +49,12 @@ export default function ContentLibrary() {
 
   const { data: batches, isLoading, error, refetch, isFetching } = useQuery<Batch[]>({
     queryKey: ["/api/batches"],
+    refetchInterval: (query) => {
+      const batchList = query.state.data as Batch[] | undefined;
+      if (!batchList) return false;
+      return batchList.some(b => ACTIVE_STATUSES.includes(b.status)) ? 5000 : false;
+    },
+    refetchIntervalInBackground: false,
   });
 
   const { data: allArticles, isLoading: articlesLoading } = useQuery<ArticleResult[]>({
@@ -258,7 +266,16 @@ export default function ContentLibrary() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Badge variant={batch.status === "COMPLETE" ? "default" : "secondary"}>
+                        <Badge
+                          variant={
+                            batch.status === "COMPLETE"
+                              ? "default"
+                              : ["FAILED", "CANCELLED"].includes(batch.status)
+                              ? "destructive"
+                              : "secondary"
+                          }
+                          className={ACTIVE_STATUSES.includes(batch.status) ? "animate-pulse" : ""}
+                        >
                           {batch.status}
                         </Badge>
                         <AlertDialog>
