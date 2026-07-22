@@ -6,7 +6,7 @@ import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
 import { neonHttpDb } from "../lib/db";
 
-config({ path: '.env.local' });
+config({ path: '.env.local', override: true });
 
 // ── Crash prevention ──────────────────────────────────────────────────────────
 // pg-boss internals can throw "Connection terminated unexpectedly" when Neon

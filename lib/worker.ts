@@ -1,6 +1,7 @@
-import type PgBoss from "pg-boss";
+import { Worker, type Job } from "bullmq";
 import {
-  getPgBoss,
+  getRedisConnection,
+  getQueue,
   BATCH_GENERATION_QUEUE,
   ARTICLE_GENERATION_QUEUE,
   SOCIAL_POST_GENERATION_QUEUE,
@@ -26,6 +27,7 @@ import {
   addImageGenerationJob,
   addPublishingJob,
   addPodcastGenerationJob,
+  addVideoGenerationJob,
   PODCAST_GENERATION_QUEUE,
   type PodcastJobData,
 } from "@/lib/queue";
@@ -79,24 +81,19 @@ async function withTimeout<T>(
   ]);
 }
 
-console.log("🔧 Initializing pg-boss workers...");
+console.log("🔧 Initializing BullMQ workers...");
 
 // ============================================================================
 // WORKER REGISTRATION
 // ============================================================================
 
 export async function registerWorkers() {
-  const boss = await getPgBoss();
 
   // ============================================================================
   // BATCH GENERATION WORKER
   // ============================================================================
 
-  await boss.work<BatchJobData>(
-    BATCH_GENERATION_QUEUE,
-    { batchSize: 1 },
-    async (jobs) => {
-      for (const job of jobs) {
+  new Worker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
         console.log(`📦 Processing batch generation job ${job.id}`);
         const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
 
@@ -304,9 +301,7 @@ export async function registerWorkers() {
 
         throw error;
       }
-      }
-    }
-  );
+  }, { connection: getRedisConnection(), concurrency: 1 });
 
   // ============================================================================
   // ARTICLE GENERATION WORKER
@@ -317,15 +312,7 @@ export async function registerWorkers() {
   // 10 workers to prevent overwhelming Gemini 30 RPM rate limit and causing 429 cascades
   const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "20");
   
-  for (let workerNum = 1; workerNum <= CONCURRENT_WORKERS; workerNum++) {
-    boss.work<ArticleJobData>(
-      ARTICLE_GENERATION_QUEUE,
-      { 
-        batchSize: 1,          // Each worker pulls 1 job at a time
-      },
-      async (jobs) => {
-      // Process each job sequentially
-      for (const job of jobs) {
+  new Worker(ARTICLE_GENERATION_QUEUE, async (job: Job<ArticleJobData>) => {
         console.log(`📝 Processing article generation job ${job.id}`);
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
         // Per-article cost: use the value threaded through from the batch reservation
@@ -1561,11 +1548,8 @@ export async function registerWorkers() {
 
         throw error;
       }
-      }  // Close for loop over jobs
-    }
-    );
-  }  // Close for loop over workers
-  
+  }, { connection: getRedisConnection(), concurrency: CONCURRENT_WORKERS });
+
   const geminiRateLimit = parseInt(process.env.GEMINI_RATE_LIMIT || "10");
   console.log(`✅ Registered ${CONCURRENT_WORKERS} concurrent article workers (Gemini API: ${geminiRateLimit} req/min throttle)`);
   console.log(`   💡 Architecture: ${CONCURRENT_WORKERS} workers match ${geminiRateLimit} API slots for optimal concurrency`);
@@ -1579,15 +1563,9 @@ export async function registerWorkers() {
     
     const { processSocialPostGeneration } = await import("./social-worker");
     
-    await boss.work<SocialPostJobData>(
-      SOCIAL_POST_GENERATION_QUEUE,
-      { batchSize: 1 },
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker(SOCIAL_POST_GENERATION_QUEUE, async (job: Job<SocialPostJobData>) => {
           await processSocialPostGeneration(job);
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 5 });
     
     console.log(`✅ Social post generation worker registered successfully`);
   } catch (error) {
@@ -1606,21 +1584,14 @@ export async function registerWorkers() {
   try {
     console.log(`🖼️ Registering ${IMAGE_WORKERS} image generation workers for queue: "${IMAGE_GENERATION_QUEUE}"`);
     
-    for (let workerNum = 1; workerNum <= IMAGE_WORKERS; workerNum++) {
-      await boss.work<ImageGenerationJobData>(
-        IMAGE_GENERATION_QUEUE,
-        { 
-          batchSize: 1,  // Each worker processes 1 article's images at a time
-        },
-        async (jobs) => {
-          for (const job of jobs) {
+    new Worker(IMAGE_GENERATION_QUEUE, async (job: Job<ImageGenerationJobData>) => {
             // Skip test jobs created during queue initialization
             if ((job.data as any).__test || (job.data as any).__queue_initialization) {
               console.log(`⏭️ Skipping test job ${job.id} (queue initialization)`);
-              continue;
+              return;
             }
 
-            console.log(`🖼️ [Worker ${workerNum}] Processing image generation job ${job.id}`);
+            console.log(`🖼️ Processing image generation job ${job.id}`);
             const { articleId, batchId, imagePrompts, businessName: jobBusinessName } = job.data;
 
             try {
@@ -1643,11 +1614,11 @@ export async function registerWorkers() {
               // HARD STOP: Fail if still no businessName (prevents AI hallucination)
               if (!businessName || businessName.trim().length === 0) {
                 const errorMsg = `CRITICAL: Cannot generate images for article ${articleId} without businessName. This prevents AI hallucination of company names.`;
-                console.error(`❌ [Worker ${workerNum}] ${errorMsg}`);
+                console.error(`❌ [Job ${job.id}] ${errorMsg}`);
                 throw new Error(errorMsg);
               }
               
-              console.log(`🔒 [Worker ${workerNum}] Brand lock active: "${businessName}"`);
+              console.log(`🔒 [Job ${job.id}] Brand lock active: "${businessName}"`);
 
               // Orchestrator: critic loop + arm assignment for image prompt quality
               let finalImagePrompts = imagePrompts;
@@ -1677,7 +1648,7 @@ export async function registerWorkers() {
                     const repairedSplit = orchResult.content.split(/\n\n---\n\n/).map(p => p.trim()).filter(Boolean);
                     if (repairedSplit.length === imagePrompts.length) {
                       finalImagePrompts = repairedSplit;
-                      console.log(`🔧 [Worker ${workerNum}] Image prompts critic: ${orchResult.repairs} repair(s) for article ${articleId}`);
+                      console.log(`🔧 [Job ${job.id}] Image prompts critic: ${orchResult.repairs} repair(s) for article ${articleId}`);
                     }
                   }
                   await recordContentGenerated(
@@ -1700,15 +1671,12 @@ export async function registerWorkers() {
 
               const { generateImagesForArticle } = await import("@/lib/gemini-image-generator");
               const imageResults = await generateImagesForArticle(articleId, finalImagePrompts, businessName, targetUrl);
-              console.log(`✅ [Worker ${workerNum}] Generated ${imageResults.length}/${imagePrompts.length} images for article ${articleId}`);
+              console.log(`✅ [Job ${job.id}] Generated ${imageResults.length}/${imagePrompts.length} images for article ${articleId}`);
             } catch (error) {
-              console.error(`❌ [Worker ${workerNum}] Image generation failed for article ${articleId}:`, error);
+              console.error(`❌ [Job ${job.id}] Image generation failed for article ${articleId}:`, error);
               // Don't throw - images are optional, article is already complete
             }
-          }
-        }
-      );
-    }
+    }, { connection: getRedisConnection(), concurrency: IMAGE_WORKERS });
     
     console.log(`✅ Registered ${IMAGE_WORKERS} image generation workers successfully`);
   } catch (error) {
@@ -1722,16 +1690,7 @@ export async function registerWorkers() {
 
   try {
     console.log(`🔄 Registering reformat worker for queue: "${REFORMAT_QUEUE}"`);
-    // Ensure the queue row exists in pgboss.queue BEFORE subscribing.
-    // Without this, pg-boss may not route jobs to the worker subscription.
-    // (All other queues follow this same pattern.)
-    try { await boss.createQueue(REFORMAT_QUEUE); } catch (_) { /* already exists — ok */ }
-
-    await boss.work<ReformatJobData>(
-      REFORMAT_QUEUE,
-      { batchSize: 1 },
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker(REFORMAT_QUEUE, async (job: Job<ReformatJobData>) => {
           console.log(`🔄 Processing reformat job ${job.id} for article ${job.data.articleId}`);
           const { articleId } = job.data;
 
@@ -1744,7 +1703,7 @@ export async function registerWorkers() {
 
             if (!article) {
               console.error(`❌ Article ${articleId} not found - skipping reformat`);
-              continue;
+              return;
             }
 
             // Mark as REFORMATTING immediately so the UI shows progress
@@ -1959,9 +1918,7 @@ export async function registerWorkers() {
               .catch(() => {}); // non-blocking — prevent cascading DB errors
             // Don't throw - let user retry if needed
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 5 });
     
     console.log(`✅ Reformat worker registered successfully`);
   } catch (error) {
@@ -2007,106 +1964,43 @@ export async function registerWorkers() {
       throw new Error(`❌ FATAL: ffprobe binary found but not executable: ${ffprobePath}. Check file permissions.`);
     }
     
-    // CRITICAL FIX: Explicitly create the queue to ensure partition table exists
-    console.log(`📋 Creating queue partition for: ${SOCIAL_VIDEO_GENERATION_QUEUE}`);
-    await boss.createQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
-    console.log(`✅ Queue partition created/verified`);
-
-    // STARTUP CLEANUP: Cancel all video jobs that were active before this process started.
-    // When the worker process restarts, any "active" pg-boss jobs from the previous process
-    // are orphaned — their workers are dead. Cancelling them prevents the infinite loop where
-    // stuck jobs hold DB connections and exhaust the 20-connection pool.
-    // job-recovery.ts will then re-enqueue any posts still showing videoStatus=GENERATING.
-    //
-    // HARDENED: retry up to 3 times with a 3-second backoff + SET statement_timeout so
-    // the cleanup can't itself get stuck. If all retries fail, we log a CRITICAL warning
-    // but still proceed — the recurring sweeper (registered below) will catch orphans.
-    {
-      const { db: startupDb } = await import("./db");
-      const { sql: sqlTag } = await import("drizzle-orm");
-      let cleanupDone = false;
-      for (let attempt = 1; attempt <= 3 && !cleanupDone; attempt++) {
-        try {
-          // Race the UPDATE against a 6-second JS timeout so startup is never
-          // blocked by a saturated pool — if it times out, we retry or fall through.
-          const timeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Startup cleanup timed out after 6s")), 6000)
-          );
-          const query = startupDb.execute(sqlTag`
-            UPDATE pgboss.job
-            SET state = 'cancelled',
-                completed_on = NOW()
-            WHERE name = 'social-video-generation'
-              AND state = 'active'
-          `);
-          const cancelResult = await Promise.race([query, timeout]);
-          const cancelled = (cancelResult as any).rowCount || 0;
-          if (cancelled > 0) {
-            console.log(`🧹 Startup cleanup: cancelled ${cancelled} orphaned video job(s) (attempt ${attempt}) — job-recovery will re-enqueue eligible ones`);
-          } else {
-            console.log(`✅ Startup cleanup: no orphaned video jobs found`);
-          }
-          cleanupDone = true;
-        } catch (cleanupErr) {
-          if (attempt < 3) {
-            console.warn(`⚠️ Startup cleanup attempt ${attempt}/3 failed, retrying in 3s:`, (cleanupErr as Error).message);
-            await new Promise(r => setTimeout(r, 3000));
-          } else {
-            console.error(`🚨 CRITICAL: Startup cleanup failed all 3 attempts — recurring sweeper will handle orphans:`, cleanupErr);
-          }
-        }
-      }
-    }
-
-    // RECURRING SWEEPER: Register a pg-boss scheduled job that cancels stuck active video
-    // jobs every 2 minutes. This is stored in pg-boss tables and survives across all
-    // future restarts — it's the permanent self-healing backstop if startup cleanup ever
-    // misses orphans or if the pool is temporarily saturated during startup.
+    // RECURRING SWEEPER: BullMQ scheduled job that moves stuck active video jobs to failed
+    // every 2 minutes. BullMQ's maxStalledCount handles most stalled-job cases; this sweeper
+    // is a safety net for extremely long-running jobs exceeding their max runtime.
     try {
-      await boss.schedule(
-        "video-orphan-sweeper",
-        "*/2 * * * *", // every 2 minutes
-        {},
-        { tz: "UTC" }
+      await getQueue("video-orphan-sweeper").upsertJobScheduler(
+        "video-orphan-sweeper-scheduler",
+        { pattern: "*/2 * * * *", tz: "UTC" },
+        { name: "video-orphan-sweeper", data: {} }
       );
-      await boss.work<Record<string, never>>(
-        "video-orphan-sweeper",
-        { teamSize: 1, batchSize: 1 } as any,
-        async () => {
+      new Worker("video-orphan-sweeper", async (_job) => {
           try {
-            const { db: sweepDb } = await import("./db");
-            const { sql: sweepSql } = await import("drizzle-orm");
-            // Cancel active jobs older than their expected max runtime:
-            //   slideshow: 15 min  |  Veo: 95 min
-            // Use a conservative 20-min cutoff for unknown types (always slideshow in practice).
-            const result = await sweepDb.execute(sweepSql`
-              UPDATE pgboss.job
-              SET state = 'cancelled',
-                  completed_on = NOW()
-              WHERE name = 'social-video-generation'
-                AND state = 'active'
-                AND (
-                  -- slideshow / unknown: cancel after 20 min
-                  (
-                    (data->>'videoType' IS NULL OR data->>'videoType' = 'slideshow')
-                    AND started_on < NOW() - INTERVAL '20 minutes'
-                  )
-                  OR
-                  -- Veo: cancel after 100 min
-                  (
-                    data->>'videoType' = 'veo'
-                    AND started_on < NOW() - INTERVAL '100 minutes'
-                  )
-                )
-            `);
-            const swept = (result as any).rowCount || 0;
+            const svQueue = getQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
+            const activeJobs = await svQueue.getActive();
+            let swept = 0;
+            const now = Date.now();
+            for (const activeJob of activeJobs) {
+              const videoType = (activeJob.data as SocialVideoJobData).videoType;
+              const isVeo = videoType === "veo";
+              const maxMs = isVeo ? 100 * 60 * 1000 : 20 * 60 * 1000;
+              const startedAt = activeJob.processedOn ?? activeJob.timestamp;
+              if (now - startedAt > maxMs) {
+                try {
+                  await activeJob.moveToFailed(
+                    new Error(`Video job timed out (${Math.round((now - startedAt) / 60000)}min)`),
+                    activeJob.token ?? "sweeper"
+                  );
+                  swept++;
+                } catch (_e) { /* job may have already completed */ }
+              }
+            }
             if (swept > 0) {
               console.log(`🧹 Recurring sweeper: cancelled ${swept} timed-out video job(s)`);
             }
           } catch (sweepErr) {
             console.warn(`⚠️ Recurring video sweeper error (non-fatal):`, (sweepErr as Error).message);
           }
-        }
+        }, { connection: getRedisConnection(), concurrency: 1 }
       );
       console.log(`⏱️ Recurring video orphan sweeper registered (runs every 2 min)`);
     } catch (scheduleErr) {
@@ -2116,9 +2010,8 @@ export async function registerWorkers() {
     // ENGAGEMENT SCORING SCHEDULER: every 6h, label matured content and update Wilson scores
     try {
       const ENGAGEMENT_QUEUE = "engagement-scoring";
-      try { await boss.createQueue(ENGAGEMENT_QUEUE); } catch (_) { /* already exists */ }
-      await boss.schedule(ENGAGEMENT_QUEUE, "0 */6 * * *", {});
-      await boss.work<Record<string, never>>(ENGAGEMENT_QUEUE, async (_jobs) => {
+      await getQueue(ENGAGEMENT_QUEUE).upsertJobScheduler(`${ENGAGEMENT_QUEUE}-scheduler`, { pattern: "0 */6 * * *", tz: "UTC" }, { name: ENGAGEMENT_QUEUE, data: {} });
+      new Worker(ENGAGEMENT_QUEUE, async (_job) => {
         try {
           const { engagementScoringService } = await import("./engagement-scoring-service");
           const { db: _db } = await import("./db");
@@ -2138,7 +2031,7 @@ export async function registerWorkers() {
           console.error(`🚨 Engagement scoring job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log(`⏱️ Engagement scoring scheduler registered (every 6h)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register engagement scoring scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2148,10 +2041,9 @@ export async function registerWorkers() {
     // computes bounce/read/scroll/engagement rates, and fires Wilson posterior updates for decision arms.
     try {
       const CONVERSION_LABELER_QUEUE = "conversion-labeler";
-      try { await boss.createQueue(CONVERSION_LABELER_QUEUE); } catch (_) { /* already exists */ }
       // Run at 02:00 UTC nightly (after engagement scoring at midnight/6h)
-      await boss.schedule(CONVERSION_LABELER_QUEUE, "0 2 * * *", {});
-      await boss.work<Record<string, never>>(CONVERSION_LABELER_QUEUE, async (_jobs) => {
+      await getQueue(CONVERSION_LABELER_QUEUE).upsertJobScheduler(`${CONVERSION_LABELER_QUEUE}-scheduler`, { pattern: "0 2 * * *", tz: "UTC" }, { name: CONVERSION_LABELER_QUEUE, data: {} });
+      new Worker(CONVERSION_LABELER_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
@@ -2416,7 +2308,7 @@ export async function registerWorkers() {
           console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log(`⏱️ ConversionLabeler scheduler registered (nightly 02:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register ConversionLabeler scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2426,9 +2318,8 @@ export async function registerWorkers() {
     // Wilson lower-bound stays below 10 after ≥50 trials.
     try {
       const ARCHIVE_QUEUE = "underperformer-archiving";
-      try { await boss.createQueue(ARCHIVE_QUEUE); } catch (_) { /* already exists */ }
-      await boss.schedule(ARCHIVE_QUEUE, "0 3 * * 1", {});
-      await boss.work<Record<string, never>>(ARCHIVE_QUEUE, async (_jobs) => {
+      await getQueue(ARCHIVE_QUEUE).upsertJobScheduler(`${ARCHIVE_QUEUE}-scheduler`, { pattern: "0 3 * * 1", tz: "UTC" }, { name: ARCHIVE_QUEUE, data: {} });
+      new Worker(ARCHIVE_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const { teams } = await import("../shared/schema");
@@ -2444,7 +2335,7 @@ export async function registerWorkers() {
           console.error(`🚨 Underperformer archiving job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log(`⏱️ Underperformer archiving scheduler registered (weekly Monday 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register underperformer archiving scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2456,9 +2347,8 @@ export async function registerWorkers() {
     //         guardrail conflict detection (Gap N) | persona enrichment (Gap L).
     try {
       const COHORT_MINING_QUEUE = "cohort-mining";
-      try { await boss.createQueue(COHORT_MINING_QUEUE); } catch (_) { /* already exists */ }
-      await boss.schedule(COHORT_MINING_QUEUE, "0 3 * * *", {});
-      await boss.work<Record<string, never>>(COHORT_MINING_QUEUE, async (_jobs) => {
+      await getQueue(COHORT_MINING_QUEUE).upsertJobScheduler(`${COHORT_MINING_QUEUE}-scheduler`, { pattern: "0 3 * * *", tz: "UTC" }, { name: COHORT_MINING_QUEUE, data: {} });
+      new Worker(COHORT_MINING_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const {
@@ -3004,7 +2894,7 @@ export async function registerWorkers() {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register cohort mining scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3018,9 +2908,8 @@ export async function registerWorkers() {
     // ═══════════════════════════════════════════════════════════════════════
     try {
       const JOURNEY_SCHEDULER_QUEUE = "journey-scheduler";
-      try { await boss.createQueue(JOURNEY_SCHEDULER_QUEUE); } catch (_) { /* already exists */ }
-      await boss.schedule(JOURNEY_SCHEDULER_QUEUE, "*/15 * * * *", {});
-      await boss.work<Record<string, never>>(JOURNEY_SCHEDULER_QUEUE, async (_jobs) => {
+      await getQueue(JOURNEY_SCHEDULER_QUEUE).upsertJobScheduler(`${JOURNEY_SCHEDULER_QUEUE}-scheduler`, { pattern: "*/15 * * * *", tz: "UTC" }, { name: JOURNEY_SCHEDULER_QUEUE, data: {} });
+      new Worker(JOURNEY_SCHEDULER_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const {
@@ -3386,8 +3275,7 @@ export async function registerWorkers() {
                   .set({ articleId: post.id })
                   .where(eq(jSteps.id, step.id));
 
-                const boss = await (await import("./queue")).getPgBoss();
-                await boss.send("social-video-generation", {
+                await addVideoGenerationJob({
                   socialPostId: post.id,
                   platform: step.channel ?? "instagram",
                   journeyStepId: step.id,
@@ -3413,7 +3301,7 @@ export async function registerWorkers() {
           console.error(`🚨 Journey scheduler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log(`⏱️ Journey scheduler registered (every 15 min)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register journey scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3424,9 +3312,8 @@ export async function registerWorkers() {
     // Also downgrades cancelled teams once their period has ended.
     try {
       const CREDIT_PERIOD_RESET_QUEUE = "credit-period-reset";
-      try { await boss.createQueue(CREDIT_PERIOD_RESET_QUEUE); } catch (_) { /* already exists — ok */ }
-      await boss.schedule(CREDIT_PERIOD_RESET_QUEUE, "5 0 * * *", {});
-      await boss.work<Record<string, never>>(CREDIT_PERIOD_RESET_QUEUE, async (_jobs) => {
+      await getQueue(CREDIT_PERIOD_RESET_QUEUE).upsertJobScheduler(`${CREDIT_PERIOD_RESET_QUEUE}-scheduler`, { pattern: "5 0 * * *", tz: "UTC" }, { name: CREDIT_PERIOD_RESET_QUEUE, data: {} });
+      new Worker(CREDIT_PERIOD_RESET_QUEUE, async (_job) => {
         const { teams: teamsTable } = await import("@/shared/schema");
         const { grantAllowance } = await import("@/lib/billing");
         const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
@@ -3492,7 +3379,7 @@ export async function registerWorkers() {
             console.error(`[credit-period-reset] Error for team ${t.id}:`, (err as Error).message);
           }
         }
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log("⏱️ Credit period reset registered (daily 00:05 UTC)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register credit-period-reset scheduler (non-fatal):", (scheduleErr as Error).message);
@@ -3502,9 +3389,8 @@ export async function registerWorkers() {
     // Corrects status/plan mismatches caused by delayed or missed Stripe webhooks.
     try {
       const STRIPE_RECONCILE_QUEUE = "stripe-reconcile";
-      try { await boss.createQueue(STRIPE_RECONCILE_QUEUE); } catch (_) { /* already exists — ok */ }
-      await boss.schedule(STRIPE_RECONCILE_QUEUE, "*/15 * * * *", {});
-      await boss.work<Record<string, never>>(STRIPE_RECONCILE_QUEUE, async (_jobs) => {
+      await getQueue(STRIPE_RECONCILE_QUEUE).upsertJobScheduler(`${STRIPE_RECONCILE_QUEUE}-scheduler`, { pattern: "*/15 * * * *", tz: "UTC" }, { name: STRIPE_RECONCILE_QUEUE, data: {} });
+      new Worker(STRIPE_RECONCILE_QUEUE, async (_job) => {
         const { teams: teamsTable } = await import("@/shared/schema");
         const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
         const { isNotNull } = await import("drizzle-orm");
@@ -3547,20 +3433,13 @@ export async function registerWorkers() {
           }
         }
         if (corrected > 0) console.log(`[stripe-reconcile] Corrected ${corrected}/${teamsWithSub.length} teams`);
-      });
+      }, { connection: getRedisConnection(), concurrency: 1 });
       console.log("⏱️ Stripe reconciliation registered (every 15 min)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
     }
 
-    await boss.work<SocialVideoJobData>(
-      SOCIAL_VIDEO_GENERATION_QUEUE,
-      { 
-        batchSize: 1,       // One job per worker invocation
-        teamSize: 3,        // Max 3 concurrent (3×5 DB conns ≈ 15, safely under 20-conn pool)
-      } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, async (job) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
           const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
 
@@ -3755,11 +3634,9 @@ export async function registerWorkers() {
 
             throw error; // Let pg-boss handle retries
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 3 });
 
-    console.log(`✅ Social video generation worker registered (8 concurrent workers, 10min timeout)`);
+    console.log(`✅ Social video generation worker registered (3 concurrent workers)`);
   } catch (error) {
     console.error(`❌ CRITICAL: Failed to register social video worker:`, error);
     throw error;
@@ -3777,7 +3654,7 @@ export async function registerWorkers() {
   
   try {
     const { registerVideoIdeaWorker } = await import("@/workers/video-idea-worker");
-    await registerVideoIdeaWorker(boss);
+    await registerVideoIdeaWorker();
   } catch (error) {
     console.error("❌ Failed to register video idea worker:", error);
     // Non-fatal - continue with other workers
@@ -3790,13 +3667,7 @@ export async function registerWorkers() {
   console.log("🕷️ Registering site crawl worker for queue:", SITE_CRAWL_QUEUE);
 
   try {
-    try { await boss.createQueue(SITE_CRAWL_QUEUE); } catch (_) { /* partition may already exist */ }
-    console.log(`✅ Queue created/verified: ${SITE_CRAWL_QUEUE}`);
-    await boss.work<SiteCrawlJobData>(
-      SITE_CRAWL_QUEUE,
-      { batchSize: 1, teamSize: 1 } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<SiteCrawlJobData>(SITE_CRAWL_QUEUE, async (job) => {
           console.log(`🕷️ Processing site crawl job ${job.id}: ${job.data.baseUrl}`);
           try {
             const { crawlWebsite } = await import("./site-crawler");
@@ -3812,9 +3683,7 @@ export async function registerWorkers() {
             console.error(`❌ Site crawl job ${job.id} failed:`, error);
             throw error;
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 1 });
     console.log("✅ Site crawl worker registered successfully");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register site crawl worker:", error);
@@ -3828,13 +3697,7 @@ export async function registerWorkers() {
   console.log("🧹 Registering cleanup worker for queue:", CLEANUP_QUEUE);
   
   try {
-    try { await boss.createQueue(CLEANUP_QUEUE); } catch (_) { /* partition may already exist */ }
-    console.log(`✅ Queue created/verified: ${CLEANUP_QUEUE}`);
-    await boss.work<CleanupJobData>(
-      CLEANUP_QUEUE,
-      { batchSize: 1, teamSize: 1 } as any, // Process one cleanup job at a time
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<CleanupJobData>(CLEANUP_QUEUE, async (job) => {
           console.log(`🧹 Processing cleanup job ${job.id}: type=${job.data.jobType}, dryRun=${job.data.dryRun || false}`);
           
           try {
@@ -3844,9 +3707,7 @@ export async function registerWorkers() {
             console.error(`❌ Cleanup job ${job.id} failed:`, error);
             throw error; // Re-throw for pg-boss retry logic
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 1 });
     
     console.log("✅ Cleanup worker registered successfully");
   } catch (error) {
@@ -3860,23 +3721,8 @@ export async function registerWorkers() {
 
   console.log("📤 Registering content publishing worker for queue:", CONTENT_PUBLISHING_QUEUE);
 
-  // Ensure the queue exists in pg-boss before registering the worker
   try {
-    await boss.createQueue(CONTENT_PUBLISHING_QUEUE);
-    console.log(`✅ Queue created/verified: ${CONTENT_PUBLISHING_QUEUE}`);
-  } catch (qErr: any) {
-    // "already exists" errors are safe to ignore
-    if (!qErr?.message?.includes('already exists')) {
-      console.warn(`⚠️ Could not create queue ${CONTENT_PUBLISHING_QUEUE}:`, qErr?.message);
-    }
-  }
-
-  try {
-    await boss.work<PublishingJobData>(
-      CONTENT_PUBLISHING_QUEUE,
-      { batchSize: 1, teamSize: 4 } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<PublishingJobData>(CONTENT_PUBLISHING_QUEUE, async (job) => {
           const { dbJobId } = job.data;
           console.log(`📤 Processing publishing job ${job.id}: db job ${dbJobId}`);
           try {
@@ -3900,9 +3746,7 @@ export async function registerWorkers() {
             console.error(`❌ Publishing worker error for job ${dbJobId}:`, error);
             throw error;
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 4 });
     console.log("✅ Content publishing worker registered (4 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register content publishing worker:", error);
@@ -3915,13 +3759,7 @@ export async function registerWorkers() {
 
   console.log("🧠 Registering intelligence research worker for queue:", INTELLIGENCE_RESEARCH_QUEUE);
   try {
-    try { await boss.createQueue(INTELLIGENCE_RESEARCH_QUEUE); } catch (_) { /* already exists */ }
-    console.log(`✅ Queue created/verified: ${INTELLIGENCE_RESEARCH_QUEUE}`);
-    await boss.work<IntelligenceResearchJobData>(
-      INTELLIGENCE_RESEARCH_QUEUE,
-      { batchSize: 1, teamSize: 2 } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<IntelligenceResearchJobData>(INTELLIGENCE_RESEARCH_QUEUE, async (job) => {
           console.log(`🧠 Processing intelligence research job ${job.id}: team ${job.data.teamId} (${job.data.companyName})`);
           try {
             const { runIntelligenceResearch } = await import("./client-brand-profile-service");
@@ -3931,9 +3769,7 @@ export async function registerWorkers() {
             console.error(`❌ Intelligence research job ${job.id} failed:`, error);
             throw error;
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 2 });
     console.log("✅ Intelligence research worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register intelligence research worker:", error);
@@ -3948,13 +3784,7 @@ export async function registerWorkers() {
 
   console.log("🎙️ Registering podcast generation worker for queue:", PODCAST_GENERATION_QUEUE);
   try {
-    try { await boss.createQueue(PODCAST_GENERATION_QUEUE); } catch (_) { /* already exists */ }
-    console.log(`✅ Queue created/verified: ${PODCAST_GENERATION_QUEUE}`);
-    await boss.work<PodcastJobData>(
-      PODCAST_GENERATION_QUEUE,
-      { batchSize: 1, teamSize: 2 } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<PodcastJobData>(PODCAST_GENERATION_QUEUE, async (job) => {
           const { articleId, teamId, tone, duration, journeyStepId } = job.data;
           console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
           try {
@@ -3982,9 +3812,7 @@ export async function registerWorkers() {
             }
             throw error; // Let pg-boss retry
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 2 });
     console.log("✅ Podcast generation worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register podcast generation worker:", error);
@@ -3994,13 +3822,7 @@ export async function registerWorkers() {
   // ── Citation Probe Worker ─────────────────────────────────────────────────
   console.log("🔬 Registering citation probe worker for queue: citation-probe");
   try {
-    try { await boss.createQueue("citation-probe"); } catch (_) { /* already exists */ }
-    console.log("✅ Queue created/verified: citation-probe");
-    await boss.work<import("./citation-probe-worker").CitationProbeJob>(
-      "citation-probe",
-      { batchSize: 1, teamSize: 3 } as any,
-      async (jobs) => {
-        for (const job of jobs) {
+    new Worker<import("./citation-probe-worker").CitationProbeJob>("citation-probe", async (job) => {
           const { processCitationProbe } = await import("./citation-probe-worker");
           try {
             await processCitationProbe(job.data);
@@ -4008,9 +3830,7 @@ export async function registerWorkers() {
             console.error(`❌ Citation probe job ${job.id} failed:`, err);
             throw err; // Allow pg-boss retry
           }
-        }
-      }
-    );
+    }, { connection: getRedisConnection(), concurrency: 3 });
     console.log("✅ Citation probe worker registered (3 concurrent workers)");
   } catch (error) {
     console.error("❌ Failed to register citation probe worker:", error);
@@ -4047,10 +3867,10 @@ export async function registerWorkers() {
       const { eq: eqOp } = await import("drizzle-orm");
       for (const job of allPending) {
         try {
-          const pgBossId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
-          if (pgBossId) {
+          const queueJobId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
+          if (queueJobId) {
             await db.update(pjTable)
-              .set({ pgBossJobId: pgBossId, status: 'queued', updatedAt: new Date() })
+              .set({ pgBossJobId: queueJobId, status: 'queued', updatedAt: new Date() })
               .where(eqOp(pjTable.id, job.id));
           }
         } catch (reEnqueueErr) {
@@ -4063,7 +3883,7 @@ export async function registerWorkers() {
     console.warn(`⚠️ Publishing job recovery sweep failed:`, recoveryErr);
   }
 
-  console.log("✅ Workers registered - pg-boss will process jobs automatically");
+  console.log("✅ Workers registered - BullMQ will process jobs automatically");
 
   // Initialize content scheduler for autonomous generation
   try {

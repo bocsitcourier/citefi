@@ -1,41 +1,26 @@
-import type PgBoss from "pg-boss";
+import { Worker, type Job } from "bullmq";
+import { getRedisConnection } from "@/lib/queue";
 import { orchestrateVideoIdeaGeneration } from "@/lib/veo-idea-orchestrator";
 import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { notifyVideoComplete, notifyVideoFailed } from "@/lib/notification-service";
-import { logError, logCritical } from "@/lib/error-logger";
+import { logError } from "@/lib/error-logger";
 
 interface VideoIdeaJobData {
   videoIdeaId: number;
-  /** Two-bucket billing: runId from reserveCredits() called in the route. */
   creditRunId?: string;
 }
 
-export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
+export async function registerVideoIdeaWorker(): Promise<void> {
   const queueName = "video-idea-generation";
   const concurrency = 5;
-  
+
   console.log(`🎬 Registering video idea generation worker for queue: "${queueName}"`);
 
-  try {
-    await boss.createQueue(queueName, {
-      name: queueName,
-    });
-    console.log(`📋 Queue created/verified: ${queueName}`);
-  } catch (error: any) {
-    if (!error.message?.includes("already exists")) {
-      console.error(`Error creating queue partition: ${error.message}`);
-    }
-  }
-
-  await boss.work<VideoIdeaJobData>(
+  new Worker(
     queueName,
-    { 
-      teamSize: concurrency,
-      newJobCheckIntervalSeconds: 2,
-    } as any,
-    async ([job]) => {
+    async (job: Job<VideoIdeaJobData>) => {
       if (!job || !job.data) {
         throw new Error("No job data received");
       }
@@ -83,7 +68,7 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
           if (!debitResult.ok) {
             console.error(
               `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${creditRunId}). ` +
-              `Video was generated but debit failed — throwing so pg-boss can retry the debit.`
+              `Video was generated but debit failed — throwing so BullMQ can retry the debit.`
             );
             throw new Error(`Credit debit failed for video idea ${videoIdeaId}`);
           }
@@ -100,7 +85,7 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
           }
           await notifyVideoComplete(idea.teamId, videoIdeaId, idea.ideaTitle);
         }
-        
+
         return { success: true, videoUrl: result.videoUrl };
 
       } catch (error) {
@@ -156,12 +141,16 @@ export async function registerVideoIdeaWorker(boss: PgBoss): Promise<void> {
         }
 
         // Don't re-throw quota errors — they will always fail on retry.
-        // For other errors, re-throw so pg-boss can retry.
+        // For other errors, re-throw so BullMQ can retry.
         if (!isQuotaError) {
           throw error;
         }
         return; // quota errors handled — no retry needed
       }
+    },
+    {
+      connection: getRedisConnection(),
+      concurrency,
     }
   );
 

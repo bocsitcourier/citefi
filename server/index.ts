@@ -1,11 +1,27 @@
 // Load environment variables FIRST before any other imports
 import { config } from 'dotenv';
-config({ path: '.env.local' });
+config({ path: '.env.local', override: true });
 
 import { spawn, execSync } from 'child_process';
 import * as net from 'net';
 
 console.log('🚀 Starting Citefi (Next.js)...\n');
+
+// ── Redis startup ────────────────────────────────────────────────────────────
+// BullMQ requires Redis. Start the local Redis daemon if it's not already up.
+try {
+  execSync('redis-cli ping', { stdio: 'pipe' });
+  console.log('✅ Redis already running');
+} catch {
+  console.log('🔧 Starting local Redis server...');
+  try {
+    execSync('redis-server --daemonize yes --loglevel warning --port 6379', { stdio: 'pipe' });
+    execSync('sleep 0.5');
+    console.log('✅ Redis started');
+  } catch (redisErr) {
+    console.warn('⚠️  Could not start local Redis:', (redisErr as Error).message);
+  }
+}
 
 // ── Port guard ──────────────────────────────────────────────────────────────
 // On Replit, restarts send SIGTERM to the parent but the Next.js child process

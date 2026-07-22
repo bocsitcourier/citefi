@@ -156,8 +156,8 @@ export async function enqueueCitationProbes(
   chosenTitle: string,
   keywords: string[] = []
 ): Promise<void> {
-  const { getPgBoss } = await import("./queue");
-  const boss = await getPgBoss();
+  const { getQueue } = await import("./queue");
+  const q = getQueue("citation-probe");
 
   const queries: string[] = [
     chosenTitle,
@@ -165,13 +165,12 @@ export async function enqueueCitationProbes(
     `Tell me about ${chosenTitle.split(" ").slice(0, 6).join(" ")}`,
   ];
 
-  const jobs = queries.map((q) => ({
+  const bulkJobs = queries.map((query) => ({
     name: "citation-probe",
-    data: { articleId, teamId, targetQuery: q } satisfies CitationProbeJob,
-    retryLimit: 2,
-    retryDelay: 30,
+    data: { articleId, teamId, targetQuery: query } satisfies CitationProbeJob,
+    opts: { attempts: 2, backoff: { type: "exponential" as const, delay: 30000 } },
   }));
 
-  await boss.insert(jobs);
-  console.log(`[CitationProbe] Enqueued ${jobs.length} probes for article ${articleId}`);
+  await q.addBulk(bulkJobs);
+  console.log(`[CitationProbe] Enqueued ${bulkJobs.length} probes for article ${articleId}`);
 }

@@ -1,7 +1,7 @@
 import { neonHttpDb as db } from "./db";
 import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
-import { getPgBoss } from "./queue";
+import { addVideoGenerationJob, addVideoIdeaJob } from "./queue";
 import { createNotification } from "./notification-service";
 
 const STUCK_JOB_TIMEOUT_MINUTES = 30;
@@ -404,7 +404,6 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
       "stuck-social-videos"
     );
 
-    const boss = await getPgBoss();
     let requeued = 0;
     let failed = 0;
 
@@ -412,32 +411,16 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
       for (const post of stuckVideoPosts) {
         const isVeo = post.videoType === "veo";
         // Max expected generation time: Veo = 95 min, Slideshow = 20 min
-        // (slideshow raised from 12→20 min: script + 5 images + TTS + 3x FFmpeg passes can hit 15+ min under load)
         const maxMinutes = isVeo ? 95 : 20;
         const elapsedMs = Date.now() - new Date(post.updatedAt).getTime();
         const elapsedMinutes = elapsedMs / 60_000;
 
         if (elapsedMinutes < maxMinutes) {
-          // CRITICAL: If there is already an active pg-boss job for this post, it is still
-          // running (e.g. FFmpeg mid-encode). Do NOT cancel it — just skip.
-          // Only re-enqueue when there is NO active job (i.e. the previous process died).
-          const activeCheck = await db.execute(sql`
-            SELECT COUNT(*) as cnt
-            FROM pgboss.job
-            WHERE name = 'social-video-generation'
-              AND state = 'active'
-              AND (data->>'socialPostId')::int = ${post.id}
-          `);
-          const activeCount = Number((activeCheck as any).rows?.[0]?.cnt ?? 0);
-          if (activeCount > 0) {
-            console.log(`  ⏳ Social Post #${post.id} already has an active job running — skipping re-queue`);
-            continue;
-          }
-
-          // No active job — server likely just restarted. Re-enqueue automatically.
+          // Server likely just restarted — re-enqueue the video job automatically.
+          // BullMQ handles stalled-job detection on its own; job-recovery just ensures
+          // posts showing GENERATING get a new job if they have none.
 
           const platform = "tiktok";
-          const expireInSeconds = isVeo ? 5400 : 900;
 
           await db.update(socialPosts)
             .set({
@@ -449,10 +432,8 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
             })
             .where(eq(socialPosts.id, post.id));
 
-          await boss.send(
-            "social-video-generation",
+          await addVideoGenerationJob(
             { socialPostId: post.id, platform, videoType: post.videoType || "slideshow" },
-            { retryLimit: isVeo ? 1 : 2, retryDelay: 30, expireInSeconds }
           );
 
           console.log(`  🔄 Re-queued Social Post #${post.id} ${isVeo ? "Veo" : "slideshow"} video (was generating ${elapsedMinutes.toFixed(1)}min, max ${maxMinutes}min)`);
@@ -524,30 +505,8 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     console.warn("  ⚠️ Could not recover batches:", e);
   }
 
-  // 5. Cancel stuck pg-boss jobs
-  // Scope to short-lived queues only — never cancel long-running content
-  // generation, publishing, or video jobs that legitimately run for 30+ min.
-  try {
-    await db.execute(sql`
-      UPDATE pgboss.job 
-      SET state = 'cancelled',
-          completed_on = NOW()
-      WHERE state = 'active' 
-      AND started_on < NOW() - INTERVAL '30 minutes'
-      AND name NOT IN (
-        'article-generation',
-        'content-publishing',
-        'video-idea-generation',
-        'social-video-generation',
-        'article-podcast',
-        'intelligence-research',
-        'site-crawl'
-      )
-    `);
-    console.log("  ✅ Cleaned up stuck pg-boss jobs (short-lived queues only)");
-  } catch (e) {
-    console.warn("  ⚠️ Could not clean pg-boss jobs:", e);
-  }
+  // Note: BullMQ handles stalled-job detection automatically via stalledInterval +
+  // maxStalledCount on each Worker, so no manual stuck-job SQL cleanup is needed here.
 
   const totalRecovered = stats.articlesRecovered + stats.socialPostsRecovered + 
                         stats.videoIdeasRecovered + stats.batchesRecovered;
@@ -563,8 +522,6 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
 export async function autoRequeueRecoveredVideos(): Promise<number> {
   try {
-    const boss = await getPgBoss();
-    
     const pendingVideos = await db.select({ 
       id: videoIdeas.id, 
       ideaTitle: videoIdeas.ideaTitle,
@@ -587,7 +544,7 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
           })
           .where(eq(videoIdeas.id, video.id));
         
-        await boss.send("video-idea-generation", { videoIdeaId: video.id });
+        await addVideoIdeaJob({ videoIdeaId: video.id });
         console.log(`  🎬 Auto-requeued video: "${video.ideaTitle}" (ID: ${video.id})`);
         queued++;
       }

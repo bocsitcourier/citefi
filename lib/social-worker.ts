@@ -1,4 +1,4 @@
-import type PgBoss from "pg-boss";
+import type { Job } from "bullmq";
 import { isBareGeoAnchor } from "./seo-policy";
 import { db } from "./db";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import type { SocialPostJobData } from "./queue";
-import { getPgBoss, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
+import { addVideoGenerationJob, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
@@ -101,7 +101,7 @@ function generateGeoTags(location: string, platforms: string[]): Array<{ platfor
 // SOCIAL POST GENERATION WORKER
 // ============================================================================
 
-export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobData>) {
+export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
   const { socialPostId, userId, prompt, platforms, tone, mood, industry, includeImage, generateVideos, userEmail } = job.data;
   
   console.log(`🎭 Processing social post generation ${socialPostId} for ${platforms.length} platforms${generateVideos ? ' (with video)' : ''}`);
@@ -460,15 +460,8 @@ export async function processSocialPostGeneration(job: PgBoss.Job<SocialPostJobD
       try {
         console.log(`🎬 Queueing video generation for social post ${socialPostId}`);
         
-        const boss = await getPgBoss();
-        const videoJobId = await boss.send(
-          SOCIAL_VIDEO_GENERATION_QUEUE,
+        const videoJobId = await addVideoGenerationJob(
           { socialPostId, platform: "tiktok" },
-          {
-            retryLimit: 2,
-            retryDelay: 30,
-            expireInSeconds: 900, // 15 minutes max
-          }
         );
 
         if (videoJobId) {

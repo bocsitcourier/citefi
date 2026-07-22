@@ -18,3 +18,4 @@
 - [Turbopack silent 404 from module-scope throw](turbopack-silent-404.md) — module-scope throw in any imported lib silently caches 404 for every route in its import chain; fix with lazy getters + clear .next + pre-warm all affected routes.
 - [Neon null rows shim](neon-null-rows-shim.md) — v0.10.x returns rows:null not [] for zero-row results; shim in lib/db.ts via neonConfig.fetchFunction; all worker errors must use logError() not db.insert(errorLogs) directly.
 - [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — fire-and-forget Neon HTTP tasks exhaust Node.js's 5-socket-per-host limit; always use getTxDb() (TCP pooled pg) for any async DB call that may run concurrently.
+- [BullMQ + Redis on Replit](bullmq-redis-replit.md) — Replit javascript_mem_db injects broken ediss:// URL; use local Redis with override:true dotenv + auto-start daemon; BullMQ cron/worker patterns vs old pg-boss.
