@@ -71,7 +71,9 @@ function LoginForm() {
         <div className="w-full max-w-md space-y-8">
           {/* Logo */}
           <div>
-            <span className="font-bold text-2xl text-foreground tracking-tight">citefi.co</span>
+            <Link href="/" className="font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+              citefi.co
+            </Link>
           </div>
 
           {/* Welcome Text */}

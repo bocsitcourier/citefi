@@ -119,7 +119,9 @@ export default function SignupPage() {
         <div className="w-full max-w-md space-y-8 py-8">
           {/* Logo */}
           <div>
-            <span className="font-bold text-2xl text-foreground tracking-tight">citefi.co</span>
+            <Link href="/" className="font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+              citefi.co
+            </Link>
           </div>
 
           {/* Heading */}
