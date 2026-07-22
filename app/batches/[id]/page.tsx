@@ -5,7 +5,13 @@ import { use, Suspense, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, ExternalLink, Sparkles, Home, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle, Square, GitBranch } from "lucide-react";
+import { Loader2, FileText, ExternalLink, Sparkles, Trash2, RefreshCw, ImagePlus, Link2, Zap, ImageIcon, Clock, Share2, Globe, Check, WifiOff, RotateCcw, AlertCircle, Square, GitBranch, MoreHorizontal, Settings2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -78,6 +84,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
   const router = useRouter();
   const [selectedConnectionId, setSelectedConnectionId] = useState<number | null>(null);
   const [publishProgress, setPublishProgress] = useState<{ done: number; total: number } | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   // Track when we first observed this batch as RUNNING for adaptive poll throttling
   const runningStartRef = useRef<number | null>(null);
 
@@ -366,14 +373,22 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
   const hasArticlesWithoutImages = articlesWithoutImages.length > 0;
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className="p-6">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2" data-testid="text-batch-title">{batch.coreTopic}</h1>
-            <p className="text-muted-foreground" data-testid="text-batch-url">{batch.targetUrl}</p>
+        {/* ── Header: two-row layout to prevent flex collapse on long titles ── */}
+        <div className="space-y-3">
+          {/* Row 1: Title block + status badge */}
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl font-bold leading-snug" data-testid="text-batch-title">{batch.coreTopic}</h1>
+              {batch.targetUrl && (
+                <p className="text-sm text-muted-foreground mt-1 truncate" data-testid="text-batch-url">{batch.targetUrl}</p>
+              )}
+            </div>
+            <Badge variant="secondary" className="shrink-0 mt-1" data-testid="badge-batch-status">{batch.status}</Badge>
           </div>
-          <div className="flex items-center gap-3">
+          {/* Row 2: Action buttons – wrap on narrow screens */}
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               onClick={handleRefresh}
@@ -383,15 +398,9 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
               <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Link href="/home">
-              <Button variant="outline" data-testid="button-home">
-                <Home className="w-4 h-4 mr-2" />
-                Home
-              </Button>
-            </Link>
             {isPending && hasTitlePool && (
               <Link href={`/batches/${batch.id}/select`}>
-                <Button data-testid="button-select-titles" size="lg">
+                <Button data-testid="button-select-titles">
                   <Sparkles className="w-4 h-4 mr-2" />
                   Select Titles to Generate
                 </Button>
@@ -434,7 +443,6 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                     <AlertDialogCancel data-testid="button-cancel-stop">Keep Running</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() => cancelBatchMutation.mutate()}
-                      className="bg-destructive hover:bg-destructive/90"
                       data-testid="button-confirm-stop"
                     >
                       Stop Generation
@@ -443,79 +451,117 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                 </AlertDialogContent>
               </AlertDialog>
             )}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" data-testid="button-delete-batch">
+            {/* Delete moved into overflow menu to de-clutter the action bar */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" data-testid="button-batch-more">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="text-destructive focus:text-destructive"
+                  data-testid="dropdown-delete-batch"
+                >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Delete Batch
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete this batch?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete the batch "{batch.coreTopic}" and all {summary.total} associated articles. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => deleteBatchMutation.mutate()}
-                    disabled={deleteBatchMutation.isPending}
-                    className="bg-destructive hover:bg-destructive/90"
-                    data-testid="button-confirm-delete"
-                  >
-                    {deleteBatchMutation.isPending ? "Deleting..." : "Delete Permanently"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <Badge data-testid="badge-batch-status">{batch.status}</Badge>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-5">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">Total</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-count">{summary.total}</div>
+        {/* Delete batch confirmation dialog (controlled) */}
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this batch?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete the batch and all {summary.total} associated articles. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => deleteBatchMutation.mutate()}
+                disabled={deleteBatchMutation.isPending}
+                data-testid="button-confirm-delete"
+              >
+                {deleteBatchMutation.isPending ? "Deleting..." : "Delete Permanently"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* ── PENDING hero card: shown instead of empty stats when no articles yet ── */}
+        {isPending && articles.length === 0 && hasTitlePool && (
+          <Card className="border-primary/20 bg-primary/5">
+            <CardContent className="flex flex-col items-center text-center py-10 gap-4">
+              <Sparkles className="w-12 h-12 text-primary" />
+              <div>
+                <p className="text-lg font-semibold mb-1">
+                  {batch.titlePoolJson!.titles.length} titles ready for selection
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Choose which articles to generate from your title pool.
+                </p>
+              </div>
+              <Link href={`/batches/${batch.id}/select`}>
+                <Button size="lg" data-testid="button-select-titles-hero">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Select Titles to Generate
+                </Button>
+              </Link>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600" data-testid="text-completed-count">{summary.completed}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-600" data-testid="text-inprogress-count">{summary.inProgress}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-gray-600" data-testid="text-pending-count">{summary.pending}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">Failed</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600" data-testid="text-failed-count">{summary.failed}</div>
-            </CardContent>
-          </Card>
-        </div>
+        )}
+
+        {/* Stats tiles — hidden for PENDING batches with no articles yet (all zeros is confusing) */}
+        {!(isPending && articles.length === 0) && (
+          <div className="grid gap-4 md:grid-cols-5">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Total</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold" data-testid="text-total-count">{summary.total}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Completed</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600" data-testid="text-completed-count">{summary.completed}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-yellow-600" data-testid="text-inprogress-count">{summary.inProgress}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-muted-foreground" data-testid="text-pending-count">{summary.pending}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Failed</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-destructive" data-testid="text-failed-count">{summary.failed}</div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
         
         {batch.status === "RUNNING" && summary.total > 0 && (
           <Card>
@@ -550,9 +596,12 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
         )}
 
         {summary.failed > 0 && (
-          <Card className="border-red-200 bg-red-50 dark:bg-red-950/10 dark:border-red-900">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-red-800 dark:text-red-200">⚠️ Failed Articles</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertCircle className="w-4 h-4" />
+                Failed Articles
+              </CardTitle>
               <CardDescription>
                 {summary.failed} article(s) failed due to API quota limits or errors. You can requeue them to retry.
               </CardDescription>
@@ -571,7 +620,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                     body: JSON.stringify({ articleIds: failedArticles.map(a => a.id) }),
                   });
                   if (response.ok) {
-                    window.location.reload();
+                    refetch();
                   }
                 }}
                 variant="destructive"
@@ -583,160 +632,129 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
           </Card>
         )}
 
-        {hasArticlesWithoutImages && (
-          <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/10 dark:border-amber-900">
+        {/* ── Batch Tools: all post-generation actions in one neutral card ── */}
+        {(completedArticles.length > 0 || hasArticlesWithoutImages) && (
+          <Card>
             <CardHeader>
-              <CardTitle className="text-amber-800 dark:text-amber-200 flex items-center gap-2">
-                <ImagePlus className="w-5 h-5" />
-                Missing Images
+              <CardTitle className="flex items-center gap-2">
+                <Settings2 className="w-4 h-4" />
+                Batch Tools
               </CardTitle>
               <CardDescription>
-                {articlesWithoutImages.length} completed article(s) are missing hero images. This may have occurred due to a previous configuration issue.
+                Post-generation actions for your {completedArticles.length} completed article(s).
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <Button
-                onClick={() => regenerateImagesMutation.mutate()}
-                disabled={regenerateImagesMutation.isPending}
-                variant="default"
-                data-testid="button-regenerate-images"
-              >
-                {regenerateImagesMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <ImagePlus className="w-4 h-4 mr-2" />
-                    Regenerate Images for {articlesWithoutImages.length} Article(s)
-                  </>
-                )}
-              </Button>
+            <CardContent className="space-y-6">
+              {hasArticlesWithoutImages && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <ImagePlus className="w-4 h-4" />
+                    Missing Images
+                    <span className="text-xs text-muted-foreground font-normal">— {articlesWithoutImages.length} article(s) are missing hero images</span>
+                  </p>
+                  <Button
+                    onClick={() => regenerateImagesMutation.mutate()}
+                    disabled={regenerateImagesMutation.isPending}
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-regenerate-images"
+                  >
+                    {regenerateImagesMutation.isPending ? (
+                      <><Loader2 className="w-3 h-3 mr-2 animate-spin" />Generating...</>
+                    ) : (
+                      <><ImagePlus className="w-3 h-3 mr-2" />Regenerate {articlesWithoutImages.length} Image(s)</>
+                    )}
+                  </Button>
+                </div>
+              )}
+              {completedArticles.length > 0 && (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <Zap className="w-4 h-4" />
+                      Keyword Hyperlinks
+                      <span className="text-xs text-muted-foreground font-normal">— Recommended first step</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Extracts 25 long-phrase keywords and applies hyperlinks throughout article body and FAQ sections.
+                    </p>
+                    <Button
+                      onClick={() => keywordHyperlinkMutation.mutate()}
+                      disabled={keywordHyperlinkMutation.isPending}
+                      variant="outline"
+                      size="sm"
+                      data-testid="button-apply-keyword-hyperlinks"
+                    >
+                      {keywordHyperlinkMutation.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-2 animate-spin" />Applying hyperlinks...</>
+                      ) : (
+                        <><Zap className="w-3 h-3 mr-2" />Apply Keyword Hyperlinks ({completedArticles.length})</>
+                      )}
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <Link2 className="w-4 h-4" />
+                      Fix Hyperlinks & Hashtags
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Apply stored hyperlinks and hashtags, or force re-inject to replace bare city-name anchors with semantic phrases.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => fixHyperlinksMutation.mutate()}
+                        disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
+                        variant="outline"
+                        size="sm"
+                        data-testid="button-fix-hyperlinks"
+                      >
+                        {fixHyperlinksMutation.isPending ? (
+                          <><Loader2 className="w-3 h-3 mr-2 animate-spin" />Fixing...</>
+                        ) : (
+                          <><Link2 className="w-3 h-3 mr-2" />Fix Hyperlinks ({completedArticles.length})</>
+                        )}
+                      </Button>
+                      <Button
+                        onClick={() => forceReinjectMutation.mutate()}
+                        disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
+                        variant="outline"
+                        size="sm"
+                        data-testid="button-force-reinject-hyperlinks"
+                      >
+                        {forceReinjectMutation.isPending ? (
+                          <><Loader2 className="w-3 h-3 mr-2 animate-spin" />Re-injecting...</>
+                        ) : (
+                          <><Link2 className="w-3 h-3 mr-2" />Force Re-inject ({completedArticles.length})</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4" />
+                      Fix Image Captions
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Replace image captions with your company URL and convert image paths to absolute URLs.
+                    </p>
+                    <Button
+                      onClick={() => fixImageCaptionsMutation.mutate()}
+                      disabled={fixImageCaptionsMutation.isPending}
+                      variant="outline"
+                      size="sm"
+                      data-testid="button-fix-image-captions"
+                    >
+                      {fixImageCaptionsMutation.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-2 animate-spin" />Fixing captions...</>
+                      ) : (
+                        <><ImageIcon className="w-3 h-3 mr-2" />Fix Image Captions ({completedArticles.length})</>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
-        )}
-
-        {completedArticles.length > 0 && (
-          <>
-            {/* NEW: Enterprise Keyword Hyperlink Pipeline */}
-            <Card className="border-green-200 bg-green-50 dark:bg-green-950/10 dark:border-green-900">
-              <CardHeader>
-                <CardTitle className="text-green-800 dark:text-green-200 flex items-center gap-2">
-                  <Zap className="w-5 h-5" />
-                  Apply Long-Phrase Keyword Hyperlinks (RECOMMENDED)
-                </CardTitle>
-                <CardDescription>
-                  Enterprise 3-stage pipeline: Extracts 25 business-specific long-phrase keywords (4-10 words), then programmatically applies hyperlinks throughout article body AND FAQ sections. This is the permanent fix for missing hyperlinks.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => keywordHyperlinkMutation.mutate()}
-                  disabled={keywordHyperlinkMutation.isPending}
-                  variant="default"
-                  className="bg-green-600 hover:bg-green-700"
-                  data-testid="button-apply-keyword-hyperlinks"
-                >
-                  {keywordHyperlinkMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Extracting keywords & applying hyperlinks...
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 mr-2" />
-                      Apply Keyword Hyperlinks to {completedArticles.length} Article(s)
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Legacy Fix Hyperlinks */}
-            <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/10 dark:border-blue-900">
-              <CardHeader>
-                <CardTitle className="text-blue-800 dark:text-blue-200 flex items-center gap-2">
-                  <Link2 className="w-5 h-5" />
-                  Fix Hyperlinks & Hashtags
-                </CardTitle>
-                <CardDescription>
-                  Apply stored hyperlinks and hashtags to article HTML. Use "Fix" for articles with missing links, or "Force Re-inject" to strip bare city-name anchors and replace with 4-7 word semantic phrases.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-3">
-                <Button
-                  onClick={() => fixHyperlinksMutation.mutate()}
-                  disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
-                  variant="outline"
-                  data-testid="button-fix-hyperlinks"
-                >
-                  {fixHyperlinksMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Fixing...
-                    </>
-                  ) : (
-                    <>
-                      <Link2 className="w-4 h-4 mr-2" />
-                      Fix Hyperlinks ({completedArticles.length})
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={() => forceReinjectMutation.mutate()}
-                  disabled={fixHyperlinksMutation.isPending || forceReinjectMutation.isPending}
-                  variant="outline"
-                  data-testid="button-force-reinject-hyperlinks"
-                >
-                  {forceReinjectMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Re-injecting...
-                    </>
-                  ) : (
-                    <>
-                      <Link2 className="w-4 h-4 mr-2" />
-                      Force Re-inject Semantic Links ({completedArticles.length})
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Fix Image Captions - replaces descriptions with company URL */}
-            <Card className="border-purple-200 bg-purple-50 dark:bg-purple-950/10 dark:border-purple-900">
-              <CardHeader>
-                <CardTitle className="text-purple-800 dark:text-purple-200 flex items-center gap-2">
-                  <ImageIcon className="w-5 h-5" />
-                  Fix Image Captions
-                </CardTitle>
-                <CardDescription>
-                  Replace image descriptions with your company URL. Also converts image URLs to absolute paths so they work when copy-pasted.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => fixImageCaptionsMutation.mutate()}
-                  disabled={fixImageCaptionsMutation.isPending}
-                  variant="outline"
-                  data-testid="button-fix-image-captions"
-                >
-                  {fixImageCaptionsMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Fixing image captions...
-                    </>
-                  ) : (
-                    <>
-                      <ImageIcon className="w-4 h-4 mr-2" />
-                      Fix Image Captions for {completedArticles.length} Article(s)
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          </>
         )}
 
         {completedArticles.length > 0 && (
@@ -828,15 +846,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {isPending && hasTitlePool && articles.length === 0 && (
-              <div className="text-center py-8 space-y-4">
-                <div className="text-muted-foreground">
-                  <p className="mb-2">This batch has {batch.titlePoolJson!.titles.length} generated titles ready for selection.</p>
-                  <p>Click "Select Titles to Generate" above to choose which articles to create.</p>
-                </div>
-              </div>
-            )}
-            {articles.length > 0 && (
+            {articles.length > 0 ? (
               <div className="space-y-3">
                 {articles.map((article) => (
                 <div
@@ -894,7 +904,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                 </div>
               ))}
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>

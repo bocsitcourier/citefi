@@ -5,9 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { FileText, Loader2, ExternalLink, Trash2, Home, RefreshCw, LogIn, Search, X } from "lucide-react";
+import { FileText, Loader2, ExternalLink, Trash2, RefreshCw, LogIn, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
@@ -41,6 +42,7 @@ interface ArticleResult {
 
 export default function ContentLibrary() {
   const { toast } = useToast();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: batches, isLoading, error, refetch, isFetching } = useQuery<Batch[]>({
@@ -106,32 +108,24 @@ export default function ContentLibrary() {
   const hasBatches = batches && batches.length > 0;
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="p-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-4xl font-bold mb-2" data-testid="text-page-title">Content Library</h1>
-            <p className="text-muted-foreground" data-testid="text-page-description">
+            <h1 className="text-2xl font-bold" data-testid="text-page-title">Content Library</h1>
+            <p className="text-sm text-muted-foreground mt-1" data-testid="text-page-description">
               Browse and export your generated articles
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              onClick={handleRefresh}
-              disabled={isFetching}
-              data-testid="button-refresh"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Link href="/home">
-              <Button variant="default" data-testid="button-home">
-                <Home className="w-4 h-4 mr-2" />
-                Home
-              </Button>
-            </Link>
-          </div>
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={isFetching}
+            data-testid="button-refresh"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </div>
 
         {/* Search bar */}
@@ -249,38 +243,32 @@ export default function ContentLibrary() {
                   </Link>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {batches.map((batch) => (
                     <div
                       key={batch.id}
-                      className="flex items-center justify-between p-4 rounded-lg border hover-elevate"
+                      className="flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer"
                       data-testid={`batch-item-${batch.id}`}
+                      onClick={() => router.push(`/batches/${batch.id}`)}
                     >
-                      <div className="flex-1">
-                        <h3 className="font-semibold mb-1">{batch.coreTopic}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {batch.numArticlesRequested} articles • Created {new Date(batch.createdAt).toLocaleDateString()}
+                      <div className="flex-1 min-w-0 mr-4">
+                        <h3 className="font-semibold truncate">{batch.coreTopic}</h3>
+                        <p className="text-sm text-muted-foreground mt-0.5">
+                          {batch.numArticlesRequested} articles • {new Date(batch.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Badge variant={batch.status === "COMPLETE" ? "default" : "secondary"}>
                           {batch.status}
                         </Badge>
-                        <Link href={`/batches/${batch.id}`}>
-                          <Button variant="outline" size="sm" data-testid={`button-view-batch-${batch.id}`}>
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            View
-                          </Button>
-                        </Link>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
-                              variant="destructive"
+                              variant="outline"
                               size="sm"
                               data-testid={`button-delete-batch-${batch.id}`}
                             >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete Batch
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
