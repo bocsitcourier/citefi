@@ -113,7 +113,7 @@ fi
 
 # ── 8. Install, type-check, build ─────────────────────────────────
 echo "[8/9] Installing dependencies + building..."
-sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && npm ci --production=false"
+sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && npm ci"
 echo "    Running type-check gate..."
 sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && npm run check" || {
   echo "❌  TypeScript errors detected — fix before deploying."
@@ -140,7 +140,7 @@ fi
 # ── 9. PM2 + Nginx ────────────────────────────────────────────────
 echo "[9/9] Starting PM2 and configuring Nginx..."
 
-sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && pm2 start ecosystem.config.js"
+sudo -u "${APP_USER}" bash -c "cd ${APP_DIR} && pm2 start ecosystem.config.cjs"
 sudo -u "${APP_USER}" pm2 save
 
 # Configure PM2 to start on boot (must run as root)
