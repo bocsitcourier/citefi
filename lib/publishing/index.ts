@@ -274,7 +274,7 @@ export async function createPublishingJob(
   const [jobRow] = await db.insert(publishingJobs).values(jobData).returning();
   const job = jobRow!;
 
-  // Enqueue in pg-boss so the publishing worker picks it up
+  // Enqueue in BullMQ so the publishing worker picks it up
   try {
     const pgBossId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
     if (pgBossId) {
@@ -286,7 +286,7 @@ export async function createPublishingJob(
     }
   } catch (err) {
     // Non-fatal — the job is in DB and the recovery monitor will re-enqueue
-    console.error(`⚠️ Failed to enqueue publishing job ${job.id} in pg-boss:`, err);
+    console.error(`⚠️ Failed to enqueue publishing job ${job.id} in BullMQ:`, err);
   }
 
   return job;

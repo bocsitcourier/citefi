@@ -63,7 +63,7 @@ let workerProcess: ReturnType<typeof spawn> | null = null;
 if (process.env.DISABLE_WORKERS === 'true') {
   console.log('⏸️  Workers disabled (DISABLE_WORKERS=true) — UI-only dev mode\n');
 } else {
-  console.log('🔧 Starting pg-boss workers in dedicated process...\n');
+  console.log('🔧 Starting BullMQ workers in dedicated process...\n');
   workerProcess = spawn('tsx', ['server/worker-process.ts'], {
     stdio: 'inherit',
     shell: true,

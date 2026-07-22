@@ -75,23 +75,10 @@ export async function GET(req: NextRequest) {
       })
     );
 
-    // ConversionLabeler last run — check pg-boss job history
-    // We use a simple proxy: the last conversion labeler completion event
-    let labelerLastRun: string | null = null;
-    try {
-      const [labelerRow] = await db.execute(sql`
-        SELECT completed_on FROM pgboss.job
-        WHERE name = 'conversion-labeler'
-          AND state = 'completed'
-        ORDER BY completed_on DESC
-        LIMIT 1
-      `) as any[];
-      if (labelerRow?.completed_on) {
-        labelerLastRun = new Date(labelerRow.completed_on).toISOString();
-      }
-    } catch {
-      // pg-boss schema may not be accessible — non-fatal
-    }
+    // ConversionLabeler last run — BullMQ does not persist completed job history
+    // in a queryable Postgres table. Return null; future work can log a timestamp
+    // to the app DB when the labeler completes.
+    const labelerLastRun: string | null = null;
 
     return NextResponse.json({
       last24h: {

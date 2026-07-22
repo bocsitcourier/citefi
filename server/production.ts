@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 
 console.log('🚀 Starting Citefi (Production)...\n');
 
-console.log('🔧 Starting pg-boss workers in dedicated process...\n');
+console.log('🔧 Starting BullMQ workers in dedicated process...\n');
 const workerProcess = spawn('tsx', ['server/worker-process.ts'], {
   stdio: 'inherit',
   shell: true,

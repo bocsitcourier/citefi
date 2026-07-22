@@ -4,7 +4,6 @@ import { videoIdeas } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 import { validateExternalUrl } from "@/lib/url-validation";
-import { getPgBoss } from "@/lib/queue";
 import { z } from "zod";
 
 const likeVideoSchema = z.object({

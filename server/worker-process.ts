@@ -83,7 +83,7 @@ async function startWorkers() {
     // Validate publishing secrets before starting workers
     await ensurePublishingSecretsReady();
     
-    // Register all pg-boss workers
+    // Register all BullMQ workers
     await registerWorkers();
     
     // Start job monitoring for stuck job detection

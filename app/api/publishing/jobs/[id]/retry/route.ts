@@ -55,7 +55,7 @@ export async function POST(
         .where(eq(publishingJobs.id, jobId));
     }
 
-    console.log(`🔁 Publishing job ${jobId} manually retried — new pg-boss job: ${pgBossJobId}`);
+    console.log(`🔁 Publishing job ${jobId} manually retried — new BullMQ job: ${pgBossJobId}`);
 
     return NextResponse.json({ success: true, message: 'Job queued for retry' });
   } catch (error: any) {
