@@ -124,7 +124,14 @@ fi
 
 if [[ "$NEEDS_BUILD" == "true" ]]; then
   echo "Installing dependencies..."
+  # package-lock.json may contain Replit's internal proxy URLs — patch them before npm ci
+  if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
+    echo "  Patching package-lock.json Replit proxy URLs -> public registry..."
+    sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+  fi
   npm ci --registry https://registry.npmjs.org
+  # Restore lock file so git doesn't see a dirty tree
+  git checkout -- package-lock.json 2>/dev/null || true
 
   echo "Building..."
   npm run build

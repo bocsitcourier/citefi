@@ -20,3 +20,4 @@
 - [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — fire-and-forget Neon HTTP tasks exhaust Node.js's 5-socket-per-host limit; always use getTxDb() (TCP pooled pg) for any async DB call that may run concurrently.
 - [BullMQ + Redis on Replit](bullmq-redis-replit.md) — Replit javascript_mem_db injects broken ediss:// URL; use local Redis with override:true dotenv + auto-start daemon; BullMQ cron/worker patterns vs old pg-boss.
 - [GitHub push script](github-push-script.md) — git pull/push are sandbox-blocked in main agent; use GitHub REST API (PATCH /git/refs/heads/main force:true) via curl; script is scripts/push-to-github.sh.
+- [DO deploy pitfalls](do-deploy-pitfalls.md) — 7 rules: no git clean, patch lock file proxy URLs, DATABASE_URL=helium is Replit-only, push .env.local via SSH stdin, PM2 ✓ ≠ stable, force build if .next missing, SSH key spaces→newlines.
