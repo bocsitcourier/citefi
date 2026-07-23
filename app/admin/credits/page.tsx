@@ -29,11 +29,6 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, History, RefreshCw, RotateCcw, Search, ChevronRight } from "lucide-react";
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 interface ChargeItem {
   id: string;
   amount: number;
@@ -179,7 +174,7 @@ export default function AdminCreditsPage() {
     }
     setLoadingCharges(true);
     try {
-      const res = await fetch(`/api/admin/billing/refund?userId=${userId}`, { headers: getAuthHeaders() });
+      const res = await fetch(`/api/admin/billing/refund?userId=${userId}`, { credentials: "include" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any).error ?? "Failed to load charges");
@@ -215,7 +210,8 @@ export default function AdminCreditsPage() {
     try {
       const res = await fetch("/api/admin/billing/refund", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: parseInt(refundUserId),
           chargeId: selectedCharge.id,

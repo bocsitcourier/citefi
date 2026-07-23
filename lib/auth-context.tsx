@@ -13,7 +13,6 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; userId?: number; twoFactorMethod?: string }>;
   verify2FA: (code: string, userId: number, method: string) => Promise<void>;
@@ -24,25 +23,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ---------------------------------------------------------------------------
-// Token helpers — sessionStorage keeps the JWT alive across full-page reloads
-// within the same browser tab. This is the fallback for iframe contexts where
-// SameSite=None HttpOnly cookies may be blocked (e.g. Replit preview pane).
-// ---------------------------------------------------------------------------
-function saveToken(t: string) {
-  try { sessionStorage.setItem("auth_token", t); } catch { /* SSR / locked */ }
-}
-function loadToken(): string | null {
-  try { return sessionStorage.getItem("auth_token"); } catch { return null; }
-}
-function clearToken() {
-  try { sessionStorage.removeItem("auth_token"); } catch { /* ignore */ }
-  try { localStorage.removeItem("auth_token"); } catch { /* ignore */ }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -51,28 +33,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = async () => {
     try {
-      const storedToken = loadToken();
-      const headers: Record<string, string> = {};
-      if (storedToken) headers["Authorization"] = `Bearer ${storedToken}`;
-
       const response = await fetch("/api/auth/me", {
         credentials: "include",
-        headers,
       });
 
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
-        if (storedToken) setToken(storedToken);
       } else {
         setUser(null);
-        setToken(null);
-        clearToken();
       }
     } catch (error) {
       console.error("Failed to fetch user:", error);
       setUser(null);
-      setToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -85,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (response.requiresTwoFactor) {
-      // Persist the challenge token so verify2FA can include it in the next request.
-      // The challenge token binds the 2FA step to this completed password step.
+      // Store the short-lived challenge token so verify2FA can bind the 2FA
+      // step to this completed password step. Not a secret auth token.
       if (response.challengeToken) {
         try { sessionStorage.setItem("auth_2fa_challenge", String(response.challengeToken)); } catch { /* SSR / locked */ }
       }
@@ -97,12 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
-    // Persist token in sessionStorage so it survives full-page reloads
-    // (needed when SameSite cookies are blocked in cross-site iframe contexts).
-    if (response.token) {
-      saveToken(response.token);
-      setToken(response.token);
-    }
     setUser(response.user);
     return { requiresTwoFactor: false };
   };
@@ -120,10 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear the one-time challenge token regardless of outcome
     try { sessionStorage.removeItem("auth_2fa_challenge"); } catch { /* ignore */ }
 
-    if (response.token) {
-      saveToken(response.token);
-      setToken(response.token);
-    }
     setUser(response.user);
   };
 
@@ -141,9 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Logout error:", error);
     }
-    clearToken();
     setUser(null);
-    setToken(null);
   };
 
   const refreshUser = async () => {
@@ -154,7 +115,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        token,
         isLoading,
         login,
         verify2FA,

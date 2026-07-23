@@ -129,13 +129,10 @@ export default function MonitoringDashboard() {
   });
 
   const calculateCustomCost = async () => {
-    const token = sessionStorage.getItem("auth_token");
     await fetch("/api/monitoring/cost-calculator", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ numArticles, includeImages, includePodcasts }),
     }).then(res => res.json()).then(data => {
       refetchCustomCost();

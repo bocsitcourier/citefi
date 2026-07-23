@@ -51,11 +51,10 @@ export default function SiteMapPage() {
 
   const fetchPages = useCallback(async () => {
     try {
-      const token = sessionStorage.getItem("auth_token");
       const params = new URLSearchParams();
       if (filterDomain) params.set("domain", filterDomain);
       const res = await fetch(`/api/site-map/pages?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -69,9 +68,8 @@ export default function SiteMapPage() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/site-map/jobs", {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -114,13 +112,10 @@ export default function SiteMapPage() {
 
     setIsCrawling(true);
     try {
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/site-map/crawl", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ baseUrl: crawlUrl, maxPages, maxDepth: 3 }),
       });
       const data = await res.json();
@@ -141,10 +136,9 @@ export default function SiteMapPage() {
   const deleteDomain = async (domain: string) => {
     if (!confirm(`Remove all indexed pages for ${domain}?`)) return;
     try {
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch(`/api/site-map/pages?domain=${encodeURIComponent(domain)}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (res.ok) {
         setSuccessMsg(`All pages for ${domain} removed`);
@@ -155,10 +149,9 @@ export default function SiteMapPage() {
 
   const deletePage = async (pageId: number) => {
     try {
-      const token = sessionStorage.getItem("auth_token");
       await fetch(`/api/site-map/pages?id=${pageId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       fetchPages();
     } catch {}

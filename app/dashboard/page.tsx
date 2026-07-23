@@ -508,10 +508,9 @@ export default function Dashboard() {
     try {
       const fd = new FormData();
       fd.append("logo", file);
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/upload/logo", {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
         body: fd,
       });
       if (res.status === 401) {

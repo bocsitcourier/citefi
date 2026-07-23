@@ -111,13 +111,8 @@ const TOP_UPS: TopUpConfig[] = [
   { id: "topup_500", credits: 500, priceUsd: 180, label: "Bulk Pack" },
 ];
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function fetchBillingStatus(): Promise<BillingStatus> {
-  const res = await fetch("/api/billing/status", { headers: getAuthHeaders() });
+  const res = await fetch("/api/billing/status", { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load billing status");
   return res.json();
 }
@@ -127,7 +122,8 @@ async function createCheckout(
 ): Promise<{ url: string; portal?: boolean }> {
   const res = await fetch("/api/billing/checkout", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -140,7 +136,8 @@ async function createCheckout(
 async function openPortal(): Promise<{ url: string }> {
   const res = await fetch("/api/billing/portal", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -263,7 +260,8 @@ export default function BillingPage() {
     try {
       const res = await fetch("/api/billing/cancel", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

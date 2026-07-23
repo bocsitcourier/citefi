@@ -31,11 +31,6 @@ interface ArticleRow {
   publishedAt: string | null;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     published: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
@@ -56,7 +51,7 @@ export default function ClientDashboardPage() {
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/client/dashboard"],
     queryFn: async () => {
-      const res = await fetch("/api/client/dashboard", { headers: getAuthHeaders() });
+      const res = await fetch("/api/client/dashboard", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load dashboard");
       return res.json();
     },
@@ -66,7 +61,7 @@ export default function ClientDashboardPage() {
   const { data: articlesData, isLoading: articlesLoading } = useQuery<{ articles: ArticleRow[] }>({
     queryKey: ["/api/client/articles"],
     queryFn: async () => {
-      const res = await fetch("/api/client/articles?limit=20", { headers: getAuthHeaders() });
+      const res = await fetch("/api/client/articles?limit=20", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load articles");
       return res.json();
     },

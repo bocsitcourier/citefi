@@ -143,10 +143,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { data: pendingData } = useQuery<{ count: number }>({
     queryKey: PENDING_COUNT_KEY,
     queryFn: async () => {
-      const token = (() => { try { return sessionStorage.getItem("auth_token"); } catch { return null; } })();
       const res = await fetch("/api/admin/pending-count", {
         credentials: "include",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return { count: 0 };
       return res.json();

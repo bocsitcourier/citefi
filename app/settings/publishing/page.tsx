@@ -199,10 +199,7 @@ export default function PublishingDashboard() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (typeFilter !== "all") params.set("contentType", typeFilter);
     const qs = params.toString();
-    const token = sessionStorage.getItem("auth_token");
-    const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`/api/publishing/jobs${qs ? `?${qs}` : ""}`, { headers });
+    const res = await fetch(`/api/publishing/jobs${qs ? `?${qs}` : ""}`, { credentials: "include" });
     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
     return res.json();
   };

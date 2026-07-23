@@ -69,11 +69,6 @@ interface DetailData {
   articleCount: number;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function RoleBadge({ role }: { role: string }) {
   return (
     <Badge variant={role === "admin" ? "default" : "secondary"} className="capitalize">
@@ -145,7 +140,7 @@ export default function AdminUserDetailPage() {
   const { data, isLoading, refetch } = useQuery<DetailData>({
     queryKey: ["/api/admin/users", userId, "detail"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/users/${userId}/detail`, { headers: getAuthHeaders() });
+      const res = await fetch(`/api/admin/users/${userId}/detail`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load user details");
       return res.json();
     },

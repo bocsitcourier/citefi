@@ -57,13 +57,8 @@ interface IntelligenceStatus {
   topGaps: string[];
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function fetchClients(): Promise<AgencyData> {
-  const res = await fetch("/api/agency/clients", { headers: getAuthHeaders() });
+  const res = await fetch("/api/agency/clients", { credentials: "include" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw Object.assign(new Error(err.error ?? "Failed to load clients"), { status: res.status, body: err });
@@ -141,7 +136,7 @@ export default function AgencyPage() {
   const { data: intelData } = useQuery<{ statuses: Record<number, IntelligenceStatus> }>({
     queryKey: ["/api/intelligence/agency"],
     queryFn: async () => {
-      const res = await fetch("/api/intelligence/agency", { headers: getAuthHeaders() });
+      const res = await fetch("/api/intelligence/agency", { credentials: "include" });
       if (!res.ok) return { statuses: {} };
       return res.json();
     },
@@ -154,7 +149,8 @@ export default function AgencyPage() {
     mutationFn: async ({ name, websiteUrl }: { name: string; websiteUrl?: string }) => {
       const res = await fetch("/api/agency/clients", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, websiteUrl: websiteUrl || undefined }),
       });
       if (!res.ok) {
@@ -186,7 +182,8 @@ export default function AgencyPage() {
     mutationFn: async ({ id, status }: { id: number; status: "active" | "archived" }) => {
       const res = await fetch(`/api/agency/clients/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clientStatus: status }),
       });
       if (!res.ok) {
@@ -208,7 +205,8 @@ export default function AgencyPage() {
     try {
       const res = await fetch("/api/auth/team-context", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ teamId: clientId }),
       });
       if (!res.ok) {

@@ -216,11 +216,6 @@ function ErrorRow({
   );
 }
 
-function getAuthHeader() {
-  const token = typeof localStorage !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export default function AdminErrorLogsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
@@ -234,7 +229,7 @@ export default function AdminErrorLogsPage() {
     queryFn: async () => {
       const params = new URLSearchParams({ type: typeFilter, severity: severityFilter, page: String(page) });
       const res = await fetch(`/api/admin/error-logs?${params}`, {
-        headers: getAuthHeader() as HeadersInit,
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch error logs");
       return res.json();
@@ -272,7 +267,8 @@ export default function AdminErrorLogsPage() {
     mutationFn: async ({ id, resolved }: { id: number; resolved: boolean }) => {
       const res = await fetch("/api/admin/error-logs", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeader() } as HeadersInit,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, resolved }),
       });
       if (!res.ok) throw new Error("Failed to update");
@@ -291,7 +287,8 @@ export default function AdminErrorLogsPage() {
     mutationFn: async (body: Record<string, unknown>) => {
       const res = await fetch("/api/admin/error-logs", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", ...getAuthHeader() } as HeadersInit,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to delete");

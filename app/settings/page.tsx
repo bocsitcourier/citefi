@@ -38,10 +38,6 @@ interface BillingStatus {
   credits: { totalRemaining: number };
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function formatMemberSince(date: string | Date | null | undefined): string {
   if (!date) return "—";
@@ -94,7 +90,7 @@ export default function AccountSettingsPage() {
   const { data: billing } = useQuery<BillingStatus>({
     queryKey: ["/api/billing/status"],
     queryFn: async () => {
-      const res = await fetch("/api/billing/status", { headers: getAuthHeaders() });
+      const res = await fetch("/api/billing/status", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load");
       return res.json();
     },
@@ -174,7 +170,6 @@ export default function AccountSettingsPage() {
       return apiRequest("/api/account/delete", { method: "POST" });
     },
     onSuccess: () => {
-      sessionStorage.removeItem("auth_token");
       toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
       window.location.href = "/login";
     },
@@ -521,10 +516,9 @@ function ExportDataCard() {
   async function handleExport() {
     setIsPending(true);
     try {
-      const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
       const res = await fetch("/api/account/export", {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

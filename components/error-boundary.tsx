@@ -57,8 +57,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         formData.append("screenshot", screenshotBlob, "screenshot.png");
       }
 
-      await fetch("/api/admin/error-screenshot", {
+      await fetch("/api/client/error-screenshot", {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
 

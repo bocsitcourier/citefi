@@ -101,7 +101,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!mounted || isLoading || isPublicRoute || !user) return;
     const ONBOARDING_SKIP = ["/onboarding", "/settings", "/admin", "/auth", "/login", "/signup", "/accept-invite"];
     if (ONBOARDING_SKIP.some((p) => pathname?.startsWith(p))) return;
-    fetch("/api/onboarding/status", { headers: { Authorization: `Bearer ${typeof window !== "undefined" ? sessionStorage.getItem("auth_token") ?? "" : ""}` } })
+    fetch("/api/onboarding/status", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data && data.isAgency && !data.isComplete && !data.hasClients) {

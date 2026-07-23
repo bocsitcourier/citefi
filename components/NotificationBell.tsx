@@ -100,17 +100,11 @@ export function NotificationBell() {
   const [lastCount, setLastCount] = useState(0);
   const initialLoadRef = useRef(true);
 
-  const getToken = () => {
-    try { return sessionStorage.getItem("auth_token"); } catch { return null; }
-  };
-
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications", "count"],
     queryFn: async () => {
-      const token = getToken();
       const res = await fetch("/api/notifications?count=true", {
         credentials: "include",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return { count: 0 };
       return res.json();
@@ -123,10 +117,8 @@ export function NotificationBell() {
   const { data: notificationsData } = useQuery<{ notifications: Notification[] }>({
     queryKey: ["/api/notifications"],
     queryFn: async () => {
-      const token = getToken();
       const res = await fetch("/api/notifications?limit=10", {
         credentials: "include",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return { notifications: [] };
       return res.json();

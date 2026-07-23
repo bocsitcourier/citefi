@@ -22,11 +22,6 @@ interface Persona {
   isDefault: number;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export default function ContentWizard() {
   const router = useRouter();
   const { toast } = useToast();
@@ -60,7 +55,7 @@ export default function ContentWizard() {
   const { data: intelligenceData, refetch: refetchIntelligence } = useQuery<{ profile: { status: string } | null }>({
     queryKey: ["/api/intelligence"],
     queryFn: async () => {
-      const res = await fetch("/api/intelligence", { headers: getAuthHeaders() });
+      const res = await fetch("/api/intelligence", { credentials: "include" });
       if (!res.ok) return { profile: null };
       return res.json();
     },
@@ -72,7 +67,8 @@ export default function ContentWizard() {
     mutationFn: async (text: string) => {
       const res = await fetch("/api/intelligence", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "add_exemplar",
           exemplar: {
@@ -104,7 +100,8 @@ export default function ContentWizard() {
     mutationFn: async ({ websiteUrl, companyName }: { websiteUrl: string; companyName: string }) => {
       const res = await fetch("/api/intelligence/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ websiteUrl, companyName }),
       });
       if (!res.ok) {

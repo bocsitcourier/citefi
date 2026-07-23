@@ -45,16 +45,11 @@ export default function MediaLibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const getAuthHeaders = (): Record<string, string> => {
-    const token = sessionStorage.getItem("auth_token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  };
-
   const { data: mediaData, isLoading } = useQuery({
     queryKey: ['/api/media/list', activeTab],
     queryFn: async () => {
       const response = await fetch(`/api/media/list?type=${activeTab}&limit=100`, {
-        headers: getAuthHeaders(),
+        credentials: "include",
       });
       if (!response.ok) throw new Error('Failed to fetch media');
       return response.json();
@@ -65,7 +60,7 @@ export default function MediaLibraryPage() {
     mutationFn: async (assetId: number) => {
       const response = await fetch(`/api/media/${assetId}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
+        credentials: "include",
       });
       if (!response.ok) throw new Error('Failed to delete asset');
       return response.json();
@@ -219,7 +214,8 @@ export default function MediaLibraryPage() {
 
       const response = await fetch('/api/social/video/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: "include",
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           socialPostId: asset.socialPostId,
           platform: 'tiktok'

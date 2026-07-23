@@ -14,13 +14,8 @@ interface CreditStatus {
   };
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function fetchCreditStatus(): Promise<CreditStatus> {
-  const res = await fetch("/api/billing/status", { headers: getAuthHeaders() });
+  const res = await fetch("/api/billing/status", { credentials: "include" });
   if (!res.ok) throw new Error("Failed");
   return res.json();
 }

@@ -351,13 +351,10 @@ function CreateJourneyDialog({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch("/api/journeys", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
           terminalKpi,
@@ -527,13 +524,10 @@ function JourneyDetailPanel({
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const token = sessionStorage.getItem("auth_token");
       const res = await fetch(`/api/journeys/${journey.id}/trigger`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
       if (!res.ok) {
@@ -553,14 +547,11 @@ function JourneyDetailPanel({
 
   const pauseMutation = useMutation({
     mutationFn: async () => {
-      const token = sessionStorage.getItem("auth_token");
       const newStatus = journey.status === "active" ? "paused" : "active";
       const res = await fetch(`/api/journeys/${journey.id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) throw new Error("Failed to update journey");
@@ -652,31 +643,19 @@ function JourneyDetailPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function JourneysPage() {
-  const { token } = useAuth();
+  const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedJourneyId, setSelectedJourneyId] = useState<number | null>(null);
 
-  const authHeader = { Authorization: `Bearer ${token ?? sessionStorage.getItem("auth_token")}` };
-
   const { data, isLoading, error } = useQuery<{ journeys: Journey[] }>({
     queryKey: ["/api/journeys"],
-    queryFn: async () => {
-      const res = await fetch("/api/journeys", { headers: authHeader });
-      if (!res.ok) throw new Error("Failed to load journeys");
-      return res.json();
-    },
-    enabled: !!token || !!sessionStorage.getItem("auth_token"),
+    enabled: !!user,
   });
 
   const journeyList = data?.journeys ?? [];
 
   const { data: detailData } = useQuery<{ journey: Journey; steps: JourneyStep[] }>({
     queryKey: ["/api/journeys", selectedJourneyId],
-    queryFn: async () => {
-      const res = await fetch(`/api/journeys/${selectedJourneyId}`, { headers: authHeader });
-      if (!res.ok) throw new Error("Failed to load journey detail");
-      return res.json();
-    },
     enabled: selectedJourneyId !== null,
   });
 

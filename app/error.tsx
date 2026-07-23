@@ -12,16 +12,10 @@ interface ErrorPageProps {
 
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
   useEffect(() => {
-    const token = (() => {
-      try { return sessionStorage.getItem("auth_token"); } catch { return null; }
-    })();
-
     fetch("/api/client-errors", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "ROUTE_ERROR",
         message: error.message || "Unknown route error",

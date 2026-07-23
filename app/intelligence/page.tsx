@@ -41,10 +41,6 @@ interface ProfileRow {
   mergedProfile: ClientBrandProfileJson | null;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 // ---------------------------------------------------------------------------
 // Progress steps display
@@ -200,7 +196,7 @@ export default function BrandIntelligencePage() {
   const { data, isLoading, refetch } = useQuery<{ profile: ProfileRow | null }>({
     queryKey: ["/api/intelligence"],
     queryFn: async () => {
-      const res = await fetch("/api/intelligence", { headers: getAuthHeaders() });
+      const res = await fetch("/api/intelligence", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load intelligence profile");
       return res.json();
     },
@@ -217,7 +213,8 @@ export default function BrandIntelligencePage() {
     mutationFn: async ({ websiteUrl, companyName }: { websiteUrl: string; companyName: string }) => {
       const res = await fetch("/api/intelligence/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ websiteUrl, companyName }),
       });
       if (!res.ok) {
@@ -237,7 +234,8 @@ export default function BrandIntelligencePage() {
     mutationFn: async (overrides: Record<string, unknown>) => {
       const res = await fetch("/api/intelligence", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "overrides", overrides }),
       });
       if (!res.ok) throw new Error("Failed to save override");
@@ -722,7 +720,8 @@ export default function BrandIntelligencePage() {
             <AddExemplarForm onSave={async (ex) => {
               const res = await fetch("/api/intelligence", {
                 method: "PATCH",
-                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "add_exemplar", exemplar: ex }),
               });
               if (res.ok) {
@@ -792,16 +791,12 @@ function MarketIntelligenceSection() {
   const [contentType, setContentType] = useState<"social" | "video" | "podcast">("social");
   const [lastResult, setLastResult] = useState<CIResearchResult | null>(null);
 
-  function getAuthHeaders() {
-    const token = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }
-
   const researchMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/intelligence/competitive-research", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, industry, location: location || undefined, contentType }),
       });
       if (!res.ok) {
@@ -824,7 +819,7 @@ function MarketIntelligenceSection() {
     queryKey: ["/api/intelligence/competitive-patterns", contentType],
     queryFn: async () => {
       const res = await fetch(`/api/intelligence/competitive-patterns?contentType=${contentType}`, {
-        headers: getAuthHeaders(),
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch patterns");
       return res.json();

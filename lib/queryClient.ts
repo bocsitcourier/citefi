@@ -1,10 +1,5 @@
 import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 
-function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try { return sessionStorage.getItem("auth_token"); } catch { return null; }
-}
-
 function showErrorToast(message: string) {
   if (typeof window === "undefined") return;
   import("@/hooks/use-toast").then(({ toast }) => {
@@ -18,13 +13,10 @@ function showErrorToast(message: string) {
 
 function reportClientError(type: string, error: Error) {
   if (typeof window === "undefined") return;
-  const token = getStoredToken();
   fetch("/api/client-errors", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       type,
       message: error.message || String(error),
@@ -60,12 +52,8 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: async ({ queryKey }) => {
         const url = queryKey[0] as string;
-        const token = getStoredToken();
-        const headers: Record<string, string> = {};
-        if (token) headers["Authorization"] = `Bearer ${token}`;
         const response = await fetch(url, {
           credentials: "include",
-          headers,
         });
         if (!response.ok) {
           const err = new Error(`HTTP error! status: ${response.status}`) as any;
@@ -83,10 +71,8 @@ export const queryClient = new QueryClient({
 });
 
 export async function apiRequest(url: string, options?: RequestInit) {
-  const token = getStoredToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(token ? { "Authorization": `Bearer ${token}` } : {}),
     ...(options?.headers as Record<string, string> | undefined ?? {}),
   };
 
