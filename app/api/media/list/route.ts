@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articleAssets, articles, socialPosts } from "@/shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
 // Helper: Convert any absolute URL to a relative /api/public-objects/ path.
@@ -55,8 +55,8 @@ export async function GET(request: NextRequest) {
     .orderBy(desc(articleAssets.createdAt))
     .limit(limit);
 
-    // Apply filters for articleAssets
-    const filters: any[] = [];
+    // Apply filters for articleAssets — always scope to team via articles join
+    const filters: any[] = [eq(articles.teamId, teamId)];
     if (articleId) {
       filters.push(eq(articleAssets.articleId, parseInt(articleId)));
     }
@@ -64,9 +64,7 @@ export async function GET(request: NextRequest) {
       filters.push(eq(articleAssets.assetType, assetType));
     }
 
-    const rawAssets = filters.length > 0
-      ? await query.where(filters[0])
-      : await query;
+    const rawAssets = await query.where(and(...filters));
 
     // Normalize URLs and mark assets as hero
     const normalizedAssets = rawAssets.map(asset => {
@@ -98,7 +96,7 @@ export async function GET(request: NextRequest) {
           createdAt: socialPosts.createdAt,
         })
         .from(socialPosts)
-        .where(eq(socialPosts.videoStatus, 'READY'))
+        .where(and(eq(socialPosts.videoStatus, 'READY'), eq(socialPosts.teamId, teamId)))
         .orderBy(desc(socialPosts.createdAt))
         .limit(limit);
 

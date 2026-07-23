@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { regenerateHashtags } from "@/lib/seo-regenerator";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -14,15 +14,15 @@ export async function POST(
     const { id } = await params;
     const articleId = parseInt(id);
 
-    // Fetch article
+    // Fetch article — enforce team ownership
     const [article] = await db
       .select()
       .from(articles)
-      .where(eq(articles.id, articleId))
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
       .limit(1);
 
     if (!article) {
-      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+      return NextResponse.json({ error: "Article not found or access denied" }, { status: 404 });
     }
 
     // Extract text content from HTML or use raw content
@@ -43,11 +43,11 @@ export async function POST(
     // Regenerate hashtags
     const newHashtags = await regenerateHashtags(currentHashtags, articleContent);
 
-    // Update database
+    // Update database — enforce team ownership on write
     await db
       .update(articles)
       .set({ hashtagsJson: newHashtags })
-      .where(eq(articles.id, articleId));
+      .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
 
     return NextResponse.json({
       success: true,

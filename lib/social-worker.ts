@@ -2,13 +2,13 @@ import type { Job } from "bullmq";
 import { isBareGeoAnchor } from "./seo-policy";
 import { db } from "./db";
 import { createNotification } from "./notification-service";
+import { logError } from "./error-logger";
 import {
   socialPosts,
   socialPostVariants,
   socialPostAssets,
   socialPostJobs,
   socialPostLogs,
-  errorLogs,
   ContentType,
   articles,
 } from "@/shared/schema";
@@ -351,13 +351,13 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           })
           .where(and(eq(socialPostVariants.socialPostId, socialPostId), eq(socialPostVariants.platform, platform)));
 
-        // Log error
-        await db.insert(errorLogs).values({
+        // Log error via centralized logger (Slack + DB)
+        await logError({
           errorType: "SOCIAL_VARIANT",
           errorMessage: `${platform} variant generation failed: ${errorMessage}`,
           stackTrace: error instanceof Error ? error.stack : undefined,
           severity: "error",
-        });
+        }).catch((e) => console.error("[social-worker] logError failed:", e));
 
         return { platform, success: false, error: errorMessage };
       }
@@ -637,13 +637,13 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       })
       .where(eq(socialPostJobs.jobId, job.id));
 
-    // Log to error_logs table
-    await db.insert(errorLogs).values({
+    // Log to error_logs table via centralized logger (Slack + DB)
+    await logError({
       errorType: "SOCIAL",
       errorMessage: `Social post generation failed: ${errorMessage}`,
       stackTrace: error instanceof Error ? error.stack : undefined,
       severity: "error",
-    });
+    }).catch((e) => console.error("[social-worker] logError failed:", e));
 
     // Log failure event
     await db.insert(socialPostLogs).values({

@@ -136,7 +136,7 @@ export function paywallErrorBody(result: PaywallResult) {
     planId: result.planId,
     billingStatus: result.billingStatus,
     trialExpired: result.trialExpired ?? false,
-    upgradeUrl: "/client/billing",
-    message: result.reason ?? "You have no credits remaining. Upgrade your plan at /client/billing.",
+    upgradeUrl: "/settings/billing",
+    message: result.reason ?? "You have no credits remaining. Upgrade your plan at /settings/billing.",
   };
 }

@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
           purchasedRemaining: reservation.purchasedRemaining,
           totalRemaining: reservation.totalRemaining,
           insufficientBy: reservation.insufficientBy,
-          upgradeUrl: "/client/billing",
+          upgradeUrl: "/settings/billing",
           message: `Insufficient credits for video generation. You need ${reservation.requiredCredits} but have ${reservation.totalRemaining} available.`,
         },
         { status: 402 }

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadMedia } from "@/lib/storage";
+import { db } from "@/lib/db";
+import { articles } from "@/shared/schema";
+import { eq, and } from "drizzle-orm";
 import sharp from "sharp";
 import { requireTeamMember } from "@/lib/api/auth";
 
@@ -90,6 +93,18 @@ export async function POST(request: NextRequest) {
     }
 
     const articleId = articleIdParam ? parseInt(articleIdParam) : undefined;
+
+    // Verify the article belongs to this team before allowing upload association
+    if (articleId) {
+      const [articleCheck] = await db
+        .select({ id: articles.id })
+        .from(articles)
+        .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
+        .limit(1);
+      if (!articleCheck) {
+        return NextResponse.json({ error: "Article not found" }, { status: 404 });
+      }
+    }
 
     const publicUrl = await uploadMedia({
       fileData: processedBuffer,

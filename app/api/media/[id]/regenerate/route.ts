@@ -31,11 +31,11 @@ export async function POST(
     const body = await request.json();
     const { prompt } = regenerateSchema.parse(body);
 
-    // Get the asset details
+    // Get the asset details — enforce team ownership
     const [asset] = await db
       .select()
       .from(articleAssets)
-      .where(eq(articleAssets.id, assetId));
+      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, teamId)));
 
     if (!asset) {
       return NextResponse.json(
@@ -51,13 +51,13 @@ export async function POST(
       );
     }
 
-    // Get article to retrieve batch and businessName for brand lock
+    // Get article to retrieve batch and businessName for brand lock — enforce team ownership
     let businessName: string | undefined;
     if (asset.articleId) {
       const [article] = await db
         .select()
         .from(articles)
-        .where(eq(articles.id, asset.articleId));
+        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
       
       if (article?.batchId) {
         const [batch] = await db
@@ -125,7 +125,7 @@ export async function POST(
     // Store the old URL for replacement in article HTML
     const oldUrl = asset.storageUrl;
 
-    // Update the asset record
+    // Update the asset record — enforce team ownership on write
     const [updatedAsset] = await db
       .update(articleAssets)
       .set({
@@ -137,7 +137,7 @@ export async function POST(
           originalPrompt: asset.imagePromptUsed,
         }
       })
-      .where(eq(articleAssets.id, assetId))
+      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, teamId)))
       .returning();
 
     // If this image belongs to an article, update the article HTML
@@ -145,7 +145,7 @@ export async function POST(
       const [article] = await db
         .select()
         .from(articles)
-        .where(eq(articles.id, asset.articleId));
+        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
 
       if (article) {
         let updatedFields: any = {};
@@ -170,7 +170,7 @@ export async function POST(
           await db
             .update(articles)
             .set(updatedFields)
-            .where(eq(articles.id, asset.articleId));
+            .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
           
           console.log(`✅ Updated article ${asset.articleId} with new image URLs`);
         }

@@ -44,7 +44,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch user
+    // Fetch user — return same response whether or not the user exists to prevent
+    // user-existence enumeration. Rate limiting above is the primary abuse control.
     const [user] = await db
       .select()
       .from(users)
@@ -52,10 +53,11 @@ export async function POST(req: Request) {
       .limit(1);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      // Don't reveal that the userId is invalid — silently succeed
+      return NextResponse.json({
+        message: "Verification code sent successfully",
+        expiresIn: 600,
+      });
     }
 
     // Generate 6-digit code
