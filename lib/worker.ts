@@ -3238,6 +3238,21 @@ export async function registerWorkers() {
                 // Enqueue podcast generation as a durable pg-boss job so that
                 // worker crashes / restarts do not orphan the step in "queued" state.
                 // The podcast worker resolves step status to "generated" on success.
+                // Reserve credits before enqueueing — no charge until podcast completes.
+                const { reserveCredits: reservePodcastCredits } = await import("./billing");
+                const podcastCreditRunId = `journey-podcast:${step.id}:${Date.now()}`;
+                const podcastReserve = await reservePodcastCredits({
+                  teamId: journey.teamId,
+                  operationType: "podcast",
+                  runId: podcastCreditRunId,
+                  userId: teamInfo.userId,
+                });
+                if (!podcastReserve.ok) {
+                  console.warn(`[JOURNEY_SCHEDULER] Insufficient credits for podcast step ${step.id} (team ${journey.teamId}) — deferring`);
+                  await _db.update(jSteps).set({ status: "pending" }).where(eq(jSteps.id, step.id));
+                  continue;
+                }
+
                 const { addPodcastGenerationJob: enqueuePodcast } = await import("./queue");
                 await enqueuePodcast({
                   articleId: pillarArticleId,
@@ -3245,6 +3260,8 @@ export async function registerWorkers() {
                   tone: "Conversational",
                   duration: "120",
                   journeyStepId: step.id,
+                  creditRunId: podcastCreditRunId,
+                  userId: teamInfo.userId,
                 });
                 console.log(`[JOURNEY_SCHEDULER] Podcast step ${step.id} enqueued via pg-boss for article ${pillarArticleId}`);
 
@@ -3795,11 +3812,11 @@ export async function registerWorkers() {
   console.log("🎙️ Registering podcast generation worker for queue:", PODCAST_GENERATION_QUEUE);
   try {
     new Worker<PodcastJobData>(PODCAST_GENERATION_QUEUE, async (job) => {
-          const { articleId, teamId, tone, duration, journeyStepId } = job.data;
+          const { articleId, teamId, tone, duration, journeyStepId, creditRunId, userId } = job.data;
           console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
           try {
             const { generateArticlePodcast } = await import("./podcast-worker");
-            await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120" });
+            await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120", creditRunId, userId });
 
             if (journeyStepId) {
               const { journeySteps: jStepsTable } = await import("@/shared/schema");

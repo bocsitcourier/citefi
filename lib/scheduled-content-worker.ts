@@ -61,7 +61,15 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
     .returning();
   const run = runRow!;
   
+  let capReservationId: number | null = null;
   try {
+    // Paywall gate — skip scheduled run if team has no billing access
+    const { checkTeamPaywall } = await import("./billing/paywall");
+    const paywallResult = await checkTeamPaywall(schedule.teamId);
+    if (!paywallResult.allowed) {
+      throw new Error(`[scheduled-worker] Team ${schedule.teamId} blocked by paywall — run skipped`);
+    }
+
     console.log(`📝 Generating title pool for schedule "${schedule.name}"`);
     
     // ENHANCED v4.0: Perform smart web research before title generation
@@ -97,7 +105,36 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
     }
     
     const selectedTitles = titlePoolResult.titles.slice(0, schedule.articlesPerRun);
-    
+
+    // Spending cap gate — block if team's monthly dollar limit would be exceeded.
+    const { getCreditCost } = await import("./credit-menu");
+    const creditCostPerUnit = getCreditCost("article") ?? 10;
+    const { checkUsageCap, cancelCapReservation } = await import("./usage-caps");
+    try {
+      capReservationId = await checkUsageCap(schedule.teamId, creditCostPerUnit * selectedTitles.length);
+    } catch (capErr: any) {
+      if (capErr.code === "SPENDING_CAP_EXCEEDED") {
+        throw new Error(`[scheduled-worker] Team ${schedule.teamId} spending cap exceeded — run skipped`);
+      }
+      throw capErr;
+    }
+
+    // Reserve credits — no charge until articles generate successfully.
+    const { reserveCredits } = await import("./billing");
+    const creditRunId = `scheduled:${schedule.id}:${run.id}`;
+    const creditReserve = await reserveCredits({
+      teamId: schedule.teamId,
+      operationType: "article",
+      runId: creditRunId,
+      amount: creditCostPerUnit * selectedTitles.length,
+      userId: schedule.createdBy,
+    });
+    if (!creditReserve.ok) {
+      await cancelCapReservation(capReservationId!).catch(() => {});
+      capReservationId = null;
+      throw new Error(`[scheduled-worker] Insufficient credits for team ${schedule.teamId}: balance too low for ${selectedTitles.length} articles`);
+    }
+
     const [batchRow] = await db
       .insert(jobBatches)
       .values({
@@ -145,6 +182,9 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       audience: schedule.audience || undefined,
       businessName: schedule.businessName,
       companyLogoUrl: schedule.companyLogoUrl || undefined,
+      creditRunId,
+      capReservationId,
+      creditCostPerUnit,
     });
     
     console.log(`✅ Batch ${batch.id} queued with job ID: ${jobId}`);
@@ -173,7 +213,12 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
     
   } catch (error) {
     console.error(`❌ Schedule run failed:`, error);
-    
+    // Release the spending-cap reservation so capacity isn't held unnecessarily.
+    if (capReservationId !== null) {
+      const { cancelCapReservation } = await import("./usage-caps");
+      await cancelCapReservation(capReservationId).catch(() => {});
+    }
+
     await db
       .update(scheduleRuns)
       .set({

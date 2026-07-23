@@ -60,6 +60,8 @@ export interface PodcastJobData {
   tone?: string;
   duration?: string;
   journeyStepId?: number;
+  creditRunId?: string;
+  userId?: number;
 }
 
 export interface SocialPostJobData {
