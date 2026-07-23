@@ -7,8 +7,10 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { debitCredits, refundCredits } from "@/lib/credits";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 export async function POST(request: NextRequest) {
+  let capReservationId: number | null = null;
   try {
     const { userId, teamId } = await requireTeamMember(request);
     const body = await request.json();
@@ -34,10 +36,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Paywall gate — read-only check before acquiring the generation lock
+    // Paywall gate — plan-level check before acquiring the generation lock
     const paywallResult = await checkTeamPaywall(teamId);
     if (!paywallResult.allowed) {
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
+
+    // Spending cap gate — blocks if team's monthly dollar limit would be exceeded.
+    // checkUsageCap inserts a PENDING reservation atomically so concurrent requests
+    // all see each other's pending costs. cancelCapReservation() releases it on failure.
+    try {
+      capReservationId = await checkUsageCap(teamId, 8); // podcast ≈ 8 credits / 8¢ estimated
+    } catch (capErr: any) {
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
+      return NextResponse.json(
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
     }
 
     // Atomically acquire generation lock — prevents concurrent double-debit
@@ -55,6 +70,7 @@ export async function POST(request: NextRequest) {
       .returning({ id: articles.id });
 
     if (!locked) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json(
         { error: "Podcast generation already in progress", status: article.podcastStatus },
         { status: 409 }
@@ -74,6 +90,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!creditReserve.ok) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await db
         .update(articles)
         .set({ podcastStatus: article.podcastStatus ?? "none" })
@@ -108,6 +125,7 @@ export async function POST(request: NextRequest) {
         console.error("Podcast generation failed:", err);
       });
     } catch (startErr) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await releaseReservation({
         teamId,
         runId: creditRunId,
@@ -124,6 +142,7 @@ export async function POST(request: NextRequest) {
       status: "pending",
     });
   } catch (error: any) {
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     console.error("Error starting podcast generation:", error);
     return NextResponse.json(
       { error: "Failed to start podcast generation" },

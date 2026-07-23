@@ -5,8 +5,10 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { and, eq, sql } from "drizzle-orm";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 export async function POST(request: NextRequest) {
+  let capReservationId: number | null = null;
   try {
     const { userId, teamId } = await requireTeamMember(request);
 
@@ -16,14 +18,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
+    // Spending cap gate — blocks if team's monthly dollar limit would be exceeded.
+    try {
+      capReservationId = await checkUsageCap(teamId, 15); // video ≈ 15 credits / 15¢ estimated
+    } catch (capErr: any) {
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
+      return NextResponse.json(
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
+    }
+
     const body = await request.json();
     const { socialPostId, platform = "tiktok", videoType = "slideshow", force = false } = body;
 
     if (!socialPostId) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json({ error: "socialPostId is required" }, { status: 400 });
     }
 
     if (videoType !== "slideshow" && videoType !== "veo") {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json({ error: "videoType must be 'slideshow' or 'veo'" }, { status: 400 });
     }
 
@@ -34,10 +49,12 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (!post) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json({ error: "Social post not found" }, { status: 404 });
     }
 
     if (!post.companyName) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json(
         {
           error: "Company name is required for video generation",
@@ -66,6 +83,7 @@ export async function POST(request: NextRequest) {
       .returning({ id: socialPosts.id });
 
     if (!locked) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       console.log(`⚠️ Video already generating for social post ${socialPostId}, skipping duplicate queue`);
       return NextResponse.json({
         success: true,
@@ -91,6 +109,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!reservation.ok) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await db
         .update(socialPosts)
         .set({ videoStatus: post.videoStatus ?? null, videoProgress: post.videoProgress ?? 0, videoStage: post.videoStage ?? null })
@@ -119,6 +138,7 @@ export async function POST(request: NextRequest) {
     } catch (sendError) {
       const errMsg = sendError instanceof Error ? sendError.message : String(sendError);
       console.error(`❌ addVideoGenerationJob() failed for post ${socialPostId}:`, errMsg);
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await db
         .update(socialPosts)
         .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })
@@ -145,6 +165,7 @@ export async function POST(request: NextRequest) {
       videoStage: "queued",
     });
   } catch (error: any) {
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     console.error("❌ Failed to queue video generation:", error);
     return NextResponse.json(
       {

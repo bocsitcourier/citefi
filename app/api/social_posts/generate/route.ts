@@ -6,6 +6,7 @@ import { addSocialPostJob } from "@/lib/queue";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 const generateSocialPostSchema = z.object({
   articleId: z.string().optional(),
@@ -27,6 +28,7 @@ const generateSocialPostSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  let capReservationId: number | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
     const { userId, teamId } = await requireTeamMember(request);
@@ -242,6 +244,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Spending cap gate — blocks if team's monthly dollar limit would be exceeded.
+    // Placed after early idempotent-return paths so retries never create duplicate reservations.
+    try {
+      capReservationId = await checkUsageCap(teamId, 5); // social post ≈ 5 credits / 5¢ estimated
+    } catch (capErr: any) {
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
+      return NextResponse.json(
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
+    }
+
     // Two-bucket billing: RESERVE credits atomically before queuing.
     // The worker debits on success or releases on failure — no charge for failed jobs.
     const creditRunId = `social:${teamId}:${requestKey}`;
@@ -253,6 +267,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!reservation.ok) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       return NextResponse.json(
         {
           error: "CREDITS_EXHAUSTED",
@@ -322,6 +337,7 @@ export async function POST(request: NextRequest) {
         }
       }
       // Genuine DB error — release reservation (no charge)
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await releaseReservation({ teamId, runId: creditRunId, reason: "Social post DB creation failure" }).catch(() => {});
       return NextResponse.json({ error: "Failed to create social post" }, { status: 500 });
     }
@@ -353,6 +369,7 @@ export async function POST(request: NextRequest) {
         .where(eq(socialPosts.id, socialPost.id))
         .catch(() => {});
       // Release reservation — no charge for queue failure
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await releaseReservation({ teamId, runId: creditRunId, reason: `Social post ${socialPost.id} queue failure` }).catch(() => {});
       return NextResponse.json(
         { error: "Failed to queue social post generation", message: errMsg },
@@ -386,6 +403,7 @@ export async function POST(request: NextRequest) {
       platforms: validatedData.platforms,
     });
   } catch (error: any) {
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     console.error("Social post generation error:", error);
 
     if (error instanceof z.ZodError) {
