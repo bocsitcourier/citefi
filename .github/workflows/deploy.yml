@@ -3,6 +3,7 @@ name: Deploy to DigitalOcean
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # Only one deploy at a time — never cancel a running deploy
 concurrency:
