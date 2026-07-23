@@ -3575,6 +3575,16 @@ export async function registerWorkers() {
                     `Marking job failed so pg-boss retries the debit. Video was generated successfully.`
                   );
                 }
+                // Record completed usage event — populates spending cap meter so caps can trip.
+                const { recordUsageEvent } = await import("@/lib/usage-caps");
+                await recordUsageEvent({
+                  teamId: videoPost.teamId,
+                  action: "video",
+                  units: 1,
+                  costEstimateCents: 15,
+                  jobId: String(job.id ?? ""),
+                  metadata: { socialPostId },
+                }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
               }
             }
             

@@ -581,6 +581,16 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           `Marking job failed so pg-boss retries the debit. Post was generated successfully.`
         );
       }
+      // Record completed usage event — populates spending cap meter so caps can trip.
+      const { recordUsageEvent } = await import("@/lib/usage-caps");
+      await recordUsageEvent({
+        teamId: teamIdForBilling,
+        action: "social_post",
+        units: 1,
+        costEstimateCents: 5,
+        jobId: String(job.id ?? ""),
+        metadata: { socialPostId },
+      }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
     }
 
     // Record generation for AI Learning System

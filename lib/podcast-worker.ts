@@ -238,6 +238,16 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
               `Marking job failed so pg-boss retries the debit. Podcast was generated successfully.`
             );
           }
+          // Record completed usage event — populates spending cap meter so caps can trip.
+          const { recordUsageEvent } = await import("@/lib/usage-caps");
+          await recordUsageEvent({
+            teamId: job.teamId,
+            action: "podcast",
+            units: 1,
+            costEstimateCents: CREDIT_COSTS.podcast ?? 8,
+            jobId: String(job.id ?? ""),
+            metadata: { articleId },
+          }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
         }
 
         // Close the learning loop: record this podcast in the learning pipeline

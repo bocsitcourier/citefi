@@ -6,6 +6,7 @@ import { eq, inArray } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 import { randomUUID } from "crypto";
 
 /**
@@ -21,6 +22,7 @@ const CHUNK_DELAY_MS = 5000;
 
 export async function POST(request: NextRequest) {
   let teamId: number | undefined;
+  let capReservationId: number | null = null;
   const reservations: { postId: number; creditRunId: string }[] = [];
 
   try {
@@ -94,6 +96,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
+    // Spending cap gate — blocks if cumulative cost would breach team's monthly limit.
+    // Estimated at 15¢ per video × number of videos to generate.
+    try {
+      capReservationId = await checkUsageCap(teamId, 15 * postsToGenerate.length);
+    } catch (capErr: any) {
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
+      return NextResponse.json(
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
+    }
+
     for (const post of postsToGenerate) {
       const creditRunId = randomUUID();
       const reservation = await reserveCredits({
@@ -104,6 +118,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!reservation.ok) {
+        if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
         await Promise.all(
           reservations.map((r) =>
             releaseReservation({
@@ -208,6 +223,7 @@ export async function POST(request: NextRequest) {
       jobIds: queuedJobIds,
     });
   } catch (error: any) {
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     if (reservations.length > 0 && teamId) {
       console.warn(`[billing] batch emergency release: releasing ${reservations.length} stranded reservations`);
       await Promise.all(

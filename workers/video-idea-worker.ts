@@ -73,6 +73,16 @@ export async function registerVideoIdeaWorker(): Promise<void> {
             throw new Error(`Credit debit failed for video idea ${videoIdeaId}`);
           }
           console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);
+          // Record completed usage event — populates spending cap meter so caps can trip.
+          const { recordUsageEvent } = await import("@/lib/usage-caps");
+          await recordUsageEvent({
+            teamId: idea.teamId,
+            action: "video",
+            units: 1,
+            costEstimateCents: 15,
+            jobId: String(job.id ?? ""),
+            metadata: { videoIdeaId },
+          }).catch((err: unknown) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal):`, err));
         }
 
         // Record content generation metrics so Thompson Sampling can learn for video

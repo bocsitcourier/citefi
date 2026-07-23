@@ -6,6 +6,7 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { addVideoIdeaJob } from "@/lib/queue";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
+import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 import { randomUUID } from "crypto";
 
 export async function POST(
@@ -14,6 +15,7 @@ export async function POST(
 ) {
   let teamId: number | undefined;
   let creditRunId: string | undefined;
+  let capReservationId: number | null = null;
 
   try {
     const auth = await requireTeamMember(request);
@@ -63,6 +65,16 @@ export async function POST(
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
     }
 
+    try {
+      capReservationId = await checkUsageCap(teamId, 15); // video idea ≈ 15 credits / 15¢
+    } catch (capErr: any) {
+      if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
+      return NextResponse.json(
+        { error: capErr.message, code: "SPENDING_CAP_EXCEEDED", spendingCapGate: true },
+        { status: 402 }
+      );
+    }
+
     creditRunId = randomUUID();
     const reservation = await reserveCredits({
       teamId,
@@ -72,6 +84,7 @@ export async function POST(
     });
 
     if (!reservation.ok) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       creditRunId = undefined;
       return NextResponse.json(
         {
@@ -105,6 +118,7 @@ export async function POST(
 
     if (!jobId) {
       console.error(`❌ Failed to queue video idea generation job`);
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await releaseReservation({ teamId, runId: creditRunId, reason: "Queue send failed" })
         .catch((e) => console.warn("[billing] releaseReservation on queue failure:", e));
       creditRunId = undefined;
@@ -139,6 +153,7 @@ export async function POST(
     });
 
   } catch (error: any) {
+    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     if (creditRunId && teamId) {
       await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in idea-to-video route" })
         .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
