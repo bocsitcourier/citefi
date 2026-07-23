@@ -6,57 +6,61 @@ import { Pool } from "pg";
 import pLimit from "p-limit";
 import * as schema from "@/shared/schema";
 
-// ─── Neon rows:null shim ─────────────────────────────────────────────────────
-// @neondatabase/serverless v0.10.x returns `"rows": null` (not `[]`) when a
-// query matches zero rows. The driver then crashes inside processQueryResult
-// with `TypeError: Cannot read properties of null (reading 'map')`.
-// This shim intercepts every HTTP response from the Neon endpoint and
-// normalises null → [] before the driver ever sees the body.
-// Applied globally via neonConfig so it covers every neon() instance in the
-// process, including statelessDb / neonHttpDb aliases created below.
-const _globalFetch = globalThis.fetch.bind(globalThis);
-const _neonFetch: typeof fetch = async (input, init) => {
-  const res = await _globalFetch(input, init);
-  const ct = res.headers.get("content-type") ?? "";
-  if (!ct.includes("application/json")) return res;
-
-  const text = await res.text();
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return new Response(text, { status: res.status, headers: { "content-type": ct } });
-  }
-
-  function fixRows(obj: Record<string, unknown>) {
-    if (obj !== null && typeof obj === "object") {
-      if ("rows" in obj && obj.rows === null) obj.rows = [];
-      if ("fields" in obj && obj.fields === null) obj.fields = [];
-    }
-    return obj;
-  }
-
-  const normalized = Array.isArray(body)
-    ? body.map((item) => fixRows({ ...(item as Record<string, unknown>) }))
-    : fixRows({ ...(body as Record<string, unknown>) });
-
-  const headers = new Headers(res.headers);
-  headers.set("content-type", "application/json");
-  return new Response(JSON.stringify(normalized), { status: res.status, headers });
-};
-
-// Apply globally so all neon() instances in this process use the shim
-neonConfig.fetchFunction = _neonFetch;
-
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
+}
+
+const DATABASE_URL = process.env.DATABASE_URL;
+
+// Detect if we are talking to Neon cloud (HTTP driver required) or a standard
+// PostgreSQL instance (local or external non-Neon) that needs the pg TCP driver.
+// Replit's internal Neon proxy uses the hostname "helium"; external Neon cloud
+// uses "*.neon.tech". Everything else (localhost, DO droplet, etc.) is standard pg.
+const isNeonCloud =
+  DATABASE_URL.includes("neon.tech") || DATABASE_URL.includes("@helium");
+
+// ─── Neon rows:null shim ─────────────────────────────────────────────────────
+// @neondatabase/serverless v0.10.x returns `"rows": null` (not `[]`) when a
+// query matches zero rows. Only needed when actually talking to Neon cloud.
+if (isNeonCloud) {
+  const _globalFetch = globalThis.fetch.bind(globalThis);
+  const _neonFetch: typeof fetch = async (input, init) => {
+    const res = await _globalFetch(input, init);
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) return res;
+
+    const text = await res.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return new Response(text, { status: res.status, headers: { "content-type": ct } });
+    }
+
+    function fixRows(obj: Record<string, unknown>) {
+      if (obj !== null && typeof obj === "object") {
+        if ("rows" in obj && obj.rows === null) obj.rows = [];
+        if ("fields" in obj && obj.fields === null) obj.fields = [];
+      }
+      return obj;
+    }
+
+    const normalized = Array.isArray(body)
+      ? body.map((item) => fixRows({ ...(item as Record<string, unknown>) }))
+      : fixRows({ ...(body as Record<string, unknown>) });
+
+    const headers = new Headers(res.headers);
+    headers.set("content-type", "application/json");
+    return new Response(JSON.stringify(normalized), { status: res.status, headers });
+  };
+
+  neonConfig.fetchFunction = _neonFetch;
 }
 
 // ─── Semaphore ────────────────────────────────────────────────────────────────
 // Hard cap: at most 15 DB operations can run simultaneously across all workers
 // in this process. Must be < pool max (20) so the pool is never exhausted by
 // one burst of concurrent workers, leaving headroom for pg-boss housekeeping.
-// Excess callers queue locally instead of hammering Neon.
 const DB_CONCURRENCY = 15;
 const dbGuard = pLimit(DB_CONCURRENCY);
 
@@ -64,87 +68,82 @@ export async function safeQuery<T>(fn: () => Promise<T>): Promise<T> {
   return dbGuard(fn);
 }
 
+// ─── Shared pool factory ──────────────────────────────────────────────────────
+function makePool(connectionString: string, max: number, idleMs: number): Pool {
+  const pool = new Pool({
+    connectionString,
+    max,
+    idleTimeoutMillis: idleMs,
+    connectionTimeoutMillis: 10_000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+  });
+  pool.on("error", (err) => {
+    console.error(
+      `🔥 DB pool error (dead connection discarded): ${err.message} [code: ${(err as any).code ?? "?"}]`
+    );
+  });
+  process.on("beforeExit", () => pool.end().catch(() => {}));
+  return pool;
+}
+
 // ─── Client selection ─────────────────────────────────────────────────────────
-// The worker process is spawned with WORKER_PROCESS=true (set in server/index.ts).
-// Workers use a bounded pg connection pool — stable under 85+ concurrent jobs.
-// Next.js API routes keep the stateless Neon HTTP driver (serverless-friendly).
+// Worker processes always use a bounded pg connection pool (stable under high concurrency).
+// Main (Next.js) process:
+//   • Neon cloud  → Neon HTTP driver (serverless-safe, no persistent connection)
+//   • Local/other → pg Pool (same driver as worker, works with any postgres)
 const isWorkerProcess = process.env.WORKER_PROCESS === "true";
 
 function buildDb(): NeonHttpDatabase<typeof schema> {
-  if (isWorkerProcess) {
-    // Prefer the dedicated pooler endpoint; fall back to the main URL (pg works
-    // with either — the pooler just adds PgBouncer-style connection reuse).
-    const connectionString =
-      process.env.DATABASE_POOLED_URL ?? process.env.DATABASE_URL!;
+  const connectionString =
+    process.env.DATABASE_POOLED_URL ?? DATABASE_URL;
 
-    const pool = new Pool({
-      connectionString,
-      max: 20,                           // hard cap: 20 physical connections
-      idleTimeoutMillis: 900_000,        // 15 min — outlasts Gemini's 10-min hard timeout
-      connectionTimeoutMillis: 10_000,   // fail fast rather than queue forever
-      keepAlive: true,                   // TCP keepalive: prevent OS-level socket closure
-      keepAliveInitialDelayMillis: 10_000,
-    });
-
-    // Catch dead connections so Node doesn't deadlock when Neon restarts.
-    // The pg library automatically discards the severed client; the pool
-    // creates a fresh one on the next query.
-    pool.on("error", (err) => {
-      console.error(
-        `🔥 DB pool error (dead connection discarded): ${err.message} [code: ${(err as any).code ?? "?"}]`
-      );
-    });
-
-    // Drain the pool cleanly when the worker process exits
-    process.on("beforeExit", () => pool.end().catch(() => {}));
+  if (isWorkerProcess || !isNeonCloud) {
+    const max = isWorkerProcess ? 20 : 10;
+    const idleMs = isWorkerProcess ? 900_000 : 30_000;
+    const pool = makePool(connectionString, max, idleMs);
 
     console.log(
-      `🔌 DB: using pooled pg client (max 20 conns, semaphore ${DB_CONCURRENCY} — leaves 5 for pg-boss housekeeping)`
+      isNeonCloud
+        ? `🔌 DB: pooled pg → Neon cloud (max ${max} conns, semaphore ${DB_CONCURRENCY})`
+        : `🔌 DB: pooled pg → local postgres (max ${max} conns, semaphore ${DB_CONCURRENCY})`
     );
 
-    return drizzlePooled(pool, { schema }) as unknown as NeonHttpDatabase<
-      typeof schema
-    >;
+    return drizzlePooled(pool, { schema }) as unknown as NeonHttpDatabase<typeof schema>;
   }
 
-  // Default: Neon HTTP driver for Next.js API routes
-  return drizzle(neon(process.env.DATABASE_URL!), { schema });
+  // Neon HTTP for main Next.js process when talking to Neon cloud
+  console.log(`🔌 DB: Neon HTTP driver (serverless) → Neon cloud`);
+  return drizzle(neon(DATABASE_URL), { schema });
 }
 
 export const db = buildDb();
 
-// ─── Stateless HTTP client ─────────────────────────────────────────────────
-// Use this for periodic, stateless queries (scheduled workers, job recovery).
-// The Neon HTTP driver creates a fresh HTTPS request per query — it is immune
-// to Neon compute suspension killing idle pooled sockets.  Do NOT use this
-// for long-running transactions or video-generation workers (use `db`).
-export const neonHttpDb = drizzle(neon(process.env.DATABASE_URL!), { schema });
+// ─── Stateless / HTTP client ──────────────────────────────────────────────────
+// For Neon cloud: uses the HTTP driver (immune to idle connection expiry).
+// For local postgres: reuses a small pool — same behaviour, no HTTP overhead.
+export const neonHttpDb: NeonHttpDatabase<typeof schema> = isNeonCloud
+  ? drizzle(neon(DATABASE_URL), { schema })
+  : (drizzlePooled(
+      makePool(process.env.DATABASE_POOLED_URL ?? DATABASE_URL, 5, 30_000),
+      { schema }
+    ) as unknown as NeonHttpDatabase<typeof schema>);
 
 // Alias used by video-pipeline and other stateless modules for clarity.
-// Semantically equivalent to neonHttpDb — both use the Neon HTTP driver.
 export const statelessDb = neonHttpDb;
 
 // ─── Transaction-capable pooled client (for API routes) ─────────────────────
-// The Neon HTTP driver (`db` in the main process) does NOT support interactive
-// transactions. For multi-step writes that must be atomic, use this lazily-
-// created pooled pg client. Safe in the long-running Next.js process on Replit.
+// The Neon HTTP driver does NOT support interactive transactions.
+// Use this for multi-step atomic writes. Works with both Neon and local pg.
 let _txPool: Pool | null = null;
 
 export function getTxDb() {
   if (!_txPool) {
-    _txPool = new Pool({
-      connectionString: process.env.DATABASE_POOLED_URL ?? process.env.DATABASE_URL!,
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
-      keepAlive: true,
-    });
-    _txPool.on("error", (err) => {
-      console.error(
-        `🔥 Tx pool error (dead connection discarded): ${err.message} [code: ${(err as any).code ?? "?"}]`
-      );
-    });
-    process.on("beforeExit", () => _txPool?.end().catch(() => {}));
+    _txPool = makePool(
+      process.env.DATABASE_POOLED_URL ?? DATABASE_URL,
+      5,
+      30_000
+    );
   }
   return drizzlePooled(_txPool, { schema });
 }

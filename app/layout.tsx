@@ -7,6 +7,10 @@ import { UpgradeModal } from "@/components/UpgradeModal";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
+// Force dynamic rendering on every route — prevents Next.js from trying to
+// statically pre-render pages during `next build`, which OOMs the 2 GB droplet.
+export const dynamic = "force-dynamic";
+
 const APP_URL = "https://citefi.co";
 
 export const viewport: Viewport = {

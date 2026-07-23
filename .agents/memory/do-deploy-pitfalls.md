@@ -45,3 +45,11 @@ Always check `[[ -d .next ]] && [[ -d node_modules ]]` and force build if either
 Replit stores multi-line secrets with literal spaces. The PEM must be reconstructed before writing to disk.
 **Fix:** Python regex to split on `-----BEGIN/END` boundaries and then split body on spaces.
 **How to apply:** Already in `scripts/deploy-to-do.sh` key setup section.
+
+### 8. `next build` OOMs on 2 GB droplet during "Collecting page data" phase — CRITICAL
+The "Collecting page data" phase of `next build` runs the full Next.js app in a jest-worker process to statically pre-render pages. On a 2 GB droplet this always OOMs (EXIT=137, SIGKILL) if ANY static pages exist. The compilation phase alone (~1.4 GB RAM) succeeds fine.
+**Symptoms:** Build log shows `✓ Compiled successfully in 6.6min` followed by `Collecting page data using 1 worker ...` and then exits with code 137. `.next/BUILD_ID` is never written. PM2 crash-loops with "Could not find a production build".
+**Fix:** Add `export const dynamic = "force-dynamic"` to `app/layout.tsx` (root layout). This propagates to all child routes and skips static page pre-rendering entirely — the "Collecting page data" phase simply has nothing to collect and completes instantly.
+**Secondary fix:** Stop PM2 before building (`pm2 stop all`) to reclaim the ~200MB of RAM PM2+app holds. Two builds running simultaneously will definitely OOM.
+**Deploy script check:** The NEEDS_BUILD logic must test `[[ ! -f .next/BUILD_ID ]]` (not just `[[ ! -d .next ]]`). An OOM-killed build leaves a partial `.next` directory that looks present but has no BUILD_ID.
+**How to apply:** `export const dynamic = "force-dynamic"` is in `app/layout.tsx`; `pm2 stop all` before build and `BUILD_ID` check are in `scripts/deploy-to-do.sh`.

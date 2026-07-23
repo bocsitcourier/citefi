@@ -85,7 +85,7 @@ if [[ ! -f .env.local ]]; then
 fi
 
 # ── Required env-var smoke-test ───────────────────────────────────────────
-REQUIRED_VARS=(DATABASE_URL NEXTAUTH_SECRET)
+REQUIRED_VARS=(DATABASE_URL JWT_SECRET)
 MISSING=()
 for var in "${REQUIRED_VARS[@]}"; do
   grep -q "^${var}=" .env.local 2>/dev/null || MISSING+=("$var")
@@ -114,8 +114,8 @@ NEEDS_BUILD=false
 if [[ "$OLD_SHA" != "$NEW_SHA" ]]; then
   echo "Code changed — running full install + build."
   NEEDS_BUILD=true
-elif [[ ! -d .next ]]; then
-  echo ".next directory missing — forcing build despite no code change."
+elif [[ ! -d .next ]] || [[ ! -f .next/BUILD_ID ]]; then
+  echo ".next missing or incomplete (no BUILD_ID) — forcing build despite no code change."
   NEEDS_BUILD=true
 elif [[ ! -d node_modules ]]; then
   echo "node_modules missing — running install + build."
@@ -133,8 +133,10 @@ if [[ "$NEEDS_BUILD" == "true" ]]; then
   # Restore lock file so git doesn't see a dirty tree
   git checkout -- package-lock.json 2>/dev/null || true
 
-  echo "Building..."
-  npm run build
+  echo "Building... (stopping PM2 first to free RAM on 2GB droplet)"
+  pm2 stop all 2>/dev/null || true
+  NODE_OPTIONS="--max-old-space-size=1700" npm run build
+  echo "Build complete."
 else
   echo "Build artifacts present and code unchanged — skipping build."
 fi
