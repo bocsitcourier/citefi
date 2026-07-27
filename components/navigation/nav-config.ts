@@ -127,6 +127,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   learning: "AI Learning",
   journeys: "Content Journeys",
   settings: "Account Settings",
+  brief: "Marketing Brief",
   billing: "Billing & Credits",
   publishing: "Publishing",
   jobs: "Jobs",

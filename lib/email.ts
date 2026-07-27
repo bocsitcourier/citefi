@@ -313,3 +313,131 @@ ${htmlActionSection}
     `.trim(),
   });
 }
+
+/**
+ * Send the daily marketing brief email to a user.
+ */
+export async function sendDailyBriefEmail(opts: {
+  to: string;
+  fullName?: string | null;
+  brief: {
+    todayFocus: { type: string; action: string; why: string; ctaPath: string };
+    overnightMovement: { headline: string; items: string[] };
+    competitorWatch: { headline: string; insights: string[] };
+    teachingMoment: { lesson: string; groundedIn: string };
+    voicePrompt: { nudge: string };
+    motivation: { headline: string; evidence: string[] };
+  };
+  appUrl: string;
+  localDate: string;
+}): Promise<void> {
+  const namePlain = opts.fullName ?? "there";
+  const name = escapeHtml(namePlain);
+  const brief = opts.brief;
+  const viewUrl = `${opts.appUrl}${brief.todayFocus.ctaPath}`;
+
+  const text = [
+    `Your Marketing Brief – ${opts.localDate}`,
+    "",
+    `Hi ${namePlain},`,
+    "",
+    "TODAY'S FOCUS",
+    `Action: ${brief.todayFocus.action}`,
+    `Why: ${brief.todayFocus.why}`,
+    `View in Citefi: ${viewUrl}`,
+    "",
+    `OVERNIGHT MOVEMENT: ${brief.overnightMovement.headline}`,
+    ...brief.overnightMovement.items.map((item) => `- ${item}`),
+    "",
+    `COMPETITOR WATCH: ${brief.competitorWatch.headline}`,
+    ...brief.competitorWatch.insights.map((item) => `- ${item}`),
+    "",
+    "TEACHING MOMENT",
+    brief.teachingMoment.lesson,
+    `Grounded in: ${brief.teachingMoment.groundedIn}`,
+    "",
+    "VOICE PROMPT",
+    brief.voicePrompt.nudge,
+    "",
+    `MOTIVATION: ${brief.motivation.headline}`,
+    ...brief.motivation.evidence.map((item) => `- ${item}`),
+    "",
+    "— The Citefi Team",
+  ].join("\n");
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1f2937; background-color: #f9fafb; margin: 0; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; }
+    .header { background-color: #f3f4f6; padding: 20px; border-bottom: 1px solid #e5e7eb; }
+    .content { padding: 24px; }
+    .hero-box { background-color: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+    .hero-title { color: #0f766e; font-weight: 700; font-size: 1.125rem; margin: 0 0 8px 0; }
+    .section-title { font-weight: 700; font-size: 0.875rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; margin-top: 24px; }
+    .cta-button { display: inline-block; background-color: #0d9488; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; margin-top: 16px; }
+    .footer { padding: 20px; font-size: 0.75rem; color: #9ca3af; text-align: center; }
+    ul { padding-left: 20px; margin: 8px 0; }
+    li { margin-bottom: 4px; }
+    p { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 style="margin:0; font-size: 1.25rem;">Your Marketing Brief &ndash; ${escapeHtml(opts.localDate)}</h1>
+    </div>
+    <div class="content">
+      <p>Hi ${name},</p>
+      
+      <div class="hero-box">
+        <h2 class="hero-title">TODAY'S FOCUS</h2>
+        <p><strong>${escapeHtml(brief.todayFocus.action)}</strong></p>
+        <p style="font-size: 0.875rem; color: #374151;">${escapeHtml(brief.todayFocus.why)}</p>
+        <a href="${escapeHtml(viewUrl)}" class="cta-button">View in Citefi</a>
+      </div>
+
+      <div class="section-title">Overnight Movement</div>
+      <p><strong>${escapeHtml(brief.overnightMovement.headline)}</strong></p>
+      <ul>
+        ${brief.overnightMovement.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}
+      </ul>
+
+      <div class="section-title">Competitor Watch</div>
+      <p><strong>${escapeHtml(brief.competitorWatch.headline)}</strong></p>
+      <ul>
+        ${brief.competitorWatch.insights.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}
+      </ul>
+
+      <div class="section-title">Teaching Moment</div>
+      <p>${escapeHtml(brief.teachingMoment.lesson)}</p>
+      <p style="font-size: 0.875rem; font-style: italic;">Grounded in: ${escapeHtml(brief.teachingMoment.groundedIn)}</p>
+
+      <div class="section-title">Voice Prompt</div>
+      <p>${escapeHtml(brief.voicePrompt.nudge)}</p>
+
+      <div class="section-title">Motivation</div>
+      <p><strong>${escapeHtml(brief.motivation.headline)}</strong></p>
+      <ul>
+        ${brief.motivation.evidence.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}
+      </ul>
+    </div>
+    <div class="footer">
+      <p>&mdash; The Citefi Team</p>
+      <p><a href="${escapeHtml(opts.appUrl)}/settings/brief" style="color: #9ca3af; text-decoration: underline;">Manage preferences</a></p>
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await deliverEmail({
+    to: opts.to,
+    subject: `Your Marketing Brief – ${opts.localDate}`,
+    text,
+    html,
+  });
+}

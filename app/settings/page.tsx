@@ -261,9 +261,15 @@ export default function AccountSettingsPage() {
             </span>
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
           </Link>
-          <Link href="/client/usage" className="flex items-center justify-between py-2.5 hover-elevate rounded-sm px-1 -mx-1 group">
+          <Link href="/client/usage" className="flex items-center justify-between py-2.5 border-b hover-elevate rounded-sm px-1 -mx-1 group">
             <span className="text-sm text-muted-foreground flex items-center gap-1.5">
               <BarChart2 className="w-3.5 h-3.5" /> Usage &amp; Analytics
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          </Link>
+          <Link href="/settings/brief" className="flex items-center justify-between py-2.5 hover-elevate rounded-sm px-1 -mx-1 group">
+            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Daily Marketing Brief
             </span>
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
           </Link>

@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { getTxDb } from "@/lib/db";
-import { users, activityLogs } from "@/shared/schema";
+import { users, activityLogs, signupCompetitorIntake } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { and, eq } from "drizzle-orm";
 import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/email";
 import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
 import { notifyAdminsNewSignup } from "@/lib/notification-service";
+import { addSignupCompetitorIntakeJob } from "@/lib/queue";
 
 export async function POST(req: Request) {
   try {
@@ -172,6 +173,24 @@ export async function POST(req: Request) {
       } catch (emailErr) {
         console.error("Failed to notify admins of new signup:", emailErr);
       }
+    }
+
+    // Queue competitor analysis for new signup (fire-and-forget)
+    if (!isFirstUser) {
+      (async () => {
+        try {
+          const [intakeRow] = await txDb.insert(signupCompetitorIntake).values({
+            email: newUser.email,
+            companyName: teamName || null,
+            teamName: teamName || null,
+            status: 'queued',
+            payloadJson: { fullName: newUser.fullName },
+          }).returning();
+          await addSignupCompetitorIntakeJob({ intakeId: intakeRow.id, email: newUser.email, companyName: teamName || undefined });
+        } catch (intakeErr) {
+          console.error('Failed to queue competitor intake:', intakeErr);
+        }
+      })();
     }
 
     return NextResponse.json({

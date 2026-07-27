@@ -3499,3 +3499,109 @@ export const batchSubmitSchema = z.object({
 
 export type TitlePoolRequest = z.infer<typeof titlePoolRequestSchema>;
 export type BatchSubmitRequest = z.infer<typeof batchSubmitSchema>;
+
+// ============================================================================
+// DAILY BRIEF TABLES — Task T001 Daily Marketing Brief (Citefi Coach)
+// ============================================================================
+
+/** User-level preferences for the Daily Marketing Brief delivery */
+export const dailyBriefPreferences = pgTable("daily_brief_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  cadence: varchar("cadence", { length: 20 }).notNull().default('daily'), // daily, 3x_week, weekly
+  timezone: varchar("timezone", { length: 60 }).notNull().default('America/New_York'),
+  sendHourLocal: smallint("send_hour_local").notNull().default(7), // 0-23
+  emailEnabled: integer("email_enabled").notNull().default(1), // Boolean as 0/1
+  inAppEnabled: integer("in_app_enabled").notNull().default(1), // Boolean as 0/1
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index("daily_brief_pref_user_id_idx").on(table.userId),
+  teamIdIdx: index("daily_brief_pref_team_id_idx").on(table.teamId),
+}));
+
+export const insertDailyBriefPreferenceSchema = createInsertSchema(dailyBriefPreferences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type DailyBriefPreference = typeof dailyBriefPreferences.$inferSelect;
+export type InsertDailyBriefPreference = z.infer<typeof insertDailyBriefPreferenceSchema>;
+
+/** Daily Marketing Brief content generated for a specific user on a specific day */
+export const dailyBriefs = pgTable("daily_briefs", {
+  id: serial("id").primaryKey(),
+  publicId: uuid("public_id").notNull().unique().defaultRandom(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  localDate: varchar("local_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  tier: varchar("tier", { length: 20 }).notNull().default('starter'), // starter, premium
+  status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, generating, generated, failed
+  todayFocusType: varchar("today_focus_type", { length: 50 }),
+  sectionsJson: jsonb("sections_json"), // Stores the 6 GeneratedBrief sections
+  sourceMetricsJson: jsonb("source_metrics_json"), // Context metrics used for generation
+  ctaUrl: text("cta_url"),
+  generatedAt: timestamp("generated_at"),
+  viewedAt: timestamp("viewed_at"),
+  emailedAt: timestamp("emailed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  userDateUnique: uniqueIndex("daily_briefs_user_date_unique").on(table.userId, table.localDate),
+  teamIdIdx: index("daily_briefs_team_id_idx").on(table.teamId),
+  userIdIdx: index("daily_briefs_user_id_idx").on(table.userId),
+  localDateIdx: index("daily_briefs_local_date_idx").on(table.localDate),
+}));
+
+export const insertDailyBriefSchema = createInsertSchema(dailyBriefs).omit({
+  id: true,
+  createdAt: true,
+});
+export type DailyBrief = typeof dailyBriefs.$inferSelect;
+export type InsertDailyBrief = z.infer<typeof insertDailyBriefSchema>;
+
+/** Delivery log for each brief channel (email, in-app notification) */
+export const dailyBriefDeliveries = pgTable("daily_brief_deliveries", {
+  id: serial("id").primaryKey(),
+  briefId: integer("brief_id").notNull().references(() => dailyBriefs.id, { onDelete: 'cascade' }),
+  channel: varchar("channel", { length: 20 }).notNull(), // email, in_app
+  status: varchar("status", { length: 20 }).notNull(), // sent, delivered, failed
+  providerMessageId: text("provider_message_id"),
+  error: text("error"),
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+}, (table) => ({
+  briefIdIdx: index("daily_brief_delivery_brief_id_idx").on(table.briefId),
+}));
+
+export const insertDailyBriefDeliverySchema = createInsertSchema(dailyBriefDeliveries).omit({
+  id: true,
+  sentAt: true,
+});
+export type DailyBriefDelivery = typeof dailyBriefDeliveries.$inferSelect;
+export type InsertDailyBriefDelivery = z.infer<typeof insertDailyBriefDeliverySchema>;
+
+/** Tracks new signups for asynchronous competitor intelligence intake */
+export const signupCompetitorIntake = pgTable("signup_competitor_intake", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull(),
+  companyName: varchar("company_name", { length: 255 }),
+  websiteUrl: text("website_url"),
+  teamName: varchar("team_name", { length: 255 }),
+  status: varchar("status", { length: 20 }).notNull().default('queued'), // queued, processing, resolved, failed
+  resolvedTeamId: integer("resolved_team_id").references(() => teams.id, { onDelete: 'set null' }),
+  payloadJson: jsonb("payload_json"),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  emailIdx: index("signup_intake_email_idx").on(table.email),
+  statusIdx: index("signup_intake_status_idx").on(table.status),
+}));
+
+export const insertSignupCompetitorIntakeSchema = createInsertSchema(signupCompetitorIntake).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type SignupCompetitorIntake = typeof signupCompetitorIntake.$inferSelect;
+export type InsertSignupCompetitorIntake = z.infer<typeof insertSignupCompetitorIntakeSchema>;

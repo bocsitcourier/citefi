@@ -1,0 +1,63 @@
+Citefi already generates all the ingredients — brand profile, competitor discovery, keyword clusters, personas, performance data — but they sit in modules a client visits when they remember to. A morning brief flips that. It becomes the thing that opens for them every day, turns a tool you log into into a habit you rely on, and quietly makes them better marketers over time. That's a retention engine and a differentiator at once. No competitor in your set does a personalized daily marketing coach.
+Let me expand it properly, including the parts that make it actually work rather than become ignored noise.
+The core concept
+A 2-minute daily read that answers one question a local business owner actually has: "I have limited time — what's the one marketing thing worth doing today, and why?" Everything else in the brief exists to justify and support that one answer. The failure mode of every "daily digest" is becoming wallpaper people swipe past, so the entire design principle is: earn the open every day by being specific, personal, and short. Generic tips kill it. Real numbers about their business save it.
+Anatomy of the brief
+Six segments, each earning its place, ordered by what a busy owner needs first:
+1. Today's focus — the one thing. A single, concrete, doable-today action tied to their actual situation. Not "post consistently" but "Your '24-hour emergency plumbing' page is ranking #12 in 90026 and climbing — publish the supporting FAQ article we drafted to push it to page 1. Takes one click to approve." One action, with the why attached, and a button straight into Citefi.
+2. What moved overnight. The pulse: rankings that shifted, a review that came in, an ad that's fatiguing, traffic on a published article, a competitor who just launched something. Only changes worth knowing — if nothing meaningful moved, say so honestly rather than manufacturing drama.
+3. Competitor watch. More below — this is where you have a real edge.
+4. An insight or teaching moment. One small, specific marketing lesson drawn from their data, so they compound knowledge over time (the "finding a strategy and voice" piece you emphasized). More below.
+5. A prompt for their voice. A quick, optional creative nudge — a content angle, a seasonal hook, a customer-language phrase mined from their reviews — that helps them sound like themselves. More below.
+6. Grounded motivation. Not a hollow quote. Progress they actually made. More below.
+How the "one thing" gets decided
+This is the intelligence of the feature, and it's a prioritization engine over data you already have. Each morning it scores candidate actions and surfaces the highest-leverage one, weighted by:
+
+Momentum — a page ranking #11–15 (page-2 edge) is the classic quick win; a nudge converts months of latent work into page-1 traffic.
+Decay — an ad past frequency 3.0, a listing going stale, a review needing a reply — things that lose value if ignored today.
+Opportunity windows — a competitor gap just discovered, a seasonal/local moment (a heat wave for HVAC, tax season for an accountant, a local event).
+Effort vs. payoff — favor the one-click approve over the three-hour project, so the brief stays actionable for someone with 15 spare minutes.
+Campaign context — what goal they set, and the next logical step toward it.
+
+Critically, it should vary the type of focus day to day so it doesn't feel repetitive — content one day, a review reply the next, an ad refresh, a competitor response — matching the rhythm of real marketing rather than nagging about the same lever.
+Competitor intelligence — your real edge
+You already discover competitors during Brand Intelligence, so the brief can run a light daily/weekly diff and surface things a local owner would never catch themselves:
+
+A competitor published new content on a topic they rank for → "here's the gap, here's a stronger local angle."
+A competitor's rankings moved in a shared ZIP → who's gaining, on what terms.
+New reviews or a rating shift for a rival → reputation context.
+A competitor started running ads (visible via ad transparency libraries) → what messaging they're testing.
+Share-of-voice drift across their service area.
+
+The tone matters: empowering, not anxiety-inducing. Frame it as "here's an opening" far more than "you're losing." A daily dose of "your competitor is beating you" would drive people away; "here's a move they left on the table" pulls them in.
+The teaching layer — building strategy and voice over time
+This is the part you underlined, and it's what separates a dashboard from a coach. Most local business owners don't have a marketing strategy or a defined voice — they have a vague sense they "should be doing marketing." The brief can quietly build both:
+
+Micro-lessons grounded in their data. Not "here's what a CTA is" in the abstract, but "Your posts that open with a customer's actual question get 3× the engagement — that's your hook. Here's why it works." They learn marketing through their own results, which sticks.
+Voice development. Mine their reviews and best-performing content for the phrases, tone, and angles that are genuinely theirs, and reflect it back: "This is how your customers describe you — 'fast, honest, explains everything.' Lead with that." Over weeks, this crystallizes a brand voice they couldn't have articulated on day one, and it feeds straight back into every asset Citefi generates for them.
+Strategy that accretes. Each brief connects today's action to the bigger arc ("this is step 3 of owning emergency plumbing in your top 3 ZIPs"), so they absorb why the sequence matters — they're learning strategy by living it, not reading a book.
+
+Over a quarter, the brief has effectively taught a plumber to think like a marketer. That's enormous stickiness and a story that sells itself.
+Motivation, done so it isn't cheesy
+Generic "You've got this! 💪" erodes trust fast. Grounded motivation works:
+
+Reflect real progress: "You've published 12 articles this month — 4 are now on page 1. Three months ago you had zero local rankings." Evidence, not cheerleading.
+Momentum framing: streaks, milestones, "you're 2 articles from covering every service in your top ZIP."
+Occasional genuine encouragement on the hard days (a ranking dropped, a slow week) — normalize that marketing compounds, and point to the trend line, not the blip.
+
+The rule: motivation must be true and specific to them, or it's cut.
+Delivery and format
+
+In-app as the landing screen when they log in — the brief is the dashboard's front door.
+Email/push for those who won't log in daily (most SMB owners) — the brief lands in their inbox at, say, 7am local, scannable on a phone with the "one thing" as a tappable button.
+Length discipline: a 30-second skim with a 2-minute deep option. Respect that they're running a business, not reading a newsletter.
+Cadence control: daily for engaged users, but let them dial to 3×/week or weekly. A brief that respects "not every day" survives longer than one that demands attention.
+Agency framing: for agency clients, the agency admin can get a portfolio brief across all their clients ("3 clients have a quick-win ready today"), and each end client gets their own — optionally white-labeled as the agency's own daily intelligence product. That's a re-billable deliverable, not just a feature.
+
+Where it fits in tiers
+I'd make a light version free/Starter (the hook — it demonstrates the whole product's intelligence daily and drives the upgrade), with full competitor intelligence, teaching depth, and portfolio briefs on Growth/Agency. The brief is genuinely your best retention and acquisition surface, so give a taste broadly.
+A note on doing this well
+The honest risk: this becomes another ignored notification. It only works if every brief clears a bar — would this specific person find this specific thing worth 90 seconds today? That means the system needs the discipline to say "nothing urgent today, here's one small idea" rather than manufacturing five fake priorities. Restraint is the feature. A brief that's genuinely useful 4 days out of 5 beats a daily one that's noise, and it's better to earn trust with honesty on the quiet days than to burn it with filler.
+It also leans entirely on the data foundation already in the plan — Brand Intelligence, the performance loop, competitor discovery, personas. The brief isn't a new data source; it's the daily intelligence layer that surfaces what those systems already know. Which means it's mostly a prioritization engine plus good writing, not a from-scratch build.
+
+This is strong enough that I'd fold it into the spec as its own module — call it the Daily Marketing Brief (or "Citefi Coach")

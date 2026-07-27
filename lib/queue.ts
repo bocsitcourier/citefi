@@ -133,6 +133,21 @@ export interface VideoIdeaJobData {
   creditRunId?: string;
 }
 
+export interface DailyBriefJobData {
+  userId: number;
+  teamId: number;
+  localDate: string;
+  force?: boolean;
+}
+
+export interface SignupCompetitorIntakeJobData {
+  intakeId: number;
+  email: string;
+  companyName?: string;
+  websiteUrl?: string;
+  teamId?: number;
+}
+
 // ============================================================================
 // QUEUE NAMES (unchanged — all workers and API routes depend on these)
 // ============================================================================
@@ -149,6 +164,8 @@ export const SITE_CRAWL_QUEUE = "site-crawl";
 export const CONTENT_PUBLISHING_QUEUE = "content-publishing";
 export const INTELLIGENCE_RESEARCH_QUEUE = "intelligence-research";
 export const PODCAST_GENERATION_QUEUE = "article-podcast";
+export const DAILY_BRIEF_QUEUE = "daily-brief";
+export const SIGNUP_COMPETITOR_INTAKE_QUEUE = "signup-competitor-intake";
 
 export const ALL_QUEUE_NAMES = [
   BATCH_GENERATION_QUEUE,
@@ -163,6 +180,8 @@ export const ALL_QUEUE_NAMES = [
   CONTENT_PUBLISHING_QUEUE,
   INTELLIGENCE_RESEARCH_QUEUE,
   PODCAST_GENERATION_QUEUE,
+  DAILY_BRIEF_QUEUE,
+  SIGNUP_COMPETITOR_INTAKE_QUEUE,
   "video-orphan-sweeper",
   "engagement-scoring",
   "conversion-labeler",
@@ -462,6 +481,36 @@ export async function addVideoIdeaJob(data: VideoIdeaJobData) {
     }
   );
   console.log(`🎬 Video idea job queued: ${job.id} for video ${data.videoIdeaId}`);
+  return job.id ?? null;
+}
+
+export async function addDailyBriefJob(data: DailyBriefJobData) {
+  const job = await getQueue(DAILY_BRIEF_QUEUE).add("daily-brief", data, {
+    jobId: `daily-brief:${data.userId}:${data.localDate}`,
+    attempts: 1,
+  });
+
+  console.log(
+    `📅 Daily brief job queued: ${job.id} for user ${data.userId} on ${data.localDate}`
+  );
+  return job.id ?? null;
+}
+
+export async function addSignupCompetitorIntakeJob(
+  data: SignupCompetitorIntakeJobData
+) {
+  const job = await getQueue(SIGNUP_COMPETITOR_INTAKE_QUEUE).add(
+    "signup-intake",
+    data,
+    {
+      attempts: 2,
+      backoff: { type: "exponential", delay: 30000 },
+    }
+  );
+
+  console.log(
+    `🤝 Signup competitor intake job queued: ${job.id} for ${data.email}`
+  );
   return job.id ?? null;
 }
 

@@ -8,6 +8,8 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useQuery } from "@tanstack/react-query";
+import { DailyBriefCard } from "@/components/brief/DailyBriefCard";
+import { BriefSkeleton } from "@/components/brief/BriefSkeleton";
 
 const ACTIVE_STATUSES = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
 
@@ -30,6 +32,11 @@ export default function Home() {
       return list?.some(b => ACTIVE_STATUSES.includes(b.status)) ? 5000 : false;
     },
     refetchIntervalInBackground: false,
+  });
+
+  const { data: briefData, isLoading: briefLoading } = useQuery<{ available: boolean; brief?: any; id?: number }>({
+    queryKey: ["/api/briefs/today"],
+    enabled: !!user,
   });
 
   return (
@@ -71,6 +78,28 @@ export default function Home() {
             Enterprise-grade dual-AI SEO content factory powered by advanced AI
           </p>
         </div>
+
+        {/* Daily Marketing Brief Section */}
+        {user && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Sparkles className="w-6 h-6 text-primary" />
+              Daily Marketing Brief
+            </h2>
+            {briefLoading ? (
+              <BriefSkeleton />
+            ) : briefData?.available ? (
+              <DailyBriefCard brief={briefData.brief} id={briefData.id!} />
+            ) : (
+              <Card className="bg-muted/30 border-dashed">
+                <CardContent className="py-8 text-center space-y-2">
+                  <p className="text-muted-foreground">Your personalized brief is being prepared for tomorrow.</p>
+                  <p className="text-xs text-tertiary">Briefs are generated daily at 7 AM local time.</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
 
         {/* Recent Jobs strip — only for logged-in users */}
         {user && (

@@ -28,12 +28,17 @@ import {
   addPublishingJob,
   addPodcastGenerationJob,
   addVideoGenerationJob,
+  addIntelligenceResearchJob,
   PODCAST_GENERATION_QUEUE,
+  DAILY_BRIEF_QUEUE,
+  SIGNUP_COMPETITOR_INTAKE_QUEUE,
   type PodcastJobData,
+  type DailyBriefJobData,
+  type SignupCompetitorIntakeJobData,
 } from "@/lib/queue";
 import { cancelCapReservation } from "@/lib/usage-caps";
 import { db } from "./db";
-import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger } from "@/shared/schema";
+import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
@@ -3843,6 +3848,166 @@ export async function registerWorkers() {
     console.log("✅ Podcast generation worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register podcast generation worker:", error);
+    throw error;
+  }
+
+  // ============================================================================
+  // DAILY BRIEF WORKER
+  // ============================================================================
+
+  console.log("📅 Registering daily brief worker for queue:", DAILY_BRIEF_QUEUE);
+  try {
+    new Worker<DailyBriefJobData>(DAILY_BRIEF_QUEUE, async (job) => {
+      const { userId, teamId, localDate, force } = job.data;
+      console.log(`📅 Processing daily brief job ${job.id}: user ${userId}, date ${localDate}`);
+      
+      try {
+        const { generateDailyBrief } = await import("./brief/generate-daily-brief");
+        const { sendDailyBriefEmail } = await import("./email");
+
+        // 1. Call generateDailyBrief
+        const brief = await generateDailyBrief(userId, teamId, localDate, force);
+        if (!brief) {
+          console.warn(`📅 Brief generation returned null for user ${userId} on ${localDate}`);
+          return;
+        }
+
+        // 2. Load preferences to see if email is enabled
+        const [prefs] = await db
+          .select()
+          .from(dailyBriefPreferences)
+          .where(eq(dailyBriefPreferences.userId, userId))
+          .limit(1);
+
+        if (prefs?.emailEnabled) {
+          // 3. Load user email
+          const [user] = await db
+            .select({ email: users.email, fullName: users.fullName })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+          
+          if (user?.email) {
+             const appUrl = process.env.VITE_APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+             
+             try {
+               await sendDailyBriefEmail({
+                 to: user.email,
+                 fullName: user.fullName,
+                 brief,
+                 appUrl,
+                 localDate,
+               });
+
+               // Update emailedAt and insert delivery row
+               const [briefRow] = await db
+                 .select({ id: dailyBriefs.id })
+                 .from(dailyBriefs)
+                 .where(and(
+                   eq(dailyBriefs.userId, userId),
+                   eq(dailyBriefs.localDate, localDate)
+                 ))
+                 .limit(1);
+
+               if (briefRow) {
+                 await db.update(dailyBriefs)
+                   .set({ emailedAt: new Date() })
+                   .where(eq(dailyBriefs.id, briefRow.id));
+
+                 await db.insert(dailyBriefDeliveries).values({
+                   briefId: briefRow.id,
+                   channel: 'email',
+                   status: 'sent',
+                 });
+               }
+             } catch (emailErr) {
+               console.error(`📅 Failed to send brief email to user ${userId}:`, emailErr);
+               const [briefRow] = await db
+                 .select({ id: dailyBriefs.id })
+                 .from(dailyBriefs)
+                 .where(and(
+                   eq(dailyBriefs.userId, userId),
+                   eq(dailyBriefs.localDate, localDate)
+                 ))
+                 .limit(1);
+               if (briefRow) {
+                 await db.insert(dailyBriefDeliveries).values({
+                   briefId: briefRow.id,
+                   channel: 'email',
+                   status: 'failed',
+                   error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+                 });
+               }
+             }
+          }
+        }
+
+        console.log(`✅ Daily brief job ${job.id} completed for user ${userId}`);
+      } catch (error) {
+        console.error(`❌ Daily brief job ${job.id} failed for user ${userId}:`, error);
+        throw error;
+      }
+    }, { connection: getRedisConnection(), concurrency: 2 });
+    console.log("✅ Daily brief worker registered (2 concurrent workers)");
+  } catch (error) {
+    console.error("❌ CRITICAL: Failed to register daily brief worker:", error);
+    throw error;
+  }
+
+  // ============================================================================
+  // SIGNUP COMPETITOR INTAKE WORKER
+  // ============================================================================
+
+  console.log("🤝 Registering signup competitor intake worker for queue:", SIGNUP_COMPETITOR_INTAKE_QUEUE);
+  try {
+    new Worker<SignupCompetitorIntakeJobData>(SIGNUP_COMPETITOR_INTAKE_QUEUE, async (job) => {
+      const { intakeId, email, companyName, websiteUrl, teamId } = job.data;
+      console.log(`🤝 Processing signup competitor intake job ${job.id}: ${email}`);
+
+      try {
+        // 1. Load intake row
+        const [intake] = await db
+          .select()
+          .from(signupCompetitorIntake)
+          .where(eq(signupCompetitorIntake.id, intakeId))
+          .limit(1);
+
+        if (!intake) {
+          console.warn(`🤝 Intake row ${intakeId} not found`);
+          return;
+        }
+
+        const effectiveTeamId = teamId || intake.resolvedTeamId;
+        const effectiveWebsite = websiteUrl || intake.websiteUrl;
+        const effectiveCompany = companyName || intake.companyName;
+
+        if (effectiveTeamId && effectiveWebsite && effectiveCompany) {
+          await addIntelligenceResearchJob({
+            teamId: effectiveTeamId,
+            websiteUrl: effectiveWebsite,
+            companyName: effectiveCompany,
+          });
+
+          await db.update(signupCompetitorIntake)
+            .set({ status: 'resolved', updatedAt: new Date() })
+            .where(eq(signupCompetitorIntake.id, intakeId));
+          
+          console.log(`✅ Signup competitor intake job ${job.id} resolved for ${email}`);
+        } else {
+          await db.update(signupCompetitorIntake)
+            .set({ status: 'pending_team', updatedAt: new Date() })
+            .where(eq(signupCompetitorIntake.id, intakeId));
+          
+          console.log(`ℹ️ Signup competitor intake job ${job.id} marked as pending_team`);
+        }
+      } catch (error) {
+        console.error(`❌ Signup competitor intake job ${job.id} failed:`, error);
+        throw error;
+      }
+    }, { connection: getRedisConnection(), concurrency: 2 });
+    console.log("✅ Signup competitor intake worker registered (2 concurrent workers)");
+  } catch (error) {
+    console.error("❌ CRITICAL: Failed to register signup competitor intake worker:", error);
     throw error;
   }
 
