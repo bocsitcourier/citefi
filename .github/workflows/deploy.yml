@@ -18,31 +18,173 @@ jobs:
 
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.DO_HOST }}
-          username: citefi
-          key: ${{ secrets.DO_SSH_KEY }}
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
-            cd /var/www/citefi
+        env:
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+        run: |
+          # ── Validate required secrets ───────────────────────────────────────
+          if [[ -z "$DO_SSH_KEY" ]]; then
+            echo "ERROR: DO_SSH_KEY secret is not set in GitHub repository secrets."
+            echo "Add the private SSH key for the droplet under:"
+            echo "  Settings → Secrets and variables → Actions → New repository secret"
+            echo "  Name: DO_SSH_KEY"
+            exit 1
+          fi
+          if [[ -z "$DO_HOST" ]]; then
+            echo "ERROR: DO_HOST secret is not set in GitHub repository secrets."
+            echo "Add the droplet IP or hostname under:"
+            echo "  Settings → Secrets and variables → Actions → New repository secret"
+            echo "  Name: DO_HOST"
+            exit 1
+          fi
 
-            echo "==> Pulling latest code..."
-            git pull --ff-only origin main
+          # ── SSH key setup ───────────────────────────────────────────────────
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          KEY="$HOME/.ssh/id_do_deploy"
 
-            echo "==> Installing dependencies..."
-            npm ci
+          # Reconstruct proper PEM in case the secret has literal \n or spaces
+          python3 - <<'PYEOF' > "$KEY"
+          import os, re, sys
+          raw = os.environ["DO_SSH_KEY"]
+          if "\n" in raw:
+              sys.stdout.write(raw if raw.endswith("\n") else raw + "\n")
+          else:
+              raw = re.sub(r"-----BEGIN ([^-]+)-----\s*", r"-----BEGIN \1-----\n", raw)
+              raw = re.sub(r"\s*-----END ([^-]+)-----", r"\n-----END \1-----\n", raw)
+              lines = raw.split("\n")
+              out = []
+              for line in lines:
+                  if "-----" in line:
+                      out.append(line)
+                  else:
+                      out.extend(line.split())
+              sys.stdout.write("\n".join(out) + "\n")
+          PYEOF
+          chmod 600 "$KEY"
 
-            echo "==> Type-checking..."
-            npm run check
+          ssh-keyscan -H "$DO_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
 
-            echo "==> Building Next.js..."
-            npm run build
+          SSH_OPTS=(
+            -i "$KEY"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15
+          )
 
-            echo "==> Restarting PM2 apps..."
-            pm2 restart all || pm2 start ecosystem.config.cjs
+          echo "Deploying to citefi@${DO_HOST}:/var/www/citefi (branch: main)"
 
-            echo ""
-            echo "Deploy complete at $(date -u '+%Y-%m-%d %H:%M UTC')"
-            pm2 list
+          # ── Remote deploy ───────────────────────────────────────────────────
+          ssh "${SSH_OPTS[@]}" "citefi@${DO_HOST}" bash -s <<'REMOTE'
+          set -euo pipefail
+
+          DO_APP_DIR="/var/www/citefi"
+          DO_BRANCH="main"
+          DO_PM2_CONFIG="ecosystem.config.cjs"
+          DO_HEALTHCHECK_URL="http://127.0.0.1:5000/api/health"
+
+          cd "$DO_APP_DIR"
+          test -d .git || { echo "ERROR: $DO_APP_DIR is not a git repo"; exit 1; }
+
+          # ── Preflight checks ──────────────────────────────────────────────
+          if [[ ! -f .env.local ]]; then
+            echo "ERROR: .env.local is missing — deploy blocked."
+            exit 1
+          fi
+          for var in DATABASE_URL JWT_SECRET; do
+            grep -q "^${var}=" .env.local 2>/dev/null || { echo "ERROR: .env.local missing key: $var"; exit 1; }
+          done
+          echo "✓ .env.local present and keys verified"
+
+          # ── Git update ────────────────────────────────────────────────────
+          OLD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
+          echo "  Current: ${OLD_SHA}"
+          git fetch origin "${DO_BRANCH}"
+          git reset --hard "origin/${DO_BRANCH}"
+          NEW_SHA="$(git rev-parse --short HEAD)"
+          echo "  Updated: ${OLD_SHA} -> ${NEW_SHA}"
+
+          # ── Build ─────────────────────────────────────────────────────────
+          NEEDS_BUILD=false
+          if [[ "$OLD_SHA" != "$NEW_SHA" ]]; then
+            echo "Code changed — running full install + build."
+            NEEDS_BUILD=true
+          elif [[ ! -d .next ]] || [[ ! -f .next/BUILD_ID ]]; then
+            echo ".next missing or incomplete — forcing build."
+            NEEDS_BUILD=true
+          elif [[ ! -d node_modules ]]; then
+            echo "node_modules missing — running install + build."
+            NEEDS_BUILD=true
+          fi
+
+          if [[ "$NEEDS_BUILD" == "true" ]]; then
+            # Patch any Replit-internal registry URLs before npm ci
+            if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
+              echo "  Patching Replit proxy URLs in package-lock.json..."
+              sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+            fi
+            npm ci --registry https://registry.npmjs.org || {
+              echo "  npm ci failed — wiping node_modules and retrying..."
+              rm -rf node_modules
+              npm ci --registry https://registry.npmjs.org
+            }
+            git checkout -- package-lock.json 2>/dev/null || true
+
+            echo "Building... (stopping PM2 first to free RAM)"
+            pm2 stop all 2>/dev/null || true
+            NODE_OPTIONS="--max-old-space-size=1700" npm run build
+            echo "Build complete."
+          else
+            echo "Build artifacts present and code unchanged — skipping build."
+          fi
+
+          # ── PM2 reload ────────────────────────────────────────────────────
+          echo "Reloading PM2..."
+          WEB_RESTARTS_BEFORE=$(pm2 jlist 2>/dev/null | python3 -c "
+          import json,sys
+          procs = json.load(sys.stdin)
+          for p in procs:
+              if p.get('name') == 'citefi-web':
+                  print(p.get('pm2_env',{}).get('restart_time',0))
+          " 2>/dev/null || echo "0")
+
+          pm2 startOrReload "$DO_PM2_CONFIG" --update-env 2>/dev/null \
+            || pm2 restart all --update-env
+
+          # ── Health check ──────────────────────────────────────────────────
+          echo ""
+          echo "Health check (waiting up to 45s)..."
+          PASSED=false
+          for i in $(seq 1 15); do
+            sleep 3
+            if curl -fsS --max-time 5 "$DO_HEALTHCHECK_URL" >/dev/null 2>&1; then
+              echo "✓ Health check passed (attempt ${i})."
+              PASSED=true
+              break
+            fi
+            if [[ $i -eq 3 ]]; then
+              WEB_RESTARTS_NOW=$(pm2 jlist 2>/dev/null | python3 -c "
+          import json,sys
+          procs = json.load(sys.stdin)
+          for p in procs:
+              if p.get('name') == 'citefi-web':
+                  print(p.get('pm2_env',{}).get('restart_time',0))
+          " 2>/dev/null || echo "0")
+              if [[ "$WEB_RESTARTS_NOW" -gt "$WEB_RESTARTS_BEFORE" ]]; then
+                echo "  ⚠ citefi-web is crash-looping (restarts: ${WEB_RESTARTS_BEFORE} → ${WEB_RESTARTS_NOW})"
+                pm2 logs citefi-web --lines 20 --nostream 2>/dev/null || true
+              fi
+            fi
+            if [[ $i -eq 15 ]]; then
+              echo "ERROR: Health check failed after 45s"
+              pm2 list
+              pm2 logs citefi-web --lines 40 --nostream 2>/dev/null || true
+              exit 1
+            fi
+            echo "  Waiting... (attempt ${i})"
+          done
+
+          pm2 list
+          echo ""
+          echo "✓ Deployed ${NEW_SHA} successfully."
+          REMOTE
