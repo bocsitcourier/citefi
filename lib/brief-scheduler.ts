@@ -17,17 +17,19 @@ function getLocalDateString(now: Date, timezone: string): string {
   }
 }
 
-/** Compute local hour (0-23) in a specific IANA timezone */
+/** Compute local hour (0-23) in a specific IANA timezone.
+ *  Uses formatToParts to avoid the "24" returned at midnight by some
+ *  Intl implementations when hour12:false is combined with certain locales. */
 function getLocalHour(now: Date, timezone: string): number {
   try {
-    return parseInt(
-      new Intl.DateTimeFormat("en-US", {
-        hour: "numeric",
-        hour12: false,
-        timeZone: timezone,
-      }).format(now),
-      10
-    );
+    const parts = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: timezone,
+    }).formatToParts(now);
+    const hourPart = parts.find(p => p.type === "hour");
+    // Some engines return "24" at midnight; normalise to 0
+    return parseInt(hourPart?.value ?? "0", 10) % 24;
   } catch {
     return now.getUTCHours();
   }
@@ -87,8 +89,10 @@ export async function scheduleDueBriefs() {
       const localDate = getLocalDateString(now, tz);
       const localDow = getLocalDayOfWeek(now, tz);
 
-      // Skip if not the right hour
-      if (localHour !== pref.sendHourLocal) continue;
+      // Fire if we are AT or PAST the configured hour (catch-up after downtime),
+      // but still within the same local date — the "already generated" check below
+      // prevents double-sending if the job already completed earlier today.
+      if (localHour < pref.sendHourLocal) continue;
 
       // Skip if cadence says not today
       if (!isBriefDueToday(pref.cadence, localDow)) {

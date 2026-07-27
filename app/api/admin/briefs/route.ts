@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dailyBriefs, dailyBriefDeliveries, dailyBriefPreferences, users, teamMembers } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
-import { eq, and, gte, desc, sql } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { addDailyBriefJob } from "@/lib/queue";
 
 /** GET /api/admin/briefs?date=YYYY-MM-DD
@@ -55,14 +55,14 @@ export async function GET(req: NextRequest) {
       .innerJoin(users, eq(dailyBriefPreferences.userId, users.id))
       .orderBy(users.email);
 
-    // Delivery log for these briefs
+    // Delivery log for these briefs — safe inArray, no sql.raw
     const briefIds = briefs.map(b => b.brief.id);
     let deliveries: any[] = [];
     if (briefIds.length > 0) {
       deliveries = await db
         .select()
         .from(dailyBriefDeliveries)
-        .where(sql`${dailyBriefDeliveries.briefId} = ANY(${sql.raw(`ARRAY[${briefIds.join(',')}]::int[]`)})`)
+        .where(inArray(dailyBriefDeliveries.briefId, briefIds))
         .orderBy(desc(dailyBriefDeliveries.sentAt));
     }
 
@@ -72,6 +72,13 @@ export async function GET(req: NextRequest) {
     const generating = briefs.filter(b => b.brief.status === 'generating').length;
     const viewed = briefs.filter(b => b.brief.viewedAt !== null).length;
     const emailed = briefs.filter(b => b.brief.emailedAt !== null).length;
+
+    // Compute "missing brief today" as a set difference so it's accurate even
+    // when allPrefs includes non-active users or users who already got a brief
+    const briefUserIds = new Set(briefs.map(b => b.brief.userId));
+    const activePrefsWithoutBrief = allPrefs.filter(
+      p => p.accountStatus === 'active' && !briefUserIds.has(p.userId)
+    );
 
     return NextResponse.json({
       date,
@@ -83,7 +90,7 @@ export async function GET(req: NextRequest) {
         viewed,
         emailed,
         usersWithPrefs: allPrefs.length,
-        noBriefToday: allPrefs.length - briefs.length,
+        noBriefToday: activePrefsWithoutBrief.length,
       },
       briefs: briefs.map(b => ({
         ...b.brief,

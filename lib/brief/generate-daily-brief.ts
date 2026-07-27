@@ -5,6 +5,38 @@ import { GoogleGenAI } from "@google/genai";
 import { GEMINI_ARTICLE_MODEL } from "@/lib/ai-config";
 import { assembleBriefContext, scoreActions } from "./assembler";
 import { throttledGeminiRequest } from "@/lib/gemini";
+import { z } from "zod";
+
+// Strict runtime validation — catches hallucinated or truncated Gemini output before we persist it
+const GeneratedBriefSchema = z.object({
+  todayFocus: z.object({
+    type: z.string().min(1),
+    action: z.string().min(1),
+    why: z.string().min(1),
+    ctaPath: z.string().min(1),
+    urgencySignal: z.string().optional(),
+  }),
+  overnightMovement: z.object({
+    headline: z.string().min(1),
+    items: z.array(z.string()).default([]),
+    quietDay: z.boolean().optional(),
+  }),
+  competitorWatch: z.object({
+    headline: z.string().min(1),
+    insights: z.array(z.string()).default([]),
+  }),
+  teachingMoment: z.object({
+    lesson: z.string().min(1),
+    groundedIn: z.string().min(1),
+  }),
+  voicePrompt: z.object({
+    nudge: z.string().min(1),
+  }),
+  motivation: z.object({
+    headline: z.string().min(1),
+    evidence: z.array(z.string()).default([]),
+  }),
+});
 
 // Lazy getter — never throw at module scope (Turbopack silent-404 issue)
 let _genAI: GoogleGenAI | null = null;
@@ -136,7 +168,12 @@ Respond with ONLY the JSON object.`;
       })
     );
 
-    const briefData = JSON.parse(result.response.text()) as GeneratedBrief;
+    const rawJson = JSON.parse(result.response.text());
+    const parsed = GeneratedBriefSchema.safeParse(rawJson);
+    if (!parsed.success) {
+      throw new Error(`Gemini returned invalid brief shape: ${parsed.error.message}`);
+    }
+    const briefData = parsed.data as GeneratedBrief;
 
     await db.update(dailyBriefs)
       .set({

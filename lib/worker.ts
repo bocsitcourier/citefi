@@ -4085,6 +4085,15 @@ export async function registerWorkers() {
     console.error("⚠️ Failed to initialize content scheduler:", error);
   }
 
+  // Start daily brief scheduler (runs every hour, checks per-user timezone + cadence)
+  try {
+    const { startBriefScheduler } = await import("./brief-scheduler");
+    startBriefScheduler();
+    console.log("🕐 Daily brief scheduler started");
+  } catch (error) {
+    console.error("⚠️ Failed to start brief scheduler:", error);
+  }
+
   // Start comprehensive job recovery monitor
   try {
     const { startJobRecoveryMonitor } = await import("./job-recovery");

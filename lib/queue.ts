@@ -485,9 +485,16 @@ export async function addVideoIdeaJob(data: VideoIdeaJobData) {
 }
 
 export async function addDailyBriefJob(data: DailyBriefJobData) {
+  // force=true jobs get a unique jobId (timestamp suffix) so BullMQ doesn't
+  // silently deduplicate them against the existing deterministic job id
+  const jobId = data.force
+    ? `daily-brief:${data.userId}:${data.localDate}:force:${Date.now()}`
+    : `daily-brief:${data.userId}:${data.localDate}`;
+
   const job = await getQueue(DAILY_BRIEF_QUEUE).add("daily-brief", data, {
-    jobId: `daily-brief:${data.userId}:${data.localDate}`,
-    attempts: 1,
+    jobId,
+    attempts: 2,
+    backoff: { type: "exponential", delay: 5000 },
   });
 
   console.log(

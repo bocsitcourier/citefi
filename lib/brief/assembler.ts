@@ -111,13 +111,17 @@ export async function assembleBriefContext(
         gte(contentPerformanceMetrics.views, 500)
       )),
 
-    // 9. Decaying content: articles > 14 days old with low views (< 100)
+    // 9. Decaying content: articles > 14 days old AND low engagement (views < 100 OR no metrics row)
     db.select({ article: articles, metrics: contentPerformanceMetrics })
       .from(articles)
-      .leftJoin(contentPerformanceMetrics, eq(contentPerformanceMetrics.articleId, articles.id))
+      .leftJoin(contentPerformanceMetrics, and(
+        eq(contentPerformanceMetrics.articleId, articles.id),
+        eq(contentPerformanceMetrics.teamId, teamId)
+      ))
       .where(and(
         eq(articles.teamId, teamId),
-        lt(articles.createdAt, fourteenDaysAgo)
+        lt(articles.createdAt, fourteenDaysAgo),
+        sql`(${contentPerformanceMetrics.views} IS NULL OR ${contentPerformanceMetrics.views} < 100)`
       ))
       .orderBy(desc(articles.createdAt))
       .limit(3),
