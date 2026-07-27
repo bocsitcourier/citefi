@@ -39,10 +39,18 @@ const TIMEZONES = [
   { value: "Pacific/Honolulu", label: "Hawaii (HST)" },
 ];
 
-const SEND_HOURS = Array.from({ length: 6 }, (_, i) => ({
-  value: (i + 5).toString(),
-  label: `${i + 5}:00 AM`,
-}));
+const SEND_HOURS = [
+  { value: "5",  label: "5:00 AM" },
+  { value: "6",  label: "6:00 AM" },
+  { value: "7",  label: "7:00 AM" },
+  { value: "8",  label: "8:00 AM" },
+  { value: "9",  label: "9:00 AM" },
+  { value: "10", label: "10:00 AM" },
+  { value: "11", label: "11:00 AM" },
+  { value: "12", label: "12:00 PM (noon)" },
+  { value: "13", label: "1:00 PM" },
+  { value: "14", label: "2:00 PM" },
+];
 
 export default function BriefSettingsPage() {
   const { toast } = useToast();

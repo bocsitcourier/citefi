@@ -19,7 +19,8 @@ import {
   Send,
   Coins,
   ThumbsUp,
-  Loader2
+  Loader2,
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +109,12 @@ const adminNavItems = [
     href: "/admin/feedback",
     icon: ThumbsUp,
     description: "User Ratings & Comments"
+  },
+  {
+    title: "Citefi Coach",
+    href: "/admin/briefs",
+    icon: Zap,
+    description: "Daily Brief Stats & Management"
   },
   {
     title: "Analytics",

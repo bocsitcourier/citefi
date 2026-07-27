@@ -3,13 +3,15 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, FileText, Zap, Shield, LogIn, UserPlus, Brain, Users, Globe, Activity, ArrowRight, Loader2 } from "lucide-react";
+import { Sparkles, FileText, Zap, Shield, LogIn, UserPlus, Brain, Users, Globe, Activity, ArrowRight, Loader2, RefreshCw, Settings } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { NotificationBell } from "@/components/NotificationBell";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { DailyBriefCard } from "@/components/brief/DailyBriefCard";
 import { BriefSkeleton } from "@/components/brief/BriefSkeleton";
+import { useToast } from "@/hooks/use-toast";
 
 const ACTIVE_STATUSES = ["SUBMITTING", "QUEUED", "PROCESSING", "RUNNING", "IN_PROGRESS"];
 
@@ -23,6 +25,7 @@ interface RecentBatch {
 
 export default function Home() {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
 
   const { data: recentBatches, isLoading: batchesLoading } = useQuery<RecentBatch[]>({
     queryKey: ["/api/batches"],
@@ -34,9 +37,33 @@ export default function Home() {
     refetchIntervalInBackground: false,
   });
 
-  const { data: briefData, isLoading: briefLoading } = useQuery<{ available: boolean; brief?: any; id?: number }>({
+  const { data: briefData, isLoading: briefLoading, refetch: refetchBrief } = useQuery<{
+    available: boolean; brief?: any; id?: number; localDate?: string;
+  }>({
     queryKey: ["/api/briefs/today"],
     enabled: !!user,
+    refetchInterval: (query) => {
+      // Poll every 8s if brief is absent (could be generating)
+      return query.state.data?.available ? false : 8000;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  const generateBriefMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("/api/briefs/generate-me", { method: "POST" });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Brief queued",
+        description: "Your brief is being generated — it'll appear here in about 15 seconds.",
+      });
+      // Start polling immediately
+      setTimeout(() => refetchBrief(), 10000);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
   });
 
   return (
@@ -92,9 +119,33 @@ export default function Home() {
               <DailyBriefCard brief={briefData.brief} id={briefData.id!} />
             ) : (
               <Card className="bg-muted/30 border-dashed">
-                <CardContent className="py-8 text-center space-y-2">
-                  <p className="text-muted-foreground">Your personalized brief is being prepared for tomorrow.</p>
-                  <p className="text-xs text-tertiary">Briefs are generated daily at 7 AM local time.</p>
+                <CardContent className="py-10 text-center space-y-4">
+                  <div className="flex flex-col items-center gap-2">
+                    <Sparkles className="w-8 h-8 text-muted-foreground/50" />
+                    <p className="text-muted-foreground font-medium">No brief for today yet</p>
+                    <p className="text-sm text-muted-foreground/70 max-w-xs">
+                      Briefs auto-generate at your configured time. You can also generate one now.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
+                    <Button
+                      onClick={() => generateBriefMutation.mutate()}
+                      disabled={generateBriefMutation.isPending}
+                      data-testid="button-generate-brief-now"
+                    >
+                      {generateBriefMutation.isPending ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating…</>
+                      ) : (
+                        <><Zap className="w-4 h-4 mr-2" /> Generate my brief now</>
+                      )}
+                    </Button>
+                    <Link href="/settings/brief">
+                      <Button variant="outline" size="sm" data-testid="button-brief-settings">
+                        <Settings className="w-3.5 h-3.5 mr-1.5" />
+                        Schedule settings
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             )}
