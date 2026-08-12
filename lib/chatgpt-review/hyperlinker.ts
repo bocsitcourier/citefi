@@ -87,7 +87,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-4.1-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -101,7 +101,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
 
     if (completion.usage) {
       safeLogCostTelemetry(
-        { operationType: "article_hyperlink", provider: "openai", model: "gpt-4o-mini" },
+        { operationType: "article_hyperlink", provider: "openai", model: "gpt-4.1-mini" },
         extractOpenAIUsage(completion),
         0, true
       );

@@ -8,6 +8,21 @@ import { and, eq, sql } from "drizzle-orm";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 export async function POST(request: NextRequest) {
+  // ── Storage preflight ──────────────────────────────────────────────────────
+  // Video generation produces files that must be uploaded to DO Spaces.
+  // Reject immediately if storage isn't configured so we don't burn Veo quota
+  // generating a video that can't be stored. Fail at enqueue, not after upload.
+  if (!process.env.DO_SPACES_BUCKET) {
+    return NextResponse.json(
+      {
+        error: "Video storage not configured",
+        message: "DO_SPACES_BUCKET is not set. Configure DigitalOcean Spaces credentials before generating videos.",
+        code: "STORAGE_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   let capReservationId: number | null = null;
   try {
     const { userId, teamId } = await requireTeamMember(request);

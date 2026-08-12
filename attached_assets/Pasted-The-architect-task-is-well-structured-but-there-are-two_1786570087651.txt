@@ -1,0 +1,16 @@
+The architect task is well-structured, but there are two problems with the fixes themselves that the verification pass won't catch, because it's checking that the code matches your spec — and your spec has issues:
+
+1. You downgraded to models with a known shutdown date. Your ListModels output confirmed gemini-3.5-flash is live, yet the spec sets the article/flash defaults to gemini-2.5-flash. Worse, GEMINI_PRO_MODEL → gemini-2.5-pro: gemini-2.5-pro shuts down on October 16, 2026 on the Gemini Developer API — that's about two months from now. You'd be re-breaking the exact same way, just on a timer. Suggested targets instead: flash tier → gemini-3.5-flash (verified in your list), pro tier → gemini-3.1-pro-preview (also verified, currently doing double duty as your "experimental" slot). Only keep 2.5-era IDs where a 3.x equivalent genuinely isn't in your ListModels. 
+Firebase
+
+2. The GPT replacements are guesses, which is the mistake that started this. You replaced an invalid string (gpt-5.4-mini) with gpt-4o-mini without verifying it against your OpenAI key. gpt-4o-mini is an older-generation model and may itself be deprecated or on a sunset path depending on your account. Apply the same ground-truth rule: curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY" and pick from what's actually returned before touching 16+ files a second time.
+
+For the architect task itself, add these to the CHECK list:
+
+G. Flag any surviving gemini-2.5-pro references as a dated deprecation risk (Oct 16, 2026), not a pass.
+H. Scan server/, scripts/, and any seed/test files too — your worker lives in server/, and check A only covers lib/ and app/.
+I. Check whether model strings are persisted in the database per article/job (a model column, job payload, or the 36 requeued articles' stored config). Requeued jobs carrying a stale model string in their payload will fail again even with correct config defaults.
+J. Verify the worker now treats model-not-found (404) as UnrecoverableError rather than retrying — otherwise the next deprecation is silent again.
+K. Confirm lib/cost-telemetry.ts pricing keys match the new model IDs, or telemetry will silently log $0 for everything.
+
+One more thing on the outstanding list: the DO_SPACES_BUCKET gap means video jobs will burn Veo quota generating successfully and then fail at upload. Consider gating video generation behind a startup check for that env var so it fails fast at enqueue time instead of after spending money.

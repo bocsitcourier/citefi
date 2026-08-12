@@ -30,8 +30,12 @@ const PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
   "veo-3.1-generate-preview":       { input: 0.00,  output: 0.35  }, // per second of video
   "veo-3.1-fast-generate-preview":  { input: 0.00,  output: 0.18  },
   "veo-3.1-lite-generate-preview":  { input: 0.00,  output: 0.09  },
-  // ── OpenAI models ────────────────────────────────────────────────────────
-  "gpt-4o-mini":                    { input: 0.15,  output: 0.60  },
+  // ── OpenAI models (verified in /v1/models 2026-08) ───────────────────────
+  "gpt-4.1-mini":                   { input: 0.40,  output: 1.60  }, // current cost-effective tier
+  "gpt-4.1-mini-2025-04-14":        { input: 0.40,  output: 1.60  },
+  "gpt-4.1":                        { input: 2.00,  output: 8.00  }, // current standard tier
+  "gpt-4.1-2025-04-14":             { input: 2.00,  output: 8.00  },
+  "gpt-4o-mini":                    { input: 0.15,  output: 0.60  }, // kept for legacy telemetry rows
   "gpt-4o-mini-tts":                { input: 0.00,  output: 0.00  }, // TTS billed by chars
   "gpt-4o":                         { input: 5.00,  output: 15.00 },
   "chatgpt-4o-latest":              { input: 5.00,  output: 15.00 },

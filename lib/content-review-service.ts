@@ -234,7 +234,7 @@ ${content.slice(0, 8000)}`;
 
     const raw = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-4.1-mini",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
       }),
