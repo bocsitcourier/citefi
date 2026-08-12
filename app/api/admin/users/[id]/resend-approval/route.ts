@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq, and } from "drizzle-orm";
-import { sendNewSignupAdminNotification } from "@/lib/email";
+import { sendNewSignupAdminNotification, sendPendingReviewReminderEmail } from "@/lib/email";
 import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
 
 export async function POST(
@@ -91,6 +91,13 @@ export async function POST(
           console.error(`Failed to resend approval email to admin ${admin.email}:`, err)
         )
       )
+    );
+
+    await sendPendingReviewReminderEmail({
+      to: targetUser.email,
+      fullName: targetUser.fullName,
+    }).catch((err) =>
+      console.error(`Failed to send review reminder to user ${targetUser.email}:`, err)
     );
 
     await db

@@ -182,6 +182,41 @@ export async function sendAccountRejectedEmail(opts: {
 }
 
 /**
+ * Send a "your account is still under review" reminder to a pending user
+ * when an admin has re-triggered the approval email.
+ */
+export async function sendPendingReviewReminderEmail(opts: {
+  to: string;
+  fullName?: string | null;
+}): Promise<void> {
+  const name = escapeHtml(opts.fullName ?? "there");
+  const namePlain = opts.fullName ?? "there";
+
+  await deliverEmail({
+    to: opts.to,
+    subject: "Your Citefi account is still under review",
+    text: [
+      `Hi ${namePlain},`,
+      "",
+      "We wanted to let you know that your Citefi account registration is still being reviewed by our admin team.",
+      "",
+      "You will receive an email as soon as a decision has been made. Thank you for your patience!",
+      "",
+      "If you have any questions in the meantime, please reach out to support.",
+      "",
+      "— The Citefi Team",
+    ].join("\n"),
+    html: `
+<p>Hi ${name},</p>
+<p>We wanted to let you know that your <strong>Citefi</strong> account registration is still being reviewed by our admin team.</p>
+<p>You will receive an email as soon as a decision has been made. Thank you for your patience!</p>
+<p>If you have any questions in the meantime, please reach out to support.</p>
+<p>— The Citefi Team</p>
+    `.trim(),
+  });
+}
+
+/**
  * Mutable service object — lets tests replace individual methods via mock.method()
  * without needing ESM module-level mocking (unavailable in Node 20).
  * Route handlers call via emailService.sendAccount*Email(...) so the lookup
@@ -191,6 +226,7 @@ export const emailService = {
   sendPendingApprovalEmail,
   sendAccountApprovedEmail,
   sendAccountRejectedEmail,
+  sendPendingReviewReminderEmail,
 };
 
 /**
