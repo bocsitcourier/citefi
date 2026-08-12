@@ -29,16 +29,29 @@ const BREAKER_REASON_KEY = "platform:breaker:reason";
 
 export type BreakerStatus = "ok" | "video_paused" | "generation_paused";
 
+import {
+  ARTICLE_GENERATION_QUEUE,
+  SOCIAL_POST_GENERATION_QUEUE,
+  IMAGE_GENERATION_QUEUE,
+  REFORMAT_QUEUE,
+  SOCIAL_VIDEO_GENERATION_QUEUE,
+  VIDEO_IDEA_GENERATION_QUEUE,
+  PODCAST_GENERATION_QUEUE,
+  DAILY_BRIEF_QUEUE,
+} from "./queue";
+
 /** Queues paused at the soft limit (most expensive per attempt) */
-const EXPENSIVE_QUEUES = ["social-video-generation", "video-idea-generation"];
-/** Additional queues paused at the hard limit */
+const EXPENSIVE_QUEUES = [SOCIAL_VIDEO_GENERATION_QUEUE, VIDEO_IDEA_GENERATION_QUEUE];
+/** All AI-spending queues paused at the hard limit */
 const ALL_GENERATION_QUEUES = [
   ...EXPENSIVE_QUEUES,
-  "article-generation",
-  "social-post-generation",
-  "image-generation",
-  "article-podcast",
-  "article-reformat",
+  ARTICLE_GENERATION_QUEUE,
+  SOCIAL_POST_GENERATION_QUEUE,
+  IMAGE_GENERATION_QUEUE,
+  PODCAST_GENERATION_QUEUE,
+  REFORMAT_QUEUE,
+  DAILY_BRIEF_QUEUE,
+  "citation-probe", // no exported constant; Gemini calls in citation-probe-worker
 ];
 
 function todayUtcStart(): Date {
@@ -111,33 +124,36 @@ export async function evaluateSpendBreaker(): Promise<{
     next = "video_paused";
   }
 
-  if (next !== current) {
-    if (next === "generation_paused") {
+  // Enforce the desired state EVERY evaluation, not only on transitions.
+  // pause()/resume() are idempotent in BullMQ, and this self-heals two
+  // failure modes: (a) Redis breaker key expired while queues stayed paused,
+  // (b) worker restarted mid-transition and queue state diverged from key.
+  if (next === "generation_paused") {
+    await pauseQueues(ALL_GENERATION_QUEUES);
+    if (current !== "generation_paused") {
       console.error(
         `🚨 [spend-breaker] HARD LIMIT: $${spend.toFixed(2)} >= $${DAILY_BUDGET_USD} daily budget — pausing ALL generation queues`
       );
-      await pauseQueues(ALL_GENERATION_QUEUES);
-      await setBreaker("generation_paused", `Daily spend $${spend.toFixed(2)} hit hard limit $${DAILY_BUDGET_USD}`);
-      // Alert ops via error log + notification
       const { logCritical } = await import("./error-logger");
       await logCritical(
-        "SYSTEM" as any,
+        "SYSTEM",
         `Platform spend breaker HARD TRIP: $${spend.toFixed(2)} / $${DAILY_BUDGET_USD} daily budget. All generation paused.`,
-        { component: "spend-breaker" }
       ).catch(() => {});
-    } else if (next === "video_paused") {
+    }
+    await setBreaker("generation_paused", `Daily spend $${spend.toFixed(2)} hit hard limit $${DAILY_BUDGET_USD}`);
+  } else if (next === "video_paused") {
+    await resumeQueues(ALL_GENERATION_QUEUES.filter((q) => !EXPENSIVE_QUEUES.includes(q)));
+    await pauseQueues(EXPENSIVE_QUEUES);
+    if (current !== "video_paused") {
       console.warn(
         `⚠️ [spend-breaker] SOFT LIMIT: $${spend.toFixed(2)} >= ${SOFT_LIMIT_PCT * 100}% of $${DAILY_BUDGET_USD} — pausing video queues only`
       );
-      // If we were harder before, resume the cheap queues
-      if (current === "generation_paused") {
-        await resumeQueues(ALL_GENERATION_QUEUES.filter((q) => !EXPENSIVE_QUEUES.includes(q)));
-      }
-      await pauseQueues(EXPENSIVE_QUEUES);
-      await setBreaker("video_paused", `Daily spend $${spend.toFixed(2)} hit soft limit (${SOFT_LIMIT_PCT * 100}%)`);
-    } else {
+    }
+    await setBreaker("video_paused", `Daily spend $${spend.toFixed(2)} hit soft limit (${SOFT_LIMIT_PCT * 100}%)`);
+  } else {
+    await resumeQueues(ALL_GENERATION_QUEUES);
+    if (current !== "ok") {
       console.log(`✅ [spend-breaker] Spend $${spend.toFixed(2)} back under limits — resuming all queues`);
-      await resumeQueues(ALL_GENERATION_QUEUES);
       await setBreaker("ok", "");
     }
   }

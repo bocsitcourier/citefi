@@ -91,6 +91,10 @@ export interface ImageUsage {
   imageCount: number;
 }
 
+export interface VideoUsage {
+  videoSeconds: number;
+}
+
 // ============================================================================
 // COST CALCULATION
 // ============================================================================
@@ -124,6 +128,14 @@ export function calculateTtsCostMicrousd(characters: number): number {
 
 export function calculateImageCostMicrousd(imageCount: number): number {
   return Math.round(imageCount * IMAGE_PRICE_USD * 1_000_000);
+}
+
+/** Veo pricing is per second of generated video (stored in `output`). */
+export function calculateVideoCostMicrousd(model: string, videoSeconds: number): number {
+  const prices =
+    (PRICE_PER_MILLION as Record<string, { input: number; output: number }>)[model.toLowerCase()] ?? null;
+  if (!prices) return 0;
+  return Math.round(videoSeconds * prices.output * 1_000_000);
 }
 
 export function microusdToUsd(microusd: number): number {
@@ -190,7 +202,7 @@ export function validateCreditAnchor(
 
 export async function logCostTelemetry(
   ctx: TelemetryContext,
-  usage: TokenUsage | CharacterUsage | ImageUsage,
+  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage,
   latencyMs: number,
   success = true,
   errorMessage?: string
@@ -220,6 +232,11 @@ export async function logCostTelemetry(
     unitType = "images";
     unitCount = u.imageCount;
     costMicrousd = calculateImageCostMicrousd(u.imageCount);
+  } else if ("videoSeconds" in usage) {
+    const u = usage as VideoUsage;
+    unitType = "seconds";
+    unitCount = u.videoSeconds;
+    costMicrousd = calculateVideoCostMicrousd(ctx.model, u.videoSeconds);
   }
 
   await db.insert(costTelemetry).values({
@@ -227,7 +244,9 @@ export async function logCostTelemetry(
     userId: ctx.userId ?? null,
     batchId: ctx.batchId ?? null,
     articleId: ctx.articleId ?? null,
-    jobId: ctx.jobId ?? null,
+    // Fall back to the ambient run context so worker-side telemetry is
+    // attributable per run without threading runId through every signature.
+    jobId: ctx.jobId ?? (await import("./run-context")).currentRunId() ?? null,
     operationType: ctx.operationType,
     provider: ctx.provider,
     model: ctx.model,
@@ -246,7 +265,7 @@ export async function logCostTelemetry(
 /** Non-blocking fire-and-forget wrapper — never throws, so it can't break content generation. */
 export function safeLogCostTelemetry(
   ctx: TelemetryContext,
-  usage: TokenUsage | CharacterUsage | ImageUsage,
+  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage,
   latencyMs: number,
   success = true,
   errorMessage?: string

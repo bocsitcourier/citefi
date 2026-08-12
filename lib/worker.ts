@@ -328,10 +328,12 @@ export async function registerWorkers() {
         const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
 
       try {
-        // Cost ceiling gate: if prior attempts already spent >= the ceiling for
-        // an article, stop retrying — BUDGET_EXCEEDED is fatal, credits released.
-        // (No-op until telemetry contexts carry jobId=runId; safe to wire now.)
+        // Attribute all telemetry in this run to runId (cost_telemetry.jobId),
+        // then enforce the cost ceiling: if prior attempts already spent >= the
+        // ceiling, stop retrying — BUDGET_EXCEEDED is fatal, credits released.
         if (runId) {
+          const { enterRunContext } = await import("@/lib/run-context");
+          enterRunContext(runId);
           const { assertRunBudget } = await import("@/lib/cost-ceilings");
           await assertRunBudget(runId, "article", "text_gen");
         }
@@ -3505,9 +3507,12 @@ export async function registerWorkers() {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
-            // Cost ceiling gate: Veo is the most expensive per attempt — stop
+            // Attribute all telemetry in this run to creditRunId, then enforce
+            // the cost ceiling: Veo is the most expensive per attempt — stop
             // before generating if prior attempts already hit the ceiling.
             if (videoCreditRunId) {
+              const { enterRunContext } = await import("@/lib/run-context");
+              enterRunContext(videoCreditRunId);
               const { assertRunBudget } = await import("@/lib/cost-ceilings");
               await assertRunBudget(videoCreditRunId, "video", "video_gen");
             }
@@ -3633,9 +3638,19 @@ export async function registerWorkers() {
             
             // PERMANENT FIX: Always clean up temp files after successful generation
             await cleanupTempFiles(socialPostId);
-            
+
+            // Release the per-user concurrency slot claimed at enqueue
+            const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
+            await releaseVideoSlotForPost(socialPostId);
+
           } catch (error) {
             console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
+
+            // Release the per-user concurrency slot claimed at enqueue
+            try {
+              const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
+              await releaseVideoSlotForPost(socialPostId);
+            } catch { /* TTL self-heals */ }
 
             // Classify the error — fatal codes skip remaining retries
             const videoClassified = classifyError(error, "video_gen");

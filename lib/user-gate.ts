@@ -66,11 +66,13 @@ function tomorrowUtcStart(): Date {
 
 // ── Video gate ────────────────────────────────────────────────────────────────
 
-/** In-flight video statuses that count against concurrency */
-const VIDEO_ACTIVE_STATUSES = ["PENDING", "GENERATING", "PROCESSING"] as const;
-
-/** Terminal-failure statuses that DON'T count against daily quota */
-const VIDEO_FAILED_STATUSES = ["FAILED", "CANCELLED"] as const;
+/**
+ * Canonical videoStatus vocabulary (shared/schema.ts socialPosts.videoStatus):
+ * PENDING, GENERATING, READY, FAILED. Nothing else is ever written.
+ */
+const VIDEO_ACTIVE_STATUSES = ["PENDING", "GENERATING"] as const;
+/** Statuses that count against the daily quota (everything except FAILED) */
+const VIDEO_QUOTA_STATUSES = ["PENDING", "GENERATING", "READY"] as const;
 
 export async function checkVideoGate(
   userId: number,
@@ -112,8 +114,8 @@ export async function checkVideoGate(
       and(
         eq(socialPosts.userId, userId),
         gte(socialPosts.createdAt, todayUtcStart()),
-        // exclude failed/cancelled — user didn't get value from those
-        inArray(socialPosts.videoStatus, ["PENDING", "GENERATING", "PROCESSING", "COMPLETED"])
+        // exclude FAILED — user didn't get value from those
+        inArray(socialPosts.videoStatus, [...VIDEO_QUOTA_STATUSES])
       )
     );
   const usedToday = Number(dailyRow?.cnt ?? 0);
@@ -134,6 +136,68 @@ export async function checkVideoGate(
     allowed: true,
     remaining: Math.min(concurrencyCap - concurrent, dailyCap - usedToday),
   };
+}
+
+// ── Atomic concurrency slots (Redis) ─────────────────────────────────────────
+// checkVideoGate's count is advisory (race-prone between check and write).
+// The slot counter is the enforcement: INCR is atomic, so N concurrent
+// requests can never all pass. TTL is a safety net if a release is missed
+// (worker crash) — slots self-heal after 2h (videos take up to ~80 min).
+
+const SLOT_TTL_SEC = 2 * 60 * 60;
+
+function videoSlotKey(userId: number): string {
+  return `gate:video:slots:${userId}`;
+}
+
+/**
+ * Atomically claim a video concurrency slot. Returns false if the user is
+ * already at their cap. Must be paired with releaseVideoSlot on terminal state.
+ */
+export async function acquireVideoSlot(userId: number, teamId: number): Promise<boolean> {
+  try {
+    const { getRedisConnection } = await import("./queue");
+    const redis = getRedisConnection();
+    const tier = await getTeamTier(teamId);
+    const cap = CONCURRENCY_CAPS.video[tier];
+    const key = videoSlotKey(userId);
+    const count = await redis.incr(key);
+    await redis.expire(key, SLOT_TTL_SEC); // refresh TTL on every acquire
+    if (count > cap) {
+      await redis.decr(key);
+      return false;
+    }
+    return true;
+  } catch {
+    return true; // Redis down — fail open; the advisory count still gates
+  }
+}
+
+/** Release a slot (idempotent-ish: floors at 0). */
+export async function releaseVideoSlot(userId: number): Promise<void> {
+  try {
+    const { getRedisConnection } = await import("./queue");
+    const redis = getRedisConnection();
+    const key = videoSlotKey(userId);
+    const v = await redis.decr(key);
+    if (v < 0) await redis.set(key, "0", "EX", SLOT_TTL_SEC);
+  } catch {
+    // TTL self-heals
+  }
+}
+
+/** Release by post ID — for workers that don't carry userId in job data. */
+export async function releaseVideoSlotForPost(socialPostId: number): Promise<void> {
+  try {
+    const [post] = await db
+      .select({ userId: socialPosts.userId })
+      .from(socialPosts)
+      .where(eq(socialPosts.id, socialPostId))
+      .limit(1);
+    if (post?.userId) await releaseVideoSlot(post.userId);
+  } catch {
+    // TTL self-heals
+  }
 }
 
 // ── Entitlements query ────────────────────────────────────────────────────────
@@ -182,7 +246,7 @@ export async function getUserEntitlements(
     .where(and(
       eq(socialPosts.userId, userId),
       gte(socialPosts.createdAt, todayUtcStart()),
-      inArray(socialPosts.videoStatus, ["PENDING", "GENERATING", "PROCESSING", "COMPLETED"])
+      inArray(socialPosts.videoStatus, [...VIDEO_QUOTA_STATUSES])
     ));
   const videoUsedToday = Number(videoDailyRow?.cnt ?? 0);
   const videoDailyCap = DAILY_QUOTAS.video[tier];

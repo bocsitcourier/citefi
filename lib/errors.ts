@@ -119,10 +119,16 @@ export function classifyError(
     const isStorageStage = stage === "upload" || stage === "publish" || stage === "storage";
     const isStorageProvider = prov === "do_spaces" || prov === "object_storage" || prov === "redis";
     const isAIProvider = prov === "gemini" || prov === "openai" || prov === "veo";
-    if (isStorageStage || isStorageProvider || (!isAIProvider && stage !== "text_gen" && stage !== "image_gen" && stage !== "video_gen")) {
+    if (isStorageStage || isStorageProvider) {
       return new PipelineError(msg, "STORAGE_UPLOAD_FAILED", "retry", stage, prov, err);
     }
-    return new PipelineError(msg, "MODEL_NOT_FOUND", "fatal", stage, prov, err);
+    // Only a 404 from a recognized AI provider is a dead model ID (fatal).
+    // Unknown-provider 404s are treated as retryable provider errors — being
+    // wrong-but-retryable is cheaper than being wrong-but-fatal.
+    if (isAIProvider) {
+      return new PipelineError(msg, "MODEL_NOT_FOUND", "fatal", stage, prov, err);
+    }
+    return new PipelineError(msg, "PROVIDER_ERROR", "retry", stage, prov, err);
   }
 
   if (lower.includes("not configured") || lower.includes("missing env") ||

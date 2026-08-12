@@ -57,6 +57,7 @@ export async function generateVeoClip(
   const sanitizedPrompt = sanitizeVeoPrompt(prompt);
   
   console.log(`🎬 Generating Veo clip ${sceneNumber} for post ${socialPostId}`);
+  const clipStartMs = Date.now();
   console.log(`  📝 Original prompt: ${prompt.slice(0, 80)}...`);
   if (sanitizedPrompt !== prompt) {
     console.log(`  🧹 Sanitized prompt: ${sanitizedPrompt.slice(0, 80)}...`);
@@ -239,6 +240,19 @@ export async function generateVeoClip(
 
     console.log(`  ✅ Veo clip ${sceneNumber} saved to ${localPath}`);
 
+    // Record the dominant platform spend: Veo bills per second of video.
+    // Attributed to the run via the ambient run context (cost_telemetry.jobId),
+    // feeding both the per-run cost ceiling and the global spend breaker.
+    try {
+      const { safeLogCostTelemetry } = await import("./cost-telemetry");
+      safeLogCostTelemetry(
+        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo") },
+        { videoSeconds: duration },
+        Date.now() - clipStartMs,
+        true
+      );
+    } catch { /* non-fatal */ }
+
     return {
       sceneNumber,
       prompt,
@@ -247,6 +261,18 @@ export async function generateVeoClip(
     };
   } catch (error) {
     console.error(`❌ Veo clip ${sceneNumber} generation failed:`, error);
+    // Failed attempts still cost money on the provider side in some failure
+    // modes; record them so the budget ceiling and spend breaker see them.
+    try {
+      const { safeLogCostTelemetry } = await import("./cost-telemetry");
+      safeLogCostTelemetry(
+        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo") },
+        { videoSeconds: duration },
+        Date.now() - clipStartMs,
+        false,
+        error instanceof Error ? error.message : String(error)
+      );
+    } catch { /* telemetry must never mask the real error */ }
     throw new Error(`Veo generation failed for scene ${sceneNumber}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

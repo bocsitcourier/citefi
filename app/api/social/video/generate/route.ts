@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
-import { checkVideoGate } from "@/lib/user-gate";
+import { checkVideoGate, acquireVideoSlot, releaseVideoSlot } from "@/lib/user-gate";
 
 export async function POST(request: NextRequest) {
   // ── Storage preflight ──────────────────────────────────────────────────────
@@ -164,11 +164,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Atomic concurrency slot — the advisory checkVideoGate count above is
+    // race-prone; this Redis INCR is the actual enforcement. Released by the
+    // video worker on terminal state (or auto-expires after 2h).
+    const slotAcquired = await acquireVideoSlot(userId, teamId);
+    if (!slotAcquired) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      await db
+        .update(socialPosts)
+        .set({ videoStatus: post.videoStatus ?? null, videoProgress: post.videoProgress ?? 0, videoStage: post.videoStage ?? null })
+        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
+      await releaseReservation({
+        teamId,
+        runId: creditRunId,
+        reason: `Concurrency slot unavailable for social post ${socialPostId}`,
+      }).catch(() => {});
+      return NextResponse.json(
+        {
+          error: "You already have the maximum number of videos generating. Wait for one to finish.",
+          code: "CONCURRENCY_LIMIT",
+          scope: "video_concurrent",
+          remaining: 0,
+        },
+        { status: 429 }
+      );
+    }
+
     let jobId: string | null;
     try {
       jobId = await addVideoGenerationJob({ socialPostId, platform, videoType, teamId, creditRunId });
       if (!jobId) throw new Error("BullMQ returned null — queue may be unhealthy");
     } catch (sendError) {
+      await releaseVideoSlot(userId).catch(() => {});
       const errMsg = sendError instanceof Error ? sendError.message : String(sendError);
       console.error(`❌ addVideoGenerationJob() failed for post ${socialPostId}:`, errMsg);
       if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
