@@ -33,7 +33,7 @@ import {
   usedApprovalTokens,
 } from "../../shared/schema.js";
 import { hashPassword } from "../../lib/auth.js";
-import { generateApprovalToken } from "../../lib/approval-token.js";
+import { generateApprovalToken, verifyApprovalToken } from "../../lib/approval-token.js";
 import { emailService } from "../../lib/email.js";
 import { eq, inArray } from "drizzle-orm";
 
@@ -576,6 +576,181 @@ describe("POST /api/admin/users/review — reject", () => {
       html.toLowerCase().includes("expired"),
       `Expected 'expired' for expired reject token — got:\n${html.slice(0, 300)}`
     );
+  });
+});
+
+// ── Key rotation tests ────────────────────────────────────────────────────────
+//
+// These tests simulate rotating APPROVAL_TOKEN_SECRET by temporarily overriding
+// process.env, then restoring it in a finally block so subsequent tests are unaffected.
+//
+// Two isolated secrets are used so their derived kids never collide with the
+// real test-env secret, keeping the keyring predictable.
+
+const ROTATION_PREV_KEY = "approval-rotation-test-prev-secret-xk9q";
+const ROTATION_NEW_KEY  = "approval-rotation-test-new-secret-zp2m";
+
+/** Save, override, and return a restore thunk for process.env APPROVAL_TOKEN_SECRET vars. */
+function overrideApprovalSecrets(current: string, prev?: string): () => void {
+  const savedCurrent = process.env.APPROVAL_TOKEN_SECRET;
+  const savedPrev    = process.env.APPROVAL_TOKEN_SECRET_PREV;
+
+  process.env.APPROVAL_TOKEN_SECRET = current;
+  if (prev !== undefined) {
+    process.env.APPROVAL_TOKEN_SECRET_PREV = prev;
+  } else {
+    delete process.env.APPROVAL_TOKEN_SECRET_PREV;
+  }
+
+  return () => {
+    if (savedCurrent !== undefined) process.env.APPROVAL_TOKEN_SECRET = savedCurrent;
+    else delete process.env.APPROVAL_TOKEN_SECRET;
+    if (savedPrev !== undefined) process.env.APPROVAL_TOKEN_SECRET_PREV = savedPrev;
+    else delete process.env.APPROVAL_TOKEN_SECRET_PREV;
+  };
+}
+
+describe("Key rotation — previous-key tokens survive rotation", () => {
+  test("token signed with previous key verifies after rotation (verifyApprovalToken)", () => {
+    // Step 1 — sign with the old key
+    const restore1 = overrideApprovalSecrets(ROTATION_PREV_KEY);
+    let oldToken: string;
+    try {
+      oldToken = generateApprovalToken(seed.pendingApproveId, "approve");
+    } finally {
+      restore1();
+    }
+
+    // Step 2 — rotate: new key is current, old key is prev
+    const restore2 = overrideApprovalSecrets(ROTATION_NEW_KEY, ROTATION_PREV_KEY);
+    try {
+      const payload = verifyApprovalToken(oldToken);
+      assert.equal(payload.userId, seed.pendingApproveId);
+      assert.equal(payload.action, "approve");
+    } finally {
+      restore2();
+    }
+  });
+
+  test("token signed with current key verifies after rotation (verifyApprovalToken)", () => {
+    // Sign with NEW_KEY as current
+    const restore1 = overrideApprovalSecrets(ROTATION_NEW_KEY);
+    let newToken: string;
+    try {
+      newToken = generateApprovalToken(seed.pendingApproveId, "approve");
+    } finally {
+      restore1();
+    }
+
+    // Same keyring: NEW_KEY current, PREV_KEY as previous
+    const restore2 = overrideApprovalSecrets(ROTATION_NEW_KEY, ROTATION_PREV_KEY);
+    try {
+      const payload = verifyApprovalToken(newToken);
+      assert.equal(payload.userId, seed.pendingApproveId);
+      assert.equal(payload.action, "approve");
+    } finally {
+      restore2();
+    }
+  });
+
+  test("token signed with previous key shows confirmation page via GET handler", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_rot_get@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Rotation GET User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Sign with old key
+    const restore1 = overrideApprovalSecrets(ROTATION_PREV_KEY);
+    let oldToken: string;
+    try {
+      oldToken = generateApprovalToken(fp.id, "approve");
+    } finally {
+      restore1();
+    }
+
+    // Verify via GET with rotated keyring
+    const restore2 = overrideApprovalSecrets(ROTATION_NEW_KEY, ROTATION_PREV_KEY);
+    try {
+      const res = await GET(makeGetReq(oldToken));
+      assert.equal(res.status, 200, `Expected 200 confirmation page — got ${res.status}`);
+      const html = await res.text();
+      assert.ok(
+        html.includes("Confirm") || html.includes("Approve"),
+        `Expected confirmation page — got:\n${html.slice(0, 300)}`
+      );
+    } finally {
+      restore2();
+    }
+  });
+
+  test("token signed with previous key can be actioned via POST handler", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_rot_post@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Rotation POST User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Sign with old key
+    const restore1 = overrideApprovalSecrets(ROTATION_PREV_KEY);
+    let oldToken: string;
+    try {
+      oldToken = generateApprovalToken(fp.id, "approve");
+    } finally {
+      restore1();
+    }
+
+    // POST with rotated keyring — old-key token must still be accepted
+    const restore2 = overrideApprovalSecrets(ROTATION_NEW_KEY, ROTATION_PREV_KEY);
+    try {
+      const res = await POST(makePostReq(oldToken));
+      assert.equal(res.status, 200, `Expected 200 for old-key approve — got ${res.status}`);
+      const after = await fetchUserStatus(fp.id);
+      assert.equal(after, "active", `DB must show active after old-key approve — got: ${after}`);
+    } finally {
+      restore2();
+    }
+  });
+
+  test("token signed with fully retired key (not in keyring) returns 400 Invalid", async () => {
+    const RETIRED_KEY = "approval-rotation-test-retired-secret-bv7n";
+
+    // Sign with a key that will NOT appear in the keyring during verification
+    const restore1 = overrideApprovalSecrets(RETIRED_KEY);
+    let retiredToken: string;
+    try {
+      retiredToken = generateApprovalToken(seed.pendingApproveId, "approve");
+    } finally {
+      restore1();
+    }
+
+    // Verify with a keyring that has NEW_KEY + PREV_KEY — RETIRED_KEY is absent
+    const restore2 = overrideApprovalSecrets(ROTATION_NEW_KEY, ROTATION_PREV_KEY);
+    try {
+      const res = await GET(makeGetReq(retiredToken));
+      assert.equal(res.status, 400, `Expected 400 for retired-key token — got ${res.status}`);
+      const html = await res.text();
+      assert.ok(
+        html.toLowerCase().includes("invalid"),
+        `Expected 'invalid' in body — got:\n${html.slice(0, 300)}`
+      );
+    } finally {
+      restore2();
+    }
   });
 });
 
