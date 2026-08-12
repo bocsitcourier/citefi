@@ -4,8 +4,14 @@
  *
  * Run: WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/pipeline/pipeline-worker.test.ts
  */
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
+
+// Close the pooled DB connection so the test process exits deterministically.
+after(async () => {
+  const { closeDb } = await import("../../lib/db");
+  await closeDb();
+});
 import { UnrecoverableError } from "bullmq";
 import { createPipelineHandler } from "../../lib/pipeline-worker";
 
@@ -137,6 +143,56 @@ void test("run-context identity: wrapper enters the SAME runId the processor's b
   } as any);
   await handler(makeJob());
   assert.equal(observed, "run-abc");
+});
+
+void test("every metered content type: telemetry under creditRunId attributes AND trips that type's budget gate", async () => {
+  // Coverage for each content worker that declares a budget: article,
+  // social_post, podcast, video. For each, telemetry recorded under the
+  // run ID must (a) be what the wrapper attributes (currentRunId) and
+  // (b) trip the real assertRunBudget gate keyed by the same creditRunId.
+  const { db } = await import("../../lib/db");
+  const { costTelemetry } = await import("../../shared/schema");
+  const { eq } = await import("drizzle-orm");
+  const { currentRunId } = await import("../../lib/run-context");
+  const { assertRunBudget } = await import("../../lib/cost-ceilings");
+  const cases: Array<{ contentType: any; stage: string }> = [
+    { contentType: "article", stage: "text_gen" },
+    { contentType: "social_post", stage: "text_gen" },
+    { contentType: "podcast", stage: "text_gen" },
+    { contentType: "video", stage: "video_gen" },
+  ];
+  for (const c of cases) {
+    const runId = `test-budget-${c.contentType}-${Date.now()}`;
+    await db.insert(costTelemetry).values({
+      jobId: runId,
+      operationType: `${c.contentType}_generation`,
+      provider: "gemini",
+      model: "test-model",
+      costMicrousd: 100_000_000, // $100 — above every ceiling
+      success: 1,
+    });
+    try {
+      const d = deps();
+      const handler = createPipelineHandler("q", async (job: AnyJob) => {
+        assert.equal(currentRunId(), job.data.creditRunId, `${c.contentType}: attribution ID must equal gate ID`);
+        await assertRunBudget(job.data.creditRunId, c.contentType, c.stage);
+        return "should not reach";
+      }, {
+        stage: c.stage,
+        getBilling: (j: AnyJob) => ({ teamId: j.data.teamId, runId: j.data.creditRunId }),
+        budget: { contentType: c.contentType, getRunId: (j: AnyJob) => j.data.creditRunId },
+        _deps: d._deps,
+      } as any);
+      await assert.rejects(
+        () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: 7, creditRunId: runId } })),
+        (err: unknown) => err instanceof UnrecoverableError && /BUDGET_EXCEEDED/.test((err as Error).message),
+        `${c.contentType}: gate must trip as fatal`
+      );
+      assert.equal(d.calls.length, 1, `${c.contentType}: exactly one release`);
+    } finally {
+      await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    }
+  }
 });
 
 void test("recorded telemetry under the run ID trips the next attempt's budget gate (production ID path)", async () => {

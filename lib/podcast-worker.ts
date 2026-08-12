@@ -30,6 +30,14 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
   
   try {
     console.log(`[Podcast Worker] Starting podcast generation for article ${articleId}`);
+
+    // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
+    // catch (article status write, legacy refund guard) before the pipeline
+    // wrapper releases the reservation and stops retries.
+    if (job.creditRunId) {
+      const { assertRunBudget } = await import("@/lib/cost-ceilings");
+      await assertRunBudget(job.creditRunId, "podcast", "text_gen");
+    }
     
     const article = await db.query.articles.findFirst({
       where: eq(articles.id, articleId),

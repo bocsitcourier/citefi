@@ -109,6 +109,15 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
   console.log(`🎭 Processing social post generation ${socialPostId} for ${platforms.length} platforms${generateVideos ? ' (with video)' : ''}`);
 
   try {
+    // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
+    // catch (status=FAILED write) before createPipelineWorker releases the
+    // reservation and stops retries. Keyed by the same creditRunId the wrapper
+    // uses for run-context telemetry attribution.
+    if (job.data.creditRunId) {
+      const { assertRunBudget } = await import("@/lib/cost-ceilings");
+      await assertRunBudget(job.data.creditRunId, "social_post", "text_gen");
+    }
+
     // Update status to GENERATING
     await db
       .update(socialPosts)

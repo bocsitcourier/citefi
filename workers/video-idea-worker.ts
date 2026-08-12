@@ -29,6 +29,14 @@ export async function registerVideoIdeaWorker(): Promise<void> {
       console.log(`   Video Idea ID: ${videoIdeaId}${creditRunId ? ` (creditRunId: ${creditRunId})` : " (unmetered — legacy)"}`);
 
       try {
+        // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
+        // this catch (status=FAILED write, notification) before the pipeline
+        // wrapper releases the reservation and stops retries.
+        if (creditRunId) {
+          const { assertRunBudget } = await import("@/lib/cost-ceilings");
+          await assertRunBudget(creditRunId, "video", "video_gen");
+        }
+
         const [idea] = await db.select()
           .from(videoIdeas)
           .where(eq(videoIdeas.id, videoIdeaId))

@@ -94,6 +94,9 @@ function makePool(connectionString: string, max: number, idleMs: number): Pool {
 //   • Local/other → pg Pool (same driver as worker, works with any postgres)
 const isWorkerProcess = process.env.WORKER_PROCESS === "true";
 
+// Held so closeDb() can end the pool deterministically (test teardown).
+let mainPool: Pool | null = null;
+
 function buildDb(): NeonHttpDatabase<typeof schema> {
   const connectionString =
     process.env.DATABASE_POOLED_URL ?? DATABASE_URL;
@@ -102,6 +105,7 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
     const max = isWorkerProcess ? 20 : 10;
     const idleMs = isWorkerProcess ? 900_000 : 30_000;
     const pool = makePool(connectionString, max, idleMs);
+    mainPool = pool;
 
     console.log(
       isNeonCloud
@@ -118,6 +122,17 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
 }
 
 export const db = buildDb();
+
+/**
+ * Deterministically close the main pooled connection (no-op for the Neon HTTP
+ * driver). Intended for test teardown so node:test processes exit cleanly.
+ */
+export async function closeDb(): Promise<void> {
+  if (mainPool) {
+    await mainPool.end().catch(() => {});
+    mainPool = null;
+  }
+}
 
 // ─── Stateless / HTTP client ──────────────────────────────────────────────────
 // For Neon cloud: uses the HTTP driver (immune to idle connection expiry).
