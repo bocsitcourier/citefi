@@ -328,6 +328,14 @@ export async function registerWorkers() {
         const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
 
       try {
+        // Cost ceiling gate: if prior attempts already spent >= the ceiling for
+        // an article, stop retrying — BUDGET_EXCEEDED is fatal, credits released.
+        // (No-op until telemetry contexts carry jobId=runId; safe to wire now.)
+        if (runId) {
+          const { assertRunBudget } = await import("@/lib/cost-ceilings");
+          await assertRunBudget(runId, "article", "text_gen");
+        }
+
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
         // This is the primary mechanism for stopping generation mid-batch.
         // Also reads terminalKpi from batch generationParams for KPI-aware pattern weighting.
@@ -3497,6 +3505,13 @@ export async function registerWorkers() {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
+            // Cost ceiling gate: Veo is the most expensive per attempt — stop
+            // before generating if prior attempts already hit the ceiling.
+            if (videoCreditRunId) {
+              const { assertRunBudget } = await import("@/lib/cost-ceilings");
+              await assertRunBudget(videoCreditRunId, "video", "video_gen");
+            }
+
             const { generateSocialVideo } = await import("./social-video-generator");
             const { cleanupTempFiles } = await import("./social-video-compositor");
             

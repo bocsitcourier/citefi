@@ -93,6 +93,11 @@ async function startWorkers() {
     
     // Start job monitoring for stuck job detection
     await startJobMonitor();
+
+    // Platform spend circuit breaker — pauses expensive queues at 80% of the
+    // daily budget, all generation queues at 100%. State in Redis.
+    const { startSpendBreakerScheduler } = await import("@/lib/spend-breaker");
+    startSpendBreakerScheduler();
     
     console.log("🔄 Worker process running - event loop active");
     console.log("Press Ctrl+C to stop workers");
