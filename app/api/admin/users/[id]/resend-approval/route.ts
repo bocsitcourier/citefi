@@ -48,6 +48,21 @@ export async function POST(
       );
     }
 
+    const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+    if (targetUser.approvalEmailSentAt) {
+      const elapsed = Date.now() - new Date(targetUser.approvalEmailSentAt).getTime();
+      if (elapsed < COOLDOWN_MS) {
+        const remainingSecs = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+        const remainingMins = Math.ceil(remainingSecs / 60);
+        return NextResponse.json(
+          {
+            error: `An approval email was sent less than 5 minutes ago. Please wait ${remainingMins} minute${remainingMins !== 1 ? "s" : ""} before resending.`,
+          },
+          { status: 429 }
+        );
+      }
+    }
+
     const activeAdmins = await db
       .select({ email: users.email })
       .from(users)
