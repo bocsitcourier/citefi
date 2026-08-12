@@ -29,3 +29,4 @@ DO_SSH_PRIVATE_KEY.txt
 DO_SSH_PUBLIC_KEY.txt
 *.pem
 *.key
+dump.rdb

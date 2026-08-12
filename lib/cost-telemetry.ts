@@ -56,6 +56,7 @@ export type OperationType =
   | "article_hyperlink"
   | "article_critique"
   | "social_post"
+  | "veo_clip"
   | "video_script"
   | "video_idea"
   | "podcast_script"

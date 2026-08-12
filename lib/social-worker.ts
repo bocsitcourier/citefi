@@ -1,6 +1,5 @@
 import type { Job } from "bullmq";
-import { UnrecoverableError } from "bullmq";
-import { classifyError, FATAL_CODES } from "./errors";
+
 import { isBareGeoAnchor } from "./seo-policy";
 import { db } from "./db";
 import { createNotification } from "./notification-service";
@@ -615,11 +614,6 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     console.error(`❌ Social post generation failed for ${socialPostId}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // Classify the error — disposition drives retry and credit-release decisions
-    const classified = classifyError(error, "text_gen");
-    console.error(`❌ [social:${socialPostId}] ${classified.code} (${classified.disposition})`);
-
-
     // Update status to FAILED — scope by teamId for defence-in-depth write isolation.
     const catchTeamId = job.data.teamId;
     const catchUpdateWhere = catchTeamId
@@ -676,24 +670,9 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       actionUrl: `/social/${socialPostId}`,
     }).catch(() => {});
 
-    // Two-bucket billing: only release reservation when fatal (no retry) or on
-    // the final attempt — preserving the reservation across transient retries so
-    // a successful retry can still debit the same runId.
-    const teamIdForRelease = job.data.teamId;
-    const isFinalSocialAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-    if (job.data.creditRunId && teamIdForRelease && (classified.disposition === "fatal" || isFinalSocialAttempt)) {
-      const { releaseReservation } = await import("@/lib/billing");
-      await releaseReservation({
-        teamId: teamIdForRelease,
-        runId: job.data.creditRunId,
-        reason: `Social post ${socialPostId} generation failed`,
-      }).catch((e: unknown) => console.warn(`[billing] social releaseReservation failed for socialPostId=${socialPostId}:`, e));
-    }
-
-    if (FATAL_CODES.has(classified.code)) {
-      throw new UnrecoverableError(`[${classified.code}] ${classified.message}`);
-    }
-
+    // Rethrow — createPipelineWorker (the only registration point) classifies
+    // the error, releases the credit reservation on the final attempt, and
+    // converts fatal codes to UnrecoverableError.
     throw error;
   }
 }

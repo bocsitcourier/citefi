@@ -1,4 +1,5 @@
-import { Worker, UnrecoverableError, type Job } from "bullmq";
+import { type Job } from "bullmq";
+import { createPipelineWorker } from "./pipeline-worker";
 import {
   getRedisConnection,
   getQueue,
@@ -57,7 +58,7 @@ import { injectDisclosureIntoHtml } from "./compliance/ai-disclosure";
 import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
-import { classifyError, FATAL_CODES } from "./errors";
+import { classifyError } from "./errors";
 
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
@@ -99,7 +100,7 @@ export async function registerWorkers() {
   // BATCH GENERATION WORKER
   // ============================================================================
 
-  new Worker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
+  createPipelineWorker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
         console.log(`📦 Processing batch generation job ${job.id}`);
         const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
 
@@ -307,7 +308,7 @@ export async function registerWorkers() {
 
         throw error;
       }
-  }, { connection: getRedisConnection(), concurrency: 1 });
+  }, { stage: "enqueue", concurrency: 1 });
 
   // ============================================================================
   // ARTICLE GENERATION WORKER
@@ -318,7 +319,7 @@ export async function registerWorkers() {
   // 10 workers to prevent overwhelming Gemini 30 RPM rate limit and causing 429 cascades
   const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "20");
   
-  new Worker(ARTICLE_GENERATION_QUEUE, async (job: Job<ArticleJobData>) => {
+  createPipelineWorker(ARTICLE_GENERATION_QUEUE, async (job: Job<ArticleJobData>) => {
         console.log(`📝 Processing article generation job ${job.id}`);
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
         // Per-article cost: use the value threaded through from the batch reservation
@@ -328,15 +329,8 @@ export async function registerWorkers() {
         const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
 
       try {
-        // Attribute all telemetry in this run to runId (cost_telemetry.jobId),
-        // then enforce the cost ceiling: if prior attempts already spent >= the
-        // ceiling, stop retrying — BUDGET_EXCEEDED is fatal, credits released.
-        if (runId) {
-          const { enterRunContext } = await import("@/lib/run-context");
-          enterRunContext(runId);
-          const { assertRunBudget } = await import("@/lib/cost-ceilings");
-          await assertRunBudget(runId, "article", "text_gen");
-        }
+        // Run attribution + cost ceiling are enforced by createPipelineWorker
+        // (budget option below) — do not duplicate them here.
 
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
         // This is the primary mechanism for stopping generation mid-batch.
@@ -1513,29 +1507,9 @@ export async function registerWorkers() {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
-        // Classify the error first — disposition drives the credit-release decision
+        // Classification for the learning ledger only — credit release and
+        // fatal/retry policy are handled once by createPipelineWorker.
         const classified = classifyError(error, "text_gen");
-        console.error(`❌ [article:${articleId}] ${classified.code} (${classified.disposition}) stage=${classified.stage} provider=${classified.provider ?? "unknown"}`);
-
-        // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles).
-        // IMPORTANT: Do NOT release on debit-failure paths (DEBIT_FAILED) — the article
-        // reached COMPLETE successfully and BullMQ will retry the debit. Releasing here
-        // would refund credits for successfully generated content.
-        // For retryable errors: only release on the FINAL attempt so a successful retry
-        // can still debit the same reservation. For fatal errors: release immediately
-        // (UnrecoverableError below prevents any further attempts).
-        const isDebitFailure = errorMessage.includes("DEBIT_FAILED");
-        const isFinalArticleAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-        if (articleTeamId && articleCreditRunId && !isDebitFailure && (classified.disposition === "fatal" || isFinalArticleAttempt)) {
-          const { releaseReservation } = await import("@/lib/billing");
-          await releaseReservation({
-            teamId: articleTeamId,
-            runId: articleCreditRunId,
-            amount: articleCreditCost,
-            reason: `Article ${articleId} generation failed`,
-            releaseKey: `article:${articleId}`,
-          }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
-        }
 
         // Record failure in learning ledger so the AI learning center can surface it
         if (articleTeamId) {
@@ -1559,17 +1533,22 @@ export async function registerWorkers() {
         // Check batch completion even on failure
         await checkBatchCompletion(batchId);
 
-        // Fatal dispositions (MODEL_NOT_FOUND, AUTH_FAILURE, CONFIG_MISSING) will
-        // produce identical failures on every retry — throw UnrecoverableError so
-        // BullMQ skips remaining attempts and moves the job straight to the failed
-        // set instead of burning retry budget and quota.
-        if (FATAL_CODES.has(classified.code)) {
-          throw new UnrecoverableError(`[${classified.code}] ${classified.message}`);
-        }
-
+        // Rethrow — createPipelineWorker classifies, releases the reservation
+        // on the final attempt, and converts fatal codes to UnrecoverableError.
         throw error;
       }
-  }, { connection: getRedisConnection(), concurrency: CONCURRENT_WORKERS });
+  }, {
+    stage: "text_gen",
+    concurrency: CONCURRENT_WORKERS,
+    budget: { contentType: "article", getRunId: (j) => j.data.runId },
+    getBilling: (j) => ({
+      teamId: j.data.teamId,
+      runId: j.data.creditRunId,
+      amount: j.data.creditCostPerUnit,
+      releaseKey: `article:${j.data.articleId}`,
+      reason: `Article ${j.data.articleId} generation failed`,
+    }),
+  });
 
   const geminiRateLimit = parseInt(process.env.GEMINI_RATE_LIMIT || "10");
   console.log(`✅ Registered ${CONCURRENT_WORKERS} concurrent article workers (Gemini API: ${geminiRateLimit} req/min throttle)`);
@@ -1584,9 +1563,18 @@ export async function registerWorkers() {
     
     const { processSocialPostGeneration } = await import("./social-worker");
     
-    new Worker(SOCIAL_POST_GENERATION_QUEUE, async (job: Job<SocialPostJobData>) => {
+    createPipelineWorker(SOCIAL_POST_GENERATION_QUEUE, async (job: Job<SocialPostJobData>) => {
           await processSocialPostGeneration(job);
-    }, { connection: getRedisConnection(), concurrency: 5 });
+    }, {
+      stage: "text_gen",
+      concurrency: 5,
+      budget: { contentType: "social_post", getRunId: (j) => j.data.creditRunId },
+      getBilling: (j) => ({
+        teamId: j.data.teamId,
+        runId: j.data.creditRunId,
+        reason: `Social post ${j.data.socialPostId} generation failed`,
+      }),
+    });
     
     console.log(`✅ Social post generation worker registered successfully`);
   } catch (error) {
@@ -1605,7 +1593,7 @@ export async function registerWorkers() {
   try {
     console.log(`🖼️ Registering ${IMAGE_WORKERS} image generation workers for queue: "${IMAGE_GENERATION_QUEUE}"`);
     
-    new Worker(IMAGE_GENERATION_QUEUE, async (job: Job<ImageGenerationJobData>) => {
+    createPipelineWorker(IMAGE_GENERATION_QUEUE, async (job: Job<ImageGenerationJobData>) => {
             // Skip test jobs created during queue initialization
             if ((job.data as any).__test || (job.data as any).__queue_initialization) {
               console.log(`⏭️ Skipping test job ${job.id} (queue initialization)`);
@@ -1697,7 +1685,7 @@ export async function registerWorkers() {
               console.error(`❌ [Job ${job.id}] Image generation failed for article ${articleId}:`, error);
               // Don't throw - images are optional, article is already complete
             }
-    }, { connection: getRedisConnection(), concurrency: IMAGE_WORKERS });
+    }, { stage: "image_gen", concurrency: IMAGE_WORKERS });
     
     console.log(`✅ Registered ${IMAGE_WORKERS} image generation workers successfully`);
   } catch (error) {
@@ -1711,7 +1699,7 @@ export async function registerWorkers() {
 
   try {
     console.log(`🔄 Registering reformat worker for queue: "${REFORMAT_QUEUE}"`);
-    new Worker(REFORMAT_QUEUE, async (job: Job<ReformatJobData>) => {
+    createPipelineWorker(REFORMAT_QUEUE, async (job: Job<ReformatJobData>) => {
           console.log(`🔄 Processing reformat job ${job.id} for article ${job.data.articleId}`);
           const { articleId } = job.data;
 
@@ -1939,7 +1927,7 @@ export async function registerWorkers() {
               .catch(() => {}); // non-blocking — prevent cascading DB errors
             // Don't throw - let user retry if needed
           }
-    }, { connection: getRedisConnection(), concurrency: 5 });
+    }, { stage: "text_gen", concurrency: 5 });
     
     console.log(`✅ Reformat worker registered successfully`);
   } catch (error) {
@@ -1994,7 +1982,7 @@ export async function registerWorkers() {
         { pattern: "*/2 * * * *", tz: "UTC" },
         { name: "video-orphan-sweeper", data: {} }
       );
-      new Worker("video-orphan-sweeper", async (_job) => {
+      createPipelineWorker("video-orphan-sweeper", async (_job) => {
           try {
             const svQueue = getQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
             const activeJobs = await svQueue.getActive();
@@ -2021,7 +2009,7 @@ export async function registerWorkers() {
           } catch (sweepErr) {
             console.warn(`⚠️ Recurring video sweeper error (non-fatal):`, (sweepErr as Error).message);
           }
-        }, { connection: getRedisConnection(), concurrency: 1 }
+        }, { stage: "scheduler", concurrency: 1 }
       );
       console.log(`⏱️ Recurring video orphan sweeper registered (runs every 2 min)`);
     } catch (scheduleErr) {
@@ -2032,7 +2020,7 @@ export async function registerWorkers() {
     try {
       const ENGAGEMENT_QUEUE = "engagement-scoring";
       await getQueue(ENGAGEMENT_QUEUE).upsertJobScheduler(`${ENGAGEMENT_QUEUE}-scheduler`, { pattern: "0 */6 * * *", tz: "UTC" }, { name: ENGAGEMENT_QUEUE, data: {} });
-      new Worker(ENGAGEMENT_QUEUE, async (_job) => {
+      createPipelineWorker(ENGAGEMENT_QUEUE, async (_job) => {
         try {
           const { engagementScoringService } = await import("./engagement-scoring-service");
           const { db: _db } = await import("./db");
@@ -2052,7 +2040,7 @@ export async function registerWorkers() {
           console.error(`🚨 Engagement scoring job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log(`⏱️ Engagement scoring scheduler registered (every 6h)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register engagement scoring scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2064,7 +2052,7 @@ export async function registerWorkers() {
       const CONVERSION_LABELER_QUEUE = "conversion-labeler";
       // Run at 02:00 UTC nightly (after engagement scoring at midnight/6h)
       await getQueue(CONVERSION_LABELER_QUEUE).upsertJobScheduler(`${CONVERSION_LABELER_QUEUE}-scheduler`, { pattern: "0 2 * * *", tz: "UTC" }, { name: CONVERSION_LABELER_QUEUE, data: {} });
-      new Worker(CONVERSION_LABELER_QUEUE, async (_job) => {
+      createPipelineWorker(CONVERSION_LABELER_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const { teams, contentEvents, contentPerformanceMetrics } = await import("../shared/schema");
@@ -2329,7 +2317,7 @@ export async function registerWorkers() {
           console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log(`⏱️ ConversionLabeler scheduler registered (nightly 02:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register ConversionLabeler scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2340,7 +2328,7 @@ export async function registerWorkers() {
     try {
       const ARCHIVE_QUEUE = "underperformer-archiving";
       await getQueue(ARCHIVE_QUEUE).upsertJobScheduler(`${ARCHIVE_QUEUE}-scheduler`, { pattern: "0 3 * * 1", tz: "UTC" }, { name: ARCHIVE_QUEUE, data: {} });
-      new Worker(ARCHIVE_QUEUE, async (_job) => {
+      createPipelineWorker(ARCHIVE_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const { teams } = await import("../shared/schema");
@@ -2356,7 +2344,7 @@ export async function registerWorkers() {
           console.error(`🚨 Underperformer archiving job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log(`⏱️ Underperformer archiving scheduler registered (weekly Monday 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register underperformer archiving scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2369,7 +2357,7 @@ export async function registerWorkers() {
     try {
       const COHORT_MINING_QUEUE = "cohort-mining";
       await getQueue(COHORT_MINING_QUEUE).upsertJobScheduler(`${COHORT_MINING_QUEUE}-scheduler`, { pattern: "0 3 * * *", tz: "UTC" }, { name: COHORT_MINING_QUEUE, data: {} });
-      new Worker(COHORT_MINING_QUEUE, async (_job) => {
+      createPipelineWorker(COHORT_MINING_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const {
@@ -2915,7 +2903,7 @@ export async function registerWorkers() {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register cohort mining scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -2930,7 +2918,7 @@ export async function registerWorkers() {
     try {
       const JOURNEY_SCHEDULER_QUEUE = "journey-scheduler";
       await getQueue(JOURNEY_SCHEDULER_QUEUE).upsertJobScheduler(`${JOURNEY_SCHEDULER_QUEUE}-scheduler`, { pattern: "*/15 * * * *", tz: "UTC" }, { name: JOURNEY_SCHEDULER_QUEUE, data: {} });
-      new Worker(JOURNEY_SCHEDULER_QUEUE, async (_job) => {
+      createPipelineWorker(JOURNEY_SCHEDULER_QUEUE, async (_job) => {
         try {
           const { db: _db } = await import("./db");
           const {
@@ -3339,7 +3327,7 @@ export async function registerWorkers() {
           console.error(`🚨 Journey scheduler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log(`⏱️ Journey scheduler registered (every 15 min)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register journey scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3351,7 +3339,7 @@ export async function registerWorkers() {
     try {
       const CREDIT_PERIOD_RESET_QUEUE = "credit-period-reset";
       await getQueue(CREDIT_PERIOD_RESET_QUEUE).upsertJobScheduler(`${CREDIT_PERIOD_RESET_QUEUE}-scheduler`, { pattern: "5 0 * * *", tz: "UTC" }, { name: CREDIT_PERIOD_RESET_QUEUE, data: {} });
-      new Worker(CREDIT_PERIOD_RESET_QUEUE, async (_job) => {
+      createPipelineWorker(CREDIT_PERIOD_RESET_QUEUE, async (_job) => {
         const { teams: teamsTable } = await import("@/shared/schema");
         const { grantAllowance } = await import("@/lib/billing");
         const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
@@ -3417,7 +3405,7 @@ export async function registerWorkers() {
             console.error(`[credit-period-reset] Error for team ${t.id}:`, (err as Error).message);
           }
         }
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log("⏱️ Credit period reset registered (daily 00:05 UTC)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register credit-period-reset scheduler (non-fatal):", (scheduleErr as Error).message);
@@ -3428,7 +3416,7 @@ export async function registerWorkers() {
     try {
       const STRIPE_RECONCILE_QUEUE = "stripe-reconcile";
       await getQueue(STRIPE_RECONCILE_QUEUE).upsertJobScheduler(`${STRIPE_RECONCILE_QUEUE}-scheduler`, { pattern: "*/15 * * * *", tz: "UTC" }, { name: STRIPE_RECONCILE_QUEUE, data: {} });
-      new Worker(STRIPE_RECONCILE_QUEUE, async (_job) => {
+      createPipelineWorker(STRIPE_RECONCILE_QUEUE, async (_job) => {
         const { teams: teamsTable } = await import("@/shared/schema");
         const { getPlanByStripePriceId } = await import("@/lib/billing/plans");
         const { isNotNull } = await import("drizzle-orm");
@@ -3471,13 +3459,13 @@ export async function registerWorkers() {
           }
         }
         if (corrected > 0) console.log(`[stripe-reconcile] Corrected ${corrected}/${teamsWithSub.length} teams`);
-      }, { connection: getRedisConnection(), concurrency: 1 });
+      }, { stage: "scheduler", concurrency: 1 });
       console.log("⏱️ Stripe reconciliation registered (every 15 min)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
     }
 
-    new Worker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, async (job) => {
+    createPipelineWorker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, async (job) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
           const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
 
@@ -3507,16 +3495,7 @@ export async function registerWorkers() {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
-            // Attribute all telemetry in this run to creditRunId, then enforce
-            // the cost ceiling: Veo is the most expensive per attempt — stop
-            // before generating if prior attempts already hit the ceiling.
-            if (videoCreditRunId) {
-              const { enterRunContext } = await import("@/lib/run-context");
-              enterRunContext(videoCreditRunId);
-              const { assertRunBudget } = await import("@/lib/cost-ceilings");
-              await assertRunBudget(videoCreditRunId, "video", "video_gen");
-            }
-
+            // Run attribution + cost ceiling handled by createPipelineWorker (budget option).
             const { generateSocialVideo } = await import("./social-video-generator");
             const { cleanupTempFiles } = await import("./social-video-compositor");
             
@@ -3652,10 +3631,6 @@ export async function registerWorkers() {
               await releaseVideoSlotForPost(socialPostId);
             } catch { /* TTL self-heals */ }
 
-            // Classify the error — fatal codes skip remaining retries
-            const videoClassified = classifyError(error, "video_gen");
-            console.error(`❌ [video:post:${socialPostId}] ${videoClassified.code} (${videoClassified.disposition})`);
-            
             // PERMANENT FIX: Clean up temp files even on failure to prevent disk exhaustion
             try {
               const { cleanupTempFiles } = await import("./social-video-compositor");
@@ -3691,26 +3666,26 @@ export async function registerWorkers() {
               console.warn(`⚠️ Could not update videoStatus to FAILED:`, dbUpdateError);
             }
 
-            // Two-bucket billing: RELEASE reservation on failure (no charge)
-            if (videoCreditRunId) {
-              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
-              if (videoPost?.teamId) {
-                const { releaseReservation } = await import("@/lib/billing");
-                await releaseReservation({
-                  teamId: videoPost.teamId,
-                  runId: videoCreditRunId,
-                  reason: `Video generation failed for social post ${socialPostId}`,
-                }).catch((e: unknown) => console.warn(`[billing] video releaseReservation failed for post ${socialPostId}:`, e));
-              }
-            }
-
-            if (FATAL_CODES.has(videoClassified.code)) {
-              throw new UnrecoverableError(`[${videoClassified.code}] ${videoClassified.message}`);
-            }
-
+            // Rethrow — createPipelineWorker classifies, releases the credit
+            // reservation on the final attempt, and converts fatal codes to
+            // UnrecoverableError.
             throw error;
           }
-    }, { connection: getRedisConnection(), concurrency: 3 });
+    }, {
+      stage: "video_gen",
+      concurrency: 3,
+      budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
+      getBilling: async (j) => {
+        if (!j.data.creditRunId) return null;
+        const [videoPost] = await db.select({ teamId: socialPosts.teamId })
+          .from(socialPosts).where(eq(socialPosts.id, j.data.socialPostId)).limit(1);
+        return {
+          teamId: videoPost?.teamId,
+          runId: j.data.creditRunId,
+          reason: `Video generation failed for social post ${j.data.socialPostId}`,
+        };
+      },
+    });
 
     console.log(`✅ Social video generation worker registered (3 concurrent workers)`);
   } catch (error) {
@@ -3743,7 +3718,7 @@ export async function registerWorkers() {
   console.log("🕷️ Registering site crawl worker for queue:", SITE_CRAWL_QUEUE);
 
   try {
-    new Worker<SiteCrawlJobData>(SITE_CRAWL_QUEUE, async (job) => {
+    createPipelineWorker<SiteCrawlJobData>(SITE_CRAWL_QUEUE, async (job) => {
           console.log(`🕷️ Processing site crawl job ${job.id}: ${job.data.baseUrl}`);
           try {
             const { crawlWebsite } = await import("./site-crawler");
@@ -3759,7 +3734,7 @@ export async function registerWorkers() {
             console.error(`❌ Site crawl job ${job.id} failed:`, error);
             throw error;
           }
-    }, { connection: getRedisConnection(), concurrency: 1 });
+    }, { stage: "crawl", concurrency: 1 });
     console.log("✅ Site crawl worker registered successfully");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register site crawl worker:", error);
@@ -3773,7 +3748,7 @@ export async function registerWorkers() {
   console.log("🧹 Registering cleanup worker for queue:", CLEANUP_QUEUE);
   
   try {
-    new Worker<CleanupJobData>(CLEANUP_QUEUE, async (job) => {
+    createPipelineWorker<CleanupJobData>(CLEANUP_QUEUE, async (job) => {
           console.log(`🧹 Processing cleanup job ${job.id}: type=${job.data.jobType}, dryRun=${job.data.dryRun || false}`);
           
           try {
@@ -3783,7 +3758,7 @@ export async function registerWorkers() {
             console.error(`❌ Cleanup job ${job.id} failed:`, error);
             throw error; // Re-throw for pg-boss retry logic
           }
-    }, { connection: getRedisConnection(), concurrency: 1 });
+    }, { stage: "maintenance", concurrency: 1 });
     
     console.log("✅ Cleanup worker registered successfully");
   } catch (error) {
@@ -3798,7 +3773,7 @@ export async function registerWorkers() {
   console.log("📤 Registering content publishing worker for queue:", CONTENT_PUBLISHING_QUEUE);
 
   try {
-    new Worker<PublishingJobData>(CONTENT_PUBLISHING_QUEUE, async (job) => {
+    createPipelineWorker<PublishingJobData>(CONTENT_PUBLISHING_QUEUE, async (job) => {
           const { dbJobId } = job.data;
           console.log(`📤 Processing publishing job ${job.id}: db job ${dbJobId}`);
           try {
@@ -3822,7 +3797,7 @@ export async function registerWorkers() {
             console.error(`❌ Publishing worker error for job ${dbJobId}:`, error);
             throw error;
           }
-    }, { connection: getRedisConnection(), concurrency: 4 });
+    }, { stage: "publish", concurrency: 4 });
     console.log("✅ Content publishing worker registered (4 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register content publishing worker:", error);
@@ -3835,7 +3810,7 @@ export async function registerWorkers() {
 
   console.log("🧠 Registering intelligence research worker for queue:", INTELLIGENCE_RESEARCH_QUEUE);
   try {
-    new Worker<IntelligenceResearchJobData>(INTELLIGENCE_RESEARCH_QUEUE, async (job) => {
+    createPipelineWorker<IntelligenceResearchJobData>(INTELLIGENCE_RESEARCH_QUEUE, async (job) => {
           console.log(`🧠 Processing intelligence research job ${job.id}: team ${job.data.teamId} (${job.data.companyName})`);
           try {
             const { runIntelligenceResearch } = await import("./client-brand-profile-service");
@@ -3845,7 +3820,7 @@ export async function registerWorkers() {
             console.error(`❌ Intelligence research job ${job.id} failed:`, error);
             throw error;
           }
-    }, { connection: getRedisConnection(), concurrency: 2 });
+    }, { stage: "text_gen", concurrency: 2 });
     console.log("✅ Intelligence research worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register intelligence research worker:", error);
@@ -3860,7 +3835,7 @@ export async function registerWorkers() {
 
   console.log("🎙️ Registering podcast generation worker for queue:", PODCAST_GENERATION_QUEUE);
   try {
-    new Worker<PodcastJobData>(PODCAST_GENERATION_QUEUE, async (job) => {
+    createPipelineWorker<PodcastJobData>(PODCAST_GENERATION_QUEUE, async (job) => {
           const { articleId, teamId, tone, duration, journeyStepId, creditRunId, userId } = job.data;
           console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
           try {
@@ -3886,9 +3861,19 @@ export async function registerWorkers() {
                 .where(eqOp(jStepsTable.id, journeyStepId))
                 .catch(() => {});
             }
-            throw error; // Let pg-boss retry
+            throw error; // Rethrow — createPipelineWorker applies retry/billing policy
           }
-    }, { connection: getRedisConnection(), concurrency: 2 });
+    }, {
+      stage: "text_gen",
+      concurrency: 2,
+      budget: { contentType: "podcast", getRunId: (j) => j.data.creditRunId },
+      getBilling: (j) => ({
+        teamId: j.data.teamId,
+        runId: j.data.creditRunId,
+        userId: j.data.userId,
+        reason: `Release: podcast generation failure for article ${j.data.articleId}`,
+      }),
+    });
     console.log("✅ Podcast generation worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register podcast generation worker:", error);
@@ -3901,7 +3886,7 @@ export async function registerWorkers() {
 
   console.log("📅 Registering daily brief worker for queue:", DAILY_BRIEF_QUEUE);
   try {
-    new Worker<DailyBriefJobData>(DAILY_BRIEF_QUEUE, async (job) => {
+    createPipelineWorker<DailyBriefJobData>(DAILY_BRIEF_QUEUE, async (job) => {
       const { userId, teamId, localDate, force } = job.data;
       console.log(`📅 Processing daily brief job ${job.id}: user ${userId}, date ${localDate}`);
       
@@ -3991,7 +3976,7 @@ export async function registerWorkers() {
         console.error(`❌ Daily brief job ${job.id} failed for user ${userId}:`, error);
         throw error;
       }
-    }, { connection: getRedisConnection(), concurrency: 2 });
+    }, { stage: "text_gen", concurrency: 2 });
     console.log("✅ Daily brief worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register daily brief worker:", error);
@@ -4004,7 +3989,7 @@ export async function registerWorkers() {
 
   console.log("🤝 Registering signup competitor intake worker for queue:", SIGNUP_COMPETITOR_INTAKE_QUEUE);
   try {
-    new Worker<SignupCompetitorIntakeJobData>(SIGNUP_COMPETITOR_INTAKE_QUEUE, async (job) => {
+    createPipelineWorker<SignupCompetitorIntakeJobData>(SIGNUP_COMPETITOR_INTAKE_QUEUE, async (job) => {
       const { intakeId, email, companyName, websiteUrl, teamId } = job.data;
       console.log(`🤝 Processing signup competitor intake job ${job.id}: ${email}`);
 
@@ -4048,7 +4033,7 @@ export async function registerWorkers() {
         console.error(`❌ Signup competitor intake job ${job.id} failed:`, error);
         throw error;
       }
-    }, { connection: getRedisConnection(), concurrency: 2 });
+    }, { stage: "text_gen", concurrency: 2 });
     console.log("✅ Signup competitor intake worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register signup competitor intake worker:", error);
@@ -4058,7 +4043,7 @@ export async function registerWorkers() {
   // ── Citation Probe Worker ─────────────────────────────────────────────────
   console.log("🔬 Registering citation probe worker for queue: citation-probe");
   try {
-    new Worker<import("./citation-probe-worker").CitationProbeJob>("citation-probe", async (job) => {
+    createPipelineWorker<import("./citation-probe-worker").CitationProbeJob>("citation-probe", async (job) => {
           const { processCitationProbe } = await import("./citation-probe-worker");
           try {
             await processCitationProbe(job.data);
@@ -4066,7 +4051,7 @@ export async function registerWorkers() {
             console.error(`❌ Citation probe job ${job.id} failed:`, err);
             throw err; // Allow pg-boss retry
           }
-    }, { connection: getRedisConnection(), concurrency: 3 });
+    }, { stage: "text_gen", concurrency: 3 });
     console.log("✅ Citation probe worker registered (3 concurrent workers)");
   } catch (error) {
     console.error("❌ Failed to register citation probe worker:", error);

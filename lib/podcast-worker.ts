@@ -1,5 +1,3 @@
-import { UnrecoverableError } from "bullmq";
-import { classifyError, FATAL_CODES } from "./errors";
 import { db } from "./db";
 import { createNotification } from "./notification-service";
 import { articles, articleAssets, jobBatches, ContentType } from "../shared/schema";
@@ -317,26 +315,14 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
 
-    // Classify the error — fatal codes skip remaining BullMQ retries
-    const classified = classifyError(error, "text_gen");
-    console.error(`❌ [podcast:article:${articleId}] ${classified.code} (${classified.disposition})`);
-    
     await db.update(articles)
       .set({ podcastStatus: 'failed' })
       .where(eq(articles.id, articleId));
 
-    // Two-bucket billing: RELEASE reservation on failure (no charge)
-    if (job.teamId && job.creditRunId) {
-      const { releaseReservation } = await import("@/lib/billing");
-      await releaseReservation({
-        teamId: job.teamId,
-        runId: job.creditRunId,
-        userId: job.userId,
-        reason: `Release: podcast generation failure for article ${articleId}`,
-      }).catch((releaseErr) => {
-        console.error(`[Podcast Worker] Failed to release credits for article ${articleId}:`, releaseErr);
-      });
-    } else if (job.userId && job.debitLedgerRowId && job.teamId) {
+    // Two-bucket billing: reservation release on final failure is handled by
+    // createPipelineWorker (registration in lib/worker.ts). Only the legacy
+    // pre-reservation refund path remains here.
+    if (!job.creditRunId && job.userId && job.debitLedgerRowId && job.teamId) {
       // Legacy fallback: refund via old debitLedgerRowId path
       await refundCredits({
         teamId: job.teamId,
@@ -372,10 +358,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       context: { articleId },
     });
     
-    if (FATAL_CODES.has(classified.code)) {
-      throw new UnrecoverableError(`[${classified.code}] ${classified.message}`);
-    }
-
+    // Rethrow — createPipelineWorker classifies and applies retry/billing policy.
     throw error;
   }
 }

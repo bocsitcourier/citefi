@@ -31,4 +31,17 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error', 'info'] }],
     },
   },
+  {
+    // Worker registration policy: every BullMQ worker must go through
+    // createPipelineWorker (lib/pipeline-worker.ts) so error taxonomy,
+    // budget gates, and credit release cannot drift apart per worker.
+    files: ['**/*.ts', '**/*.tsx'],
+    ignores: ['node_modules/**', '.next/**', 'dist/**', 'lib/pipeline-worker.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "NewExpression[callee.name='Worker']",
+        message: 'Do not instantiate BullMQ Worker directly. Register through createPipelineWorker() in lib/pipeline-worker.ts so error classification, budget enforcement, and credit release stay unified.',
+      }],
+    },
+  },
 ];
