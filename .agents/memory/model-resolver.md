@@ -4,18 +4,19 @@ description: How AI model IDs are validated and resolved at worker startup; fall
 ---
 
 ## Rule
-All runtime AI API calls must read from `RESOLVED_MODELS` (lib/model-resolver.ts), not the static string constants from lib/ai-config.ts. The resolver validates every configured model ID against the live API at worker startup and falls back through a verified chain automatically.
+All runtime AI API calls must use `getModel(tier)` (lib/model-resolver.ts). Never import static constants from lib/ai-config.ts or destructure RESOLVED_MODELS at module scope. The resolver validates every configured model ID against the live API at worker startup and falls back through a verified chain automatically.
 
-**Why:** The content pipeline was silently broken for months because model IDs drifted out of sync with what the APIs actually serve. Static constants set at module-init time cannot reflect mid-deployment deprecations. RESOLVED_MODELS is a mutable object updated in place before any workers register, so all callers get the live-validated model at job execution time.
+**Why:** The content pipeline was silently broken for months because model IDs drifted out of sync with what the APIs actually serve. `getModel()` throws a fatal PipelineError if called before `validateAndResolveModels()` runs — mis-ordered boots surface immediately with a stack trace instead of returning undefined or a stale import-time capture.
 
 ## How to apply
 - Worker startup (`server/worker-process.ts`): call `await validateAndResolveModels()` BEFORE `registerWorkers()`.
-- Adding a new AI call in any lib/*.ts file: import from `model-resolver`, not `ai-config`.
+- Adding a new AI call in any lib/*.ts file:
   ```ts
-  import { RESOLVED_MODELS } from "./model-resolver";
-  model: RESOLVED_MODELS.geminiFlash   // not GEMINI_FLASH_MODEL
+  import { getModel } from "./model-resolver";
+  model: getModel("geminiFlash")   // not GEMINI_FLASH_MODEL, not RESOLVED_MODELS.x
   ```
-- Adding a new model tier: add a constant to ai-config.ts, a default to RESOLVED_MODELS, a fallback chain to GEMINI_CHAINS or OPENAI_CHAINS, and mark CRITICAL_TIERS if the tier must never be missing.
+- Health/status checks: use `getAllModels()` (returns defaults if resolver not run) and `isResolverReady()`.
+- Adding a new model tier: add a constant to ai-config.ts, add to DEFAULTS map in model-resolver.ts, add fallback chain to GEMINI_CHAINS or OPENAI_CHAINS, mark CRITICAL_TIERS if the tier must never be missing.
 - Mid-flight 404 from a model call: call `reResolveAfterModelNotFound(tier)` to re-run the resolver without a restart.
 
 ## Fallback chains (verified 2026-08)
@@ -33,8 +34,9 @@ All runtime AI API calls must read from `RESOLVED_MODELS` (lib/model-resolver.ts
 - gemini-2.5-pro: 2026-10-16 → replaced by gemini-3.1-pro-preview (already in chain)
 - Emit via KNOWN_SHUTDOWNS map in model-resolver.ts so the warning fires at startup even before the shutdown date.
 
-## Files that own RESOLVED_MODELS reads
+## Files that call getModel()
 - lib/gemini.ts (title pool + article generation)
 - lib/worker.ts (EU AI Act disclosure model recording)
 - lib/article-reflexive.ts, audio-director.ts, smart-topic-research.ts, seo-regenerator.ts
-- All chatgpt-review/* files still use hard-coded "gpt-4.1-mini" literal — valid now, flagged for future migration to RESOLVED_MODELS.gptMini.
+- app/api/health/route.ts uses getAllModels() + isResolverReady() (never getModel directly)
+- All chatgpt-review/* files still use hard-coded "gpt-4.1-mini" literal — valid now, flagged for future migration to getModel("gptMini").
