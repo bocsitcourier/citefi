@@ -302,6 +302,7 @@ export async function addArticleJob(data: ArticleJobData) {
     "article",
     enrichedData,
     {
+      jobId: runId,  // BullMQ native dedup: double-clicks get the same job
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
     }
@@ -359,6 +360,9 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
   }
 
   const job = await getQueue(IMAGE_GENERATION_QUEUE).add("image", data, {
+    // Dedup by articleId: prevents a race where two parallel requests both
+    // queue image generation for the same article.
+    jobId: `image:${data.articleId}`,
     attempts: 2,
     backoff: { type: "exponential", delay: 10000 },
   });
@@ -448,6 +452,9 @@ export async function addIntelligenceResearchJob(
 
 export async function addPodcastGenerationJob(data: PodcastJobData) {
   const job = await getQueue(PODCAST_GENERATION_QUEUE).add("podcast", data, {
+    // Dedup by articleId: prevents double-submits while the job is pending/active.
+    // Once the job reaches a terminal state and is removed, a new one can be added.
+    jobId: `podcast:${data.articleId}`,
     attempts: 3,
     backoff: { type: "exponential", delay: 60000 },
   });
@@ -463,6 +470,10 @@ export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { d
     "social-video",
     data,
     {
+      // Dedup by creditRunId so a double-submit uses the same reservation.
+      // Falls back to socialPostId + timestamp so intentional retries after
+      // failure still create new jobs.
+      jobId: data.creditRunId ? `video:${data.creditRunId}` : `video:${data.socialPostId}:${Date.now()}`,
       attempts: 1, // No retries — each attempt consumes a credit reservation
       ...(opts?.delayMs ? { delay: opts.delayMs } : {}),
     }

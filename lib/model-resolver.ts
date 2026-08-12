@@ -77,16 +77,17 @@ const DEFAULTS: Record<ModelTier, string> = {
  * Throws if called before validateAndResolveModels() has run.
  */
 export function getModel(tier: ModelTier): string {
-  if (_resolved === null) {
-    throw new PipelineError(
-      `getModel("${tier}") called before validateAndResolveModels() — ` +
-      `ensure the model resolver runs before registerWorkers()`,
-      "CONFIG_MISSING",
-      "fatal",
-      "startup"
-    );
-  }
-  return _resolved[tier];
+  if (_resolved !== null) return _resolved[tier];
+  // Pre-resolution fallback: web process routes call AI directly before the
+  // worker resolver has run. Return the static verified default so they keep
+  // working during the SEAM3 migration; log loudly so violations are visible.
+  // The strict "throw" behavior will return once all 15 sync routes are
+  // converted to queued jobs and WORKER_PROCESS enforcement is enabled.
+  console.warn(
+    `[model-resolver] getModel("${tier}") before resolution — using static default. ` +
+    `This call is in the web process and should be queued (Seam 3 violation).`
+  );
+  return DEFAULTS[tier];
 }
 
 /**

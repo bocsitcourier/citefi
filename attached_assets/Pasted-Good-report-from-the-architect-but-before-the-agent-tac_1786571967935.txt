@@ -1,0 +1,91 @@
+Good report from the architect — but before the agent "tackles all P0s in parallel," I want to put on the CTO hat and reframe, because the report (and the agent's plan) misses the most important findings, and parallel-fixing 8 areas in one session is exactly how you trade 8 known bugs for 12 unknown ones.
+
+The finding nobody flagged: this session shipped a production regression
+
+Read section A again carefully: getModel() throws until resolver initialization, and the resolver only runs in the worker. That means every synchronous AI route — SEO regeneration, title pools, image prompts — now returns 500 in the web process. Before this session they worked (with stale model IDs, but they worked for anything still live). The refactor made things worse for users on ~14 routes.
+
+Fix this today, in one file, before anything else:
+
+ts
+// lib/model-resolver.ts
+export function getModel(tier: Tier): string {
+  if (resolved) return resolved[tier];
+  // Web process / pre-resolution fallback: static verified defaults, loudly
+  console.warn(`[model-resolver] getModel(${tier}) before resolution — using static default`);
+  return STATIC_DEFAULTS[tier];  // the verified IDs from ai-config
+}
+
+The strict "throw if not ready" behavior was right in spirit but wrong in rollout order — you enforced worker-only AI before migrating the routes that violate it. Strictness can return later, behind WORKER_PROCESS=true, once migration is done. Hotfix first, architecture second.
+
+The second miss: the credit bug is worse than described, and the obvious fix creates a new bug
+
+The architect says credits release on every caught attempt, then a later retry "can generate content but cannot debit." That's not just billing leakage — depending on how debit failure is handled, it either gives away free generations or fails the job after burning provider cost. And the naive fix ("only release on final attempt") introduces its own race: BullMQ's failed event and the catch block can both fire, and a worker crash between generation and debit leaves reservations dangling forever.
+
+Don't patch the timing. Give reservations a real state machine, enforced by the database, not by code discipline:
+
+sql
+-- reservation.status: RESERVED → DEBITED | RELEASED (terminal, one-way)
+UPDATE reservations SET status='RELEASED', released_at=now()
+WHERE id=$1 AND status='RESERVED';  -- rowCount 0 = someone got there first; that's fine
+
+All three operations (reserve, debit, release) become idempotent conditional updates. Then the policy is trivial to state and impossible to double-execute: debit on terminal success, release on terminal failure (job.attemptsMade + 1 >= (job.opts.attempts ?? 1) or in the failed event handler — either, safely, because idempotency), and a sweeper releases any RESERVED older than 24h whose run is terminal. This is the only P0 where a bug costs you money in both directions; it deserves the durable fix, not a guard clause.
+
+The structural diagnosis the report dances around
+
+Look at the shape of the failures across sections B, C, and G: error taxonomy applied to 1 of 4 workers; resolver adopted by some files, skipped by six; credit logic copy-pasted per worker, each copy subtly wrong. And recall how you got here: model IDs hardcoded in 20+ files.
+
+The recurring disease is policy enforced by editing call sites. Every cross-cutting rule you've added requires N edits and gets N-k of them. The tremendous upgrade isn't fixing the missed instances — it's making missed instances impossible via chokepoints:
+
+Chokepoint 1 — one AI client layer. lib/gemini.ts and lib/openai.ts stop accepting model strings entirely; callers pass a tier, the client resolves via getModel(), applies rate limiting, stamps cost telemetry, and wraps errors in PipelineError with provider+stage context. Then section C's six stragglers can't exist — lib/gemini-social.ts passing a literal model no longer compiles. Enforce with lint so it stays fixed:
+
+json
+// eslint: no-restricted-imports
+{ "paths": [{ "name": "@google/genai", "message": "Import lib/ai-client instead" }] }
+
+Chokepoint 2 — one worker wrapper. Section B exists because error handling was hand-copied into the article worker and nowhere else. Write it once:
+
+ts
+export function createPipelineWorker(queue: string, processor: Processor, opts: WorkerOptions) {
+  return new Worker(queue, async (job) => {
+    try {
+      await transitionRun(job.data.runId, stageFor(queue, "active"));
+      const result = await processor(job);
+      await transitionRun(job.data.runId, "COMPLETED");
+      await settleReservation(job.data.runId, "debit");
+      await notifyRunTerminal(job.data.runId);
+      return result;
+    } catch (err) {
+      const pe = classifyError(err, { queue, stage: currentStage(job) });
+      const isFinal = pe.disposition === "fatal" || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      await recordRunError(job.data.runId, pe, isFinal);
+      if (isFinal) { await settleReservation(job.data.runId, "release"); await notifyRunTerminal(job.data.runId); }
+      if (pe.disposition === "fatal") throw new UnrecoverableError(pe.message);
+      if (pe.retryAfterMs) await job.moveToDelayed(Date.now() + pe.retryAfterMs);
+      throw pe;
+    }
+  }, opts);
+}
+
+Every worker — article, social, podcast, video, reformat, citation-probe — registers through this. Taxonomy, credit settlement, state transitions, and notifications become properties of the platform, not of whichever worker someone remembered to update. This single function closes most of B, G, half of D (video notifications can't be forgotten — notifyRunTerminal is in the wrapper), and lays the state-transition rail for H.
+
+Gaps the architect didn't find at all
+
+Idempotent job execution. If a worker crashes after the Gemini call but before the status write, BullMQ's stalled-job recovery re-runs the job and you generate (and pay for) the content twice. Persist per-stage completion in the run record and skip completed stages on re-entry: if (run.textGeneratedAt) skip to image stage. This matters more as you scale workers — stalls become routine, not exceptional.
+
+Duplicate submission. Nothing stops a double-clicked Generate button from enqueueing twice. Set jobId: runId in queue.add() — BullMQ dedupes on jobId natively. One line, closes a whole class of double-billing.
+
+Enqueue atomicity. If the route writes the run record then crashes before queue.add(), you get a permanently-QUEUED phantom the watchdog will chase forever. Write record → enqueue → on enqueue failure, mark record FAILED_ENQUEUE and return 5xx; and teach the watchdog that QUEUED-with-no-job older than 5 minutes means re-enqueue or fail.
+
+Graceful shutdown. Replit restarts your worker whenever it likes. Without SIGTERM handling (await worker.close() with a drain timeout), every restart strands in-flight jobs into the stalled path. Cheap to add, and it's why some of your original 38 stuck articles existed.
+
+The 404 misclassification fix needs context, not regex. The architect flagged that storage 404s become fatal MODEL_NOT_FOUND. The fix falls out of Chokepoint 1: classifyError receives {provider, stage} from the wrapper, and only a 404 with provider ∈ {gemini, openai, veo} at a generation stage maps to MODEL_NOT_FOUND; a 404 at stage: "upload" maps to STORAGE_NOT_FOUND → retry.
+
+The route migration has hidden frontend scope. Converting 14 sync routes to queued jobs changes their contract from "200 with result" to "202 with runId" — every calling UI component needs a polling/refresh path or it breaks. The agent's plan treats this as backend work; it's actually the largest chunk of the project and the reason to do it route-by-route behind a pattern (one shared useRunStatus(runId) hook + one SSE-or-polling endpoint, then mechanical conversions), not as a big-bang.
+
+Zero tests were written this session for the most correctness-critical code you own. Minimum bar: unit tests for classifyError (a table of provider errors → expected code/disposition), the reservation state machine (concurrent release+debit → exactly one wins), and the wrapper's final-attempt logic. Plus the canary from earlier — one scheduled end-to-end tiny generation per content type — which converts "a user complained" into "an alert fired."
+
+Sequencing — overruling the "all P0s in parallel" plan
+
+Day 1: the getModel web-process hotfix (regression), jobId: runId dedupe, 404 context fix. Small, independent, immediately de-risking. Day 2–3: reservation state machine with tests — money correctness before throughput. Day 3–5: createPipelineWorker wrapper, migrate all workers onto it, delete the per-worker copies. Week 2: AI client chokepoint + lint rule, which mechanically resolves section C; podcast route → queue (it's the worst offender — fire-and-forget with no recovery); then the sync-route migration as a tracked sequence with the shared status hook. After that: watchdog generalization, circuit breakers, DLQ UI — genuinely P2 once the above holds, because the failure modes they guard against are now visible instead of silent.
+
+One instruction for the agent that matters more than any fix: after each phase, re-run the architect on the diff, not the whole repo. Verification of what just changed catches the regression-of-the-session pattern — which, as we just saw, is the failure mode this codebase actually has.

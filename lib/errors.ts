@@ -77,12 +77,28 @@ export class PipelineError extends Error {
 
 // ── Classifier ────────────────────────────────────────────────────────────────
 
-export function classifyError(err: unknown, stage: string = "unknown"): PipelineError {
+/**
+ * Classify a caught error into a typed PipelineError.
+ *
+ * @param err   - The caught value (any type).
+ * @param stage - The pipeline stage where the error occurred.
+ *                Use specific values: "text_gen" | "image_gen" | "video_gen" |
+ *                "upload" | "publish" | "enqueue" | "startup".
+ *                Stage is used to distinguish storage 404s from model 404s.
+ * @param ctx   - Optional extra context. `provider` overrides auto-detection
+ *                and is used to prevent storage provider 404s being classified
+ *                as MODEL_NOT_FOUND.
+ */
+export function classifyError(
+  err: unknown,
+  stage: string = "unknown",
+  ctx?: { provider?: string }
+): PipelineError {
   if (err instanceof PipelineError) return err;
 
   const msg  = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
-  const prov  = detectProvider(lower);
+  const prov  = ctx?.provider ?? detectProvider(lower);
 
   // ── Fatal (operator must act) ────────────────────────────────────────────
   if (lower.includes("401") || lower.includes("403") ||
@@ -95,6 +111,15 @@ export function classifyError(err: unknown, stage: string = "unknown"): Pipeline
       lower.includes("model not found") || lower.includes("not_found") ||
       lower.includes("is not found for api version") ||
       lower.includes("not supported for predictlongrunning")) {
+    // A 404 at an upload/storage stage or from a storage provider is a missing
+    // resource — retryable. Only a 404 from an AI model provider at a
+    // generation stage means the model ID is dead (fatal MODEL_NOT_FOUND).
+    const isStorageStage = stage === "upload" || stage === "publish" || stage === "storage";
+    const isStorageProvider = prov === "do_spaces" || prov === "object_storage" || prov === "redis";
+    const isAIProvider = prov === "gemini" || prov === "openai" || prov === "veo";
+    if (isStorageStage || isStorageProvider || (!isAIProvider && stage !== "text_gen" && stage !== "image_gen" && stage !== "video_gen")) {
+      return new PipelineError(msg, "STORAGE_UPLOAD_FAILED", "retry", stage, prov, err);
+    }
     return new PipelineError(msg, "MODEL_NOT_FOUND", "fatal", stage, prov, err);
   }
 
