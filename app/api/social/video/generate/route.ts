@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
+import { checkVideoGate } from "@/lib/user-gate";
 
 export async function POST(request: NextRequest) {
   // ── Storage preflight ──────────────────────────────────────────────────────
@@ -31,6 +32,23 @@ export async function POST(request: NextRequest) {
     const paywallResult = await checkTeamPaywall(teamId);
     if (!paywallResult.allowed) {
       return NextResponse.json(paywallErrorBody(paywallResult), { status: 402 });
+    }
+
+    // Per-user concurrency and daily quota gate — checked before spending cap so
+    // the cheapest possible rejection happens first (no DB reservation needed).
+    const videoGate = await checkVideoGate(userId, teamId);
+    if (!videoGate.allowed) {
+      return NextResponse.json(
+        {
+          error: videoGate.message ?? "Video generation limit reached",
+          code: videoGate.code,
+          scope: videoGate.scope,
+          remaining: videoGate.remaining ?? 0,
+          resetsAt: videoGate.resetsAt,
+          upgradeUrl: videoGate.upgradeUrl,
+        },
+        { status: 429 }
+      );
     }
 
     // Spending cap gate — blocks if team's monthly dollar limit would be exceeded.

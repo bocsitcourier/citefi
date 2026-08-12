@@ -25,6 +25,7 @@ export type ErrorCode =
   | "MODEL_NOT_FOUND"        // 404 from a model API — dead ID, never self-heals
   | "AUTH_FAILURE"           // 401/403 — bad key or expired credential
   | "CONFIG_MISSING"         // required env var absent
+  | "BUDGET_EXCEEDED"        // run accumulated cost >= ceiling; no retry would help
   // Retryable — transient
   | "RATE_LIMITED"           // 429 — honor Retry-After
   | "PROVIDER_ERROR"         // 5xx from provider
@@ -44,6 +45,7 @@ export const FATAL_CODES = new Set<ErrorCode>([
   "AUTH_FAILURE",
   "CONFIG_MISSING",
   "STORAGE_NOT_CONFIGURED",
+  "BUDGET_EXCEEDED",         // credits returned to user; no retry will succeed
 ]);
 
 export class PipelineError extends Error {

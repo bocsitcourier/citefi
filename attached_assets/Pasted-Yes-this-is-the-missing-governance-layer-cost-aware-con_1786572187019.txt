@@ -1,0 +1,75 @@
+Yes — this is the missing governance layer: cost-aware controls that stop spend before it happens, not telemetry that reports it after. Retries and video generation are exactly where money leaks, because a retry loop multiplies provider cost with zero user-visible progress. Here's the design, and critically, how it surfaces in UI/UX so every platform behaves identically.
+
+1. Retry budgets in money, not attempts
+
+"5 attempts" is the wrong unit — 5 retries of an article is pennies, 5 retries of a Veo job is dollars. Attach a cost ceiling per run and check it in the worker wrapper before every attempt:
+
+ts
+// in createPipelineWorker, before processing
+const spent = await getRunSpend(job.data.runId);        // from cost-telemetry, per attempt
+const ceiling = COST_CEILINGS[job.data.contentType];    // article: $0.15, video: $3.00, etc.
+if (spent >= ceiling) {
+  throw new PipelineError(
+    `Run exceeded cost ceiling ($${spent} >= $${ceiling})`,
+    "BUDGET_EXCEEDED", "fatal", currentStage(job)
+  );
+}
+
+BUDGET_EXCEEDED joins your FATAL_CODES → UnrecoverableError → credits released, user notified. This converts your existing per-attempt telemetry from a reporting tool into an enforcement tool. Key detail: record cost per attempt as it's incurred (you already stamp this), so the check reads accumulated spend including failed attempts — that's precisely the retry-loop leak.
+
+Also add disposition-aware attempt limits: RATE_LIMITED can retry longer (it's free — you're waiting, not calling), while provider 500s that did bill you count against the ceiling.
+
+2. Per-user quotas and concurrency caps — enforced at enqueue
+
+Videos need three independent limits, checked in the API route before the run record is written:
+
+ts
+const gate = await checkUserGate(userId, "video");
+// returns { allowed, reason?, retryAt?, remaining }
+Concurrency cap: max N videos in-flight per user (free: 1, pro: 3). One user queueing 50 videos can't monopolize Veo quota or your workers. Implement as a count of non-terminal video runs — you already have run records, so it's one indexed query.
+Rolling window quota: videos per day/month per tier, backed by a Redis counter (INCR with TTL) plus the run table as truth.
+Spend quota: dollars per user per month across all content types, from cost-telemetry aggregated by userId. This is the one that actually protects the business — piece counts are a proxy, spend is the real constraint.
+
+Rejecting at enqueue (HTTP 429 with structured body: {code: "QUOTA_EXCEEDED", scope: "video_daily", remaining: 0, resetsAt, upgradeUrl}) means zero provider cost for over-quota requests and gives the UI everything it needs to render the state.
+
+3. Global shutdown — the platform circuit breaker
+
+Per-user caps don't protect you from aggregate runaway (a bug that retries everything, a pricing change, a viral spike). Add a platform-level spend breaker:
+
+Soft limit (e.g., 80% of daily budget): pause the expensive queues only (videoQueue.pause()), keep articles flowing, alert ops. Degradation, not outage.
+Hard limit (100%): pause all generation queues, enqueue still accepted into a HELD state (so user work isn't lost — jobs drain when the breaker closes), page a human. Auto-close at budget window reset, manual override available.
+
+Store breaker state in Redis so all workers and all web processes see it instantly, and expose it via a config endpoint (next section). This is a ~day of work and it's the difference between "we had an expensive bug" and "we had an expensive bug for six hours while everyone slept."
+
+Per-provider breakers you already planned (error-rate based) compose with this one (spend-based) — same pause mechanism, different trigger.
+
+4. The UI/UX contract — server-driven, so all platforms agree
+
+The trap here is encoding limits in each client. Web hardcodes "3 videos/day," mobile hardcodes 5, you change tiers, everything lies. The rule: clients render state; the server owns policy. Two mechanisms:
+
+A. An entitlements endpoint every client fetches on load and after each generation:
+
+json
+GET /api/me/entitlements
+{
+  "video":   { "remaining": 2, "cap": 3, "inFlight": 1, "concurrencyCap": 1, "resetsAt": "..." },
+  "article": { "remaining": 46, "cap": 50, ... },
+  "platform": { "status": "ok" | "video_paused" | "generation_paused", "message": "..." }
+}
+
+Every Generate button across web/mobile derives its state from this: enabled, disabled-with-reason ("Daily video limit reached — resets in 6h"), or replaced with an upgrade CTA. No client ever guesses. When the global breaker trips, platform.status flips and every client shows the same banner ("Video generation is briefly paused — your queued videos will resume automatically") without a deploy.
+
+B. Structured errors as the fallback. Clients race conditions happen (two tabs, stale entitlements) — so the 429 body from enqueue carries the same shape, and clients render it identically. Same code path, same copy.
+
+UX rules that make limits feel fair rather than hostile:
+
+Show cost before commit, for expensive types. The video composer displays "This will use 1 of your 2 remaining videos today" before generation. Surprise depletion is what generates support tickets; disclosed depletion generates upgrades.
+Never lose user intent. Over-quota or breaker-tripped work goes to HELD/draft with "will run when available" rather than an error dead-end — the user's prompt and settings persist.
+Budget-killed runs get honest, actionable copy. BUDGET_EXCEEDED renders as "This generation hit repeated provider errors and was stopped to avoid wasting your credits — your credits were returned. Try again or contact support," not a raw error code. Credits-returned messaging is essential: the reservation release you built means it's true, so say it.
+Progressive disclosure by tier. Free users see simple counts ("2 videos left today"); workspace admins get a usage dashboard (spend by member, by content type, projected month-end) fed by the same cost-telemetry table.
+One status vocabulary everywhere. QUEUED / HELD / GENERATING / COMPLETED / FAILED / STOPPED_BUDGET render with the same iconography and copy on web and mobile, driven by the run record — which you already stream via the status hook from the route migration. No platform invents its own states.
+5. Wiring order
+
+This slots into the existing plan without displacing the correctness work: (1) BUDGET_EXCEEDED in the taxonomy + ceiling check in the wrapper — one day, immediately stops retry-loop burn; (2) enqueue-time gates for video (concurrency + daily) with the structured 429 — the highest-cost surface first; (3) entitlements endpoint + client adoption, replacing any hardcoded client limits; (4) global breaker + HELD state; (5) admin dashboard and per-tier tuning.
+
+One warning from the CTO chair: pick the ceiling numbers from your actual telemetry (p95 cost per successful run × ~2), not intuition — set them too tight and you'll fatal legitimate runs that hit one transient 500, which turns a cost control into a reliability regression. You have the per-run cost data already; query it first, then set the ceilings.
