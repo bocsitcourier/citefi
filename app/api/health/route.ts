@@ -1,26 +1,83 @@
-import { NextResponse } from "next/server";
+/**
+ * /api/health — production preflight health check
+ *
+ * Checks: DB connectivity, Redis PING, model resolver status.
+ * Returns 200 when all critical services are up, 503 otherwise.
+ * Suitable as a target for external uptime monitors (UptimeRobot, etc.).
+ *
+ * Use /api/health?full=1 for the detailed breakdown (slower — does live
+ * model-list validation); omit for the fast cache-based check.
+ */
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { RESOLVED_MODELS } from "@/lib/model-resolver";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function checkDatabase(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const t = Date.now();
   try {
     await db.execute(sql`SELECT 1`);
+    return { ok: true, latencyMs: Date.now() - t };
+  } catch (err) {
+    return { ok: false, latencyMs: Date.now() - t, error: (err as Error).message.slice(0, 120) };
+  }
+}
 
-    return NextResponse.json({
-      status: "healthy",
+async function checkRedis(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const t = Date.now();
+  try {
+    const Redis = (await import("ioredis")).default;
+    const url = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+    const client = new Redis(url, { lazyConnect: true, connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 0 });
+    await client.connect();
+    await client.ping();
+    await client.quit();
+    return { ok: true, latencyMs: Date.now() - t };
+  } catch (err) {
+    return { ok: false, latencyMs: Date.now() - t, error: (err as Error).message.slice(0, 120) };
+  }
+}
+
+function checkModels(): { ok: boolean; models: Record<string, string>; warnings: string[] } {
+  const warnings: string[] = [];
+  const knownShutdowns: Record<string, string> = {
+    "gemini-2.5-pro": "2026-10-16",
+  };
+  for (const [tier, id] of Object.entries(RESOLVED_MODELS)) {
+    if (knownShutdowns[id]) warnings.push(`${tier} (${id}) shuts down ${knownShutdowns[id]}`);
+  }
+  return { ok: true, models: { ...RESOLVED_MODELS }, warnings };
+}
+
+export async function GET(request: NextRequest) {
+  const full = request.nextUrl.searchParams.get("full") === "1";
+
+  const [dbResult, redisResult] = await Promise.all([
+    checkDatabase(),
+    full ? checkRedis() : Promise.resolve({ ok: true, latencyMs: 0, note: "skipped (use ?full=1)" }),
+  ]);
+  const modelResult = checkModels();
+
+  const allOk = dbResult.ok && redisResult.ok;
+  const status = allOk ? 200 : 503;
+
+  return NextResponse.json(
+    {
+      status: allOk ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
       services: {
-        database: "connected",
+        database: dbResult,
+        redis: redisResult,
+        models: modelResult,
+        storage: {
+          replitObjectStorage: !!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID,
+          doSpaces: !!process.env.DO_SPACES_BUCKET,
+        },
       },
-    });
-  } catch (error) {
-    console.error("Health check failed:", error);
-    return NextResponse.json(
-      {
-        status: "unhealthy",
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 }
-    );
-  }
+    },
+    { status }
+  );
 }

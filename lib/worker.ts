@@ -1,4 +1,4 @@
-import { Worker, type Job } from "bullmq";
+import { Worker, UnrecoverableError, type Job } from "bullmq";
 import {
   getRedisConnection,
   getQueue,
@@ -57,6 +57,7 @@ import { injectDisclosureIntoHtml } from "./compliance/ai-disclosure";
 import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
 import { RESOLVED_MODELS } from "./model-resolver";
+import { classifyError, FATAL_CODES } from "./errors";
 
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
@@ -1518,20 +1519,13 @@ export async function registerWorkers() {
           }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
         }
 
+        // Classify the error to determine retry disposition + structured code
+        const classified = classifyError(error, "text_gen");
+        console.error(`❌ [article:${articleId}] ${classified.code} (${classified.disposition}) stage=${classified.stage} provider=${classified.provider ?? "unknown"}`);
+
         // Record failure in learning ledger so the AI learning center can surface it
         if (articleTeamId) {
-          const lowerMsg = errorMessage.toLowerCase();
-          let failureCode = "GENERATION_ERROR";
-          if (lowerMsg.includes("timeout") || lowerMsg.includes("timed out")) {
-            failureCode = "GENERATION_TIMEOUT";
-          } else if (lowerMsg.includes("rate limit") || lowerMsg.includes("429")) {
-            failureCode = "API_RATE_LIMIT";
-          } else if (lowerMsg.includes("json") || lowerMsg.includes("parse") || lowerMsg.includes("unexpected token")) {
-            failureCode = "JSON_PARSE_ERROR";
-          } else if (lowerMsg.includes("token") && (lowerMsg.includes("limit") || lowerMsg.includes("exceed"))) {
-            failureCode = "TOKEN_LIMIT_EXCEEDED";
-          }
-          learningService.recordGuardianFailures(articleTeamId, "article", [failureCode]).catch(() => {});
+          learningService.recordGuardianFailures(articleTeamId, "article", [classified.code]).catch(() => {});
         }
 
         // Notify the team via the in-app bell so the failure is visible without checking logs
@@ -1550,6 +1544,14 @@ export async function registerWorkers() {
 
         // Check batch completion even on failure
         await checkBatchCompletion(batchId);
+
+        // Fatal dispositions (MODEL_NOT_FOUND, AUTH_FAILURE, CONFIG_MISSING) will
+        // produce identical failures on every retry — throw UnrecoverableError so
+        // BullMQ skips remaining attempts and moves the job straight to the failed
+        // set instead of burning retry budget and quota.
+        if (FATAL_CODES.has(classified.code)) {
+          throw new UnrecoverableError(`[${classified.code}] ${classified.message}`);
+        }
 
         throw error;
       }

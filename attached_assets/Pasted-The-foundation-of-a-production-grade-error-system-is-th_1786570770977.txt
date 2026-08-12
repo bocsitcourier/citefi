@@ -1,0 +1,59 @@
+The foundation of a production-grade error system is that every failure must be classified, persisted, and routed — never swallowed, never retried blindly. Here's a design mapped to your actual stack (Next.js + BullMQ + Gemini/OpenAI/Veo + DO Spaces), built around the failures you just lived through.
+
+1. Error taxonomy — classify before you handle
+
+Everything else depends on this. Create a single error module that wraps every failure into a typed class with a disposition:
+
+ts
+// lib/errors.ts
+export type ErrorDisposition = "retry" | "fatal" | "fallback" | "degrade";
+
+export class PipelineError extends Error {
+  constructor(
+    message: string,
+    public code: string,          // "MODEL_NOT_FOUND", "RATE_LIMITED", "STORAGE_UPLOAD_FAILED"...
+    public disposition: ErrorDisposition,
+    public stage: string,         // "enqueue" | "text_gen" | "image_gen" | "video_gen" | "upload" | "publish"
+    public provider?: string,     // "gemini" | "openai" | "veo" | "do_spaces" | "redis" | "db"
+    public cause?: unknown,
+    public retryAfterMs?: number  // honor 429 Retry-After headers
+  ) { super(message); }
+}
+
+The mapping rules that matter, derived from your incident history: 404/NOT_FOUND on a model → fatal (a dead model ID never fixes itself — this is the bug that cost you 44 articles); 429 → retry with the provider's Retry-After, exponential backoff, and jitter; 500/503 from a provider → retry with a cap; auth failures (401/403) → fatal and page a human, because every job will fail identically; content-policy blocks from Gemini/OpenAI → fallback or degrade, never retry (same input, same block); network timeouts → retry; missing env var / bucket → fatal at startup, which brings us to the next layer.
+
+2. Detection at every stage, not just inside the worker
+
+Startup preflight (fail fast, before any job runs). The worker refuses to boot unless: Redis PINGs, the DB connects, every configured model ID appears in that provider's live model list, every required env var for enabled content types is present, and the storage bucket is writable (do a 1-byte test PUT to DO Spaces). This one gate would have caught your ediss:// URL, the dead model IDs, and the missing DO_SPACES_BUCKET before a single job burned quota. If video's bucket is missing, disable the video queue and report it — don't let jobs enter a pipeline that ends in a cliff.
+
+Enqueue-time validation. The API route validates the request, writes a run record with status QUEUED, and only returns 200 if queue.add() actually succeeded. If enqueue throws, return a 5xx with the error code — this kills the "user sees success, nothing happens" class of silent failure.
+
+Per-stage checkpoints in the worker. Each generation is a state machine persisted to the DB: QUEUED → GENERATING_TEXT → GENERATING_IMAGE → GENERATING_VIDEO → UPLOADING → PUBLISHED, with FAILED_<STAGE> terminal states. Every transition writes: timestamp, stage, resolved model ID, token/cost figures, and on failure the full PipelineError (code, provider, message, cause). This is your reporting backbone — the queue is transient, the DB row is forever.
+
+Output validation. A "successful" API call isn't a successful generation. Validate the artifact: article non-empty and above a minimum length, image bytes > 0 and decodable, video file exists and duration > 0, upload URL returns 200 on HEAD. Gemini can return an empty candidate with a finish reason of SAFETY — that's a success HTTP-wise and a failure product-wise.
+
+3. Failsafes
+
+Retry policy per disposition, not global. BullMQ config: attempts: 5, backoff: { type: "exponential", delay: 2000 }, but in the processor, fatal dispositions throw UnrecoverableError so they skip remaining attempts, and retryAfterMs from 429s overrides the backoff via job.moveToDelayed().
+
+Model fallback chains (the Level 2 resolver from before): each tier has an ordered list; on MODEL_NOT_FOUND mid-flight, re-resolve against ListModels, fall to the next live model, log loudly, and stamp the run record with the substituted model.
+
+Circuit breakers per provider. If Gemini throws N consecutive failures in M minutes, open the circuit: pause the affected queues (queue.pause()), alert, and probe with a cheap health call every 60s; close and resume when it passes. This prevents a provider outage from converting your whole backlog into failed jobs and burning retry budget.
+
+Dead-letter queue + retention. Set removeOnComplete: { count: 1000 }, removeOnFail: { count: 5000 } so you never again read "0 failed" while 44 articles are dead. Jobs that exhaust retries get copied to a dead-letter queue with full context for manual inspection and one-click requeue.
+
+Stuck-job watchdog. A repeatable job every 5 minutes: find run records in any non-terminal state older than a per-stage timeout (text 10 min, image 15, video 60), mark them STALLED, requeue once, and if they stall twice, dead-letter them. This is the fix for your 38 wedged articles becoming structurally impossible.
+
+Graceful degradation. If image generation fails terminally but the article succeeded, publish the article with a placeholder and flag degraded: ["hero_image"] on the record — partial delivery beats total failure, and the flag makes it queryable for later repair.
+
+4. Reporting
+
+Three audiences, three channels. Users get honest status from the run record — "Generation failed: the image model rejected this content" beats an infinite spinner; surface FAILED/DEGRADED states in the UI with a retry button wired to the requeue endpoint. Operators get structured JSON logs (one line per state transition, with runId/jobId/stage/code/provider/latency/cost) shipped to something searchable, plus alerts: page on circuit-open, auth failure, or preflight failure; daily digest for everything else. The business gets a health dashboard fed by the run table: success rate per content type per day, failure breakdown by error code, p95 stage latency, cost per artifact, DLQ depth. A /api/health endpoint that runs the preflight checks on demand gives you an external uptime monitor target (UptimeRobot or similar pinging it every minute closes the "worker process is dead and nobody noticed" gap).
+
+Sentry (or equivalent) for exception capture with the run context attached is worth the hour it takes to wire in — it deduplicates, so 44 identical model-404s become one alert with a count of 44 instead of silence.
+
+5. Gaps in your current system, prioritized
+
+P0 — startup preflight with model + env + storage validation; UnrecoverableError on fatal codes; failed-job retention. These directly prevent recurrence of everything that just happened. P1 — persisted state machine with per-stage errors, stuck-job watchdog, user-facing failure states. P2 — circuit breakers, DLQ with requeue UI, Sentry, health endpoint + external monitor. P3 — dashboard, cost anomaly alerts (a sudden $0 in telemetry means the pricing table drifted from the model IDs again), weekly synthetic canary job per content type that runs a tiny end-to-end generation and alerts on failure.
+
+That canary is the piece most teams skip and the one that would have caught this entire incident within an hour of the model deprecation instead of whenever a user complained: a scheduled job that generates one throwaway article/image/video daily and asserts the full pipeline works.
