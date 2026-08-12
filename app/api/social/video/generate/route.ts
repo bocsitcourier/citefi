@@ -9,14 +9,14 @@ import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 export async function POST(request: NextRequest) {
   // ── Storage preflight ──────────────────────────────────────────────────────
-  // Video generation produces files that must be uploaded to DO Spaces.
-  // Reject immediately if storage isn't configured so we don't burn Veo quota
-  // generating a video that can't be stored. Fail at enqueue, not after upload.
-  if (!process.env.DO_SPACES_BUCKET) {
+  // All video generation (slideshow + Veo) uploads to Replit Object Storage
+  // via DEFAULT_OBJECT_STORAGE_BUCKET_ID. Reject immediately so we don't burn
+  // Veo quota generating a video that can't be stored.
+  if (!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) {
     return NextResponse.json(
       {
         error: "Video storage not configured",
-        message: "DO_SPACES_BUCKET is not set. Configure DigitalOcean Spaces credentials before generating videos.",
+        message: "Object storage is not set up. Contact your administrator.",
         code: "STORAGE_NOT_CONFIGURED",
       },
       { status: 503 }
