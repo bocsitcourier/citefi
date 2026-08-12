@@ -26,7 +26,6 @@ function deps() {
     calls,
     _deps: {
       releaseReservation: async (args: any) => { calls.push(args); },
-      assertRunBudget: async () => {},
     },
   };
 }
@@ -92,24 +91,24 @@ test("no billing info (missing runId): final failure does not call release", asy
   assert.equal(d.calls.length, 0);
 });
 
-test("budget gate: BUDGET_EXCEEDED from assertRunBudget is fatal and releases once", async () => {
-  const calls: any[] = [];
-  const handler = createPipelineHandler("q", async () => "never reached", {
+test("BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once", async () => {
+  // The assertRunBudget gate lives inside processors' try blocks; when it
+  // throws, the error flows through the processor catch (domain cleanup),
+  // gets rethrown, and this wrapper must treat it as fatal + release.
+  const d = deps();
+  const handler = createPipelineHandler("q", async () => {
+    const { PipelineError } = await import("../../lib/errors");
+    throw new PipelineError("run spent $0.20 >= ceiling $0.15", "BUDGET_EXCEEDED", "fatal", "text_gen");
+  }, {
     ...billingOpts,
     budget: { contentType: "article", getRunId: (j: AnyJob) => j.data.creditRunId },
-    _deps: {
-      releaseReservation: async (args: any) => { calls.push(args); },
-      assertRunBudget: async () => {
-        const { PipelineError } = await import("../../lib/errors");
-        throw new PipelineError("run spent $0.20 >= ceiling $0.15", "BUDGET_EXCEEDED", "fatal", "text_gen");
-      },
-    },
+    _deps: d._deps,
   } as any);
   await assert.rejects(
     () => handler(makeJob({ attemptsMade: 0, attempts: 3 })),
     (err: unknown) => err instanceof UnrecoverableError && /BUDGET_EXCEEDED/.test((err as Error).message)
   );
-  assert.equal(calls.length, 1, "budget-exceeded runs must release the reservation");
+  assert.equal(d.calls.length, 1, "budget-exceeded runs must release the reservation");
 });
 
 test("success path: processor result returned, no release", async () => {

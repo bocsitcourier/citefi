@@ -1,5 +1,5 @@
-import { Worker, type Job } from "bullmq";
-import { getRedisConnection } from "@/lib/queue";
+import { type Job } from "bullmq";
+import { createPipelineWorker } from "@/lib/pipeline-worker";
 import { orchestrateVideoIdeaGeneration } from "@/lib/veo-idea-orchestrator";
 import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
@@ -18,7 +18,7 @@ export async function registerVideoIdeaWorker(): Promise<void> {
 
   console.log(`🎬 Registering video idea generation worker for queue: "${queueName}"`);
 
-  new Worker(
+  createPipelineWorker<VideoIdeaJobData>(
     queueName,
     async (job: Job<VideoIdeaJobData>) => {
       if (!job || !job.data) {
@@ -70,7 +70,9 @@ export async function registerVideoIdeaWorker(): Promise<void> {
               `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${creditRunId}). ` +
               `Video was generated but debit failed — throwing so BullMQ can retry the debit.`
             );
-            throw new Error(`Credit debit failed for video idea ${videoIdeaId}`);
+            // "DEBIT_FAILED" marker tells createPipelineWorker never to release
+            // this reservation — the video was delivered; only the debit retries.
+            throw new Error(`DEBIT_FAILED: credit debit failed for video idea ${videoIdeaId}`);
           }
           console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);
           // Record completed usage event — populates spending cap meter so caps can trip.
@@ -131,13 +133,16 @@ export async function registerVideoIdeaWorker(): Promise<void> {
           })
           .where(eq(videoIdeas.id, videoIdeaId));
 
-        // Two-bucket billing: RELEASE reservation on failure — no charge for failed videos
-        if (creditRunId && idea?.teamId) {
+        // Quota errors are swallowed below (no rethrow), so the wrapper's
+        // final-failure release never fires for them — release here instead.
+        // All other errors rethrow and let createPipelineWorker release on the
+        // final attempt.
+        if (isQuotaError && creditRunId && idea?.teamId) {
           const { releaseReservation } = await import("@/lib/billing");
           await releaseReservation({
             teamId: idea.teamId,
             runId: creditRunId,
-            reason: `Video idea generation failed for ID ${videoIdeaId}: ${displayError.substring(0, 200)}`,
+            reason: `Video idea generation failed (quota) for ID ${videoIdeaId}: ${displayError.substring(0, 200)}`,
           }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for video idea ${videoIdeaId}:`, e));
         }
 
@@ -159,8 +164,21 @@ export async function registerVideoIdeaWorker(): Promise<void> {
       }
     },
     {
-      connection: getRedisConnection(),
+      stage: "video_gen",
       concurrency,
+      budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
+      getBilling: async (j) => {
+        if (!j.data.creditRunId) return null;
+        const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
+          .from(videoIdeas)
+          .where(eq(videoIdeas.id, j.data.videoIdeaId))
+          .limit(1);
+        return {
+          teamId: ideaRow?.teamId,
+          runId: j.data.creditRunId,
+          reason: `Video idea generation failed for ID ${j.data.videoIdeaId}`,
+        };
+      },
     }
   );
 

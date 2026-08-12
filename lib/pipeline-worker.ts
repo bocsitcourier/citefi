@@ -5,11 +5,13 @@
  * here exactly once:
  *   1. Run attribution: enterRunContext(runId) so all cost telemetry inside the
  *      processor is attributable to the run (cost_telemetry.jobId).
- *   2. Budget gate: assertRunBudget() before each attempt — prior attempts that
- *      already spent >= the ceiling stop retrying (BUDGET_EXCEEDED, fatal).
- *   3. Error taxonomy: classifyError() on every failure; fatal dispositions
+ *      NOTE: the assertRunBudget() cost-ceiling gate stays INSIDE processors
+ *      (within their try blocks) so a BUDGET_EXCEEDED failure flows through the
+ *      processor's own catch for domain cleanup (status writes, batch
+ *      completion) before this wrapper applies release/UnrecoverableError.
+ *   2. Error taxonomy: classifyError() on every failure; fatal dispositions
  *      throw UnrecoverableError so BullMQ skips remaining retries.
- *   4. Credit settlement on failure: releaseReservation() exactly once, on the
+ *   3. Credit settlement on failure: releaseReservation() exactly once, on the
  *      FINAL attempt only (fatal, or last retry) — never on a transient retry
  *      (a successful retry must still be able to debit the same reservation),
  *      and never on DEBIT_FAILED (content succeeded; only the debit retries).
@@ -52,9 +54,10 @@ export interface PipelineWorkerOptions<T> {
   /** BullMQ concurrency (default 1) */
   concurrency?: number;
   /**
-   * Run attribution + cost ceiling. getRunId extracts the run identifier from
-   * job data; when present, telemetry is attributed and the per-run budget is
-   * asserted before each attempt.
+   * Run attribution. getRunId extracts the run identifier from job data; when
+   * present, telemetry inside the processor is attributed to that run.
+   * The assertRunBudget() gate itself belongs INSIDE the processor's try block
+   * so budget failures get domain cleanup before wrapper policy applies.
    */
   budget?: {
     contentType: ContentType;
@@ -68,7 +71,6 @@ export interface PipelineWorkerOptions<T> {
   /** Test injection points — do not use in production code. */
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
-    assertRunBudget?: (runId: string, contentType: ContentType, stage: string) => Promise<void>;
   };
 }
 
@@ -89,10 +91,6 @@ export function createPipelineHandler<T>(
       if (runId) {
         const { enterRunContext } = await import("./run-context");
         enterRunContext(runId);
-        const assertBudget =
-          opts._deps?.assertRunBudget ??
-          (await import("./cost-ceilings")).assertRunBudget;
-        await assertBudget(runId, opts.budget!.contentType, opts.stage);
       }
       return await processor(job);
     } catch (err) {

@@ -329,8 +329,14 @@ export async function registerWorkers() {
         const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
 
       try {
-        // Run attribution + cost ceiling are enforced by createPipelineWorker
-        // (budget option below) — do not duplicate them here.
+        // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
+        // this processor's catch (status write, batch completion) before the
+        // createPipelineWorker wrapper applies release/UnrecoverableError.
+        // Run-context attribution is handled by the wrapper (budget option).
+        if (articleCreditRunId) {
+          const { assertRunBudget } = await import("@/lib/cost-ceilings");
+          await assertRunBudget(articleCreditRunId, "article", "text_gen");
+        }
 
         // STEP 0: Check if the batch has been cancelled — bail out immediately if so.
         // This is the primary mechanism for stopping generation mid-batch.
@@ -1541,10 +1547,17 @@ export async function registerWorkers() {
     stage: "text_gen",
     concurrency: CONCURRENT_WORKERS,
     budget: { contentType: "article", getRunId: (j) => j.data.runId },
-    getBilling: (j) => ({
+    getBilling: async (j) => ({
       teamId: j.data.teamId,
       runId: j.data.creditRunId,
-      amount: j.data.creditCostPerUnit,
+      // Partial-release amount: mirror the processor's per-article cost
+      // resolution. Legacy jobs predating creditCostPerUnit in job data must
+      // fall back to the resolved credit cost — an omitted amount would
+      // release the ENTIRE multi-article batch reservation.
+      amount:
+        j.data.creditCostPerUnit ??
+        (await import("@/lib/credit-menu")).getCreditCost("article") ??
+        10,
       releaseKey: `article:${j.data.articleId}`,
       reason: `Article ${j.data.articleId} generation failed`,
     }),
@@ -3495,7 +3508,16 @@ export async function registerWorkers() {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
-            // Run attribution + cost ceiling handled by createPipelineWorker (budget option).
+            // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED gets this
+            // catch's domain cleanup (slot release, temp files, status=FAILED)
+            // before the wrapper applies release/UnrecoverableError. Veo is the
+            // most expensive per attempt — stop before generating if prior
+            // attempts already hit the ceiling.
+            if (videoCreditRunId) {
+              const { assertRunBudget } = await import("@/lib/cost-ceilings");
+              await assertRunBudget(videoCreditRunId, "video", "video_gen");
+            }
+
             const { generateSocialVideo } = await import("./social-video-generator");
             const { cleanupTempFiles } = await import("./social-video-compositor");
             
