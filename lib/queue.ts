@@ -222,7 +222,7 @@ export function getRedisConnection(): Redis {
     console.error("❌ Redis connection error:", err.message);
   });
   _redisConn.on("connect", () => {
-    console.log(`✅ Redis connected (${url})`);
+    const redactedUrl = url.replace(//:.*@/, "//:***@"); console.log(`✅ Redis connected (${redactedUrl})`);
   });
   _redisConn.on("reconnecting", () => {
     console.warn("🔄 Redis reconnecting...");

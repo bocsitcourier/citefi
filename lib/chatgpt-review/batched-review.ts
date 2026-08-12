@@ -286,7 +286,7 @@ ${content}
   
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-5.4-mini",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -301,7 +301,7 @@ ${content}
 
   if (completion.usage) {
     safeLogCostTelemetry(
-      { operationType: "article_review", provider: "openai", model: "gpt-5.4-mini" },
+      { operationType: "article_review", provider: "openai", model: "gpt-4o-mini" },
       extractOpenAIUsage(completion),
       0, true
     );

@@ -1,0 +1,24 @@
+Hold on — before you let the agent "fix everything," two things in its analysis deserve scrutiny, because one of them may be wrong and the other is internally inconsistent.
+
+1. The two findings contradict each other. "All queues show 0 completed AND 0 failed — jobs aren't being submitted at all" and "every generation attempt hits a model-not-found error that exhausts retries" can't both be true unless the model call happens synchronously in the API route before enqueueing. If the model error happened inside a BullMQ job, you'd see failed jobs in the queue. So either:
+
+The API route validates or calls the model before queue.add(), throws, and never enqueues (this would reconcile both findings), or
+One of the two findings is wrong (e.g., the agent checked the wrong queue names or the wrong Redis instance — remember there were two Redis URLs floating around).
+
+Worth confirming which it is, because if enqueueing is broken for a different reason, swapping model IDs won't fix it.
+
+2. "gemini-3.5- doesn't exist" is likely inaccurate as a blanket claim.* As of now, several 3.5-series models are real and GA: Gemini 3.6 Flash (gemini-3.6-flash) and Gemini 3.5 Flash-Lite (gemini-3.5-flash-lite) are generally available and ready for production use, and gemini-3.5-flash is a valid Gemini 3.x Flash model ID. What doesn't exist is anything like gemini-3.5-pro — there's no Pro at 3.5; the Pro line is at gemini-3.1-pro-preview. So the exact string matters. If your config uses gemini-3.5-pro or a made-up variant, that's your 404; if it uses gemini-3.5-flash, the model exists and the real error is something else (bad API key, wrong endpoint version, quota). 
+Google AI + 2
+
+Also relevant depending on what citefi generates: for images, the current IDs are gemini-3.1-flash-image (Nano Banana 2) and gemini-3-pro-image (Nano Banana Pro), and for video, Veo integrations should use veo-3.1-generate-preview or veo-3.1-fast-generate-preview — so check VEO_VIDEO_MODEL too. Note that Gemini 2.0 Flash models were shut down on June 1, 2026, and all 1.0/1.5 models return 404s, so any old fallback strings in the code are also dead. 
+Google AI + 2
+
+The definitive check — don't guess, ask the API which models your key can see:
+
+bash
+curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" \
+  | grep '"name"'
+
+That gives you the exact valid strings for your key and simultaneously verifies the key works. Then grep the codebase for every hardcoded gemini- string and map each to a current ID.
+
+And capture the actual error text from the server logs (the "model not found" message will name the exact model string it tried) — that tells you in one line whether it's a bad ID, a bad key, or a shut-down model. If the error is being thrown pre-enqueue in the API route, that also explains the empty queues and means the fix is model IDs + better error surfacing to the client, so failures stop being silent.

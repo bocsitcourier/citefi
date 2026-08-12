@@ -8,29 +8,35 @@ import { costTelemetry } from "@/shared/schema";
 // ============================================================================
 
 const PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
-  // Gemini 2.5 family
+  // ── Gemini 3.x family (verified in ListModels 2026-08) ───────────────────
+  "gemini-3.6-flash":               { input: 0.30,  output: 2.50  },
+  "gemini-3.5-flash":               { input: 0.30,  output: 2.50  },
+  "gemini-3.5-flash-lite":          { input: 0.10,  output: 0.40  },
+  "gemini-3.1-pro-preview":         { input: 1.25,  output: 10.00 },
+  "gemini-3.1-flash-lite":          { input: 0.10,  output: 0.40  },
+  "gemini-3-flash-preview":         { input: 0.30,  output: 2.50  },
+  // ── Gemini image models ──────────────────────────────────────────────────
+  "gemini-3.1-flash-image":         { input: 0.30,  output: 2.50  },
+  "gemini-3.1-flash-lite-image":    { input: 0.10,  output: 0.40  },
+  "gemini-3-pro-image":             { input: 1.25,  output: 10.00 },
+  "gemini-2.5-flash-image":         { input: 0.30,  output: 2.50  },
+  // ── Gemini 2.5 family ────────────────────────────────────────────────────
   "gemini-2.5-flash":               { input: 0.30,  output: 2.50  },
   "gemini-2.5-flash-preview":       { input: 0.15,  output: 3.50  },
   "gemini-2.5-flash-preview-04-17": { input: 0.15,  output: 3.50  },
+  "gemini-2.5-flash-lite":          { input: 0.10,  output: 0.40  },
   "gemini-2.5-pro":                 { input: 1.25,  output: 10.00 },
-  // Gemini 2.0 family
-  "gemini-2.0-flash":               { input: 0.10,  output: 0.40  },
-  "gemini-2.0-flash-exp":           { input: 0.10,  output: 0.40  },
-  // App-internal model aliases (may differ from API names)
-  "gemini-3.5-flash":               { input: 0.30,  output: 2.50  },
-  "gemini-3.5-flash-image":         { input: 0.30,  output: 2.50  },
-  "gemini-3.5-flash-lite":          { input: 0.10,  output: 0.40  },
-  "gemini-3.5-pro":                 { input: 1.25,  output: 10.00 },
-  // OpenAI text models
+  // ── Veo video models ─────────────────────────────────────────────────────
+  "veo-3.1-generate-preview":       { input: 0.00,  output: 0.35  }, // per second of video
+  "veo-3.1-fast-generate-preview":  { input: 0.00,  output: 0.18  },
+  "veo-3.1-lite-generate-preview":  { input: 0.00,  output: 0.09  },
+  // ── OpenAI models ────────────────────────────────────────────────────────
   "gpt-4o-mini":                    { input: 0.15,  output: 0.60  },
   "gpt-4o-mini-tts":                { input: 0.00,  output: 0.00  }, // TTS billed by chars
-  "chatgpt-4o-latest":              { input: 5.00,  output: 15.00 },
   "gpt-4o":                         { input: 5.00,  output: 15.00 },
+  "chatgpt-4o-latest":              { input: 5.00,  output: 15.00 },
   "gpt-4":                          { input: 30.00, output: 60.00 },
   "gpt-4-turbo":                    { input: 10.00, output: 30.00 },
-  // App-internal OpenAI aliases
-  "gpt-5.4-mini":                   { input: 0.15,  output: 0.60  },
-  "gpt-5.4":                        { input: 5.00,  output: 15.00 },
 };
 
 // TTS: $15 per 1M characters

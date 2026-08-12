@@ -134,7 +134,7 @@ Visual Elements:
     const callGeminiWithRetry = async (prompt: string, attempt = 1): Promise<any> => {
       try {
         return await genAI.models.generateContent({
-          model: "gemini-3.5-flash-image",
+          model: "gemini-2.5-flash-image",
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           config: {
             responseModalities: ["Image"],
@@ -211,7 +211,7 @@ Visual Elements:
     // Log confirmed successful image generation (after fallback resolution)
     void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
       safeLogCostTelemetry(
-        { operationType: "image_generation", provider: "gemini", model: "gemini-3.5-flash-image" },
+        { operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image" },
         { imageCount: 1 },
         Date.now() - _vidImgStart, true
       );

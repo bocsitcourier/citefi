@@ -375,7 +375,7 @@ Be thorough and specific. List ALL paragraph violations. Identify exact missing 
 
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-5.4-mini",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

@@ -608,7 +608,7 @@ Return as JSON:
 
       const genAI = new GoogleGenAI({ apiKey });
       const result = await genAI.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: GEMINI_FLASH_MODEL,
         contents: [{ role: 'user', parts: [{ text: critiquePrompt }] }],
         config: { temperature: 0.1 } // Low temp for precise analysis
       });

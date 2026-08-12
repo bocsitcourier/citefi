@@ -74,7 +74,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
     try {
       const result = await throttledGeminiRequest(() => 
         genAI.models.generateContent({
-          model: 'gemini-3.5-flash',
+          model: GEMINI_FLASH_MODEL,
           contents: userPrompt,
           config: {
             systemInstruction: systemPrompt,
