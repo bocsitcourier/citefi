@@ -1503,12 +1503,20 @@ export async function registerWorkers() {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
+        // Classify the error first — disposition drives the credit-release decision
+        const classified = classifyError(error, "text_gen");
+        console.error(`❌ [article:${articleId}] ${classified.code} (${classified.disposition}) stage=${classified.stage} provider=${classified.provider ?? "unknown"}`);
+
         // Two-bucket billing: RELEASE reservation on failure (no charge for failed articles).
         // IMPORTANT: Do NOT release on debit-failure paths (DEBIT_FAILED) — the article
-        // reached COMPLETE successfully and pg-boss will retry the debit. Releasing here
+        // reached COMPLETE successfully and BullMQ will retry the debit. Releasing here
         // would refund credits for successfully generated content.
+        // For retryable errors: only release on the FINAL attempt so a successful retry
+        // can still debit the same reservation. For fatal errors: release immediately
+        // (UnrecoverableError below prevents any further attempts).
         const isDebitFailure = errorMessage.includes("DEBIT_FAILED");
-        if (articleTeamId && articleCreditRunId && !isDebitFailure) {
+        const isFinalArticleAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+        if (articleTeamId && articleCreditRunId && !isDebitFailure && (classified.disposition === "fatal" || isFinalArticleAttempt)) {
           const { releaseReservation } = await import("@/lib/billing");
           await releaseReservation({
             teamId: articleTeamId,
@@ -1518,10 +1526,6 @@ export async function registerWorkers() {
             releaseKey: `article:${articleId}`,
           }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for article ${articleId}:`, e));
         }
-
-        // Classify the error to determine retry disposition + structured code
-        const classified = classifyError(error, "text_gen");
-        console.error(`❌ [article:${articleId}] ${classified.code} (${classified.disposition}) stage=${classified.stage} provider=${classified.provider ?? "unknown"}`);
 
         // Record failure in learning ledger so the AI learning center can surface it
         if (articleTeamId) {
@@ -3617,6 +3621,10 @@ export async function registerWorkers() {
             
           } catch (error) {
             console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
+
+            // Classify the error — fatal codes skip remaining retries
+            const videoClassified = classifyError(error, "video_gen");
+            console.error(`❌ [video:post:${socialPostId}] ${videoClassified.code} (${videoClassified.disposition})`);
             
             // PERMANENT FIX: Clean up temp files even on failure to prevent disk exhaustion
             try {
@@ -3666,7 +3674,11 @@ export async function registerWorkers() {
               }
             }
 
-            throw error; // Let pg-boss handle retries
+            if (FATAL_CODES.has(videoClassified.code)) {
+              throw new UnrecoverableError(`[${videoClassified.code}] ${videoClassified.message}`);
+            }
+
+            throw error;
           }
     }, { connection: getRedisConnection(), concurrency: 3 });
 

@@ -1,3 +1,5 @@
+import { UnrecoverableError } from "bullmq";
+import { classifyError, FATAL_CODES } from "./errors";
 import { db } from "./db";
 import { createNotification } from "./notification-service";
 import { articles, articleAssets, jobBatches, ContentType } from "../shared/schema";
@@ -314,12 +316,15 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
+
+    // Classify the error — fatal codes skip remaining BullMQ retries
+    const classified = classifyError(error, "text_gen");
+    console.error(`❌ [podcast:article:${articleId}] ${classified.code} (${classified.disposition})`);
     
     await db.update(articles)
       .set({ podcastStatus: 'failed' })
       .where(eq(articles.id, articleId));
 
-    // Refund credits if userId + ledger row were provided by the caller
     // Two-bucket billing: RELEASE reservation on failure (no charge)
     if (job.teamId && job.creditRunId) {
       const { releaseReservation } = await import("@/lib/billing");
@@ -367,6 +372,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       context: { articleId },
     });
     
+    if (FATAL_CODES.has(classified.code)) {
+      throw new UnrecoverableError(`[${classified.code}] ${classified.message}`);
+    }
+
     throw error;
   }
 }

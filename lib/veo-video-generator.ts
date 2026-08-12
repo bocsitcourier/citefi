@@ -4,7 +4,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
-import { VEO_VIDEO_MODEL } from "./ai-config";
+import { getModel } from "./model-resolver";
 import { sanitizeVeoPrompt } from "@/types/video-schema";
 
 if (!process.env.GEMINI_API_KEY) {
@@ -64,7 +64,7 @@ export async function generateVeoClip(
 
   try {
     const operation = await genAI.models.generateVideos({
-      model: VEO_VIDEO_MODEL,
+      model: getModel("veoVideo"),
       prompt: sanitizedPrompt,
       config: {
         aspectRatio: aspectRatio,

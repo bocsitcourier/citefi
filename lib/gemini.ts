@@ -205,6 +205,15 @@ export function parseMultipleCities(geographicFocus: string): string[] {
 }
 
 export async function throttledGeminiRequest<T>(fn: () => Promise<T>): Promise<T> {
+  // Seam 3 guard: model calls belong in the worker process. If this fires in a
+  // web-process route, that route should enqueue a job instead of calling directly.
+  if (process.env.WORKER_PROCESS !== "true") {
+    console.warn(
+      `⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). ` +
+      `This request should go through the BullMQ job queue. ` +
+      `Route: ${new Error().stack?.split("\n")[2]?.trim() ?? "unknown"}`
+    );
+  }
   return geminiRateLimiter.schedule(() => fn());
 }
 

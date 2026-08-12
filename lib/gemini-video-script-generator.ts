@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import { validateContentWithFacts } from "./fact-validated-generators";
@@ -408,7 +408,7 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
 
   try {
     const response = await genAI.models.generateContent({
-      model: GEMINI_FLASH_MODEL,
+      model: getModel("geminiFlash"),
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,

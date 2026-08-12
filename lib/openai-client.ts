@@ -55,6 +55,13 @@ export async function callOpenAI<T>(
   context: string,
   timeoutMs?: number // Optional per-operation timeout override
 ): Promise<T> {
+  // Seam 3 guard: model calls belong in the worker process only.
+  if (process.env.WORKER_PROCESS !== "true") {
+    console.warn(
+      `⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set): ${context}. ` +
+      `This should go through the BullMQ job queue.`
+    );
+  }
   return openaiLimiter.schedule(async () => {
     totalCalls++;
     const startTime = Date.now();

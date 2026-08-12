@@ -8,6 +8,7 @@ import { throttledGeminiRequest } from "./gemini";
 import { safeLogCostTelemetry, extractGeminiUsage } from "./cost-telemetry";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
+import { getModel } from "./model-resolver";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -122,7 +123,7 @@ export async function generateImagesForArticle(
       const response = await throttledGeminiRequest(() =>
         withTimeout(
           genAI.models.generateContent({
-            model: "gemini-2.5-flash-image",
+            model: getModel("geminiImage"),
             contents: [{ role: "user", parts: [{ text: heroPrompt }] }],
             config: { responseModalities: ["Image"] },
           }),
@@ -147,7 +148,7 @@ export async function generateImagesForArticle(
 
       // Log flat-rate image cost only after confirmed successful image delivery
       safeLogCostTelemetry(
-        { operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image" },
+        { operationType: "image_generation", provider: "gemini", model: getModel("geminiImage") },
         { imageCount: 1 },
         Date.now() - _imgStart, true
       );
@@ -164,7 +165,7 @@ export async function generateImagesForArticle(
         altText: `Hero image - ${heroPromptRaw.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: "gemini-2.5-flash-image",
+          model: getModel("geminiImage"),
           isHeroImage: true,
           originalPrompt: heroPromptRaw,
         },
@@ -312,7 +313,7 @@ export async function generateAndStoreHeroImage(
         altText: `Hero image - ${prompt.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: "gemini-2.5-flash-image",
+          model: getModel("geminiImage"),
           isHeroImage: true,
           originalPrompt: prompt,
         },
