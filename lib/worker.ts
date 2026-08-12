@@ -1546,7 +1546,10 @@ export async function registerWorkers() {
   }, {
     stage: "text_gen",
     concurrency: CONCURRENT_WORKERS,
-    budget: { contentType: "article", getRunId: (j) => j.data.runId },
+    // getRunId MUST match the ID the processor's assertRunBudget gate queries
+    // (creditRunId): telemetry is recorded under the run-context ID, and the
+    // gate sums telemetry by that same ID — a mismatch makes ceilings see $0.
+    budget: { contentType: "article", getRunId: (j) => j.data.creditRunId },
     getBilling: async (j) => ({
       teamId: j.data.teamId,
       runId: j.data.creditRunId,

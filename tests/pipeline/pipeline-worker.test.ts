@@ -35,7 +35,7 @@ const billingOpts = {
   getBilling: (j: AnyJob) => ({ teamId: j.data.teamId, runId: j.data.creditRunId }),
 };
 
-test("transient failure on NON-final attempt: no release, original error rethrown", async () => {
+void test("transient failure on NON-final attempt: no release, original error rethrown", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("503 service unavailable"); },
     { ...billingOpts, _deps: d._deps } as any);
@@ -43,7 +43,7 @@ test("transient failure on NON-final attempt: no release, original error rethrow
   assert.equal(d.calls.length, 0, "reservation must be preserved for the retry");
 });
 
-test("transient failure on FINAL attempt: releases reservation exactly once", async () => {
+void test("transient failure on FINAL attempt: releases reservation exactly once", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("503 service unavailable"); },
     { ...billingOpts, _deps: d._deps } as any);
@@ -53,7 +53,7 @@ test("transient failure on FINAL attempt: releases reservation exactly once", as
   assert.equal(d.calls[0].runId, "run-abc");
 });
 
-test("full retry lifecycle (3 attempts): release fires exactly once total", async () => {
+void test("full retry lifecycle (3 attempts): release fires exactly once total", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("ETIMEDOUT"); },
     { ...billingOpts, _deps: d._deps } as any);
@@ -63,7 +63,7 @@ test("full retry lifecycle (3 attempts): release fires exactly once total", asyn
   assert.equal(d.calls.length, 1, "exactly one release across the whole retry lifecycle");
 });
 
-test("fatal error: releases immediately and throws UnrecoverableError", async () => {
+void test("fatal error: releases immediately and throws UnrecoverableError", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("401 unauthorized: invalid api key"); },
     { ...billingOpts, _deps: d._deps } as any);
@@ -74,7 +74,7 @@ test("fatal error: releases immediately and throws UnrecoverableError", async ()
   assert.equal(d.calls.length, 1, "fatal errors release on the first attempt (no more retries will run)");
 });
 
-test("DEBIT_FAILED: never releases (content was delivered; only the debit retries)", async () => {
+void test("DEBIT_FAILED: never releases (content was delivered; only the debit retries)", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => {
     throw new Error("[billing] DEBIT_FAILED for article 42 — retrying debit");
@@ -83,7 +83,7 @@ test("DEBIT_FAILED: never releases (content was delivered; only the debit retrie
   assert.equal(d.calls.length, 0, "DEBIT_FAILED must not refund a delivered product");
 });
 
-test("no billing info (missing runId): final failure does not call release", async () => {
+void test("no billing info (missing runId): final failure does not call release", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("boom"); },
     { ...billingOpts, _deps: d._deps } as any);
@@ -91,7 +91,7 @@ test("no billing info (missing runId): final failure does not call release", asy
   assert.equal(d.calls.length, 0);
 });
 
-test("BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once", async () => {
+void test("BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once", async () => {
   // The assertRunBudget gate lives inside processors' try blocks; when it
   // throws, the error flows through the processor catch (domain cleanup),
   // gets rethrown, and this wrapper must treat it as fatal + release.
@@ -111,11 +111,72 @@ test("BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and relea
   assert.equal(d.calls.length, 1, "budget-exceeded runs must release the reservation");
 });
 
-test("success path: processor result returned, no release", async () => {
+void test("success path: processor result returned, no release", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => ({ ok: true }),
     { ...billingOpts, _deps: d._deps } as any);
   const result = await handler(makeJob());
   assert.deepEqual(result, { ok: true });
   assert.equal(d.calls.length, 0);
+});
+
+void test("run-context identity: wrapper enters the SAME runId the processor's budget gate asserts", async () => {
+  // Regression guard for the article ID-mismatch bug: telemetry attribution
+  // (wrapper enterRunContext via budget.getRunId) and the in-processor
+  // assertRunBudget gate must key off the same job-data field (creditRunId),
+  // or the ceiling always sums $0 and never trips.
+  const { currentRunId } = await import("../../lib/run-context");
+  let observed: string | undefined;
+  const handler = createPipelineHandler("q", async (job: AnyJob) => {
+    observed = currentRunId();
+    assert.equal(observed, job.data.creditRunId, "gate would query a different ID than telemetry records under");
+    return "ok";
+  }, {
+    stage: "text_gen",
+    budget: { contentType: "article", getRunId: (j: AnyJob) => j.data.creditRunId },
+  } as any);
+  await handler(makeJob());
+  assert.equal(observed, "run-abc");
+});
+
+void test("recorded telemetry under the run ID trips the next attempt's budget gate (production ID path)", async () => {
+  // End-to-end over the real DB: insert cost telemetry keyed by the run ID
+  // (cost_telemetry.jobId), then run the article-shaped handler whose
+  // processor calls the real assertRunBudget with the same creditRunId —
+  // the gate must throw BUDGET_EXCEEDED, and the wrapper must release once
+  // and convert it to UnrecoverableError.
+  const { db } = await import("../../lib/db");
+  const { costTelemetry } = await import("../../shared/schema");
+  const { eq } = await import("drizzle-orm");
+  const runId = `test-budget-${Date.now()}`;
+  await db.insert(costTelemetry).values({
+    jobId: runId,
+    operationType: "article_generation",
+    provider: "gemini",
+    model: "test-model",
+    costMicrousd: 100_000_000, // $100 — far above any content ceiling
+    success: 1,
+  });
+  try {
+    const d = deps();
+    const handler = createPipelineHandler("q", async (job: AnyJob) => {
+      // Mirrors the production article processor: gate inside the try,
+      // keyed by the same creditRunId the wrapper attributed.
+      const { assertRunBudget } = await import("../../lib/cost-ceilings");
+      await assertRunBudget(job.data.creditRunId, "article", "text_gen");
+      return "should not reach";
+    }, {
+      ...billingOpts,
+      budget: { contentType: "article", getRunId: (j: AnyJob) => j.data.creditRunId },
+      _deps: d._deps,
+    } as any);
+    await assert.rejects(
+      () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: 7, creditRunId: runId } })),
+      (err: unknown) => err instanceof UnrecoverableError && /BUDGET_EXCEEDED/.test((err as Error).message)
+    );
+    assert.equal(d.calls.length, 1, "budget-tripped run must release its reservation exactly once");
+    assert.equal(d.calls[0].runId, runId);
+  } finally {
+    await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+  }
 });
