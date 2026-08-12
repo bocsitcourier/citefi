@@ -35,8 +35,32 @@ All runtime AI API calls must use `getModel(tier)` (lib/model-resolver.ts). Neve
 - Emit via KNOWN_SHUTDOWNS map in model-resolver.ts so the warning fires at startup even before the shutdown date.
 
 ## Files that call getModel()
+Full coverage as of last session — every AI generation path now uses resolver-validated tiers:
 - lib/gemini.ts (title pool + article generation)
-- lib/worker.ts (EU AI Act disclosure model recording)
+- lib/worker.ts (article + video workers)
 - lib/article-reflexive.ts, audio-director.ts, smart-topic-research.ts, seo-regenerator.ts
+- lib/gemini-social.ts (social post generation)
+- lib/podcast-generator.ts (podcast script)
+- lib/gemini-video-script-generator.ts (video script)
+- lib/gemini-image-generator.ts (all 6 image generation call sites)
+- lib/veo-video-generator.ts (Veo model call)
 - app/api/health/route.ts uses getAllModels() + isResolverReady() (never getModel directly)
 - All chatgpt-review/* files still use hard-coded "gpt-4.1-mini" literal — valid now, flagged for future migration to getModel("gptMini").
+
+## Error taxonomy (lib/errors.ts)
+classifyError(err, stage) + FATAL_CODES + UnrecoverableError wired into ALL four workers:
+- Article worker: lib/worker.ts ~line 1522
+- Social worker: lib/social-worker.ts
+- Podcast worker: lib/podcast-worker.ts
+- Video worker: lib/worker.ts ~line 3618
+Fatal codes (MODEL_NOT_FOUND, AUTH_FAILURE, CONFIG_MISSING, STORAGE_NOT_CONFIGURED) skip remaining retries via UnrecoverableError.
+
+## Credit release timing (G fix)
+Article and social workers now only release the runId reservation when:
+- classified.disposition === "fatal" (UnrecoverableError follows immediately), OR
+- isFinalAttempt (job.attemptsMade + 1 >= job.opts.attempts)
+This prevents releasing the reservation on attempt 1/3, which would leave a successful retry 2/3 unable to debit.
+Podcast/video workers still release on every failure — defer until podcast-worker receives BullMQ Job object not just plain data.
+
+## Seam 3 detection (NOT enforcement)
+throttledGeminiRequest (lib/gemini.ts) and callOpenAI (lib/openai-client.ts) log [SEAM3] warnings when WORKER_PROCESS !== 'true'. 15 routes call AI directly from the web process — converting them to queued jobs is required before changing warnings to throws.
