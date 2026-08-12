@@ -1,4 +1,4 @@
-import { RESOLVED_MODELS } from "./model-resolver";
+import { getModel } from "./model-resolver";
 /**
  * ============================================================================
  * REFLEXIVE ARTICLE GENERATION MODULE
@@ -144,7 +144,7 @@ async function performReflexiveRewrite(
   console.log(`🔄 Performing reflexive rewrite to fix ${violations.length} violations and ${cliches.length} clichés...`);
   
   const result = await genAI.models.generateContent({
-    model: RESOLVED_MODELS.geminiFlash,
+    model: getModel("geminiFlash"),
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: { 
       temperature: 0.2,

@@ -1,0 +1,86 @@
+Part 1: Fixing the three seams (concrete steps)
+
+Seam 1 — stale payloads. Make it structurally impossible for a job to carry a model ID:
+
+ts
+// The job payload schema — tier names only, validated at enqueue
+const JobDataSchema = z.object({
+  runId: z.string(),
+  contentType: z.enum(["article", "social_post", "podcast", "video"]),
+  tier: z.enum(["geminiFlash", "geminiPro", "geminiImage", "gptMini", "gptAdvanced", "veo"]),
+  input: z.object({ /* topic, prompt, etc. */ }),
+}).strict(); // .strict() rejects unknown keys — a "model" field can't sneak in
+
+In the processor, the only way to get a model ID is RESOLVED_MODELS[job.data.tier]. Then run a one-time migration on the existing backlog: for every queued/delayed/requeued job, strip any model field from its data and map it to a tier. Add a check to your preflight: sample N waiting jobs, validate against the schema, refuse to start if any carry a raw model string.
+
+Seam 2 — import-time captures. Two-part fix, mechanical then structural:
+
+Mechanical — grep for every capture pattern:
+
+bash
+grep -rn "RESOLVED_MODELS" lib/ app/ server/ scripts/ \
+  | grep -v "RESOLVED_MODELS\[" | grep -v "RESOLVED_MODELS\."  # top-level destructures
+grep -rn "const.*=.*RESOLVED_MODELS" --include="*.ts" .        # assignments
+
+Any hit at module scope (not inside a function body) is a bug.
+
+Structural — remove the possibility by replacing the mutable object with a getter that throws if read before resolution:
+
+ts
+// lib/model-resolver.ts
+let resolved: ModelMap | null = null;
+
+export function getModel(tier: Tier): string {
+  if (!resolved) throw new PipelineError(
+    "Model resolver not initialized — call validateAndResolveModels() first",
+    "RESOLVER_NOT_READY", "fatal", "startup"
+  );
+  return resolved[tier];
+}
+
+Now an import-time read doesn't silently capture undefined — it crashes loudly at boot with a stack trace pointing at the offending file. Delete the exported RESOLVED_MODELS object entirely so the old pattern can't compile.
+
+Seam 3 — the second process. Decide the rule and enforce it: the web process never calls a model; it only validates, writes the run record, and enqueues. Enforce it with a guard in lib/gemini.ts / lib/openai.ts:
+
+ts
+if (!process.env.WORKER_PROCESS) {
+  throw new PipelineError("Model calls are worker-only", "WRONG_PROCESS", "fatal", "guard");
+}
+
+Then find violations by running the app and hitting every route — anything that throws WRONG_PROCESS is a synchronous model call that must be converted to an enqueued job (your SEO regeneration and reformat routes are the likely offenders). This rule also happens to be exactly what you need for Part 2.
+
+Part 2: Enterprise scaling — staying fast for everyone simultaneously
+
+The good news: your architecture (API → queue → workers) is already the right shape. Scaling it is about removing the assumptions that only hold for one user.
+
+Separate queues per content type, workers scaled independently. Articles take ~1–3 min, videos take ~5–15. On one queue, a burst of video jobs starves every article behind them. Split into articles, images, social, podcasts, videos queues, each with its own worker pool and its own BullMQ concurrency setting. Cheap/fast queues get high concurrency (articles: 20–50 per worker), expensive/slow ones get low (video: 2–5).
+
+Horizontal workers. Your worker is a stateless process — its state lives in Redis and Postgres. That means scaling is literally running N copies. Move off the single Replit process to something that autoscales on queue depth: Railway/Render/Fly with a scaling rule like "waiting jobs > 100 → add worker, < 10 for 5 min → remove one." BullMQ handles multi-worker coordination natively; no code change needed beyond making sure the resolver runs in each worker's boot.
+
+The real ceiling is provider quota, not your infrastructure. This is the part most teams miss. You can run 500 workers, but if your Gemini tier allows 1,000 requests/min, worker #501 just generates 429s. So:
+
+Put a global rate limiter in front of each provider (BullMQ's limiter: { max, duration } per queue, or a Redis token bucket shared across workers) set slightly below your actual quota, so you queue internally instead of hammering 429s and tripping your own circuit breakers.
+Per-user fairness: without it, one user bulk-generating 500 articles blocks everyone. Use BullMQ's group/priority features or a simple rule — max N active jobs per user, the rest wait in a per-user hold. Paid tiers get bigger N and higher priority.
+Request provisioned throughput / higher quota tiers from Google and OpenAI once you have real volume — at enterprise scale this is a procurement problem as much as an engineering one.
+
+Cache and dedupe. If 50 users request similar SEO regenerations or the same trending-topic research, content-hash the input and serve the cached artifact. At scale, dedup is often worth more than another 10 workers.
+
+Postgres becomes the next bottleneck after the queue scales: every state transition is a write. Add indexes on (status, updated_at) for the watchdog query, use connection pooling (PgBouncer), and consider writing transitions through a small batch buffer if you hit thousands of jobs/min.
+
+Multi-region only when latency data says so. Users don't sit watching generation; they submit and get notified. Async workloads tolerate a single region far longer than interactive ones. Don't buy that complexity early.
+
+Part 3: "How many agents for the whole world" — the actual math
+
+Reframe: it's not a number of agents, it's worker concurrency = (jobs per second × seconds per job) / concurrency per worker, bounded by provider quota. Agents/sub-agents in the AI sense aren't the unit — a worker process handling 20 concurrent jobs is 20 effective agents.
+
+Worked example so you can plug in real numbers:
+
+Say 100,000 daily active users, each generating 3 pieces/day = 300K jobs/day ≈ 3.5 jobs/sec average, ~15/sec at peak (peaks run 4–5× average).
+Average job duration blended across types: ~120 sec.
+Concurrent jobs in flight at peak: 15 × 120 = 1,800 concurrent generations.
+At 25 concurrent jobs per worker process: ~72 worker processes at peak, autoscaled down to ~15 off-peak.
+Provider check: 15 jobs/sec × ~4 API calls per job ≈ 60 req/sec ≈ 3,600 req/min against Gemini+OpenAI combined — that's above default tiers, so quota negotiation is a launch prerequisite at this scale, not an optimization.
+
+For literal "whole world" scale (millions of DAU), the same formula gives you thousands of concurrent jobs — still just hundreds of small worker VMs, entirely mundane infrastructure. The binding constraints at that size are provider quota contracts, cost per generation (at $0.01–0.05/article and $0.50+/video, unit economics dominate engineering), and abuse prevention. Not compute.
+
+The honest sequencing: your current single worker with the fixes from Part 1 handles roughly the first few hundred daily users fine. The trigger to build Part 2 is a dashboard metric — when p95 queue-wait time exceeds a couple of minutes at daily peak, split the queues and add the second worker. Build the measurement now (you already have the run-record timestamps to compute queue-wait), and let it tell you when to scale rather than provisioning for the whole world on day one.

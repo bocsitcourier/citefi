@@ -3,16 +3,18 @@
  * at worker startup, falls back through a verified chain when a model is gone,
  * and refuses to start if a critical tier has no live option.
  *
- * All runtime code should read from RESOLVED_MODELS rather than importing the
- * static string constants from ai-config.ts. The resolver updates RESOLVED_MODELS
- * in place before any worker processes jobs.
+ * Design: the resolved map is private. The only way to read a model ID at
+ * runtime is getModel(tier). If called before validateAndResolveModels() has
+ * run, it throws a PipelineError so the bug surfaces immediately with a stack
+ * trace pointing at the offending file — instead of silently returning
+ * undefined or a stale import-time capture.
  *
- * Usage (in server/worker-process.ts):
+ * Usage (server/worker-process.ts):
  *   await validateAndResolveModels();  // before registerWorkers()
  *
- * Usage (in lib/*.ts that call AI APIs):
- *   import { RESOLVED_MODELS } from "./model-resolver";
- *   model: RESOLVED_MODELS.geminiFlash
+ * Usage (lib/*.ts that call AI APIs):
+ *   import { getModel } from "./model-resolver";
+ *   model: getModel("geminiFlash")
  */
 
 import {
@@ -29,12 +31,31 @@ import {
   GPT_HYPERLINK_CORRECTION_MODEL,
   TTS_MODEL,
 } from "./ai-config";
+import { PipelineError } from "./errors";
 
-// ── Mutable live config ───────────────────────────────────────────────────────
-// Initialised from ai-config defaults. validateAndResolveModels() updates these
-// in place before any jobs run, so all callers always see the resolved value.
+// ── Tier type ─────────────────────────────────────────────────────────────────
 
-export const RESOLVED_MODELS = {
+export type ModelTier =
+  | "geminiFlash"
+  | "geminiArticle"
+  | "geminiPro"
+  | "geminiCritique"
+  | "geminiImage"
+  | "veoVideo"
+  | "gptMini"
+  | "gptReview"
+  | "gptAdvanced"
+  | "gptHyperlinkExtract"
+  | "gptHyperlinkCorrection"
+  | "tts";
+
+// ── Private resolved map ──────────────────────────────────────────────────────
+// null = resolver hasn't run yet; getModel() throws in this state.
+
+let _resolved: Record<ModelTier, string> | null = null;
+
+// Defaults initialised from ai-config (env-overridable)
+const DEFAULTS: Record<ModelTier, string> = {
   geminiFlash:            GEMINI_FLASH_MODEL,
   geminiArticle:          GEMINI_ARTICLE_MODEL,
   geminiPro:              GEMINI_PRO_MODEL,
@@ -49,8 +70,39 @@ export const RESOLVED_MODELS = {
   tts:                    TTS_MODEL,
 };
 
+// ── Public accessor ───────────────────────────────────────────────────────────
+
+/**
+ * Get the live-validated model ID for a tier.
+ * Throws if called before validateAndResolveModels() has run.
+ */
+export function getModel(tier: ModelTier): string {
+  if (_resolved === null) {
+    throw new PipelineError(
+      `getModel("${tier}") called before validateAndResolveModels() — ` +
+      `ensure the model resolver runs before registerWorkers()`,
+      "CONFIG_MISSING",
+      "fatal",
+      "startup"
+    );
+  }
+  return _resolved[tier];
+}
+
+/**
+ * Returns a snapshot of all resolved model IDs.
+ * Returns the defaults if the resolver hasn't run yet (for /api/health).
+ */
+export function getAllModels(): Record<ModelTier, string> {
+  return _resolved ? { ..._resolved } : { ...DEFAULTS };
+}
+
+/** True once validateAndResolveModels() has completed successfully. */
+export function isResolverReady(): boolean {
+  return _resolved !== null;
+}
+
 // ── Known shutdown dates ──────────────────────────────────────────────────────
-// Emit a deprecation warning at startup even when the model is still live.
 const KNOWN_SHUTDOWNS: Record<string, string> = {
   "gemini-2.5-pro": "2026-10-16 (Gemini Developer API — migrate to gemini-3.1-pro-preview)",
   "gemini-2.0-flash-exp": "2026-06-01",
@@ -59,35 +111,33 @@ const KNOWN_SHUTDOWNS: Record<string, string> = {
 
 // ── Fallback chains ───────────────────────────────────────────────────────────
 // Verified against live ListModels / /v1/models responses (2026-08).
-// Resolver picks the first model in the chain that appears in the live list.
 
-const GEMINI_CHAINS: Record<keyof typeof RESOLVED_MODELS, string[]> = {
+const GEMINI_CHAINS: Record<ModelTier, string[]> = {
   geminiFlash:    ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-preview-04-17"],
   geminiArticle:  ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-preview-04-17"],
   geminiPro:      ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-3.5-flash"],
   geminiCritique: ["gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.5-flash"],
   geminiImage:    ["gemini-2.5-flash-image", "gemini-3.1-flash-image", "gemini-2.5-flash"],
-  // Veo validated separately (different endpoint); keep configured value as-is
-  veoVideo:       [],
-  // Not Gemini models — handled by OpenAI chains below
+  // Veo validated separately; keep configured value as-is
+  veoVideo: [],
+  // OpenAI handled below
   gptMini: [], gptReview: [], gptAdvanced: [],
   gptHyperlinkExtract: [], gptHyperlinkCorrection: [], tts: [],
 };
 
-const OPENAI_CHAINS: Record<keyof typeof RESOLVED_MODELS, string[]> = {
+const OPENAI_CHAINS: Record<ModelTier, string[]> = {
   gptMini:                ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
   gptReview:              ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
   gptAdvanced:            ["gpt-4.1", "gpt-4.1-2025-04-14", "gpt-4o"],
   gptHyperlinkExtract:    ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
   gptHyperlinkCorrection: ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
   tts:                    ["gpt-4o-mini-tts"],
-  // Not OpenAI models
+  // Not OpenAI
   geminiFlash: [], geminiArticle: [], geminiPro: [], geminiCritique: [],
   geminiImage: [], veoVideo: [],
 };
 
-// Tiers where no live model = refuse to start
-const CRITICAL_TIERS = new Set<keyof typeof RESOLVED_MODELS>([
+const CRITICAL_TIERS = new Set<ModelTier>([
   "geminiFlash", "geminiArticle", "geminiPro", "gptMini", "gptAdvanced",
 ]);
 
@@ -108,7 +158,6 @@ async function listGeminiModels(): Promise<Set<string>> {
     const data = await res.json() as { models?: Array<{ name: string }> };
     const ids = new Set<string>();
     for (const m of data.models ?? []) {
-      // Strip "models/" prefix so we compare bare IDs
       ids.add(m.name.replace(/^models\//, ""));
     }
     return ids;
@@ -141,39 +190,36 @@ async function listOpenAIModels(): Promise<Set<string>> {
 // ── Core resolver ─────────────────────────────────────────────────────────────
 
 function resolveOneTier(
-  tier: keyof typeof RESOLVED_MODELS,
+  tier: ModelTier,
+  current: string,
   liveModels: Set<string>,
   chain: string[],
+  working: Record<ModelTier, string>,
   errors: string[]
 ): void {
-  if (chain.length === 0) return; // tier skipped (handled by another provider)
+  if (chain.length === 0) return;
 
-  const configured = RESOLVED_MODELS[tier];
-
-  // Warn about known upcoming shutdowns even when model is still live
-  if (KNOWN_SHUTDOWNS[configured]) {
-    console.warn(`⚠️ [model-resolver] ${tier}: "${configured}" has a known shutdown date: ${KNOWN_SHUTDOWNS[configured]}`);
+  if (KNOWN_SHUTDOWNS[current]) {
+    console.warn(`⚠️ [model-resolver] ${tier}: "${current}" has a known shutdown date: ${KNOWN_SHUTDOWNS[current]}`);
   }
 
-  // If live list is empty (API call failed), trust the configured value
-  if (liveModels.size === 0) return;
+  if (liveModels.size === 0) return; // API call failed — trust configured value
 
-  if (liveModels.has(configured)) {
-    console.log(`   ✅ ${tier}: ${configured}`);
+  if (liveModels.has(current)) {
+    console.log(`   ✅ ${tier}: ${current}`);
     return;
   }
 
-  // Configured model not found — walk the fallback chain
   const fallback = chain.find((m) => liveModels.has(m));
   if (fallback) {
-    console.warn(`   ⚠️  ${tier}: "${configured}" not found in ListModels — falling back to "${fallback}"`);
-    (RESOLVED_MODELS as Record<string, string>)[tier] = fallback;
+    console.warn(`   ⚠️  ${tier}: "${current}" not in ListModels — falling back to "${fallback}"`);
+    working[tier] = fallback;
   } else {
-    const msg = `${tier}: "${configured}" is gone and no fallback in chain [${chain.join(", ")}] is live`;
+    const msg = `${tier}: "${current}" is gone and no fallback in [${chain.join(", ")}] is live`;
     if (CRITICAL_TIERS.has(tier)) {
       errors.push(msg);
     } else {
-      console.warn(`   ⚠️  [model-resolver] Non-critical ${msg} — using configured value anyway`);
+      console.warn(`   ⚠️  [model-resolver] Non-critical ${msg} — using configured value`);
     }
   }
 }
@@ -182,12 +228,15 @@ function resolveOneTier(
 
 /**
  * Call once at worker startup, before registerWorkers().
- * Updates RESOLVED_MODELS in place. Throws if any critical tier has no live model.
+ * Populates the private resolved map. Throws if any critical tier has no live model.
+ * After this returns, getModel() works.
  */
 export async function validateAndResolveModels(): Promise<void> {
   console.log("🔍 [model-resolver] Validating AI model IDs against live APIs...");
 
-  // Run both API calls in parallel
+  // Start from defaults; resolver updates working copy then commits atomically
+  const working: Record<ModelTier, string> = { ...DEFAULTS };
+
   const [geminiLive, openaiLive] = await Promise.all([
     listGeminiModels(),
     listOpenAIModels(),
@@ -196,46 +245,46 @@ export async function validateAndResolveModels(): Promise<void> {
   const errors: string[] = [];
 
   console.log("   Gemini tiers:");
-  for (const tier of Object.keys(GEMINI_CHAINS) as Array<keyof typeof RESOLVED_MODELS>) {
+  for (const tier of Object.keys(GEMINI_CHAINS) as ModelTier[]) {
     if (GEMINI_CHAINS[tier].length > 0) {
-      resolveOneTier(tier, geminiLive, GEMINI_CHAINS[tier], errors);
+      resolveOneTier(tier, working[tier], geminiLive, GEMINI_CHAINS[tier], working, errors);
     }
   }
 
   console.log("   OpenAI tiers:");
-  for (const tier of Object.keys(OPENAI_CHAINS) as Array<keyof typeof RESOLVED_MODELS>) {
+  for (const tier of Object.keys(OPENAI_CHAINS) as ModelTier[]) {
     if (OPENAI_CHAINS[tier].length > 0) {
-      resolveOneTier(tier, openaiLive, OPENAI_CHAINS[tier], errors);
+      resolveOneTier(tier, working[tier], openaiLive, OPENAI_CHAINS[tier], working, errors);
     }
   }
 
-  // Veo: not in standard ListModels — log configured value only
-  console.log(`   ℹ️  veoVideo: ${RESOLVED_MODELS.veoVideo} (not validated — Veo uses a separate endpoint)`);
+  console.log(`   ℹ️  veoVideo: ${working.veoVideo} (not validated — Veo uses a separate endpoint)`);
 
   if (errors.length > 0) {
     throw new Error(
-      `[model-resolver] Critical model tiers have no live model — refusing to start workers:\n  • ${errors.join("\n  • ")}`
+      `[model-resolver] Critical model tiers have no live model — refusing to start:\n  • ${errors.join("\n  • ")}`
     );
   }
 
+  // Atomic commit — getModel() unblocks after this line
+  _resolved = working;
+
   console.log("✅ [model-resolver] All model tiers resolved. Workers will use:");
-  console.log(`   Gemini flash/article : ${RESOLVED_MODELS.geminiFlash}`);
-  console.log(`   Gemini pro           : ${RESOLVED_MODELS.geminiPro}`);
-  console.log(`   Gemini critique      : ${RESOLVED_MODELS.geminiCritique}`);
-  console.log(`   Gemini image         : ${RESOLVED_MODELS.geminiImage}`);
-  console.log(`   Veo video            : ${RESOLVED_MODELS.veoVideo}`);
-  console.log(`   GPT mini (16 files)  : ${RESOLVED_MODELS.gptMini}`);
-  console.log(`   GPT advanced         : ${RESOLVED_MODELS.gptAdvanced}`);
-  console.log(`   TTS                  : ${RESOLVED_MODELS.tts}`);
+  console.log(`   Gemini flash/article : ${_resolved.geminiFlash}`);
+  console.log(`   Gemini pro           : ${_resolved.geminiPro}`);
+  console.log(`   Gemini critique      : ${_resolved.geminiCritique}`);
+  console.log(`   Gemini image         : ${_resolved.geminiImage}`);
+  console.log(`   Veo video            : ${_resolved.veoVideo}`);
+  console.log(`   GPT mini (16 files)  : ${_resolved.gptMini}`);
+  console.log(`   GPT advanced         : ${_resolved.gptAdvanced}`);
+  console.log(`   TTS                  : ${_resolved.tts}`);
 }
 
 /**
  * Call when a model API returns 404/NOT_FOUND mid-flight.
- * Re-runs validation so the next job gets the updated model.
+ * Re-runs validation so the next job picks up an updated model.
  */
-export async function reResolveAfterModelNotFound(
-  tier: keyof typeof RESOLVED_MODELS
-): Promise<void> {
-  console.warn(`🔄 [model-resolver] 404 received for ${tier} — re-running resolver`);
+export async function reResolveAfterModelNotFound(tier: ModelTier): Promise<void> {
+  console.warn(`🔄 [model-resolver] 404 for ${tier} — re-running resolver`);
   await validateAndResolveModels();
 }

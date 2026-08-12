@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
-import { RESOLVED_MODELS } from "@/lib/model-resolver";
+import { getAllModels, isResolverReady } from "@/lib/model-resolver";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,15 +41,18 @@ async function checkRedis(): Promise<{ ok: boolean; latencyMs: number; error?: s
   }
 }
 
-function checkModels(): { ok: boolean; models: Record<string, string>; warnings: string[] } {
+function checkModels(): { ok: boolean; ready: boolean; models: Record<string, string>; warnings: string[] } {
+  const ready = isResolverReady();
+  const models = getAllModels();
   const warnings: string[] = [];
+  if (!ready) warnings.push("Model resolver has not run — showing ai-config defaults, not live-validated values");
   const knownShutdowns: Record<string, string> = {
     "gemini-2.5-pro": "2026-10-16",
   };
-  for (const [tier, id] of Object.entries(RESOLVED_MODELS)) {
+  for (const [tier, id] of Object.entries(models)) {
     if (knownShutdowns[id]) warnings.push(`${tier} (${id}) shuts down ${knownShutdowns[id]}`);
   }
-  return { ok: true, models: { ...RESOLVED_MODELS }, warnings };
+  return { ok: true, ready, models, warnings };
 }
 
 export async function GET(request: NextRequest) {

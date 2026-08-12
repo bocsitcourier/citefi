@@ -1,4 +1,4 @@
-import { RESOLVED_MODELS } from "./model-resolver";
+import { getModel } from "./model-resolver";
 /**
  * ============================================================================
  * SMART TOPIC RESEARCH MODULE
@@ -608,7 +608,7 @@ Return as JSON:
 
       const genAI = new GoogleGenAI({ apiKey });
       const result = await genAI.models.generateContent({
-        model: RESOLVED_MODELS.geminiFlash,
+        model: getModel("geminiFlash"),
         contents: [{ role: 'user', parts: [{ text: critiquePrompt }] }],
         config: { temperature: 0.1 } // Low temp for precise analysis
       });

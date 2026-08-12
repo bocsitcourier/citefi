@@ -1,4 +1,4 @@
-import { RESOLVED_MODELS } from "./model-resolver";
+import { getModel } from "./model-resolver";
 import type { Scene, Emotion, SSMLSegment } from '@/types/video-schema';
 import { GoogleGenAI } from '@google/genai';
 import { throttledGeminiRequest } from './gemini';
@@ -74,7 +74,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
     try {
       const result = await throttledGeminiRequest(() => 
         genAI.models.generateContent({
-          model: RESOLVED_MODELS.geminiFlash,
+          model: getModel("geminiFlash"),
           contents: userPrompt,
           config: {
             systemInstruction: systemPrompt,
