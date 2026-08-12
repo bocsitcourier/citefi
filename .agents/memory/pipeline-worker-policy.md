@@ -14,4 +14,4 @@ All BullMQ workers must register through the shared `createPipelineWorker` wrapp
 - Run-context attribution and the budget gate must key off the SAME job-data field (creditRunId). A mismatch makes ceilings sum $0 forever — this shipped once as a real bug.
 - Multi-item batch reservations require a partial-release `amount` + per-item `releaseKey`; an omitted amount releases the ENTIRE reservation.
 - Processors that swallow errors (no rethrow) must settle billing themselves — the wrapper never sees swallowed errors.
-- Test the pure handler with injected release deps; `--test-force-exit` needed because the pooled DB keeps node:test alive.
+- Test the pure handler with injected release deps rather than spinning up Redis/Workers.
