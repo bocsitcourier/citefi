@@ -56,7 +56,7 @@ import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-
 import { injectDisclosureIntoHtml } from "./compliance/ai-disclosure";
 import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
-import { GEMINI_ARTICLE_MODEL, GPT_REVIEW_MODEL } from "./ai-config";
+import { RESOLVED_MODELS } from "./model-resolver";
 
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
@@ -1215,8 +1215,8 @@ export async function registerWorkers() {
           // Effective Aug 2 2026 — disclose AI-assisted content to readers
           // ================================================================
           finalHtmlWithLinks = injectDisclosureIntoHtml(finalHtmlWithLinks, {
-            generatorModel: GEMINI_ARTICLE_MODEL,
-            reviewModel: GPT_REVIEW_MODEL,
+            generatorModel: RESOLVED_MODELS.geminiArticle,
+            reviewModel: RESOLVED_MODELS.gptReview,
             generatedAt: new Date(),
           });
 

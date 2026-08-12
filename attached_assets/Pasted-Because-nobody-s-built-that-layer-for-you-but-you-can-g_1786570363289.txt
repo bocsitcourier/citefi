@@ -1,0 +1,30 @@
+Because nobody's built that layer for you — but you can get most of the way there. There are three levels of "automatic," each with tradeoffs:
+
+Level 1: Provider aliases. Google actually offers rolling aliases like gemini-flash-latest and gemini-flash-lite-latest (you can see them in your ListModels output — one of the docs I found earlier used gemini-flash-lite-latest as an example). These always point to the current model in that tier, so deprecations never break you. OpenAI does something similar: bare names like gpt-4o are pointers to the latest snapshot, versus pinned IDs like gpt-4o-2024-08-06.
+
+The catch, and the reason most production apps don't use aliases: the model underneath changes without warning. One day your articles are written by one model, the next day by its successor with different verbosity, different instruction-following, different pricing, maybe different parameter support (the Gemini 3.x migration guides are full of "remove deprecated parameters" notes). Your prompts were tuned against the old model; output quality can shift silently. For a content-generation product like citefi where output consistency is the product, that's a real risk. It also breaks your cost telemetry, since you don't know which model you're being billed for.
+
+Level 2: Resolve at startup. This is the pragmatic middle ground and probably what you want. Keep your tier structure (flash/pro/image/video), but instead of hardcoding exact IDs, validate them against ListModels when the worker boots:
+
+ts
+// on worker startup
+const live = await listGeminiModels(); // your key's ground truth
+for (const [tier, id] of Object.entries(MODELS)) {
+  if (!live.includes(id)) {
+    const fallback = FALLBACK_CHAINS[tier].find(m => live.includes(m));
+    if (fallback) {
+      console.warn(`Model ${id} gone, falling back to ${fallback} for ${tier}`);
+      MODELS[tier] = fallback;
+    } else {
+      throw new Error(`No live model for tier ${tier} — refusing to start`);
+    }
+  }
+}
+
+With a fallback chain per tier (e.g., image: ["gemini-3.1-flash-image", "gemini-2.5-flash-image"]), a deprecation degrades you to the next known-good option with a loud log line instead of 44 silently failed articles. And the "refuse to start" branch means a total mismatch is caught at deploy time, not discovered by users.
+
+Level 3: Fully dynamic selection — query ListModels, pick the "best" model by some heuristic at request time. Don't do this. Model names don't encode capability reliably (is gemini-3.1-pro-preview better than gemini-3.5-flash for your use case? depends), preview models can vanish or behave erratically, and you'd be A/B testing your production content against Google's release calendar.
+
+The deeper reason this isn't just automatic industry-wide: model identity is a product decision, not a config detail. Providers deliberately make you pin versions so that your outputs are reproducible, your costs are predictable, and you choose when to absorb a behavior change — ideally after testing. The failure mode you just lived through wasn't caused by pinning; it was caused by pinning to IDs that were never validated and having no detection when they died. Level 2 fixes exactly that: pinned behavior, automatic detection, controlled fallback.
+
+Practical add-ons: treat 404/NOT_FOUND from a model call as a signal to re-run the resolver (catches mid-flight shutdowns like the June 1 Gemini 2.0 cutoff), and log the resolved model ID into each article's run record so telemetry and debugging always know what actually generated the content.

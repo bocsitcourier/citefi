@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import Bottleneck from "bottleneck";
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { RESOLVED_MODELS } from "./model-resolver";
 import { createBrandLockPromptSegment } from "./branding";
 import { smartResearch, SmartResearchResult } from "./smart-topic-research";
 import { getContentOptimizationContext, ContentOptimizationContext } from "./persona-content-integration";
@@ -509,7 +509,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
 
   console.log(`🤖 Calling Gemini API for ${numTitles} titles...`);
   const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-    model: GEMINI_FLASH_MODEL,
+    model: RESOLVED_MODELS.geminiFlash,
     contents: [
       {
         role: "user",
@@ -569,7 +569,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
   if (result?.usageMetadata) {
     void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
       safeLogCostTelemetry(
-        { operationType: "article_title_pool", provider: "gemini", model: GEMINI_FLASH_MODEL },
+        { operationType: "article_title_pool", provider: "gemini", model: RESOLVED_MODELS.geminiFlash },
         extractGeminiUsage(result),
         0, true
       );
@@ -1569,9 +1569,9 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   "wordCount": 1500
 }`;
 
-  // Use configurable Gemini model for article generation
-  const { GEMINI_ARTICLE_MODEL } = await import("./ai-config");
-  const model = GEMINI_ARTICLE_MODEL;
+  // Use resolver-validated model for article generation
+  const { RESOLVED_MODELS: rm } = await import("./model-resolver");
+  const model = rm.geminiArticle;
   
   const result = await throttledGeminiRequest(() => genAI.models.generateContent({
     model,

@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { sql } from 'drizzle-orm';
 import { registerWorkers } from "../lib/worker";
+import { validateAndResolveModels } from "../lib/model-resolver";
 import { closeQueues } from "../lib/queue";
 import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
@@ -82,6 +83,10 @@ async function startWorkers() {
     
     // Validate publishing secrets before starting workers
     await ensurePublishingSecretsReady();
+
+    // Validate AI model IDs against live APIs; fall back through chains if any
+    // are retired. Throws if a critical tier (flash, pro, gpt-mini) has no live model.
+    await validateAndResolveModels();
     
     // Register all BullMQ workers
     await registerWorkers();
