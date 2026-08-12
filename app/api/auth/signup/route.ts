@@ -170,6 +170,13 @@ export async function POST(req: Request) {
             )
           )
         );
+
+        if (adminUsers.length > 0) {
+          await txDb
+            .update(users)
+            .set({ approvalEmailSentAt: new Date() })
+            .where(eq(users.id, newUser.id));
+        }
       } catch (emailErr) {
         console.error("Failed to notify admins of new signup:", emailErr);
       }

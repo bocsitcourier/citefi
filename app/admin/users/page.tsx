@@ -70,6 +70,7 @@ interface UserData {
   teamName: string | null;
   approvalLinkUsedAt: string | null;
   approvalLinkAction: string | null;
+  approvalEmailSentAt: string | null;
 }
 
 interface InviteData {
@@ -374,6 +375,7 @@ export default function AdminUsersPage() {
       });
     },
     onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({
         title: "Approval email resent",
         description: `A fresh approval email with a new 7-day link has been sent to ${data.adminCount ?? "all"} admin(s).`,
@@ -674,6 +676,7 @@ export default function AdminUsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Registered</TableHead>
+                  <TableHead>Last notified</TableHead>
                   <TableHead>Link Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -686,6 +689,15 @@ export default function AdminUsersPage() {
                     <TableCell data-testid={`text-team-${u.id}`}>{u.teamName || "-"}</TableCell>
                     <TableCell data-testid={`text-created-${u.id}`}>
                       {new Date(u.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell data-testid={`text-last-notified-${u.id}`}>
+                      {u.approvalEmailSentAt ? (
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(u.approvalEmailSentAt).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell data-testid={`text-link-status-${u.id}`}>
                       {u.approvalLinkUsedAt ? (

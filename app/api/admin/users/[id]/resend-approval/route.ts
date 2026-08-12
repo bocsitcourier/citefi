@@ -78,6 +78,11 @@ export async function POST(
       )
     );
 
+    await db
+      .update(users)
+      .set({ approvalEmailSentAt: new Date() })
+      .where(eq(users.id, userId));
+
     await db.insert(activityLogs).values({
       userId: adminUserId,
       action: "approval_email_resent",

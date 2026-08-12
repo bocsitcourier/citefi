@@ -91,6 +91,9 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+
+  // Approval email tracking
+  approvalEmailSentAt: timestamp("approval_email_sent_at"),
 }, (table) => ({
   emailIdx: index("users_email_idx").on(table.email),
   googleIdIdx: index("users_google_id_idx").on(table.googleId),

@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
           ORDER BY uat.used_at DESC
           LIMIT 1
         )`.as("approvalLinkAction"),
+        approvalEmailSentAt: users.approvalEmailSentAt,
       })
       .from(users)
       .leftJoin(teams, eq(teams.id, users.defaultTeamId))
