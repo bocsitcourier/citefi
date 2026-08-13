@@ -18,11 +18,12 @@ Replit's npm sandbox injects `package-firewall.replit.local` into every tarball 
 **Fix:** `sed -i 's|http://package-firewall.replit.local/npm|https://registry.npmjs.org|g' package-lock.json` before `npm ci`, then `git checkout -- package-lock.json` to restore the original (sha hashes are unaffected by URL host change).
 **How to apply:** Already in `scripts/deploy-to-do.sh` build section.
 
-### 3. DATABASE_URL in Replit resolves to `helium` — only works inside Replit
-Replit's Neon integration injects a DATABASE_URL with hostname `helium` (internal proxy).
-The DO server cannot resolve `helium`. The server needs the actual external Neon connection string.
-**Fix:** Get the real `postgresql://...@ep-xxx.neon.tech/...` URL from console.neon.tech and put it in `/var/www/citefi/.env.local` on the server.
-**How to apply:** When pushing `.env.local` from Replit to the server, the DATABASE_URL must be replaced with the external Neon URL manually or via a separate secret (e.g. `DO_DATABASE_URL`).
+### 3. Production DB is local PostgreSQL 16 on the droplet — not Neon
+The live server runs its own PostgreSQL 16 instance at `localhost:5432`, database `citefi`, user `citefi`.
+`lib/db.ts` auto-detects: URL without `neon.tech` / `@helium` → uses standard `pg` pool (not Neon HTTP driver).
+`pg_hba.conf` has a `scram-sha-256` entry for `citefi` user (local socket).
+**Neon was the original DB.** Migration: installed `postgresql-client-18` (pgdg apt repo), `pg_dump --no-owner --no-acl` from Neon, restored via `sudo -u postgres psql`, reassigned ownership, updated `.env.local`.
+**How to apply:** `DATABASE_URL=postgresql://citefi:<pass>@localhost:5432/citefi` — no `DATABASE_POOLED_URL` needed.
 
 ### 4. `.env.local` is never in git — push it via SSH stdin pipe
 The 9-line `.env.local` in the Replit workspace only contains non-secret config vars.
