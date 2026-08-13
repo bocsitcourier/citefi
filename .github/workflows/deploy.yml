@@ -83,6 +83,9 @@ jobs:
           DO_PM2_CONFIG="ecosystem.config.cjs"
           DO_HEALTHCHECK_URL="http://127.0.0.1:5000/api/health"
 
+          # Allow root to operate on a repo owned by another user
+          git config --global --add safe.directory "$DO_APP_DIR" 2>/dev/null || true
+
           cd "$DO_APP_DIR"
           test -d .git || { echo "ERROR: $DO_APP_DIR is not a git repo"; exit 1; }
 

@@ -67,6 +67,9 @@ ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" \
   "DO_APP_DIR='${DO_APP_DIR}' DO_BRANCH='${DO_BRANCH}' DO_PM2_CONFIG='${DO_PM2_CONFIG}' DO_HEALTHCHECK_URL='${DO_HEALTHCHECK_URL}' bash -s" <<'REMOTE'
 set -euo pipefail
 
+# Allow root to operate on a repo owned by another user
+git config --global --add safe.directory "$DO_APP_DIR" 2>/dev/null || true
+
 cd "$DO_APP_DIR"
 test -d .git || { echo "ERROR: $DO_APP_DIR is not a git repo"; exit 1; }
 
