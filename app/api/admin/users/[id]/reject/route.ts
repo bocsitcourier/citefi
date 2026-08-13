@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { emailService } from "@/lib/email";
 
 export async function POST(
@@ -43,6 +43,8 @@ export async function POST(
       );
     }
 
+    // Pre-check: return 400 for the normal "already non-pending" case.
+    // This preserves the established API contract for clients that handle 400.
     if (user.accountStatus !== "pending_approval") {
       return NextResponse.json(
         { error: "User is not pending approval" },
@@ -50,10 +52,23 @@ export async function POST(
       );
     }
 
-    await db
+    // Atomic update: only succeeds if the account is STILL pending_approval at
+    // UPDATE time. If another request (admin panel or email-link) acted between
+    // the SELECT above and this UPDATE, 0 rows will be returned — the WHERE guard
+    // prevents a double-action without any explicit locking.
+    const updateResult = await db
       .update(users)
       .set({ accountStatus: "suspended" })
-      .where(eq(users.id, userId));
+      .where(and(eq(users.id, userId), eq(users.accountStatus, "pending_approval")))
+      .returning({ id: users.id });
+
+    if (updateResult.length === 0) {
+      // A concurrent request (email-link or another admin) won the race.
+      return NextResponse.json(
+        { error: "User was already actioned by a concurrent request" },
+        { status: 409 }
+      );
+    }
 
     // Invalidate any existing sessions for the rejected user
     await db

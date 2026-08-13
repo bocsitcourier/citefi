@@ -29,15 +29,18 @@ import {
   users,
   teams,
   teamMembers,
+  sessions,
   activityLogs,
   usedApprovalTokens,
 } from "../../shared/schema.js";
-import { hashPassword } from "../../lib/auth.js";
+import { hashPassword, generateAccessToken, hashToken } from "../../lib/auth.js";
 import { generateApprovalToken, verifyApprovalToken } from "../../lib/approval-token.js";
 import { emailService } from "../../lib/email.js";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { GET, POST } from "../../app/api/admin/users/review/route.js";
+import { POST as adminApprove } from "../../app/api/admin/users/[id]/approve/route.js";
+import { POST as adminReject } from "../../app/api/admin/users/[id]/reject/route.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -86,6 +89,18 @@ function makeGetReq(token: string | null): NextRequest {
   return new NextRequest(url);
 }
 
+/** Build a NextRequest for an admin route handler call, authenticated via Bearer token. */
+function makeAdminReq(path: string, bearerToken: string, body: unknown = {}): NextRequest {
+  return new NextRequest(new URL(path, "http://localhost"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearerToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 function makePostReq(token: string | null, useForm = true): NextRequest {
   if (useForm) {
     const body = token ? new URLSearchParams({ token }).toString() : "";
@@ -117,6 +132,9 @@ async function fetchUserStatus(userId: number): Promise<string | undefined> {
 
 interface ReviewLinkSeed {
   teamId: number;
+  adminId: number;
+  adminToken: string;
+  adminSessionId: number;
   pendingApproveId: number;
   pendingApproveEmail: string;
   pendingRejectId: number;
@@ -199,29 +217,66 @@ before(async () => {
     { teamId: teamRow.id, userId: active.id, role: "member" },
   ]);
 
+  // Fetch the bootstrap user's email so we can generate a real JWT for it
+  const [bootstrapFull] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, bootstrap.id))
+    .limit(1);
+
+  // Generate a JWT + persisted session so requireAdmin() passes in-process
+  const adminToken = generateAccessToken({
+    userId: bootstrap.id,
+    email: bootstrapFull!.email,
+    role: "admin",
+  });
+  const tokenHash = hashToken(adminToken);
+  const [adminSession] = await db
+    .insert(sessions)
+    .values({
+      userId: bootstrap.id,
+      tokenHash,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      isActive: 1,
+      teamContextId: teamRow.id,
+    })
+    .returning({ id: sessions.id });
+
   seed = {
     teamId: teamRow.id,
+    adminId: bootstrap.id,
+    adminToken,
+    adminSessionId: adminSession.id,
     pendingApproveId: pa.id,
     pendingApproveEmail: pa.email,
     pendingRejectId: pr.id,
     pendingRejectEmail: pr.email,
     activeUserId: active.id,
-    extraPendingIds: [bootstrap.id],
+    extraPendingIds: [],
   };
 });
 
 after(async () => {
   try {
     const allIds = [
+      seed.adminId,
       ...seed.extraPendingIds,
       seed.pendingApproveId,
       seed.pendingRejectId,
       seed.activeUserId,
     ];
 
+    await db.delete(sessions).where(eq(sessions.id, seed.adminSessionId)).catch(() => {});
+
     await db
       .delete(activityLogs)
       .where(inArray(activityLogs.userId, allIds as number[]));
+
+    // Also delete activity_logs keyed by resourceId (from admin approve route)
+    await db
+      .delete(activityLogs)
+      .where(inArray(activityLogs.resourceId, allIds as number[]))
+      .catch(() => {});
 
     // Clean up any used_approval_tokens seeded during tests
     await db
@@ -751,6 +806,202 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
     } finally {
       restore2();
     }
+  });
+});
+
+// ── Race-condition tests ──────────────────────────────────────────────────────
+//
+// These tests prove that the approve/reject routes on both sides (email-link and
+// admin panel) use the same atomic `AND accountStatus='pending_approval'` WHERE
+// guard, so exactly one concurrent action can win regardless of which arrives first.
+//
+// Strategy: both code paths are exercised via their actual in-process route
+// handlers. The admin routes require a live session — the seed's bootstrap user
+// has a real JWT + DB session so requireAdmin() passes without a live HTTP server.
+// Tests run sequentially to keep DB state predictable.
+
+describe("Race-condition guard — email-link wins, admin panel blocked", () => {
+  test("after email-link approves, admin panel approve route returns 409 (no double-write)", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_race_approve@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Race Approve User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Step 1: email-link POST wins the race — approves the user
+    const token = generateApprovalToken(fp.id, "approve");
+    const linkRes = await POST(makePostReq(token));
+    assert.equal(linkRes.status, 200, `Email-link approve must return 200 — got ${linkRes.status}`);
+    assert.equal(await fetchUserStatus(fp.id), "active", "User must be active after email-link approve");
+
+    // Step 2: admin panel approve route arrives too late — WHERE guard blocks it
+    const adminRes = await adminApprove(
+      makeAdminReq(`/api/admin/users/${fp.id}/approve`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    assert.equal(
+      adminRes.status,
+      409,
+      `Admin panel approve must return 409 when user is no longer pending — got ${adminRes.status}`
+    );
+
+    // Step 3: exactly one activity log — no double-write
+    const logs = await db
+      .select({ action: activityLogs.action })
+      .from(activityLogs)
+      .where(eq(activityLogs.resourceId, fp.id));
+    assert.equal(
+      logs.length,
+      1,
+      `Expected exactly 1 activity log entry — found ${logs.length} (double-write would produce 2)`
+    );
+    assert.equal(logs[0]?.action, "user_approved");
+  });
+
+  test("after email-link rejects, admin panel reject route returns 409 (no double-write)", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_race_reject@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Race Reject User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Step 1: email-link POST wins the race — rejects the user
+    const token = generateApprovalToken(fp.id, "reject");
+    const linkRes = await POST(makePostReq(token));
+    assert.equal(linkRes.status, 200, `Email-link reject must return 200 — got ${linkRes.status}`);
+    assert.equal(await fetchUserStatus(fp.id), "suspended", "User must be suspended after email-link reject");
+
+    // Step 2: admin panel reject route arrives too late — WHERE guard blocks it
+    // The pre-check (SELECT shows suspended, not pending) returns 400; the atomic
+    // UPDATE guard would return 409 if it were reached first. Both prevent the
+    // double-write — the key is that exactly 0 rows change a second time.
+    const adminRes = await adminReject(
+      makeAdminReq(`/api/admin/users/${fp.id}/reject`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    assert.ok(
+      adminRes.status === 400 || adminRes.status === 409,
+      `Admin panel reject must return 400 or 409 when user is no longer pending — got ${adminRes.status}`
+    );
+
+    // Step 3: exactly one activity log — no double-write
+    const logs = await db
+      .select({ action: activityLogs.action })
+      .from(activityLogs)
+      .where(eq(activityLogs.resourceId, fp.id));
+    assert.equal(
+      logs.length,
+      1,
+      `Expected exactly 1 activity log entry — found ${logs.length} (double-write would produce 2)`
+    );
+    assert.equal(logs[0]?.action, "user_rejected");
+  });
+});
+
+describe("Race-condition guard — admin panel wins, email-link blocked", () => {
+  test("after admin panel approves, email-link POST returns graceful 'Already actioned'", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_race_adm_approve@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Race Admin Approve User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Step 1: admin panel approve route wins the race
+    const adminRes = await adminApprove(
+      makeAdminReq(`/api/admin/users/${fp.id}/approve`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    assert.equal(adminRes.status, 200, `Admin panel approve must return 200 — got ${adminRes.status}`);
+    assert.equal(await fetchUserStatus(fp.id), "active", "User must be active after admin panel approve");
+
+    // Step 2: email-link POST arrives too late — atomic WHERE guard blocks it
+    const token = generateApprovalToken(fp.id, "approve");
+    const linkRes = await POST(makePostReq(token));
+    // Email-link route returns graceful 200 "Already actioned" (not an error HTTP code)
+    assert.equal(linkRes.status, 200, `Expected graceful 200 — got ${linkRes.status}`);
+    const html = await linkRes.text();
+    assert.ok(
+      html.toLowerCase().includes("already") || html.toLowerCase().includes("actioned"),
+      `Expected 'Already actioned' page — got:\n${html.slice(0, 300)}`
+    );
+
+    // Step 3: exactly one activity log written (by the admin route), none by the blocked email-link
+    const logs = await db
+      .select({ action: activityLogs.action })
+      .from(activityLogs)
+      .where(eq(activityLogs.resourceId, fp.id));
+    assert.equal(
+      logs.length,
+      1,
+      `Expected exactly 1 activity log — found ${logs.length} (email-link must not write a second one)`
+    );
+    assert.equal(logs[0]?.action, "user_approved");
+  });
+
+  test("after admin panel rejects, email-link POST returns graceful 'Already actioned'", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_race_adm_reject@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Race Admin Reject User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Step 1: admin panel reject route wins the race
+    const adminRes = await adminReject(
+      makeAdminReq(`/api/admin/users/${fp.id}/reject`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    assert.equal(adminRes.status, 200, `Admin panel reject must return 200 — got ${adminRes.status}`);
+    assert.equal(await fetchUserStatus(fp.id), "suspended", "User must be suspended after admin panel reject");
+
+    // Step 2: email-link POST arrives too late — atomic WHERE guard blocks it
+    const token = generateApprovalToken(fp.id, "reject");
+    const linkRes = await POST(makePostReq(token));
+    assert.equal(linkRes.status, 200, `Expected graceful 200 — got ${linkRes.status}`);
+    const html = await linkRes.text();
+    assert.ok(
+      html.toLowerCase().includes("already") || html.toLowerCase().includes("actioned"),
+      `Expected 'Already actioned' page — got:\n${html.slice(0, 300)}`
+    );
+
+    // Step 3: exactly one activity log written (by the admin route), none by the blocked email-link
+    const logs = await db
+      .select({ action: activityLogs.action })
+      .from(activityLogs)
+      .where(eq(activityLogs.resourceId, fp.id));
+    assert.equal(
+      logs.length,
+      1,
+      `Expected exactly 1 activity log — found ${logs.length} (email-link must not write a second one)`
+    );
+    assert.equal(logs[0]?.action, "user_rejected");
   });
 });
 

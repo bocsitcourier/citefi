@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { emailService } from "@/lib/email";
 
 export async function POST(
@@ -40,22 +40,25 @@ export async function POST(
       );
     }
 
-    // Only pending_approval users may be approved — prevents re-activating
-    // suspended users or no-op re-approving already-active accounts.
-    if (user.accountStatus !== "pending_approval") {
-      return NextResponse.json(
-        { error: `User is not pending approval (current status: ${user.accountStatus})` },
-        { status: 409 }
-      );
-    }
-
-    await db
+    // Atomic update: only succeeds if the account is still pending_approval.
+    // This prevents a race where an email-link POST arrives between the SELECT
+    // above and this UPDATE — only one concurrent path can win the WHERE guard.
+    const updateResult = await db
       .update(users)
       .set({
         accountStatus: "active",
         emailVerified: 1,
       })
-      .where(eq(users.id, userId));
+      .where(and(eq(users.id, userId), eq(users.accountStatus, "pending_approval")))
+      .returning({ id: users.id });
+
+    if (updateResult.length === 0) {
+      // Either user not found (handled above) or already actioned concurrently
+      return NextResponse.json(
+        { error: `User is not pending approval (current status: ${user.accountStatus})` },
+        { status: 409 }
+      );
+    }
 
     await db.insert(activityLogs).values({
       userId: adminUserId,
