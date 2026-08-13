@@ -198,11 +198,18 @@ export async function POST(request: NextRequest) {
           );
 
           if (jobId) {
-            // Persist the creditRunId so recovery can release it if the job gets stuck.
+            // Persist the creditRunId and the shared cap-reservation ID so
+            // recovery can settle/cancel exactly this reservation when the
+            // job gets stuck (videoStatus stuck at GENERATING after a restart).
             await db.update(socialPosts)
-              .set({ videoCreditRunId: reservation.creditRunId })
+              .set({
+                videoCreditRunId: reservation.creditRunId,
+                // capReservationId is shared across all posts in this batch —
+                // storing it on each post lets recovery cancel the right row.
+                videoCapReservationId: capReservationId ?? null,
+              })
               .where(eq(socialPosts.id, post.id))
-              .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId for post ${post.id}:`, e));
+              .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId/capReservationId for post ${post.id}:`, e));
 
             queuedJobIds.push(jobId);
             totalQueued++;

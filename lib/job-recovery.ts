@@ -1,5 +1,5 @@
 import { neonHttpDb as db } from "./db";
-import { articles, jobBatches, socialPosts, usageEvents, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
+import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
 import { addVideoGenerationJob, addVideoIdeaJob } from "./queue";
 import { createNotification } from "./notification-service";
@@ -404,6 +404,7 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           updatedAt: socialPosts.updatedAt,
           teamId: socialPosts.teamId,
           videoCreditRunId: socialPosts.videoCreditRunId,
+          videoCapReservationId: socialPosts.videoCapReservationId,
         })
         .from(socialPosts)
         .where(eq(socialPosts.videoStatus, "GENERATING")),
@@ -438,30 +439,14 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
             }).catch((e) => console.warn(`  ⚠️ [recovery] releaseReservation for post ${post.id}:`, e));
           }
 
-          // Cancel any pending spending-cap reservations for this team.
-          // These auto-expire after 2h but we cancel eagerly so the cap meter
-          // reflects reality immediately.
-          if (post.teamId) {
-            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-            const pendingCapReservations = await db
-              .select({ id: usageEvents.id })
-              .from(usageEvents)
-              .where(
-                and(
-                  eq(usageEvents.teamId, post.teamId),
-                  eq(usageEvents.action, "cap_reservation"),
-                  eq(usageEvents.status, "pending"),
-                  // Only cancel recent ones; older ones have already auto-expired.
-                  // Use `gte` via raw sql to avoid importing the gte helper at the top.
-                  sql`${usageEvents.createdAt} >= ${twoHoursAgo}`
-                )
-              )
-              .catch(() => [] as { id: number }[]);
-
-            for (const capRes of pendingCapReservations) {
-              const { cancelCapReservation } = await import("./usage-caps");
-              await cancelCapReservation(capRes.id).catch(() => {});
-            }
+          // Cancel the spending-cap reservation that was persisted with this post.
+          // We cancel only this specific reservation (by its usageEvents.id) so
+          // unrelated concurrent reservations for the same team are not affected.
+          if (post.videoCapReservationId) {
+            const { cancelCapReservation } = await import("./usage-caps");
+            await cancelCapReservation(post.videoCapReservationId).catch((e) =>
+              console.warn(`  ⚠️ [recovery] cancelCapReservation(${post.videoCapReservationId}) for post ${post.id}:`, e)
+            );
           }
 
           // Release the per-user Redis concurrency slot so the user can start
@@ -498,9 +483,14 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
             })
             .where(eq(socialPosts.id, post.id));
 
-          await addVideoGenerationJob(
-            { socialPostId: post.id, platform, videoType: post.videoType || "slideshow" },
-          );
+          // Pass the original creditRunId so the pipeline worker can debit or
+          // release the same reservation that was created at enqueue time.
+          await addVideoGenerationJob({
+            socialPostId: post.id,
+            platform,
+            videoType: post.videoType || "slideshow",
+            ...(post.videoCreditRunId ? { creditRunId: post.videoCreditRunId } : {}),
+          });
 
           console.log(`  🔄 Re-queued Social Post #${post.id} ${isVeo ? "Veo" : "slideshow"} video (was generating ${elapsedMinutes.toFixed(1)}min, max ${maxMinutes}min)`);
           requeued++;

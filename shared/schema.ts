@@ -539,6 +539,7 @@ export const socialPosts = pgTable("social_posts", {
   jobId: varchar("job_id", { length: 255 }), // pg-boss job ID
   requestKey: varchar("request_key", { length: 255 }), // per-request idempotency key (composite unique with teamId below)
   videoCreditRunId: varchar("video_credit_run_id", { length: 255 }), // credit reservation runId — persisted for recovery
+  videoCapReservationId: integer("video_cap_reservation_id"), // spending-cap event ID — persisted for recovery cancellation
   errorMessage: text("error_message"),
   
   // Soft Delete Support
