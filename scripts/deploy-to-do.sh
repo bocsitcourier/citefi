@@ -123,6 +123,13 @@ elif [[ ! -d node_modules ]]; then
 fi
 
 if [[ "$NEEDS_BUILD" == "true" ]]; then
+  # Stop PM2 BEFORE npm ci to free RAM on the 2 GB droplet.
+  # PM2 holds ~200 MB while running; npm ci OOMs without this headroom,
+  # leaving node_modules partially written (styled-jsx and other packages
+  # silently absent, causing "Cannot find module" crashes at startup).
+  echo "Stopping PM2 to free RAM before install..."
+  pm2 stop all 2>/dev/null || true
+
   echo "Installing dependencies..."
   # package-lock.json may contain Replit's internal proxy URLs — patch them before npm ci
   if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
@@ -137,8 +144,7 @@ if [[ "$NEEDS_BUILD" == "true" ]]; then
   # Restore lock file so git doesn't see a dirty tree
   git checkout -- package-lock.json 2>/dev/null || true
 
-  echo "Building... (stopping PM2 first to free RAM on 2GB droplet)"
-  pm2 stop all 2>/dev/null || true
+  echo "Building..."
   NODE_OPTIONS="--max-old-space-size=1700" npm run build
   echo "Build complete."
 else
