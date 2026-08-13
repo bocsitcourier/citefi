@@ -213,6 +213,12 @@ export async function POST(request: NextRequest) {
       throw sendError;
     }
 
+    // Persist the creditRunId so recovery can release it if the job gets stuck.
+    await db.update(socialPosts)
+      .set({ videoCreditRunId: creditRunId })
+      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)))
+      .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId for post ${socialPostId}:`, e));
+
     console.log(`✅ Video generation job queued successfully: ${jobId}`);
     return NextResponse.json({
       success: true,

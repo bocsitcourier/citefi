@@ -1,5 +1,5 @@
 import { neonHttpDb as db } from "./db";
-import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
+import { articles, jobBatches, socialPosts, usageEvents, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
 import { addVideoGenerationJob, addVideoIdeaJob } from "./queue";
 import { createNotification } from "./notification-service";
@@ -398,7 +398,13 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   // This prevents server restarts from permanently failing in-progress videos.
   try {
     const stuckVideoPosts = await withDbRetry(
-      () => db.select({ id: socialPosts.id, videoType: socialPosts.videoType, updatedAt: socialPosts.updatedAt, teamId: socialPosts.teamId })
+      () => db.select({
+          id: socialPosts.id,
+          videoType: socialPosts.videoType,
+          updatedAt: socialPosts.updatedAt,
+          teamId: socialPosts.teamId,
+          videoCreditRunId: socialPosts.videoCreditRunId,
+        })
         .from(socialPosts)
         .where(eq(socialPosts.videoStatus, "GENERATING")),
       "stuck-social-videos"
@@ -421,7 +427,51 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           await db.update(socialPosts)
             .set({ videoStatus: "FAILED", errorMessage: storageMsg, updatedAt: new Date() })
             .where(eq(socialPosts.id, post.id));
-          console.log(`  ❌ Skipped requeue for Social Post #${post.id}: storage not configured`);
+
+          // Release the credit reservation so credits are not stranded indefinitely.
+          if (post.videoCreditRunId && post.teamId) {
+            const { releaseReservation } = await import("./billing");
+            await releaseReservation({
+              teamId: post.teamId,
+              runId: post.videoCreditRunId,
+              reason: `Recovery: STORAGE_NOT_CONFIGURED for social post ${post.id}`,
+            }).catch((e) => console.warn(`  ⚠️ [recovery] releaseReservation for post ${post.id}:`, e));
+          }
+
+          // Cancel any pending spending-cap reservations for this team.
+          // These auto-expire after 2h but we cancel eagerly so the cap meter
+          // reflects reality immediately.
+          if (post.teamId) {
+            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+            const pendingCapReservations = await db
+              .select({ id: usageEvents.id })
+              .from(usageEvents)
+              .where(
+                and(
+                  eq(usageEvents.teamId, post.teamId),
+                  eq(usageEvents.action, "cap_reservation"),
+                  eq(usageEvents.status, "pending"),
+                  // Only cancel recent ones; older ones have already auto-expired.
+                  // Use `gte` via raw sql to avoid importing the gte helper at the top.
+                  sql`${usageEvents.createdAt} >= ${twoHoursAgo}`
+                )
+              )
+              .catch(() => [] as { id: number }[]);
+
+            for (const capRes of pendingCapReservations) {
+              const { cancelCapReservation } = await import("./usage-caps");
+              await cancelCapReservation(capRes.id).catch(() => {});
+            }
+          }
+
+          // Release the per-user Redis concurrency slot so the user can start
+          // a new video immediately rather than waiting for the 2h TTL.
+          const { releaseVideoSlotForPost } = await import("./user-gate");
+          await releaseVideoSlotForPost(post.id).catch((e) =>
+            console.warn(`  ⚠️ [recovery] releaseVideoSlotForPost for post ${post.id}:`, e)
+          );
+
+          console.log(`  ❌ Skipped requeue for Social Post #${post.id}: storage not configured (credits + slot released)`);
           continue;
         }
 

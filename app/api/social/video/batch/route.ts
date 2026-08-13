@@ -198,6 +198,12 @@ export async function POST(request: NextRequest) {
           );
 
           if (jobId) {
+            // Persist the creditRunId so recovery can release it if the job gets stuck.
+            await db.update(socialPosts)
+              .set({ videoCreditRunId: reservation.creditRunId })
+              .where(eq(socialPosts.id, post.id))
+              .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId for post ${post.id}:`, e));
+
             queuedJobIds.push(jobId);
             totalQueued++;
             const idx = reservations.findIndex((r) => r.postId === post.id);
