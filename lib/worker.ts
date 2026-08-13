@@ -1330,6 +1330,31 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
           const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
 
+          // ── Storage gate ──────────────────────────────────────────────────
+          // Reject immediately if DO Spaces is not configured. Failing here (before
+          // any generation work) surfaces a clear error in the UI instead of silently
+          // burning Veo quota and leaving the socialPost stuck at GENERATING.
+          {
+            const { isStorageConfigured } = await import("./storage");
+            if (!isStorageConfigured) {
+              const storageMsg =
+                "Video storage (DO Spaces) is not configured. " +
+                "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET.";
+              console.error(`❌ [video-worker] STORAGE_NOT_CONFIGURED for post ${socialPostId}: ${storageMsg}`);
+              // Update DB so the UI reflects the error immediately.
+              try {
+                const { db: gateDb } = await import("./db");
+                const { socialPosts: spGate } = await import("@/shared/schema");
+                const { eq: eqGate } = await import("drizzle-orm");
+                await gateDb
+                  .update(spGate)
+                  .set({ videoStatus: "FAILED", errorMessage: storageMsg, updatedAt: new Date() })
+                  .where(eqGate(spGate.id, socialPostId));
+              } catch { /* non-fatal — throw below will still surface the error */ }
+              throw new Error(`STORAGE_NOT_CONFIGURED: ${storageMsg}`);
+            }
+          }
+
           // PERMANENT FIX: Check disk space before starting (need ~500MB per video)
           try {
             const { execSync } = await import("child_process");

@@ -25,8 +25,15 @@ const s3Client = new S3Client({
   forcePathStyle: false,          // DO Spaces uses subdomain-style URLs
 });
 
-if (!DO_SPACES_BUCKET) {
-  console.warn("⚠️  DO_SPACES_BUCKET not configured — media uploads will fail");
+/** True when all required DO Spaces credentials are present. */
+export const isStorageConfigured: boolean =
+  !!(DO_SPACES_KEY && DO_SPACES_SECRET && DO_SPACES_ENDPOINT && DO_SPACES_BUCKET);
+
+if (!isStorageConfigured) {
+  console.warn(
+    "⚠️  DO Spaces storage not fully configured — media uploads will fail. " +
+    "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET in .env.local."
+  );
 } else {
   console.log(`✅ Using DO Spaces storage: ${DO_SPACES_BUCKET}`);
 }

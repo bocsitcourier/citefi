@@ -10,14 +10,16 @@ import { checkVideoGate, acquireVideoSlot, releaseVideoSlot } from "@/lib/user-g
 
 export async function POST(request: NextRequest) {
   // ── Storage preflight ──────────────────────────────────────────────────────
-  // All video generation (slideshow + Veo) uploads to Replit Object Storage
-  // via DEFAULT_OBJECT_STORAGE_BUCKET_ID. Reject immediately so we don't burn
-  // Veo quota generating a video that can't be stored.
-  if (!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID) {
+  // Video generation uploads the finished file to DO Spaces. Reject the request
+  // immediately so we don't burn Veo quota generating a video that can't be stored.
+  const { isStorageConfigured } = await import("@/lib/storage");
+  if (!isStorageConfigured) {
     return NextResponse.json(
       {
         error: "Video storage not configured",
-        message: "Object storage is not set up. Contact your administrator.",
+        message:
+          "DigitalOcean Spaces is not set up. Add DO_SPACES_KEY, DO_SPACES_SECRET, " +
+          "DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET to your environment variables.",
         code: "STORAGE_NOT_CONFIGURED",
       },
       { status: 503 }

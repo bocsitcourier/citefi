@@ -7,12 +7,27 @@ import { addVideoIdeaJob } from "@/lib/queue";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
+import { isStorageConfigured } from "@/lib/storage";
 import { randomUUID } from "crypto";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // ── Storage preflight ──────────────────────────────────────────────────────
+  if (!isStorageConfigured) {
+    return NextResponse.json(
+      {
+        error: "Video storage not configured",
+        message:
+          "DigitalOcean Spaces is not set up. Add DO_SPACES_KEY, DO_SPACES_SECRET, " +
+          "DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET to your environment variables.",
+        code: "STORAGE_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   let teamId: number | undefined;
   let creditRunId: string | undefined;
   let capReservationId: number | null = null;

@@ -133,6 +133,11 @@ export default function SocialPostDetailPage() {
     enabled: !!postId,
   });
 
+  const { data: storageStatus } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/social/video/storage-check"],
+    staleTime: 60_000, // re-check at most once per minute
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async () => {
       await apiRequest(`/api/social_posts/${postId}`, {
@@ -761,6 +766,19 @@ export default function SocialPostDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {storageStatus?.configured === false && (
+              <div className="flex items-start gap-3 rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-200">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-400" />
+                <div>
+                  <p className="font-semibold">Video storage not configured</p>
+                  <p className="mt-0.5 text-xs text-yellow-800 dark:text-yellow-300">
+                    DigitalOcean Spaces credentials are missing (DO_SPACES_KEY, DO_SPACES_SECRET,
+                    DO_SPACES_ENDPOINT, DO_SPACES_BUCKET). Video generation will fail until an
+                    administrator adds these environment variables.
+                  </p>
+                </div>
+              </div>
+            )}
             {!post.videoUrl && (!post.videoStatus || post.videoStatus === "PENDING") && (
               <div className="text-center py-8 space-y-4">
                 <Video className="w-16 h-16 mx-auto text-muted-foreground" />

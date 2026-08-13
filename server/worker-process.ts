@@ -81,7 +81,22 @@ async function startWorkers() {
 
     // Start keep-alive before any long-running work
     startNeonKeepAlive();
-    
+
+    // ── Storage configuration check ───────────────────────────────────────────
+    // Non-fatal: other workers (articles, social posts, etc.) don't need storage.
+    // Video generation jobs will fail fast with STORAGE_NOT_CONFIGURED instead of
+    // silently burning Veo quota and leaving posts stuck at GENERATING.
+    const { isStorageConfigured } = await import("../lib/storage");
+    if (!isStorageConfigured) {
+      console.warn(
+        "⚠️ [startup] DO Spaces storage not configured — video generation jobs will " +
+        "be rejected immediately with STORAGE_NOT_CONFIGURED. " +
+        "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
+      );
+    } else {
+      console.log("✅ [startup] Storage (DO Spaces) is configured — video generation enabled.");
+    }
+
     // Validate publishing secrets before starting workers
     await ensurePublishingSecretsReady();
 
