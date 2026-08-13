@@ -53,6 +53,21 @@ PM2 holds ~200 MB of RAM while running. `npm ci` on a 2 GB droplet OOMs without 
 **Symptoms:** Build succeeds (compilation + static generation all pass), but PM2 starts the app and it crashes immediately. PM2 shows `online` then `errored` within seconds. PM2 logs show `Cannot find module 'styled-jsx/package.json'` from `node_modules/next/dist/server/require-hook.js`.
 **How to apply:** Both `.github/workflows/deploy.yml` and `scripts/deploy-to-do.sh` now stop PM2 before `npm ci`.
 
+### 10. Root SSH + citefi-owned repo requires `git config --global --add safe.directory`
+When deploy connects as `root` but the repo dir (`/var/www/citefi`) is owned by user `citefi`, git exits with "dubious ownership" before any `git fetch/reset`. Must add `git config --global --add safe.directory /var/www/citefi` at the top of the remote script before any git calls.
+**How to apply:** Already in both deploy scripts immediately after `set -euo pipefail`.
+
+### 11. Two PM2 daemons (root + citefi) can cause `pm2 stop all` to silently miss running processes — CRITICAL
+If PM2 was ever started as root (e.g. during manual maintenance), a root PM2 daemon (at `/root/.pm2`) runs alongside the citefi daemon. Running `pm2 stop all` as citefi only stops citefi-daemon-managed processes; root-managed processes keep running and consume ~200 MB during the build, starving it of RAM.
+**Fix:** Deploy scripts now connect as `root` so `pm2 stop all` always targets the correct daemon. If the repo is owned by another user, add `safe.directory` first (Rule 10).
+**Detection:** `ps aux | sort -k6 -rn` will show unexpected PM2 daemons or next-server processes after stop.
+
+### 12. `next build` peaks at ~1.7 GB RSS on 2 GB droplet — add 2 GB swap before building
+Even with `export const dynamic = "force-dynamic"` in `app/layout.tsx` (which prevents static-page OOM), the build's compilation/bundling phase peaks at ~1.7 GB RSS. On a 2 GB droplet with OS overhead, the OOM killer kills the build mid-way, leaving `.next` without `BUILD_ID`.
+**Fix:** Deploy script creates `/swapfile2` (2 GB, fallocate) and activates it with `swapon` before `npm ci`. The 2 GB existing `/swapfile` can be 80%+ used from previous heavy loads; the second file is the safety net.
+**Symptoms:** Build "completes" (exit 0 from the Actions script perspective) but `.next/BUILD_ID` is missing; `required-server-files.json` absent; PM2 crash-loops with "Could not find a production build" or `ENOENT required-server-files.json`.
+**How to apply:** `/swapfile2` creation is idempotent (skips if exists + already swapped); in both `.github/workflows/deploy.yml` and `scripts/deploy-to-do.sh`.
+
 ### 8. `next build` OOMs on 2 GB droplet during "Collecting page data" phase — CRITICAL
 The "Collecting page data" phase of `next build` runs the full Next.js app in a jest-worker process to statically pre-render pages. On a 2 GB droplet this always OOMs (EXIT=137, SIGKILL) if ANY static pages exist. The compilation phase alone (~1.4 GB RAM) succeeds fine.
 **Symptoms:** Build log shows `✓ Compiled successfully in 6.6min` followed by `Collecting page data using 1 worker ...` and then exits with code 137. `.next/BUILD_ID` is never written. PM2 crash-loops with "Could not find a production build".
