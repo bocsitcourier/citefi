@@ -62,9 +62,11 @@ export async function POST(
           continue;
         }
 
+        // Clear errorMessage so the stale failure reason doesn't show
+        // while the article is being retried.
         await db
           .update(articles)
-          .set({ articleStatus: "PENDING", updatedAt: new Date() })
+          .set({ articleStatus: "PENDING", errorMessage: null, updatedAt: new Date() })
           .where(eq(articles.id, articleId));
 
         const params = (batch.generationParams as any) || {};

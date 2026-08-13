@@ -1220,7 +1220,43 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         console.error(`❌ Article generation failed for article ${articleId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Classify the error type for the admin error log
+        // Classify the error for disposition, user-facing message, and admin log type.
+        const classified = classifyError(error, "text_gen");
+
+        // Derive a user-friendly message based on the error code so the
+        // Content page (articles table errorMessage column) shows actionable
+        // guidance instead of a raw API stack trace.
+        const retryAfterMinutes = classified.retryAfterMs
+          ? Math.ceil(classified.retryAfterMs / 60000)
+          : null;
+        const userFriendlyError: string = (() => {
+          switch (classified.code) {
+            case "RATE_LIMITED":
+              return retryAfterMinutes && retryAfterMinutes > 0
+                ? `Rate limit reached — retry in ${retryAfterMinutes} minute${retryAfterMinutes === 1 ? "" : "s"}.`
+                : "Rate limit reached — please retry in a few minutes.";
+            case "TIMEOUT":
+              return "Generation timed out — the article may have been too long. Please retry.";
+            case "TOKEN_LIMIT_EXCEEDED":
+              return "Article topic is too long for the AI model. Try a shorter title or smaller word count, then retry.";
+            case "CONTENT_POLICY_BLOCK":
+              return "Content was blocked by the AI provider's safety filters. Try a different title or topic.";
+            case "AUTH_FAILURE":
+              return "API authentication failed — please contact support.";
+            case "MODEL_NOT_FOUND":
+              return "AI model is currently unavailable — please contact support.";
+            case "BUDGET_EXCEEDED":
+              return "Generation budget reached for this run. Upgrade your plan or wait for the next billing period.";
+            case "PARSE_ERROR":
+              return "AI returned an unexpected response. Please retry.";
+            case "PROVIDER_ERROR":
+              return "AI provider is temporarily unavailable. Please retry later.";
+            default:
+              return "Article generation failed. Please retry.";
+          }
+        })();
+
+        // Classify the error type for the admin error log (keep existing logic)
         const lowerErrMsg = errorMessage.toLowerCase();
         const errType =
           lowerErrMsg.includes("rate limit") || lowerErrMsg.includes("429")
@@ -1235,6 +1271,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
         // Write to error_logs table AND fire Slack webhook so every article
         // failure is visible in the Admin Error Log panel and alert channel.
+        // Use raw errorMessage here so admins see the full technical detail.
         await logError({
           errorType: errType,
           errorMessage: `Article generation failed: ${errorMessage}`,
@@ -1243,10 +1280,10 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           batchId,
           articleId,
           component: "article-worker",
-          context: { title: title?.slice(0, 120) },
+          context: { title: title?.slice(0, 120), errorCode: classified.code },
         }).catch((e) => console.error("[worker] logError failed:", e));
         
-        // Log article failure event
+        // Log article failure event (raw detail for admin debugging)
         const { jobEvents } = await import("@/shared/schema");
         await db.insert(jobEvents).values({
           articleId,
@@ -1258,6 +1295,8 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           payloadJson: { 
             articleId,
             title,
+            errorCode: classified.code,
+            userFriendlyError,
             stackTrace: error instanceof Error ? error.stack?.slice(0, 1000) : undefined
           }
         });
@@ -1278,15 +1317,17 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           // GEMINI_COMPLETE: Gemini work done — resumes from ChatGPT on next retry.
           const PRESERVED_CHECKPOINTS = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
           if (!PRESERVED_CHECKPOINTS.includes(statusNow ?? "")) {
+            // Write the user-friendly message to articles.errorMessage so the
+            // Content / batch-detail page can surface it directly to users.
             await db
               .update(articles)
-              .set({ articleStatus: "FAILED", errorMessage: errorMessage.slice(0, 1000) })
+              .set({ articleStatus: "FAILED", errorMessage: userFriendlyError })
               .where(eq(articles.id, articleId));
           } else {
             // Preserve checkpoint — update only the error message for observability
             await db
               .update(articles)
-              .set({ errorMessage: errorMessage.slice(0, 1000), updatedAt: new Date() })
+              .set({ errorMessage: userFriendlyError, updatedAt: new Date() })
               .where(eq(articles.id, articleId));
             console.warn(`⚠️ Article ${articleId} failed after reaching ${statusNow} — checkpoint preserved, will retry`);
           }
@@ -1294,26 +1335,23 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           console.error(`❌ Failed to update article status:`, dbError);
         }
 
-        // Classification for the learning ledger only — credit release and
-        // fatal/retry policy are handled once by createPipelineWorker.
-        const classified = classifyError(error, "text_gen");
-
         // Record failure in learning ledger so the AI learning center can surface it
         if (articleTeamId) {
           learningService.recordGuardianFailures(articleTeamId, "article", [classified.code]).catch(() => {});
         }
 
-        // Notify the team via the in-app bell so the failure is visible without checking logs
+        // Notify the team via the in-app bell. Use the user-friendly message so
+        // the notification bell shows actionable guidance, not a raw API error.
         if (articleTeamId) {
           void createNotification({
             teamId: articleTeamId,
             type: "error",
             category: "article",
             title: "Article Generation Failed",
-            message: `"${(title || "Article").slice(0, 80)}" failed: ${errorMessage.slice(0, 200)}`,
+            message: `"${(title || "Article").slice(0, 80)}" — ${userFriendlyError}`,
             entityId: articleId,
             entityType: "article",
-            actionUrl: `/content/${articleId}`,
+            actionUrl: `/batches/${batchId}`,
           }).catch(() => {});
         }
 
