@@ -46,6 +46,12 @@ Replit stores multi-line secrets with literal spaces. The PEM must be reconstruc
 **Fix:** Python regex to split on `-----BEGIN/END` boundaries and then split body on spaces.
 **How to apply:** Already in `scripts/deploy-to-do.sh` key setup section.
 
+### 9. Stop PM2 BEFORE `npm ci`, not just before `next build` — CRITICAL
+PM2 holds ~200 MB of RAM while running. `npm ci` on a 2 GB droplet OOMs without that headroom, causing a **partial** `node_modules` write. The install reports success (exit 0) but some packages (e.g. `styled-jsx`) are silently absent, causing `Cannot find module 'styled-jsx/package.json'` crashes at startup.
+**Fix:** `pm2 stop all` must run immediately before `npm ci`, not before `npm run build`.
+**Symptoms:** Build succeeds (compilation + static generation all pass), but PM2 starts the app and it crashes immediately. PM2 shows `online` then `errored` within seconds. PM2 logs show `Cannot find module 'styled-jsx/package.json'` from `node_modules/next/dist/server/require-hook.js`.
+**How to apply:** Both `.github/workflows/deploy.yml` and `scripts/deploy-to-do.sh` now stop PM2 before `npm ci`.
+
 ### 8. `next build` OOMs on 2 GB droplet during "Collecting page data" phase — CRITICAL
 The "Collecting page data" phase of `next build` runs the full Next.js app in a jest-worker process to statically pre-render pages. On a 2 GB droplet this always OOMs (EXIT=137, SIGKILL) if ANY static pages exist. The compilation phase alone (~1.4 GB RAM) succeeds fine.
 **Symptoms:** Build log shows `✓ Compiled successfully in 6.6min` followed by `Collecting page data using 1 worker ...` and then exits with code 137. `.next/BUILD_ID` is never written. PM2 crash-loops with "Could not find a production build".
