@@ -21,10 +21,18 @@
  *
  * Environment variables
  * ---------------------
- * APPROVAL_TOKEN_SECRET      — primary signing secret (preferred)
+ * APPROVAL_TOKEN_SECRET      — primary signing secret (REQUIRED in production)
  * APPROVAL_TOKEN_SECRET_PREV — previous signing secret (optional, for rotation)
- * NEXTAUTH_SECRET            — fallback if APPROVAL_TOKEN_SECRET is not set
- * JWT_SECRET                 — second fallback
+ * NEXTAUTH_SECRET            — fallback used only in development / test
+ * JWT_SECRET                 — second fallback used only in development / test
+ *
+ * Production enforcement
+ * ----------------------
+ * In production (NODE_ENV === "production") the fallback chain is disabled.
+ * If APPROVAL_TOKEN_SECRET is unset the process throws at the first token
+ * operation, and validateApprovalTokenSecret() throws immediately so you can
+ * catch the misconfiguration at startup rather than when the first email goes
+ * out.
  */
 
 import { createHmac, createHash } from "crypto";
@@ -59,13 +67,40 @@ function deriveKid(secret: string): string {
  * Verification tries the matching kid first; legacy tokens (no kid) try all keys.
  */
 function getKeyring(): Array<{ kid: string; secret: string }> {
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isProd) {
+    // In production the fallback chain is disabled.  APPROVAL_TOKEN_SECRET
+    // must be set explicitly so a missing env var is always a hard error —
+    // never a silent switch to a different key.
+    const current = process.env.APPROVAL_TOKEN_SECRET;
+    if (!current) {
+      throw new Error(
+        "[approval-token] APPROVAL_TOKEN_SECRET is required in production. " +
+        "Set this environment variable before starting the server. " +
+        "Falling back to NEXTAUTH_SECRET or JWT_SECRET is not permitted in production."
+      );
+    }
+    const keyring: Array<{ kid: string; secret: string }> = [
+      { kid: deriveKid(current), secret: current },
+    ];
+    const prev = process.env.APPROVAL_TOKEN_SECRET_PREV;
+    if (prev && prev !== current) {
+      keyring.push({ kid: deriveKid(prev), secret: prev });
+    }
+    return keyring;
+  }
+
+  // Development / test: allow fallbacks so local environments work without
+  // the full production secret set.
   const current =
     process.env.APPROVAL_TOKEN_SECRET ||
     process.env.NEXTAUTH_SECRET ||
     process.env.JWT_SECRET;
   if (!current) {
     throw new Error(
-      "No signing secret found. Set APPROVAL_TOKEN_SECRET, NEXTAUTH_SECRET, or JWT_SECRET."
+      "[approval-token] No signing secret found. " +
+      "Set APPROVAL_TOKEN_SECRET (required in production), NEXTAUTH_SECRET, or JWT_SECRET."
     );
   }
   const keyring: Array<{ kid: string; secret: string }> = [
@@ -76,6 +111,28 @@ function getKeyring(): Array<{ kid: string; secret: string }> {
     keyring.push({ kid: deriveKid(prev), secret: prev });
   }
   return keyring;
+}
+
+// ── Startup validation ──────────────────────────────────────────────────────
+
+/**
+ * Call once at server/worker startup (before any tokens are issued or verified)
+ * to assert that the signing secret is correctly configured.
+ *
+ * In production this throws immediately if APPROVAL_TOKEN_SECRET is unset,
+ * surfacing the misconfiguration before the first admin email goes out rather
+ * than when an approval link is clicked.
+ *
+ * In development/test the check mirrors getKeyring(): any of the three env
+ * vars is acceptable.
+ *
+ * @throws {Error} when the required secret is missing.
+ */
+export function validateApprovalTokenSecret(): void {
+  // Delegate to getKeyring() so the enforcement logic stays in one place.
+  // This also validates APPROVAL_TOKEN_SECRET_PREV if it is set (no throw,
+  // but the call ensures the primary key is resolvable).
+  getKeyring();
 }
 
 // ── Encoding helpers ───────────────────────────────────────────────────────────
