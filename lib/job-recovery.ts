@@ -408,7 +408,23 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     let failed = 0;
 
     if (stuckVideoPosts.length > 0) {
+      // If storage is not configured, requeuing would just produce a fast
+      // STORAGE_NOT_CONFIGURED failure in the worker — skip requeue and mark
+      // posts FAILED immediately with a clear explanation.
+      const { isStorageConfigured } = await import("./storage");
+
       for (const post of stuckVideoPosts) {
+        if (!isStorageConfigured) {
+          const storageMsg =
+            "Video storage (DO Spaces) is not configured — generation cannot be retried. " +
+            "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET.";
+          await db.update(socialPosts)
+            .set({ videoStatus: "FAILED", errorMessage: storageMsg, updatedAt: new Date() })
+            .where(eq(socialPosts.id, post.id));
+          console.log(`  ❌ Skipped requeue for Social Post #${post.id}: storage not configured`);
+          continue;
+        }
+
         const isVeo = post.videoType === "veo";
         // Max expected generation time: Veo = 95 min, Slideshow = 20 min
         const maxMinutes = isVeo ? 95 : 20;

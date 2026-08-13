@@ -29,6 +29,19 @@ export async function registerVideoIdeaWorker(): Promise<void> {
       console.log(`   Video Idea ID: ${videoIdeaId}${creditRunId ? ` (creditRunId: ${creditRunId})` : " (unmetered — legacy)"}`);
 
       try {
+        // ── Storage gate ───────────────────────────────────────────────────
+        // Must be inside this try/catch so the catch block's status=FAILED
+        // write and credit release run identically to any other terminal error.
+        {
+          const { isStorageConfigured } = await import("@/lib/storage");
+          if (!isStorageConfigured) {
+            throw new Error(
+              "STORAGE_NOT_CONFIGURED: Video storage (DO Spaces) is not configured. " +
+              "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
+            );
+          }
+        }
+
         // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
         // this catch (status=FAILED write, notification) before the pipeline
         // wrapper releases the reservation and stops retries.
