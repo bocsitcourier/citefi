@@ -18,7 +18,7 @@ set -euo pipefail
 : "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing — add it in Replit Secrets}"
 : "${DO_HOST:?DO_HOST env var is missing — add it in Replit}"
 
-DO_USER="${DO_USER:-citefi}"
+DO_USER="${DO_USER:-root}"
 DO_PORT="${DO_PORT:-22}"
 DO_APP_DIR="${DO_APP_DIR:-/var/www/citefi}"
 DO_BRANCH="${DO_BRANCH:-main}"
@@ -130,6 +130,21 @@ if [[ "$NEEDS_BUILD" == "true" ]]; then
   echo "Stopping PM2 to free RAM before install..."
   pm2 stop all 2>/dev/null || true
 
+  # Ensure extra swap exists so the Next.js build never OOMs on a 2 GB droplet.
+  # next build peaks at ~1.7 GB RSS; without extra swap the OOM killer silently
+  # kills the build mid-way, leaving .next without BUILD_ID.
+  if [[ ! -f /swapfile2 ]]; then
+    echo "Creating 2 GB swap file to cover build peak..."
+    fallocate -l 2G /swapfile2
+    chmod 600 /swapfile2
+    mkswap /swapfile2 >/dev/null
+    swapon /swapfile2
+    echo "  ✓ /swapfile2 active"
+  elif ! swapon --show | grep -q /swapfile2; then
+    swapon /swapfile2
+    echo "  ✓ /swapfile2 re-activated"
+  fi
+
   echo "Installing dependencies..."
   # package-lock.json may contain Replit's internal proxy URLs — patch them before npm ci
   if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
@@ -165,16 +180,31 @@ for p in procs:
 pm2 startOrReload "$DO_PM2_CONFIG" --update-env 2>/dev/null \
   || pm2 restart all --update-env
 
-# ── Health check with crash-loop detection ───────────────────────────────
+# ── Health check (verifies DB connectivity, not just HTTP 200) ────────────
 echo ""
 echo "Health check (waiting up to 45s)..."
 PASSED=false
 for i in $(seq 1 15); do
   sleep 3
-  if curl -fsS --max-time 5 "$DO_HEALTHCHECK_URL" >/dev/null 2>&1; then
-    echo "✓ Health check passed (attempt ${i})."
-    PASSED=true
-    break
+  HEALTH=$(curl -fsS --max-time 5 "$DO_HEALTHCHECK_URL" 2>/dev/null || echo "")
+  if [[ -n "$HEALTH" ]]; then
+    DB_OK=$(echo "$HEALTH" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+print(r.get('services',{}).get('database',{}).get('ok',False))
+" 2>/dev/null || echo "False")
+    if [[ "$DB_OK" == "True" ]]; then
+      echo "✓ Health check passed (attempt ${i}) — app up, DB connected."
+      PASSED=true
+      break
+    else
+      DB_ERR=$(echo "$HEALTH" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+print(r.get('services',{}).get('database',{}).get('error','no error field'))
+" 2>/dev/null || echo "parse error")
+      echo "  App responded but database.ok=false: $DB_ERR"
+    fi
   fi
   if [[ $i -eq 15 ]]; then
     echo ""
