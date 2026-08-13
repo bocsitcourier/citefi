@@ -15,7 +15,9 @@
  * Video: temp files cleaned, videoStatus → FAILED, error logged, reservation
  * released exactly once, UnrecoverableError.
  *
- * Run: WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/pipeline/budget-stop-cleanup.test.ts
+ * Run (local Redis must be up; --test-force-exit because the app's import
+ * chain holds background handles beyond the closed DB/Redis singletons):
+ *   WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm --test --test-force-exit tests/pipeline/budget-stop-cleanup.test.ts
  */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -31,6 +33,10 @@ import { eq, like } from "drizzle-orm";
 type AnyJob = any;
 
 after(async () => {
+  // Close the Redis singleton (opened by the video-slot cleanup path) and the
+  // pooled DB connection so the node:test process exits deterministically.
+  const { closeQueues } = await import("../../lib/queue");
+  await closeQueues().catch(() => {});
   await closeDb();
 });
 
