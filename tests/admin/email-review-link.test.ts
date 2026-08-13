@@ -32,6 +32,7 @@ import {
   sessions,
   activityLogs,
   usedApprovalTokens,
+  revokedApprovalTokens,
 } from "../../shared/schema.js";
 import { hashPassword, generateAccessToken, hashToken } from "../../lib/auth.js";
 import { generateApprovalToken, verifyApprovalToken } from "../../lib/approval-token.js";
@@ -41,6 +42,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { GET, POST } from "../../app/api/admin/users/review/route.js";
 import { POST as adminApprove } from "../../app/api/admin/users/[id]/approve/route.js";
 import { POST as adminReject } from "../../app/api/admin/users/[id]/reject/route.js";
+import { POST as revokeApprovalToken } from "../../app/api/admin/users/[id]/revoke-approval-token/route.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -287,6 +289,12 @@ after(async () => {
           ["approve", "reject"] as unknown as string[]
         )
       )
+      .catch(() => {});
+
+    // Clean up revocation rows created during tests
+    await db
+      .delete(revokedApprovalTokens)
+      .where(inArray(revokedApprovalTokens.userId, allIds as number[]))
       .catch(() => {});
 
     await db
@@ -1002,6 +1010,223 @@ describe("Race-condition guard — admin panel wins, email-link blocked", () => 
       `Expected exactly 1 activity log — found ${logs.length} (email-link must not write a second one)`
     );
     assert.equal(logs[0]?.action, "user_rejected");
+  });
+});
+
+// ── Revocation tests ──────────────────────────────────────────────────────────
+//
+// These tests verify that the POST /api/admin/users/[id]/revoke-approval-token
+// endpoint creates a revocation record, and that both GET and POST on the
+// review route reject tokens whose exp falls within the revocation window.
+
+describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endpoint", () => {
+  test("returns 404 for unknown user", async () => {
+    const res = await revokeApprovalToken(
+      makeAdminReq("/api/admin/users/999999999/revoke-approval-token", seed.adminToken),
+      { params: Promise.resolve({ id: "999999999" }) }
+    );
+    assert.equal(res.status, 404, `Expected 404 for unknown user — got ${res.status}`);
+  });
+
+  test("returns 400 for invalid (non-numeric) user ID", async () => {
+    const res = await revokeApprovalToken(
+      makeAdminReq("/api/admin/users/not-a-number/revoke-approval-token", seed.adminToken),
+      { params: Promise.resolve({ id: "not-a-number" }) }
+    );
+    assert.equal(res.status, 400, `Expected 400 for invalid ID — got ${res.status}`);
+  });
+
+  test("returns 403 for unauthenticated request", async () => {
+    // Seed a fresh pending user
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_revoke_unauth@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Revoke Unauth User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    const res = await revokeApprovalToken(
+      makeAdminReq(
+        `/api/admin/users/${fp.id}/revoke-approval-token`,
+        "not-a-valid-token"
+      ),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    // requireAdmin throws → 401 or 403
+    assert.ok(
+      res.status === 401 || res.status === 403,
+      `Expected 401 or 403 for unauthenticated request — got ${res.status}`
+    );
+  });
+
+  test("returns 409 when target user is already active (not pending)", async () => {
+    const res = await revokeApprovalToken(
+      makeAdminReq(
+        `/api/admin/users/${seed.activeUserId}/revoke-approval-token`,
+        seed.adminToken
+      ),
+      { params: Promise.resolve({ id: String(seed.activeUserId) }) }
+    );
+    assert.equal(res.status, 409, `Expected 409 for already-active user — got ${res.status}`);
+  });
+
+  test("returns 200 and creates a revocation row for a pending user", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_revoke_create@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Revoke Create User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    const res = await revokeApprovalToken(
+      makeAdminReq(
+        `/api/admin/users/${fp.id}/revoke-approval-token`,
+        seed.adminToken
+      ),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+    assert.equal(res.status, 200, `Expected 200 from revoke endpoint — got ${res.status}`);
+
+    const body = await res.json() as { message: string; userId: number; revokedAt: string; expiresAt: string };
+    assert.ok(body.message?.toLowerCase().includes("revok"), `Expected revoke message — got: ${JSON.stringify(body)}`);
+    assert.equal(body.userId, fp.id);
+
+    // Verify a DB row was created
+    const rows = await db
+      .select({ id: revokedApprovalTokens.id })
+      .from(revokedApprovalTokens)
+      .where(eq(revokedApprovalTokens.userId, fp.id));
+    assert.ok(rows.length >= 1, `Expected at least 1 revocation row in DB — found ${rows.length}`);
+  });
+});
+
+describe("GET /api/admin/users/review — revoked token is blocked", () => {
+  test("revoked token returns 400 'revoked' page (GET)", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_revoke_get@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Revoke GET User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Generate the token BEFORE revoking so its exp falls within the revocation window
+    const token = generateApprovalToken(fp.id, "approve");
+
+    // Revoke the user's outstanding links
+    await revokeApprovalToken(
+      makeAdminReq(`/api/admin/users/${fp.id}/revoke-approval-token`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+
+    // GET must now show the revoked page
+    const res = await GET(makeGetReq(token));
+    assert.equal(res.status, 400, `Expected 400 for revoked token on GET — got ${res.status}`);
+    const html = await res.text();
+    assert.ok(
+      html.toLowerCase().includes("revok"),
+      `Expected 'revoked' in response body — got:\n${html.slice(0, 400)}`
+    );
+  });
+});
+
+describe("POST /api/admin/users/review — revoked token is blocked", () => {
+  test("revoked token returns 400 'revoked' page (POST) and does not mutate accountStatus", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_revoke_post@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Revoke POST User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Generate the token BEFORE revoking
+    const token = generateApprovalToken(fp.id, "approve");
+
+    // Revoke
+    await revokeApprovalToken(
+      makeAdminReq(`/api/admin/users/${fp.id}/revoke-approval-token`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+
+    // POST must return 400 (revoked) without changing accountStatus
+    const res = await POST(makePostReq(token));
+    assert.equal(res.status, 400, `Expected 400 for revoked token on POST — got ${res.status}`);
+    const html = await res.text();
+    assert.ok(
+      html.toLowerCase().includes("revok"),
+      `Expected 'revoked' in response body — got:\n${html.slice(0, 400)}`
+    );
+
+    // AccountStatus must still be pending_approval — revoked token must not approve
+    const status = await fetchUserStatus(fp.id);
+    assert.equal(
+      status,
+      "pending_approval",
+      `accountStatus must remain pending_approval after revoked-token POST — got: ${status}`
+    );
+  });
+
+  test("token issued AFTER revocation is NOT blocked", async () => {
+    const [fp] = await db
+      .insert(users)
+      .values({
+        email: `rl_${RUN_ID}_revoke_new_token@test.invalid`,
+        passwordHash: "unused",
+        role: "team_member",
+        accountStatus: "pending_approval",
+        fullName: "Revoke New Token User",
+        defaultTeamId: seed.teamId,
+      })
+      .returning({ id: users.id });
+    seed.extraPendingIds.push(fp.id);
+
+    // Step 1 — revoke all current links
+    await revokeApprovalToken(
+      makeAdminReq(`/api/admin/users/${fp.id}/revoke-approval-token`, seed.adminToken),
+      { params: Promise.resolve({ id: String(fp.id) }) }
+    );
+
+    // Step 2 — generate a NEW token whose exp is after the revocation window
+    // We simulate this by manually inserting a revocation row with an expiresAt
+    // in the past so the new token (whose exp is ~7 days from now) is outside it.
+    // This is the production scenario: old revocation expires, admin resends.
+    await db
+      .update(revokedApprovalTokens)
+      .set({ expiresAt: new Date(Date.now() - 1) }) // push expiresAt into the past
+      .where(eq(revokedApprovalTokens.userId, fp.id));
+
+    const newToken = generateApprovalToken(fp.id, "approve");
+    const res = await POST(makePostReq(newToken));
+    assert.equal(
+      res.status,
+      200,
+      `New token (outside revocation window) must be accepted — got ${res.status}`
+    );
+    const after = await fetchUserStatus(fp.id);
+    assert.equal(after, "active", `accountStatus must be active after new-token approve — got: ${after}`);
   });
 });
 

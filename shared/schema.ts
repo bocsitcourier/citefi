@@ -3483,6 +3483,47 @@ export const insertUsedApprovalTokenSchema = createInsertSchema(usedApprovalToke
 export type UsedApprovalToken = typeof usedApprovalTokens.$inferSelect;
 export type InsertUsedApprovalToken = z.infer<typeof insertUsedApprovalTokenSchema>;
 
+/**
+ * revoked_approval_tokens — explicit per-user revocations by admins.
+ *
+ * Unlike used_approval_tokens (which tracks tokens already consumed), this
+ * table lets an admin proactively block ALL outstanding approval links for a
+ * given user before they are used.
+ *
+ * How revocation is scoped
+ * ------------------------
+ * A token has an implicit issue time of (exp - 7 days). Revoking at time R
+ * (revokedAt) blocks any token whose issue time ≤ R, i.e. any token with
+ * exp ≤ R + 7 days.  We store expiresAt = R + 7 days so the row can be
+ * pruned exactly when the last revoked token would have expired anyway, and
+ * so the check in the review route is a simple:
+ *
+ *   WHERE user_id = $userId AND expires_at > NOW() AND expires_at >= $tokenExp
+ *
+ * Tokens issued AFTER R are NOT blocked (their exp > expiresAt) so a
+ * freshly resent link still works.
+ *
+ * Rows are pruned on the same schedule as used_approval_tokens (each POST to
+ * the review route runs pruneExpiredTokens which deletes both tables).
+ */
+export const revokedApprovalTokens = pgTable("revoked_approval_tokens", {
+  id: serial("id").primaryKey(),
+  /** User whose outstanding approval links should be blocked. */
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** Timestamp at which the revocation was issued (all tokens issued ≤ this are blocked). */
+  revokedAt: timestamp("revoked_at").notNull().defaultNow(),
+  /** Admin who triggered the revocation (nullable for safety; FK to users). */
+  revokedBy: integer("revoked_by").references(() => users.id, { onDelete: "set null" }),
+  /** When to prune this row = revokedAt + 7 days (aligns with the token TTL). */
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => ({
+  userIdIdx: index("revoked_approval_tokens_user_id_idx").on(table.userId),
+  expiresAtIdx: index("revoked_approval_tokens_expires_at_idx").on(table.expiresAt),
+}));
+
+export const insertRevokedApprovalTokenSchema = createInsertSchema(revokedApprovalTokens).omit({ id: true, revokedAt: true });
+export type RevokedApprovalToken = typeof revokedApprovalTokens.$inferSelect;
+
 export const titlePoolRequestSchema = z.object({
   coreTopic: z.string().min(1, "Core topic is required"),
   numTitles: z.number().int().min(10).max(100).default(50),

@@ -24,9 +24,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, sessions, activityLogs, usedApprovalTokens } from "@/shared/schema";
+import { users, sessions, activityLogs, usedApprovalTokens, revokedApprovalTokens } from "@/shared/schema";
 import { verifyApprovalToken, decodeApprovalTokenIgnoreExpiry } from "@/lib/approval-token";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
 import { emailService } from "@/lib/email";
 
 /** Escape characters that are dangerous inside HTML text nodes and attribute values. */
@@ -187,15 +187,50 @@ function extractSignature(token: string): string {
 }
 
 /**
- * Prune expired invalidation records from used_approval_tokens.
- * Runs best-effort — failure is logged but does not block the main request.
+ * Prune expired invalidation records from used_approval_tokens AND
+ * revoked_approval_tokens. Runs best-effort — failure is logged but does
+ * not block the main request.
  */
 async function pruneExpiredTokens(): Promise<void> {
+  const now = new Date();
   try {
-    await db.delete(usedApprovalTokens).where(lt(usedApprovalTokens.expiresAt, new Date()));
+    await db.delete(usedApprovalTokens).where(lt(usedApprovalTokens.expiresAt, now));
   } catch (err) {
-    console.error("[approval-token] Failed to prune expired invalidation records:", err);
+    console.error("[approval-token] Failed to prune used_approval_tokens:", err);
   }
+  try {
+    await db.delete(revokedApprovalTokens).where(lt(revokedApprovalTokens.expiresAt, now));
+  } catch (err) {
+    console.error("[approval-token] Failed to prune revoked_approval_tokens:", err);
+  }
+}
+
+/**
+ * Check whether a token has been explicitly revoked by an admin.
+ *
+ * A revocation row covers all tokens for userId whose issue time ≤ revokedAt.
+ * Since issuedAt = exp - 7 days, the token is revoked when:
+ *   exp ≤ revokedAt + 7 days  →  expiresAt (= revokedAt + 7d) ≥ exp
+ *
+ * The check is therefore:
+ *   WHERE user_id = userId AND expires_at > NOW() AND expires_at >= tokenExpDate
+ *
+ * Returns true if the token should be blocked.
+ */
+async function isTokenRevoked(userId: number, tokenExpMs: number): Promise<boolean> {
+  const tokenExpDate = new Date(tokenExpMs);
+  const rows = await db
+    .select({ id: revokedApprovalTokens.id })
+    .from(revokedApprovalTokens)
+    .where(
+      and(
+        eq(revokedApprovalTokens.userId, userId),
+        gt(revokedApprovalTokens.expiresAt, new Date()),
+        gte(revokedApprovalTokens.expiresAt, tokenExpDate),
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -280,7 +315,21 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { userId, action } = payload;
+  const { userId, action, exp } = payload;
+
+  // ── Revocation check ──────────────────────────────────────────────────────
+  // An admin may have explicitly revoked this user's outstanding approval links
+  // before the email was acted upon (e.g. the user's inbox was compromised).
+  const revoked = await isTokenRevoked(userId, exp);
+  if (revoked) {
+    return htmlPage(
+      "Link revoked",
+      "This approval link has been revoked",
+      "<p>An administrator has revoked this approval link. Please log in to the admin panel to review this account.</p>",
+      false
+    );
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   const [user] = await db
     .select({ email: users.email, accountStatus: users.accountStatus })
@@ -379,6 +428,20 @@ export async function POST(req: NextRequest) {
 
   const { userId, action, exp } = payload;
   const signature = extractSignature(token);
+
+  // ── Revocation check ──────────────────────────────────────────────────────
+  // An admin may have explicitly revoked this user's outstanding approval links.
+  // Check before the replay guard so revoked tokens are blocked clearly.
+  const revoked = await isTokenRevoked(userId, exp);
+  if (revoked) {
+    return htmlPage(
+      "Link revoked",
+      "This approval link has been revoked",
+      "<p>An administrator has revoked this approval link. Please log in to the admin panel to review this account.</p>",
+      false
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // ── Replay-attack check ────────────────────────────────────────────────────
   // Prune stale rows first (best-effort, non-blocking), then check if this
