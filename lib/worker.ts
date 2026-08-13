@@ -94,232 +94,13 @@ console.log("🔧 Initializing BullMQ workers...");
 // WORKER REGISTRATION
 // ============================================================================
 
-export async function registerWorkers() {
+// ============================================================================
+// PROCESSORS (module scope, exported for end-to-end tests)
+// These are the exact functions registered with createPipelineWorker below —
+// tests wrap them with createPipelineHandler to drive real budget-stop paths.
+// ============================================================================
 
-  // ============================================================================
-  // BATCH GENERATION WORKER
-  // ============================================================================
-
-  createPipelineWorker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
-        console.log(`📦 Processing batch generation job ${job.id}`);
-        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
-
-        // Delete the PENDING spending-cap reservation now that the worker is running.
-        // Per-article COMPLETED events (written by recordUsageEvent) are the real
-        // source of truth for spend. Keeping the reservation alive while articles
-        // are being generated would double-count against the cap for up to 2 hours.
-        if (capReservationId != null) {
-          cancelCapReservation(capReservationId).catch(err =>
-            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
-          );
-        }
-
-      try {
-        await db
-          .update(jobBatches)
-          .set({ 
-            status: "RUNNING",
-            numArticlesRequested: selectedTitles.length
-          })
-          .where(eq(jobBatches.id, batchId));
-
-        // Log batch start event
-        const { jobEvents } = await import("@/shared/schema");
-        await db.insert(jobEvents).values({
-          batchId,
-          eventType: "BATCH_STARTED",
-          stage: "ORCHESTRATION",
-          severity: "info",
-          message: `Batch started with ${selectedTitles.length} articles${serpFeatureTarget ? ` targeting ${serpFeatureTarget}` : ''}`,
-          payloadJson: { selectedTitles, tone, wordCountMin, wordCountMax, serpFeatureTarget, semanticClusterId }
-        });
-
-        // Statuses that mean "work is done — don't re-run"
-        // GEMINI_COMPLETE / CHATGPT_REVIEWED: work is preserved at those states;
-        // removing them would cause recovery jobs to re-process completed articles.
-        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
-        // Statuses that mean "already queued — don't duplicate"
-        const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
-
-        // PREFETCH: Load all existing articles for this batch in ONE query.
-        // Avoids N individual per-title queries inside the loop, which previously
-        // exhausted the 20-connection pool when 20 article workers were already active.
-        const existingArticles = await db
-          .select({ id: articles.id, articleStatus: articles.articleStatus, chosenTitle: articles.chosenTitle })
-          .from(articles)
-          .where(eq(articles.batchId, batchId));
-        const existingByTitle = new Map(existingArticles.map(a => [a.chosenTitle, a]));
-
-        let spawned = 0;
-        let skipped = 0;
-        let retried = 0;
-
-        for (let i = 0; i < selectedTitles.length; i++) {
-          const title = selectedTitles[i];
-          if (!title) { skipped++; continue; }
-
-          // In-memory lookup — no DB query per iteration.
-          const existing = existingByTitle.get(title);
-
-          if (existing) {
-            if (TERMINAL_OK_STATUSES.includes(existing.articleStatus || "")) {
-              // Already succeeded — skip entirely to avoid duplicating good work
-              console.log(`⏭️ Skipping "${title.slice(0, 60)}" — already ${existing.articleStatus}`);
-              skipped++;
-              continue;
-            }
-
-            if (IN_PROGRESS_STATUSES.includes(existing.articleStatus || "")) {
-              // Already queued or running — don't double-queue
-              console.log(`⏭️ Skipping "${title.slice(0, 60)}" — currently ${existing.articleStatus}`);
-              skipped++;
-              continue;
-            }
-
-            // FAILED article — reset it and retry using the existing row
-            console.log(`🔄 Retrying FAILED article id=${existing.id} "${title.slice(0, 60)}"`);
-            await db
-              .update(articles)
-              .set({ articleStatus: "PENDING", updatedAt: new Date() })
-              .where(eq(articles.id, existing.id));
-
-            const runId = crypto.randomUUID();
-            await addArticleJob({
-              articleId: existing.id,
-              batchId,
-              runId,
-              title,
-              targetUrl,
-              tone,
-              wordCountMin,
-              wordCountMax,
-              geographicFocus,
-              audience,
-              businessName,
-              companyLogoUrl,
-              competitorUrls,
-              semanticClusterId,
-              serpFeatureTarget,
-              teamId,
-              personaId,
-              journeyContext,
-              journeyName,
-              creditRunId,
-              creditCostPerUnit: batchCreditCostPerUnit,
-            });
-            retried++;
-            continue;
-          }
-
-          // No existing article — create a fresh one (normal first-run path)
-          const [article] = await db
-            .insert(articles)
-            .values({
-              batchId,
-              teamId,
-              chosenTitle: title,
-              articleStatus: "PENDING",
-            })
-            .returning();
-
-          if (!article) {
-            throw new Error(`Failed to insert article row for title: "${title.slice(0, 80)}"`);
-          }
-
-          const runId = crypto.randomUUID();
-          await addArticleJob({
-            articleId: article.id,
-            batchId,
-            runId,
-            title,
-            targetUrl,
-            tone,
-            wordCountMin,
-            wordCountMax,
-            geographicFocus,
-            audience,
-            businessName,
-            companyLogoUrl,
-            competitorUrls,
-            semanticClusterId,
-            serpFeatureTarget,
-            teamId,
-            personaId,
-            journeyContext,
-            journeyName,
-            creditRunId,
-            creditCostPerUnit: batchCreditCostPerUnit,
-          });
-          spawned++;
-        }
-
-        console.log(`✅ Batch ${batchId} processed: ${spawned} new, ${retried} retried, ${skipped} skipped (already complete/running)`);
-      } catch (error) {
-        console.error(`❌ Batch generation failed for batch ${batchId}:`, error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        // Write to error_logs + fire Slack alert
-        await logError({
-          errorType: "QUEUE",
-          errorMessage: `Batch orchestration failed: ${errorMessage}`,
-          stackTrace: error instanceof Error ? error.stack : undefined,
-          severity: "error",
-          batchId,
-          component: "batch-worker",
-        }).catch((e) => console.error("[worker] logError failed:", e));
-        
-        // Log batch failure event
-        const { jobEvents } = await import("@/shared/schema");
-        await db.insert(jobEvents).values({
-          batchId,
-          eventType: "BATCH_FAILED",
-          stage: "ORCHESTRATION",
-          severity: "error",
-          message: `Batch orchestration failed: ${errorMessage.slice(0, 500)}`,
-          payloadJson: { 
-            batchId,
-            selectedTitlesCount: selectedTitles.length,
-            stackTrace: error instanceof Error ? error.stack?.slice(0, 1000) : undefined
-          }
-        });
-        
-        try {
-          await db
-            .update(jobBatches)
-            .set({ status: "FAILED" })
-            .where(eq(jobBatches.id, batchId));
-        } catch (dbError) {
-          console.error(`❌ Failed to update batch status:`, dbError);
-        }
-
-        // Notify the team so the batch failure appears in the in-app bell
-        if (teamId) {
-          void createNotification({
-            teamId,
-            type: "error",
-            category: "batch",
-            title: "Batch Generation Failed",
-            message: `A batch of ${selectedTitles?.length ?? 0} articles failed to start: ${errorMessage.slice(0, 200)}`,
-            entityId: batchId,
-            entityType: "batch",
-            actionUrl: `/batches/${batchId}`,
-          }).catch(() => {});
-        }
-
-        throw error;
-      }
-  }, { stage: "enqueue", concurrency: 1 });
-
-  // ============================================================================
-  // ARTICLE GENERATION WORKER
-  // ============================================================================
-
-  // CONFIGURABLE CONCURRENT PROCESSING
-  // Workers match Gemini API rate limit for optimal resource usage
-  // 10 workers to prevent overwhelming Gemini 30 RPM rate limit and causing 429 cascades
-  const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "20");
-  
-  createPipelineWorker(ARTICLE_GENERATION_QUEUE, async (job: Job<ArticleJobData>) => {
+export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         console.log(`📝 Processing article generation job ${job.id}`);
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
         // Per-article cost: use the value threaded through from the batch reservation
@@ -1543,7 +1324,451 @@ export async function registerWorkers() {
         // on the final attempt, and converts fatal codes to UnrecoverableError.
         throw error;
       }
-  }, {
+};
+
+export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
+          console.log(`🎬 Processing social video generation job ${job.id}`);
+          const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
+
+          // PERMANENT FIX: Check disk space before starting (need ~500MB per video)
+          try {
+            const { execSync } = await import("child_process");
+            const dfOutput = execSync("df /tmp | tail -1 | awk '{print $4}'").toString().trim();
+            const availableKB = parseInt(dfOutput, 10);
+            const availableMB = availableKB / 1024;
+            
+            if (availableMB < 500) {
+              console.warn(`⚠️ Low disk space: ${availableMB.toFixed(0)}MB available. Cleaning up old temp files...`);
+              // Emergency cleanup of old video temp directories
+              execSync("find /tmp -maxdepth 1 -name 'video-*' -type d -mmin +30 -exec rm -rf {} + 2>/dev/null || true");
+              console.log(`🧹 Emergency cleanup completed`);
+            } else {
+              console.log(`💾 Disk space check: ${availableMB.toFixed(0)}MB available`);
+            }
+          } catch (diskCheckError) {
+            console.warn(`⚠️ Disk check failed (continuing anyway):`, diskCheckError);
+          }
+
+          // API Jitter: stagger video worker starts (0–6s) to prevent
+          // 8 concurrent workers hammering Gemini + OpenAI simultaneously.
+          const videoJitterMs = Math.floor(Math.random() * 6000);
+          console.log(`⏳ Video worker jitter: ${videoJitterMs}ms`);
+          await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
+
+          try {
+            // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED gets this
+            // catch's domain cleanup (slot release, temp files, status=FAILED)
+            // before the wrapper applies release/UnrecoverableError. Veo is the
+            // most expensive per attempt — stop before generating if prior
+            // attempts already hit the ceiling.
+            if (videoCreditRunId) {
+              const { assertRunBudget } = await import("@/lib/cost-ceilings");
+              await assertRunBudget(videoCreditRunId, "video", "video_gen");
+            }
+
+            const { generateSocialVideo } = await import("./social-video-generator");
+            const { cleanupTempFiles } = await import("./social-video-compositor");
+            
+            // Check video type from database
+            const { db } = await import("./db");
+            const { socialPosts } = await import("@/shared/schema");
+            const { eq } = await import("drizzle-orm");
+            
+            const [post] = await db.select({ videoType: socialPosts.videoType })
+              .from(socialPosts)
+              .where(eq(socialPosts.id, socialPostId))
+              .limit(1);
+            
+            const videoType = post?.videoType || "slideshow";
+            
+            let result;
+            
+            if (videoType === "veo") {
+              // Veo AI video generation (~50 minutes for 5 clips)
+              console.log(`🎬 Using Veo AI video generation (premium quality)`);
+              const { generateVeoSocialVideo } = await import("./veo-social-video-generator");
+
+              // Veo takes much longer - 90 minute timeout
+              const VEO_TIMEOUT_MS = 90 * 60 * 1000;
+
+              try {
+                result = await withTimeout(
+                  generateVeoSocialVideo({
+                    socialPostId,
+                    platform: platform || "facebook",
+                  }),
+                  VEO_TIMEOUT_MS,
+                  `Veo video generation for post ${socialPostId}`
+                );
+              } catch (veoError) {
+                const veoMsg = veoError instanceof Error ? veoError.message : String(veoError);
+                const isQuotaError = veoMsg.includes("RESOURCE_EXHAUSTED") || veoMsg.includes("429") || veoMsg.includes("quota");
+                // Treat model-not-found / API-version errors as non-retryable infrastructure errors
+                // that should immediately fall back to slideshow rather than burning retries.
+                const isModelError = veoMsg.includes("NOT_FOUND") || veoMsg.includes("not found") || veoMsg.includes("not supported for predictLongRunning") || veoMsg.includes("is not found for API version");
+
+                if (isQuotaError || isModelError) {
+                  const reason = isModelError
+                    ? "Veo model unavailable — switched to Fast Slideshow automatically"
+                    : "Veo quota exceeded — switched to Fast Slideshow automatically";
+                  console.warn(`⚠️ Veo non-retryable error for post ${socialPostId} (${isModelError ? "model/API" : "quota"}) — falling back to slideshow`);
+                  // Update videoType so the UI reflects the fallback
+                  await db
+                    .update(socialPosts)
+                    .set({
+                      videoType: "slideshow",
+                      videoStage: "queued",
+                      videoProgress: 0,
+                      errorMessage: reason,
+                      updatedAt: new Date(),
+                    })
+                    .where(eq(socialPosts.id, socialPostId));
+
+                  const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
+                  result = await withTimeout(
+                    generateSocialVideo({ socialPostId, platform: platform || "tiktok" }),
+                    VIDEO_TIMEOUT_MS,
+                    `Slideshow fallback for post ${socialPostId}`
+                  );
+                } else {
+                  throw veoError; // Non-quota Veo error — let pg-boss retry
+                }
+              }
+            } else {
+              // Default: Fast slideshow video (2-3 minutes)
+              console.log(`🎬 Using fast slideshow video generation`);
+
+              // Slideshow takes 15 minutes max (script + images + audio + 3x FFmpeg passes)
+              const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
+
+              result = await withTimeout(
+                generateSocialVideo({
+                  socialPostId,
+                  platform: platform || "tiktok",
+                }),
+                VIDEO_TIMEOUT_MS,
+                `Video generation for post ${socialPostId}`
+              );
+            }
+
+            console.log(`✅ Video generated successfully for social post ${socialPostId}`);
+            console.log(`   URL: ${result.videoUrl}`);
+            console.log(`   Duration: ${result.duration}s`);
+            console.log(`   Resolution: ${result.resolution}`);
+
+            // Two-bucket billing: DEBIT reservation on success
+            if (videoCreditRunId) {
+              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+              if (videoPost?.teamId) {
+                const { debitReservation } = await import("@/lib/billing");
+                const debitResult = await debitReservation({
+                  teamId: videoPost.teamId,
+                  runId: videoCreditRunId,
+                  jobId: job.id,
+                });
+                if (!debitResult.ok) {
+                  throw new Error(
+                    `[billing] DEBIT_FAILED for video post ${socialPostId} (teamId=${videoPost.teamId} runId=${videoCreditRunId}). ` +
+                    `Marking job failed so pg-boss retries the debit. Video was generated successfully.`
+                  );
+                }
+                // Record completed usage event — populates spending cap meter so caps can trip.
+                const { recordUsageEvent } = await import("@/lib/usage-caps");
+                await recordUsageEvent({
+                  teamId: videoPost.teamId,
+                  action: "video",
+                  units: 1,
+                  costEstimateCents: 15,
+                  jobId: String(job.id ?? ""),
+                  metadata: { socialPostId },
+                }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+              }
+            }
+            
+            // PERMANENT FIX: Always clean up temp files after successful generation
+            await cleanupTempFiles(socialPostId);
+
+            // Release the per-user concurrency slot claimed at enqueue
+            const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
+            await releaseVideoSlotForPost(socialPostId);
+
+          } catch (error) {
+            console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
+
+            // Release the per-user concurrency slot claimed at enqueue
+            try {
+              const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
+              await releaseVideoSlotForPost(socialPostId);
+            } catch { /* TTL self-heals */ }
+
+            // PERMANENT FIX: Clean up temp files even on failure to prevent disk exhaustion
+            try {
+              const { cleanupTempFiles } = await import("./social-video-compositor");
+              await cleanupTempFiles(socialPostId);
+              console.log(`🧹 Cleaned up temp files after failure for post ${socialPostId}`);
+            } catch (cleanupError) {
+              console.warn(`⚠️ Cleanup after failure warning:`, cleanupError);
+            }
+
+            // Mark the social post videoStatus as FAILED so the UI reflects the error
+            // (prevents posts from staying stuck at "GENERATING" when pg-boss retries are exhausted)
+            try {
+              const { db: failDb } = await import("./db");
+              const { socialPosts: spTable, errorLogs: errLogsTable } = await import("@/shared/schema");
+              const { eq: eqFail } = await import("drizzle-orm");
+              const errMsg = error instanceof Error ? error.message : String(error);
+              await failDb.update(spTable)
+                .set({
+                  videoStatus: "FAILED",
+                  errorMessage: errMsg.substring(0, 1000),
+                  updatedAt: new Date(),
+                })
+                .where(eqFail(spTable.id, socialPostId));
+
+              // Write to error_logs so Admin Error Log panel captures video failures
+              await failDb.insert(errLogsTable).values({
+                errorType: "VIDEO",
+                errorMessage: `Social Post #${socialPostId} video generation failed: ${errMsg}`.substring(0, 2000),
+                stackTrace: error instanceof Error ? error.stack?.substring(0, 2000) : undefined,
+                severity: "error",
+              });
+            } catch (dbUpdateError) {
+              console.warn(`⚠️ Could not update videoStatus to FAILED:`, dbUpdateError);
+            }
+
+            // Rethrow — createPipelineWorker classifies, releases the credit
+            // reservation on the final attempt, and converts fatal codes to
+            // UnrecoverableError.
+            throw error;
+          }
+};
+
+export async function registerWorkers() {
+
+  // ============================================================================
+  // BATCH GENERATION WORKER
+  // ============================================================================
+
+  createPipelineWorker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
+        console.log(`📦 Processing batch generation job ${job.id}`);
+        const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
+
+        // Delete the PENDING spending-cap reservation now that the worker is running.
+        // Per-article COMPLETED events (written by recordUsageEvent) are the real
+        // source of truth for spend. Keeping the reservation alive while articles
+        // are being generated would double-count against the cap for up to 2 hours.
+        if (capReservationId != null) {
+          cancelCapReservation(capReservationId).catch(err =>
+            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
+          );
+        }
+
+      try {
+        await db
+          .update(jobBatches)
+          .set({ 
+            status: "RUNNING",
+            numArticlesRequested: selectedTitles.length
+          })
+          .where(eq(jobBatches.id, batchId));
+
+        // Log batch start event
+        const { jobEvents } = await import("@/shared/schema");
+        await db.insert(jobEvents).values({
+          batchId,
+          eventType: "BATCH_STARTED",
+          stage: "ORCHESTRATION",
+          severity: "info",
+          message: `Batch started with ${selectedTitles.length} articles${serpFeatureTarget ? ` targeting ${serpFeatureTarget}` : ''}`,
+          payloadJson: { selectedTitles, tone, wordCountMin, wordCountMax, serpFeatureTarget, semanticClusterId }
+        });
+
+        // Statuses that mean "work is done — don't re-run"
+        // GEMINI_COMPLETE / CHATGPT_REVIEWED: work is preserved at those states;
+        // removing them would cause recovery jobs to re-process completed articles.
+        const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
+        // Statuses that mean "already queued — don't duplicate"
+        const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
+
+        // PREFETCH: Load all existing articles for this batch in ONE query.
+        // Avoids N individual per-title queries inside the loop, which previously
+        // exhausted the 20-connection pool when 20 article workers were already active.
+        const existingArticles = await db
+          .select({ id: articles.id, articleStatus: articles.articleStatus, chosenTitle: articles.chosenTitle })
+          .from(articles)
+          .where(eq(articles.batchId, batchId));
+        const existingByTitle = new Map(existingArticles.map(a => [a.chosenTitle, a]));
+
+        let spawned = 0;
+        let skipped = 0;
+        let retried = 0;
+
+        for (let i = 0; i < selectedTitles.length; i++) {
+          const title = selectedTitles[i];
+          if (!title) { skipped++; continue; }
+
+          // In-memory lookup — no DB query per iteration.
+          const existing = existingByTitle.get(title);
+
+          if (existing) {
+            if (TERMINAL_OK_STATUSES.includes(existing.articleStatus || "")) {
+              // Already succeeded — skip entirely to avoid duplicating good work
+              console.log(`⏭️ Skipping "${title.slice(0, 60)}" — already ${existing.articleStatus}`);
+              skipped++;
+              continue;
+            }
+
+            if (IN_PROGRESS_STATUSES.includes(existing.articleStatus || "")) {
+              // Already queued or running — don't double-queue
+              console.log(`⏭️ Skipping "${title.slice(0, 60)}" — currently ${existing.articleStatus}`);
+              skipped++;
+              continue;
+            }
+
+            // FAILED article — reset it and retry using the existing row
+            console.log(`🔄 Retrying FAILED article id=${existing.id} "${title.slice(0, 60)}"`);
+            await db
+              .update(articles)
+              .set({ articleStatus: "PENDING", updatedAt: new Date() })
+              .where(eq(articles.id, existing.id));
+
+            const runId = crypto.randomUUID();
+            await addArticleJob({
+              articleId: existing.id,
+              batchId,
+              runId,
+              title,
+              targetUrl,
+              tone,
+              wordCountMin,
+              wordCountMax,
+              geographicFocus,
+              audience,
+              businessName,
+              companyLogoUrl,
+              competitorUrls,
+              semanticClusterId,
+              serpFeatureTarget,
+              teamId,
+              personaId,
+              journeyContext,
+              journeyName,
+              creditRunId,
+              creditCostPerUnit: batchCreditCostPerUnit,
+            });
+            retried++;
+            continue;
+          }
+
+          // No existing article — create a fresh one (normal first-run path)
+          const [article] = await db
+            .insert(articles)
+            .values({
+              batchId,
+              teamId,
+              chosenTitle: title,
+              articleStatus: "PENDING",
+            })
+            .returning();
+
+          if (!article) {
+            throw new Error(`Failed to insert article row for title: "${title.slice(0, 80)}"`);
+          }
+
+          const runId = crypto.randomUUID();
+          await addArticleJob({
+            articleId: article.id,
+            batchId,
+            runId,
+            title,
+            targetUrl,
+            tone,
+            wordCountMin,
+            wordCountMax,
+            geographicFocus,
+            audience,
+            businessName,
+            companyLogoUrl,
+            competitorUrls,
+            semanticClusterId,
+            serpFeatureTarget,
+            teamId,
+            personaId,
+            journeyContext,
+            journeyName,
+            creditRunId,
+            creditCostPerUnit: batchCreditCostPerUnit,
+          });
+          spawned++;
+        }
+
+        console.log(`✅ Batch ${batchId} processed: ${spawned} new, ${retried} retried, ${skipped} skipped (already complete/running)`);
+      } catch (error) {
+        console.error(`❌ Batch generation failed for batch ${batchId}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Write to error_logs + fire Slack alert
+        await logError({
+          errorType: "QUEUE",
+          errorMessage: `Batch orchestration failed: ${errorMessage}`,
+          stackTrace: error instanceof Error ? error.stack : undefined,
+          severity: "error",
+          batchId,
+          component: "batch-worker",
+        }).catch((e) => console.error("[worker] logError failed:", e));
+        
+        // Log batch failure event
+        const { jobEvents } = await import("@/shared/schema");
+        await db.insert(jobEvents).values({
+          batchId,
+          eventType: "BATCH_FAILED",
+          stage: "ORCHESTRATION",
+          severity: "error",
+          message: `Batch orchestration failed: ${errorMessage.slice(0, 500)}`,
+          payloadJson: { 
+            batchId,
+            selectedTitlesCount: selectedTitles.length,
+            stackTrace: error instanceof Error ? error.stack?.slice(0, 1000) : undefined
+          }
+        });
+        
+        try {
+          await db
+            .update(jobBatches)
+            .set({ status: "FAILED" })
+            .where(eq(jobBatches.id, batchId));
+        } catch (dbError) {
+          console.error(`❌ Failed to update batch status:`, dbError);
+        }
+
+        // Notify the team so the batch failure appears in the in-app bell
+        if (teamId) {
+          void createNotification({
+            teamId,
+            type: "error",
+            category: "batch",
+            title: "Batch Generation Failed",
+            message: `A batch of ${selectedTitles?.length ?? 0} articles failed to start: ${errorMessage.slice(0, 200)}`,
+            entityId: batchId,
+            entityType: "batch",
+            actionUrl: `/batches/${batchId}`,
+          }).catch(() => {});
+        }
+
+        throw error;
+      }
+  }, { stage: "enqueue", concurrency: 1 });
+
+  // ============================================================================
+  // ARTICLE GENERATION WORKER
+  // ============================================================================
+
+  // CONFIGURABLE CONCURRENT PROCESSING
+  // Workers match Gemini API rate limit for optimal resource usage
+  // 10 workers to prevent overwhelming Gemini 30 RPM rate limit and causing 429 cascades
+  const CONCURRENT_WORKERS = parseInt(process.env.ARTICLE_WORKER_CONCURRENCY || "20");
+  
+  createPipelineWorker(ARTICLE_GENERATION_QUEUE, processArticleGenerationJob, {
     stage: "text_gen",
     concurrency: CONCURRENT_WORKERS,
     // getRunId MUST match the ID the processor's assertRunBudget gate queries
@@ -3481,222 +3706,7 @@ export async function registerWorkers() {
       console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
     }
 
-    createPipelineWorker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, async (job) => {
-          console.log(`🎬 Processing social video generation job ${job.id}`);
-          const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
-
-          // PERMANENT FIX: Check disk space before starting (need ~500MB per video)
-          try {
-            const { execSync } = await import("child_process");
-            const dfOutput = execSync("df /tmp | tail -1 | awk '{print $4}'").toString().trim();
-            const availableKB = parseInt(dfOutput, 10);
-            const availableMB = availableKB / 1024;
-            
-            if (availableMB < 500) {
-              console.warn(`⚠️ Low disk space: ${availableMB.toFixed(0)}MB available. Cleaning up old temp files...`);
-              // Emergency cleanup of old video temp directories
-              execSync("find /tmp -maxdepth 1 -name 'video-*' -type d -mmin +30 -exec rm -rf {} + 2>/dev/null || true");
-              console.log(`🧹 Emergency cleanup completed`);
-            } else {
-              console.log(`💾 Disk space check: ${availableMB.toFixed(0)}MB available`);
-            }
-          } catch (diskCheckError) {
-            console.warn(`⚠️ Disk check failed (continuing anyway):`, diskCheckError);
-          }
-
-          // API Jitter: stagger video worker starts (0–6s) to prevent
-          // 8 concurrent workers hammering Gemini + OpenAI simultaneously.
-          const videoJitterMs = Math.floor(Math.random() * 6000);
-          console.log(`⏳ Video worker jitter: ${videoJitterMs}ms`);
-          await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
-
-          try {
-            // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED gets this
-            // catch's domain cleanup (slot release, temp files, status=FAILED)
-            // before the wrapper applies release/UnrecoverableError. Veo is the
-            // most expensive per attempt — stop before generating if prior
-            // attempts already hit the ceiling.
-            if (videoCreditRunId) {
-              const { assertRunBudget } = await import("@/lib/cost-ceilings");
-              await assertRunBudget(videoCreditRunId, "video", "video_gen");
-            }
-
-            const { generateSocialVideo } = await import("./social-video-generator");
-            const { cleanupTempFiles } = await import("./social-video-compositor");
-            
-            // Check video type from database
-            const { db } = await import("./db");
-            const { socialPosts } = await import("@/shared/schema");
-            const { eq } = await import("drizzle-orm");
-            
-            const [post] = await db.select({ videoType: socialPosts.videoType })
-              .from(socialPosts)
-              .where(eq(socialPosts.id, socialPostId))
-              .limit(1);
-            
-            const videoType = post?.videoType || "slideshow";
-            
-            let result;
-            
-            if (videoType === "veo") {
-              // Veo AI video generation (~50 minutes for 5 clips)
-              console.log(`🎬 Using Veo AI video generation (premium quality)`);
-              const { generateVeoSocialVideo } = await import("./veo-social-video-generator");
-
-              // Veo takes much longer - 90 minute timeout
-              const VEO_TIMEOUT_MS = 90 * 60 * 1000;
-
-              try {
-                result = await withTimeout(
-                  generateVeoSocialVideo({
-                    socialPostId,
-                    platform: platform || "facebook",
-                  }),
-                  VEO_TIMEOUT_MS,
-                  `Veo video generation for post ${socialPostId}`
-                );
-              } catch (veoError) {
-                const veoMsg = veoError instanceof Error ? veoError.message : String(veoError);
-                const isQuotaError = veoMsg.includes("RESOURCE_EXHAUSTED") || veoMsg.includes("429") || veoMsg.includes("quota");
-                // Treat model-not-found / API-version errors as non-retryable infrastructure errors
-                // that should immediately fall back to slideshow rather than burning retries.
-                const isModelError = veoMsg.includes("NOT_FOUND") || veoMsg.includes("not found") || veoMsg.includes("not supported for predictLongRunning") || veoMsg.includes("is not found for API version");
-
-                if (isQuotaError || isModelError) {
-                  const reason = isModelError
-                    ? "Veo model unavailable — switched to Fast Slideshow automatically"
-                    : "Veo quota exceeded — switched to Fast Slideshow automatically";
-                  console.warn(`⚠️ Veo non-retryable error for post ${socialPostId} (${isModelError ? "model/API" : "quota"}) — falling back to slideshow`);
-                  // Update videoType so the UI reflects the fallback
-                  await db
-                    .update(socialPosts)
-                    .set({
-                      videoType: "slideshow",
-                      videoStage: "queued",
-                      videoProgress: 0,
-                      errorMessage: reason,
-                      updatedAt: new Date(),
-                    })
-                    .where(eq(socialPosts.id, socialPostId));
-
-                  const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
-                  result = await withTimeout(
-                    generateSocialVideo({ socialPostId, platform: platform || "tiktok" }),
-                    VIDEO_TIMEOUT_MS,
-                    `Slideshow fallback for post ${socialPostId}`
-                  );
-                } else {
-                  throw veoError; // Non-quota Veo error — let pg-boss retry
-                }
-              }
-            } else {
-              // Default: Fast slideshow video (2-3 minutes)
-              console.log(`🎬 Using fast slideshow video generation`);
-
-              // Slideshow takes 15 minutes max (script + images + audio + 3x FFmpeg passes)
-              const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
-
-              result = await withTimeout(
-                generateSocialVideo({
-                  socialPostId,
-                  platform: platform || "tiktok",
-                }),
-                VIDEO_TIMEOUT_MS,
-                `Video generation for post ${socialPostId}`
-              );
-            }
-
-            console.log(`✅ Video generated successfully for social post ${socialPostId}`);
-            console.log(`   URL: ${result.videoUrl}`);
-            console.log(`   Duration: ${result.duration}s`);
-            console.log(`   Resolution: ${result.resolution}`);
-
-            // Two-bucket billing: DEBIT reservation on success
-            if (videoCreditRunId) {
-              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
-              if (videoPost?.teamId) {
-                const { debitReservation } = await import("@/lib/billing");
-                const debitResult = await debitReservation({
-                  teamId: videoPost.teamId,
-                  runId: videoCreditRunId,
-                  jobId: job.id,
-                });
-                if (!debitResult.ok) {
-                  throw new Error(
-                    `[billing] DEBIT_FAILED for video post ${socialPostId} (teamId=${videoPost.teamId} runId=${videoCreditRunId}). ` +
-                    `Marking job failed so pg-boss retries the debit. Video was generated successfully.`
-                  );
-                }
-                // Record completed usage event — populates spending cap meter so caps can trip.
-                const { recordUsageEvent } = await import("@/lib/usage-caps");
-                await recordUsageEvent({
-                  teamId: videoPost.teamId,
-                  action: "video",
-                  units: 1,
-                  costEstimateCents: 15,
-                  jobId: String(job.id ?? ""),
-                  metadata: { socialPostId },
-                }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
-              }
-            }
-            
-            // PERMANENT FIX: Always clean up temp files after successful generation
-            await cleanupTempFiles(socialPostId);
-
-            // Release the per-user concurrency slot claimed at enqueue
-            const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
-            await releaseVideoSlotForPost(socialPostId);
-
-          } catch (error) {
-            console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
-
-            // Release the per-user concurrency slot claimed at enqueue
-            try {
-              const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
-              await releaseVideoSlotForPost(socialPostId);
-            } catch { /* TTL self-heals */ }
-
-            // PERMANENT FIX: Clean up temp files even on failure to prevent disk exhaustion
-            try {
-              const { cleanupTempFiles } = await import("./social-video-compositor");
-              await cleanupTempFiles(socialPostId);
-              console.log(`🧹 Cleaned up temp files after failure for post ${socialPostId}`);
-            } catch (cleanupError) {
-              console.warn(`⚠️ Cleanup after failure warning:`, cleanupError);
-            }
-
-            // Mark the social post videoStatus as FAILED so the UI reflects the error
-            // (prevents posts from staying stuck at "GENERATING" when pg-boss retries are exhausted)
-            try {
-              const { db: failDb } = await import("./db");
-              const { socialPosts: spTable, errorLogs: errLogsTable } = await import("@/shared/schema");
-              const { eq: eqFail } = await import("drizzle-orm");
-              const errMsg = error instanceof Error ? error.message : String(error);
-              await failDb.update(spTable)
-                .set({
-                  videoStatus: "FAILED",
-                  errorMessage: errMsg.substring(0, 1000),
-                  updatedAt: new Date(),
-                })
-                .where(eqFail(spTable.id, socialPostId));
-
-              // Write to error_logs so Admin Error Log panel captures video failures
-              await failDb.insert(errLogsTable).values({
-                errorType: "VIDEO",
-                errorMessage: `Social Post #${socialPostId} video generation failed: ${errMsg}`.substring(0, 2000),
-                stackTrace: error instanceof Error ? error.stack?.substring(0, 2000) : undefined,
-                severity: "error",
-              });
-            } catch (dbUpdateError) {
-              console.warn(`⚠️ Could not update videoStatus to FAILED:`, dbUpdateError);
-            }
-
-            // Rethrow — createPipelineWorker classifies, releases the credit
-            // reservation on the final attempt, and converts fatal codes to
-            // UnrecoverableError.
-            throw error;
-          }
-    }, {
+    createPipelineWorker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, processSocialVideoJob, {
       stage: "video_gen",
       concurrency: 3,
       budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
