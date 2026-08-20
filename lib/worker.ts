@@ -103,6 +103,16 @@ console.log("🔧 Initializing BullMQ workers...");
 export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         console.log(`📝 Processing article generation job ${job.id}`);
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
+        // The watchdog uses this timestamp instead of a stage transition alone:
+        // a long but healthy Gemini/GPT call should never be mistaken for a crash.
+        const heartbeat = () =>
+          db.update(articles)
+            .set({ lastHeartbeatAt: new Date(), updatedAt: new Date() })
+            .where(eq(articles.id, articleId))
+            .catch((err) => console.warn(`⚠️ [article ${articleId}] heartbeat update failed:`, err));
+        await heartbeat();
+        const heartbeatTimer = setInterval(() => { void heartbeat(); }, 2 * 60 * 1000);
+        heartbeatTimer.unref();
         // Per-article cost: use the value threaded through from the batch reservation
         // (which honours DB overrides). Fall back to static default only for legacy jobs
         // that predate this field being stored in job data.
@@ -141,6 +151,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                   eq(articles.articleStatus, 'IN_PROGRESS')
                 )
               );
+             clearInterval(heartbeatTimer);
             return;
           }
           // Extract terminalKpi override — stored in generationParams.terminalKpi (optional).
@@ -187,6 +198,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                   console.warn(`[billing] article ${articleId} terminal-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
                 }
               }
+               clearInterval(heartbeatTimer);
               return;
             }
             // Run completed but article isn't in terminal state — continue to regenerate
@@ -245,6 +257,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               console.warn(`[billing] article ${articleId} final-status-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
             }
           }
+           clearInterval(heartbeatTimer);
           return;
         }
         
@@ -1215,8 +1228,10 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
         // Check if all articles in batch are complete
         await checkBatchCompletion(batchId);
+        clearInterval(heartbeatTimer);
 
       } catch (error) {
+        clearInterval(heartbeatTimer);
         console.error(`❌ Article generation failed for article ${articleId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
 

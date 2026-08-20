@@ -285,6 +285,11 @@ export const articles = pgTable("articles", {
 
   // Failure tracking — stores the human-readable reason an article reached FAILED status
   errorMessage: text("error_message"),
+  // Stuck-job watchdog state. Heartbeat is updated while a worker owns the job;
+  // stallCount prevents an endlessly failing article from being requeued forever.
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  stallCount: integer("stall_count").notNull().default(0),
+  lastStalledAt: timestamp("last_stalled_at"),
 
   // EU AI Act Article 50 compliance (effective Aug 2 2026)
   aiDisclosureIncluded: boolean("ai_disclosure_included").notNull().default(false),

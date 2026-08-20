@@ -37,6 +37,7 @@ export type ErrorCode =
   // Storage
   | "STORAGE_UPLOAD_FAILED"  // upload to DO Spaces / Replit Object Storage failed
   | "STORAGE_NOT_CONFIGURED" // bucket env var missing
+  | "STALLED"                // watchdog detected no worker heartbeat; manual retry/recovery required
   // Generic
   | "GENERATION_ERROR";      // unclassified — treated as retryable
 

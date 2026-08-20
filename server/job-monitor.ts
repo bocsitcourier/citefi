@@ -1,5 +1,9 @@
 import { getQueue } from "../lib/queue";
 import { neonHttpDb } from "../lib/db";
+import { addArticleJob } from "../lib/queue";
+import { createNotification } from "../lib/notification-service";
+import { articles, jobBatches } from "../shared/schema";
+import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * Job Monitor - Automatic Stuck Job Detection & Recovery
@@ -43,11 +47,135 @@ export async function stopJobMonitor() {
 async function checkStuckJobs() {
   try {
     await logQueueDepths();
+    await recoverStalledArticles();
     await reconcileStuckBatches();
     const now = new Date().toISOString();
     console.log(`✅ [${now}] Job monitor check complete`);
   } catch (error) {
     console.error("❌ Job monitor error:", error);
+  }
+}
+
+const ARTICLE_STALL_MESSAGE = "Stalled — auto-recovered";
+const ARTICLE_STAGE_TIMEOUT_MS: Record<string, number> = {
+  // Gemini text generation is hard-capped at ten minutes in the worker.
+  IN_PROGRESS: 10 * 60 * 1000,
+  // Post-generation enrichment/checkpoint stages have a little more room for
+  // provider retries and follow-on image work.
+  GEMINI_COMPLETE: 15 * 60 * 1000,
+  CHATGPT_REVIEWED: 15 * 60 * 1000,
+  // Reformat jobs can include upload/media work.
+  REFORMATTING: 60 * 60 * 1000,
+};
+
+/**
+ * Recover article rows whose worker heartbeat stopped advancing.
+ *
+ * First stall: record FAILED briefly, then enqueue one recovery job.
+ * Second stall: move the row to DEAD and notify the owning team. This avoids an
+ * infinite loop that repeatedly spends provider quota on an article that cannot
+ * make progress.
+ */
+async function recoverStalledArticles() {
+  const watchedStatuses = Object.keys(ARTICLE_STAGE_TIMEOUT_MS);
+  const now = Date.now();
+
+  try {
+    const candidates = await neonHttpDb
+      .select({
+        id: articles.id,
+        batchId: articles.batchId,
+        teamId: articles.teamId,
+        chosenTitle: articles.chosenTitle,
+        articleStatus: articles.articleStatus,
+        updatedAt: articles.updatedAt,
+        lastHeartbeatAt: articles.lastHeartbeatAt,
+        stallCount: articles.stallCount,
+        targetUrl: jobBatches.targetUrl,
+        generationParams: jobBatches.generationParams,
+        businessName: jobBatches.businessName,
+        companyLogoUrl: jobBatches.companyLogoUrl,
+        personaId: jobBatches.personaId,
+      })
+      .from(articles)
+      .innerJoin(jobBatches, eq(articles.batchId, jobBatches.id))
+      .where(inArray(articles.articleStatus, watchedStatuses));
+
+    for (const article of candidates) {
+      const timeoutMs = ARTICLE_STAGE_TIMEOUT_MS[article.articleStatus ?? ""];
+      if (!timeoutMs) continue;
+      const heartbeatAt = article.lastHeartbeatAt ?? article.updatedAt;
+      if (now - new Date(heartbeatAt).getTime() < timeoutMs) continue;
+
+      const currentStatus = article.articleStatus!;
+      const nextStallCount = (article.stallCount ?? 0) + 1;
+      const updated = await neonHttpDb
+        .update(articles)
+        .set({
+          articleStatus: nextStallCount >= 2 ? "DEAD" : "FAILED",
+          errorMessage: nextStallCount >= 2
+            ? "Stalled twice — manual intervention required"
+            : ARTICLE_STALL_MESSAGE,
+          stallCount: nextStallCount,
+          lastStalledAt: new Date(),
+          updatedAt: new Date(),
+        })
+        // Compare the old status + stall count so concurrent monitor ticks, a
+        // newly resumed worker, or a manual retry cannot be overwritten.
+        .where(and(
+          eq(articles.id, article.id),
+          eq(articles.articleStatus, currentStatus),
+          eq(articles.stallCount, article.stallCount ?? 0),
+        ))
+        .returning({ id: articles.id });
+
+      if (updated.length === 0) continue;
+
+      if (nextStallCount >= 2) {
+        if (article.teamId) {
+          void createNotification({
+            teamId: article.teamId,
+            type: "error",
+            category: "article",
+            title: "Article needs manual attention",
+            message: `"${article.chosenTitle.slice(0, 80)}" stalled twice and was stopped to prevent another loop.`,
+            entityId: article.id,
+            entityType: "article",
+            actionUrl: `/batches/${article.batchId}`,
+          }).catch(() => {});
+        }
+        console.error(`🛑 Article ${article.id} moved to DEAD after a second stalled run`);
+        continue;
+      }
+
+      const params = (article.generationParams ?? {}) as Record<string, unknown>;
+      try {
+        await addArticleJob({
+          articleId: article.id,
+          batchId: article.batchId,
+          runId: crypto.randomUUID(),
+          title: article.chosenTitle,
+          targetUrl: article.targetUrl,
+          tone: params.tone as string | undefined,
+          wordCountMin: params.wordCountMin as number | undefined,
+          wordCountMax: params.wordCountMax as number | undefined,
+          geographicFocus: params.geographicFocus as string | undefined,
+          audience: params.audience as string | undefined,
+          businessName: article.businessName ?? undefined,
+          companyLogoUrl: article.companyLogoUrl ?? undefined,
+          competitorUrls: params.competitorUrls as string[] | undefined,
+          semanticClusterId: params.semanticClusterId as number | undefined,
+          serpFeatureTarget: params.serpFeatureTarget as string | undefined,
+          teamId: article.teamId ?? undefined,
+          personaId: article.personaId ?? undefined,
+        });
+        console.warn(`🔄 Requeued stalled article ${article.id} from ${currentStatus} (auto-recovery 1/1)`);
+      } catch (err) {
+        console.error(`❌ Failed to enqueue stalled article ${article.id}; it remains FAILED for manual retry:`, err);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Article stall watchdog error:", error);
   }
 }
 
