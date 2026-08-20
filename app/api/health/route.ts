@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
-import { getAllModels, isResolverReady } from "@/lib/model-resolver";
+import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -52,7 +52,13 @@ function checkModels(): { ok: boolean; ready: boolean; models: Record<string, st
   for (const [tier, id] of Object.entries(models)) {
     if (knownShutdowns[id]) warnings.push(`${tier} (${id}) shuts down ${knownShutdowns[id]}`);
   }
-  return { ok: true, ready, models, warnings };
+  const gemini = getGeminiValidationStatus();
+  if (!gemini.checked) warnings.push("Gemini model validation has not run yet");
+  else if (!gemini.available) warnings.push(`Gemini model validation unavailable: ${gemini.error ?? "unknown error"}`);
+  else if (gemini.unrecognizedModels.length > 0) {
+    warnings.push(`Unrecognized Gemini model IDs: ${gemini.unrecognizedModels.join(", ")}`);
+  }
+  return { ok: gemini.available && gemini.unrecognizedModels.length === 0, ready, models, warnings };
 }
 
 export async function GET(request: NextRequest) {

@@ -30,6 +30,7 @@ import {
   GPT_HYPERLINK_EXTRACT_MODEL,
   GPT_HYPERLINK_CORRECTION_MODEL,
   TTS_MODEL,
+  GEMINI_EXPERIMENTAL_MODEL,
 } from "./ai-config";
 import { PipelineError } from "./errors";
 
@@ -53,6 +54,23 @@ export type ModelTier =
 // null = resolver hasn't run yet; getModel() throws in this state.
 
 let _resolved: Record<ModelTier, string> | null = null;
+
+export interface GeminiModelValidationStatus {
+  checked: boolean;
+  available: boolean;
+  configuredModels: string[];
+  unrecognizedModels: string[];
+  checkedAt: string | null;
+  error?: string;
+}
+
+let _geminiValidation: GeminiModelValidationStatus = {
+  checked: false,
+  available: false,
+  configuredModels: [],
+  unrecognizedModels: [],
+  checkedAt: null,
+};
 
 // Defaults initialised from ai-config (env-overridable)
 const DEFAULTS: Record<ModelTier, string> = {
@@ -103,6 +121,15 @@ export function isResolverReady(): boolean {
   return _resolved !== null;
 }
 
+/** Cached result of the one-time startup Gemini ListModels check. */
+export function getGeminiValidationStatus(): GeminiModelValidationStatus {
+  return {
+    ..._geminiValidation,
+    configuredModels: [..._geminiValidation.configuredModels],
+    unrecognizedModels: [..._geminiValidation.unrecognizedModels],
+  };
+}
+
 // ── Known shutdown dates ──────────────────────────────────────────────────────
 const KNOWN_SHUTDOWNS: Record<string, string> = {
   "gemini-2.5-pro": "2026-10-16 (Gemini Developer API — migrate to gemini-3.1-pro-preview)",
@@ -147,6 +174,14 @@ const CRITICAL_TIERS = new Set<ModelTier>([
 async function listGeminiModels(): Promise<Set<string>> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
+    _geminiValidation = {
+      checked: true,
+      available: false,
+      configuredModels: [],
+      unrecognizedModels: [],
+      checkedAt: new Date().toISOString(),
+      error: "GEMINI_API_KEY is not set",
+    };
     console.warn("⚠️ [model-resolver] GEMINI_API_KEY not set — skipping Gemini validation");
     return new Set();
   }
@@ -161,9 +196,50 @@ async function listGeminiModels(): Promise<Set<string>> {
     for (const m of data.models ?? []) {
       ids.add(m.name.replace(/^models\//, ""));
     }
+    const configuredModels = [
+      GEMINI_ARTICLE_MODEL,
+      GEMINI_FLASH_MODEL,
+      GEMINI_PRO_MODEL,
+      GEMINI_EXPERIMENTAL_MODEL,
+      GEMINI_CRITIQUE_MODEL,
+      GEMINI_IMAGE_MODEL,
+      VEO_VIDEO_MODEL,
+    ];
+    const unrecognizedModels = [...new Set(configuredModels)].filter((id) => !ids.has(id));
+    _geminiValidation = {
+      checked: true,
+      available: true,
+      configuredModels: [...new Set(configuredModels)],
+      unrecognizedModels,
+      checkedAt: new Date().toISOString(),
+    };
+    for (const modelId of unrecognizedModels) {
+      console.warn(`⚠️ [model-resolver] Gemini model ID "${modelId}" is not present in live ListModels`);
+    }
+    console.log(
+      `🔎 [model-resolver] Gemini startup check: ${configuredModels.length - unrecognizedModels.length}/${configuredModels.length} configured IDs recognized`
+    );
     return ids;
   } catch (err) {
-    console.warn(`⚠️ [model-resolver] Gemini ListModels failed: ${(err as Error).message} — skipping Gemini validation`);
+    _geminiValidation = {
+      checked: true,
+      available: false,
+      configuredModels: [
+        ...new Set([
+          GEMINI_ARTICLE_MODEL,
+          GEMINI_FLASH_MODEL,
+          GEMINI_PRO_MODEL,
+          GEMINI_EXPERIMENTAL_MODEL,
+          GEMINI_CRITIQUE_MODEL,
+          GEMINI_IMAGE_MODEL,
+          VEO_VIDEO_MODEL,
+        ]),
+      ],
+      unrecognizedModels: [],
+      checkedAt: new Date().toISOString(),
+      error: (err as Error).message,
+    };
+    console.warn(`⚠️ [model-resolver] Gemini ListModels failed: ${(err as Error).message} — worker will continue`);
     return new Set();
   }
 }
@@ -262,8 +338,11 @@ export async function validateAndResolveModels(): Promise<void> {
   console.log(`   ℹ️  veoVideo: ${working.veoVideo} (not validated — Veo uses a separate endpoint)`);
 
   if (errors.length > 0) {
-    throw new Error(
-      `[model-resolver] Critical model tiers have no live model — refusing to start:\n  • ${errors.join("\n  • ")}`
+    // A model retirement must be visible to operators, but should not prevent
+    // unrelated queues from starting. Jobs using the affected tier will fail
+    // explicitly until the configured model or fallback chain is corrected.
+    console.warn(
+      `[model-resolver] Critical model tiers have no live model — continuing startup:\n  • ${errors.join("\n  • ")}`
     );
   }
 
