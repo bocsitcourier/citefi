@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
+import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -64,9 +65,10 @@ function checkModels(): { ok: boolean; ready: boolean; models: Record<string, st
 export async function GET(request: NextRequest) {
   const full = request.nextUrl.searchParams.get("full") === "1";
 
-  const [dbResult, redisResult] = await Promise.all([
+  const [dbResult, redisResult, providerCircuits] = await Promise.all([
     checkDatabase(),
     full ? checkRedis() : Promise.resolve({ ok: true, latencyMs: 0, note: "skipped (use ?full=1)" }),
+    getProviderCircuitStatus().catch((err) => ({ error: (err as Error).message })),
   ]);
   const modelResult = checkModels();
 
@@ -85,6 +87,7 @@ export async function GET(request: NextRequest) {
           replitObjectStorage: !!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID,
           doSpaces: !!process.env.DO_SPACES_BUCKET,
         },
+        providerCircuits,
       },
     },
     { status }

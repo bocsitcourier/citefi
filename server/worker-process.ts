@@ -115,6 +115,11 @@ async function startWorkers() {
     // Start job monitoring for stuck job detection
     await startJobMonitor();
 
+    // Provider outage circuit breaker: probes open Gemini/OpenAI circuits every
+    // minute and resumes their queues only after a cheap provider health check.
+    const { startProviderCircuitScheduler } = await import("@/lib/provider-circuit-breaker");
+    startProviderCircuitScheduler();
+
     // Platform spend circuit breaker — pauses expensive queues at 80% of the
     // daily budget, all generation queues at 100%. State in Redis.
     const { startSpendBreakerScheduler } = await import("@/lib/spend-breaker");

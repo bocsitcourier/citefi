@@ -28,10 +28,13 @@ function makeJob(overrides: Partial<{ attemptsMade: number; attempts: number; da
 
 function deps() {
   const calls: any[] = [];
+  const providerFailures: any[] = [];
   return {
     calls,
+    providerFailures,
     _deps: {
       releaseReservation: async (args: any) => { calls.push(args); },
+      recordProviderFailure: async (queueName: string, error: any) => { providerFailures.push({ queueName, error }); },
     },
   };
 }
@@ -47,6 +50,28 @@ void test("transient failure on NON-final attempt: no release, original error re
     { ...billingOpts, _deps: d._deps } as any);
   await assert.rejects(() => handler(makeJob({ attemptsMade: 0, attempts: 3 })), /503/);
   assert.equal(d.calls.length, 0, "reservation must be preserved for the retry");
+});
+
+void test("provider 503 is reported to the shared provider circuit breaker", async () => {
+  const d = deps();
+  const handler = createPipelineHandler("article-generation", async () => {
+    throw new Error("Gemini 503 service unavailable");
+  }, { ...billingOpts, _deps: d._deps } as any);
+  await assert.rejects(() => handler(makeJob()));
+  assert.equal(d.providerFailures.length, 1);
+  assert.equal(d.providerFailures[0].queueName, "article-generation");
+  assert.equal(d.providerFailures[0].error.code, "PROVIDER_ERROR");
+  assert.equal(d.providerFailures[0].error.provider, "gemini");
+});
+
+void test("non-provider failures do not trip the provider circuit", async () => {
+  const d = deps();
+  const handler = createPipelineHandler("article-generation", async () => {
+    throw new Error("invalid article JSON");
+  }, { ...billingOpts, _deps: d._deps } as any);
+  await assert.rejects(() => handler(makeJob()));
+  assert.equal(d.providerFailures.length, 1, "the wrapper delegates classification; breaker filters non-provider codes");
+  assert.equal(d.providerFailures[0].error.code, "PARSE_ERROR");
 });
 
 void test("transient failure on FINAL attempt: releases reservation exactly once", async () => {

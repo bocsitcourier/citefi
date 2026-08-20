@@ -101,7 +101,20 @@ async function pauseQueues(names: string[]): Promise<void> {
 
 async function resumeQueues(names: string[]): Promise<void> {
   const { getQueue } = await import("./queue");
-  await Promise.allSettled(names.map((n) => getQueue(n).resume()));
+  // Do not undo a provider-outage circuit while bringing queues back after a
+  // spend check. Each safeguard owns its own reason for pausing.
+  const { getProviderCircuitStatus } = await import("./provider-circuit-breaker");
+  const circuits = await getProviderCircuitStatus().catch(() => null);
+  const blockedByProvider = new Set(
+    circuits
+      ? Object.values(circuits)
+          .filter((state) => state.status === "open")
+          .flatMap((state) => state.queues)
+      : [],
+  );
+  await Promise.allSettled(
+    names.filter((name) => !blockedByProvider.has(name)).map((n) => getQueue(n).resume()),
+  );
 }
 
 /**

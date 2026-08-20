@@ -71,6 +71,7 @@ export interface PipelineWorkerOptions<T> {
   /** Test injection points — do not use in production code. */
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
+    recordProviderFailure?: (queueName: string, error: PipelineError) => Promise<unknown>;
   };
 }
 
@@ -95,6 +96,14 @@ export function createPipelineHandler<T>(
       return await processor(job);
     } catch (err) {
       const pe: PipelineError = classifyError(err, opts.stage);
+      // A provider-side 429/5xx is systemic. Count it once in Redis before this
+      // job consumes another retry; the breaker pauses affected queues at 5/2min.
+      const recordFailure =
+        opts._deps?.recordProviderFailure ??
+        ((name: string, error: PipelineError) =>
+          import("./provider-circuit-breaker").then(({ recordProviderFailure }) => recordProviderFailure(name, error)));
+      await recordFailure(queueName, pe)
+        .catch((circuitErr) => console.warn("[provider-circuit] failure recording failed:", circuitErr));
       const attemptsAllowed = job.opts?.attempts ?? 1;
       const isFinal =
         pe.disposition === "fatal" ||
