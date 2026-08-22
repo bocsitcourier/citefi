@@ -8,9 +8,14 @@
  */
 import {
   ARTICLE_GENERATION_QUEUE,
+  DAILY_BRIEF_QUEUE,
   IMAGE_GENERATION_QUEUE,
+  INTELLIGENCE_RESEARCH_QUEUE,
   PODCAST_GENERATION_QUEUE,
+  REFORMAT_QUEUE,
   SOCIAL_POST_GENERATION_QUEUE,
+  SOCIAL_VIDEO_GENERATION_QUEUE,
+  VIDEO_IDEA_GENERATION_QUEUE,
   getQueue,
   getRedisConnection,
 } from "./queue";
@@ -24,7 +29,7 @@ const FAILURE_WINDOW_SECONDS = 120;
 const FAILURE_THRESHOLD = 5;
 const PROBE_INTERVAL_MS = 60_000;
 const PROVIDERS = ["gemini", "openai"] as const;
-type ProtectedProvider = (typeof PROVIDERS)[number];
+export type ProtectedProvider = (typeof PROVIDERS)[number];
 
 export type ProviderCircuitState = {
   provider: ProtectedProvider;
@@ -36,9 +41,32 @@ export type ProviderCircuitState = {
   lastProbeError?: string;
 };
 
-const PROVIDER_QUEUES: Record<ProtectedProvider, string[]> = {
-  gemini: [ARTICLE_GENERATION_QUEUE, IMAGE_GENERATION_QUEUE, SOCIAL_POST_GENERATION_QUEUE],
-  openai: [ARTICLE_GENERATION_QUEUE, SOCIAL_POST_GENERATION_QUEUE, PODCAST_GENERATION_QUEUE],
+export const PROVIDER_QUEUES: Record<ProtectedProvider, string[]> = {
+  gemini: [
+    ARTICLE_GENERATION_QUEUE,
+    SOCIAL_POST_GENERATION_QUEUE,
+    IMAGE_GENERATION_QUEUE,
+    SOCIAL_VIDEO_GENERATION_QUEUE,
+    VIDEO_IDEA_GENERATION_QUEUE,
+    INTELLIGENCE_RESEARCH_QUEUE,
+    PODCAST_GENERATION_QUEUE,
+    DAILY_BRIEF_QUEUE,
+    "citation-probe",
+  ],
+  openai: [
+    ARTICLE_GENERATION_QUEUE,
+    SOCIAL_POST_GENERATION_QUEUE,
+    IMAGE_GENERATION_QUEUE,
+    REFORMAT_QUEUE,
+    SOCIAL_VIDEO_GENERATION_QUEUE,
+    PODCAST_GENERATION_QUEUE,
+  ],
+};
+
+type CircuitDeps = {
+  notify?: (title: string, message: string) => Promise<void>;
+  probe?: (provider: ProtectedProvider) => Promise<{ ok: boolean; error?: string }>;
+  getSpendStatus?: () => Promise<"ok" | "video_paused" | "generation_paused">;
 };
 
 const failureKey = (provider: ProtectedProvider) => `provider-circuit:${provider}:failures`;
@@ -82,11 +110,12 @@ async function pauseQueues(names: string[]): Promise<void> {
   await Promise.allSettled(names.map((name) => getQueue(name).pause()));
 }
 
-async function resumeQueues(names: string[]): Promise<void> {
+async function resumeQueues(names: string[], deps: CircuitDeps = {}): Promise<void> {
   // The spend breaker owns a broader pause; provider recovery must never resume
   // a queue while platform spending is still over its safe threshold.
-  const { getBreakerStatus } = await import("./spend-breaker");
-  if (await getBreakerStatus() !== "ok") return;
+  const getSpendStatus = deps.getSpendStatus ??
+    (async () => (await import("./spend-breaker")).getBreakerStatus());
+  if (await getSpendStatus() !== "ok") return;
   const circuits = await getProviderCircuitStatus();
   const blockedByAnotherProvider = new Set(
     Object.values(circuits)
@@ -99,7 +128,11 @@ async function resumeQueues(names: string[]): Promise<void> {
 }
 
 /** Records a retryable provider failure and opens the provider's circuit at 5/2min. */
-export async function recordProviderFailure(queueName: string, error: PipelineError): Promise<void> {
+export async function recordProviderFailure(
+  queueName: string,
+  error: PipelineError,
+  deps: CircuitDeps = {},
+): Promise<void> {
   if (!protectedProvider(error.provider) ||
       (error.code !== "PROVIDER_ERROR" && error.code !== "RATE_LIMITED")) return;
 
@@ -123,7 +156,7 @@ export async function recordProviderFailure(queueName: string, error: PipelineEr
   await writeState(state);
   await pauseQueues(queues);
   console.error(`🚨 [provider-circuit] ${provider} opened after ${failures} failures; paused ${queues.join(", ")}`);
-  await notifyAdmins(
+  await (deps.notify ?? notifyAdmins)(
     `${provider === "gemini" ? "Gemini" : "OpenAI"} outage detected`,
     `${failures} provider failures occurred within two minutes. Affected generation queues are paused and will automatically resume after a successful health probe.`,
   ).catch((err) => console.warn("[provider-circuit] admin notification failed:", err));
@@ -154,12 +187,12 @@ async function probe(provider: ProtectedProvider): Promise<{ ok: boolean; error?
 }
 
 /** Probes every open provider circuit; a successful probe closes and resumes it. */
-export async function probeOpenProviderCircuits(): Promise<void> {
+export async function probeOpenProviderCircuits(deps: CircuitDeps = {}): Promise<void> {
   for (const provider of PROVIDERS) {
     const state = await readState(provider);
     if (state?.status !== "open") continue;
 
-    const result = await probe(provider);
+    const result = await (deps.probe ?? probe)(provider);
     if (!result.ok) {
       await writeState({ ...state, lastProbeAt: new Date().toISOString(), lastProbeError: result.error });
       console.warn(`⚠️ [provider-circuit] ${provider} probe still failing: ${result.error}`);
@@ -169,9 +202,9 @@ export async function probeOpenProviderCircuits(): Promise<void> {
     // Clear this circuit before checking whether any *other* provider still
     // owns the queue pause (articles use both Gemini and OpenAI).
     await getRedisConnection().del(stateKey(provider), failureKey(provider));
-    await resumeQueues(state.queues);
+    await resumeQueues(state.queues, deps);
     console.log(`✅ [provider-circuit] ${provider} recovered; resumed ${state.queues.join(", ")}`);
-    await notifyAdmins(
+    await (deps.notify ?? notifyAdmins)(
       `${provider === "gemini" ? "Gemini" : "OpenAI"} recovered`,
       "The provider health check passed and affected generation queues have resumed.",
     ).catch(() => {});
