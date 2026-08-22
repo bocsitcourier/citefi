@@ -175,6 +175,7 @@ export async function reconcileExpiredArticleRuns(
       ),
       ne(articles.articleStatus, "COMPLETE"),
       inArray(articles.articleStatus, [
+        "PENDING",
         "IN_PROGRESS",
         "GEMINI_COMPLETE",
         "CHATGPT_REVIEWED",

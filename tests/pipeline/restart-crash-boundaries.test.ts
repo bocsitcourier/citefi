@@ -7,6 +7,7 @@ import Redis from "ioredis";
 import { closeDb, db } from "../../lib/db";
 import {
   claimArticleImageStage,
+  claimArticleRun,
   completeArticleImageStage,
   prepareArticleRunForEnqueue,
   reconcilePendingArticleBilling,
@@ -301,7 +302,7 @@ test("expired finished jobs are retried with the same durable run", async () => 
   }
 });
 
-test("historical FAILED/PENDING runs and payload-less runs are not auto-replayed", async () => {
+test("historical FAILED and payload-less runs are not auto-replayed", async () => {
   const seed = await seedArticle("monitor-filter");
   const runId = randomUUID();
   const jobData: ArticleJobData = {
@@ -335,7 +336,21 @@ test("historical FAILED/PENDING runs and payload-less runs are not auto-replayed
       })
       .where(eq(articleRuns.runId, runId));
 
-    for (const articleStatus of ["FAILED", "PENDING"] as const) {
+    await db
+      .update(articles)
+      .set({ articleStatus: "FAILED" })
+      .where(eq(articles.id, seed.article.id));
+    assert.equal(
+      await reconcileExpiredArticleRuns(new Date(), 100, [runId], queue),
+      0,
+      "FAILED rows must require an explicit manual retry"
+    );
+
+    await db
+      .update(articleRuns)
+      .set({ jobDataJson: null })
+      .where(eq(articleRuns.runId, runId));
+    for (const articleStatus of ["PENDING", "IN_PROGRESS"] as const) {
       await db
         .update(articles)
         .set({ articleStatus })
@@ -343,25 +358,222 @@ test("historical FAILED/PENDING runs and payload-less runs are not auto-replayed
       assert.equal(
         await reconcileExpiredArticleRuns(new Date(), 100, [runId], queue),
         0,
-        `${articleStatus} rows must require an explicit manual retry`
+        `${articleStatus} rows without their original payload must not replay`
       );
     }
-
-    await db
-      .update(articles)
-      .set({ articleStatus: "IN_PROGRESS" })
-      .where(eq(articles.id, seed.article.id));
-    await db
-      .update(articleRuns)
-      .set({ jobDataJson: null })
-      .where(eq(articleRuns.runId, runId));
-    assert.equal(
-      await reconcileExpiredArticleRuns(new Date(), 100, [runId], queue),
-      0,
-      "a run without its original payload must not be reconstructed or replayed"
-    );
     assert.equal(queueLookups, 0);
   } finally {
+    await cleanupSeed(seed);
+  }
+});
+
+test("a pre-stage claim crash is retried and completed under the same run ID", {
+  timeout: 25_000,
+}, async () => {
+  const seed = await seedArticle("pre-stage-claim");
+  const runId = randomUUID();
+  const queueName = `t119-pre-stage-${runId}`;
+  const jobData: ArticleJobData = {
+    articleId: seed.article.id,
+    batchId: seed.batch.id,
+    runId,
+    title: seed.article.chosenTitle,
+    targetUrl: seed.batch.targetUrl,
+    businessName: seed.batch.businessName ?? undefined,
+    teamId: seed.team.id,
+  };
+  const queueConnection = makeRedisConnection();
+  const firstConnection = makeRedisConnection();
+  const secondConnection = makeRedisConnection();
+  const queue = new Queue<ArticleJobData>(queueName, { connection: queueConnection });
+  let firstWorker: Worker<ArticleJobData> | null = null;
+  let secondWorker: Worker<ArticleJobData> | null = null;
+  let claimedResolve!: () => void;
+  let claimedReject!: (error: Error) => void;
+  const claimed = new Promise<void>((resolve, reject) => {
+    claimedResolve = resolve;
+    claimedReject = reject;
+  });
+  let recoveredResolve!: () => void;
+  let recoveredReject!: (error: Error) => void;
+  const recovered = new Promise<void>((resolve, reject) => {
+    recoveredResolve = resolve;
+    recoveredReject = reject;
+  });
+  let providerCalls = 0;
+  const envOverrides = {
+    DISABLE_REFLEXIVE_CHECK: "true",
+    DISABLE_CRITIC_LOOP: "true",
+    DISABLE_CHATGPT_REVIEW: "true",
+    DISABLE_GPT_ENHANCEMENT: "true",
+  } as const;
+  const previousEnv = Object.fromEntries(
+    Object.keys(envOverrides).map((key) => [key, process.env[key]])
+  );
+  Object.assign(process.env, envOverrides);
+
+  try {
+    await db
+      .update(articles)
+      .set({ articleStatus: "PENDING", finalHtmlContent: null })
+      .where(eq(articles.id, seed.article.id));
+    await prepareArticleRunForEnqueue({
+      articleId: seed.article.id,
+      runId,
+      runType: "generation",
+      jobData,
+    });
+
+    firstWorker = createPipelineWorker<ArticleJobData>(
+      queueName,
+      async (job) => {
+        try {
+          const claim = await claimArticleRun({
+            articleId: seed.article.id,
+            runId,
+            deliveryToken: job.token,
+          });
+          assert.ok(claim);
+          // Simulate a crash boundary after the durable claim but before the
+          // production processor's first articles-table mutation.
+          claimedResolve();
+        } catch (error) {
+          claimedReject(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        }
+      },
+      {
+        stage: "text_gen",
+        _deps: { recordProviderFailure: async () => {} },
+        _workerOptions: { connection: firstConnection },
+      }
+    );
+    await firstWorker.waitUntilReady();
+    await queue.add("article", jobData, {
+      jobId: runId,
+      attempts: 1,
+      removeOnComplete: false,
+      removeOnFail: false,
+    });
+    await within(claimed, 5_000, "pre-stage durable claim");
+
+    await within((async () => {
+      while (true) {
+        const job = await queue.getJob(runId);
+        if (await job?.getState() === "completed") return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    })(), 5_000, "incorrectly terminalized first delivery");
+    await firstWorker.close();
+
+    const [[beforeRecovery], [claimedRun]] = await Promise.all([
+      db
+        .select({ articleStatus: articles.articleStatus })
+        .from(articles)
+        .where(eq(articles.id, seed.article.id)),
+      db
+        .select({
+          status: articleRuns.status,
+          runId: articleRuns.runId,
+          jobDataJson: articleRuns.jobDataJson,
+        })
+        .from(articleRuns)
+        .where(eq(articleRuns.runId, runId)),
+    ]);
+    assert.equal(beforeRecovery?.articleStatus, "PENDING");
+    assert.equal(claimedRun?.status, "running");
+    assert.equal(claimedRun?.runId, runId);
+    assert.deepEqual(claimedRun?.jobDataJson, jobData);
+    await db
+      .update(articleRuns)
+      .set({ leaseExpiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(articleRuns.runId, runId));
+
+    secondWorker = createPipelineWorker<ArticleJobData>(
+      queueName,
+      async (job) => {
+        try {
+          await processArticleGenerationJob(job, {
+            async generateGemini() {
+              providerCalls += 1;
+              return {
+                rawContent: "Recovered before the first stage.",
+                seoTitle: "Pre-stage Recovery",
+                metaDescription: "A same-run pre-stage recovery test.",
+                slug: `pre-stage-recovery-${runId}`,
+                keywords: ["pre-stage recovery"],
+                hashtags: ["#Recovery"],
+                faq: [],
+                imagePrompts: [],
+                wordCount: 5,
+              } as any;
+            },
+          });
+          recoveredResolve();
+        } catch (error) {
+          recoveredReject(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        }
+      },
+      {
+        stage: "text_gen",
+        _deps: { recordProviderFailure: async () => {} },
+        _workerOptions: { connection: secondConnection },
+      }
+    );
+    secondWorker.on("error", (error) => recoveredReject(error));
+    await secondWorker.waitUntilReady();
+
+    assert.equal(
+      await reconcileExpiredArticleRuns(new Date(), 100, [runId], queue),
+      1
+    );
+    await within(recovered, 10_000, "same-run pre-stage recovery");
+
+    const [[completedRun], [completedArticle], runRows] = await Promise.all([
+      db
+        .select({
+          status: articleRuns.status,
+          runId: articleRuns.runId,
+          geminiGeneratedAt: articleRuns.geminiGeneratedAt,
+        })
+        .from(articleRuns)
+        .where(eq(articleRuns.runId, runId)),
+      db
+        .select({
+          articleStatus: articles.articleStatus,
+          finalHtmlContent: articles.finalHtmlContent,
+        })
+        .from(articles)
+        .where(eq(articles.id, seed.article.id)),
+      db
+        .select({ runId: articleRuns.runId })
+        .from(articleRuns)
+        .where(eq(articleRuns.articleId, seed.article.id)),
+    ]);
+    assert.equal(providerCalls, 1);
+    assert.equal(completedRun?.status, "completed");
+    assert.equal(completedRun?.runId, runId);
+    assert.ok(completedRun?.geminiGeneratedAt);
+    assert.equal(completedArticle?.articleStatus, "COMPLETE");
+    assert.match(completedArticle?.finalHtmlContent ?? "", /Recovered before/);
+    assert.deepEqual(runRows.map((row) => row.runId), [runId]);
+  } finally {
+    await Promise.allSettled([
+      firstWorker?.close(true),
+      secondWorker?.close(true),
+    ].filter(Boolean) as Array<Promise<void>>);
+    await queue.obliterate({ force: true }).catch(() => {});
+    await queue.close().catch(() => {});
+    await Promise.allSettled([
+      queueConnection.quit(),
+      firstConnection.quit(),
+      secondConnection.quit(),
+    ]);
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     await cleanupSeed(seed);
   }
 });
