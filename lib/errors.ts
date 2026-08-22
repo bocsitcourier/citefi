@@ -151,7 +151,7 @@ export function classifyError(
 
   // ── Retryable ────────────────────────────────────────────────────────────
   if (lower.includes("429") || lower.includes("rate limit") ||
-      lower.includes("resource_exhausted") || lower.includes("quota exceeded") ||
+      lower.includes("resource_exhausted") || lower.includes("quota") ||
       lower.includes("too many requests")) {
     const retryAfterMs = extractRetryAfter(err);
     return new PipelineError(msg, "RATE_LIMITED", "retry", stage, prov, err, retryAfterMs);

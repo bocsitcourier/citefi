@@ -170,6 +170,16 @@ export const SIGNUP_COMPETITOR_INTAKE_QUEUE = "signup-competitor-intake";
 export const CANARY_QUEUE = "canary";
 export const RESERVATION_SWEEPER_QUEUE = "reservation-sweeper";
 
+export const VIDEO_IDEA_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: "exponential", delay: 60_000 },
+} as const;
+export const VIDEO_IDEA_JOB_ID_PREFIX = "video-idea:";
+
+export function getVideoIdeaJobIdForRunId(runId: string): string {
+  return `${VIDEO_IDEA_JOB_ID_PREFIX}${runId}`;
+}
+
 export const ALL_QUEUE_NAMES = [
   BATCH_GENERATION_QUEUE,
   ARTICLE_GENERATION_QUEUE,
@@ -664,13 +674,13 @@ export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { d
 export async function addVideoIdeaJob(data: VideoIdeaJobData) {
   const queue = getQueue(VIDEO_IDEA_GENERATION_QUEUE);
   const jobId = data.creditRunId
-    ? `video-idea:${data.creditRunId}`
+    ? getVideoIdeaJobIdForRunId(data.creditRunId)
     : `video-idea:${data.videoIdeaId}:${crypto.randomUUID()}`;
   let job: Job;
   try {
     job = await queue.add("video-idea", data, {
       jobId,
-      attempts: 1, // No retries — each attempt consumes a credit reservation
+      ...VIDEO_IDEA_JOB_OPTIONS,
     });
   } catch (error) {
     const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);

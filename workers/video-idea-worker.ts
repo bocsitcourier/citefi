@@ -1,26 +1,40 @@
 import { type Job } from "bullmq";
-import { createPipelineWorker } from "@/lib/pipeline-worker";
+import {
+  BillingSettlementError,
+  createPipelineWorker,
+  isBillingSettlementError,
+  isFinalPipelineAttempt,
+} from "@/lib/pipeline-worker";
 import { orchestrateVideoIdeaGeneration } from "@/lib/veo-idea-orchestrator";
 import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { notifyVideoComplete, notifyVideoFailed } from "@/lib/notification-service";
 import { logError } from "@/lib/error-logger";
+import { classifyError } from "@/lib/errors";
+import {
+  VIDEO_IDEA_GENERATION_QUEUE,
+  type VideoIdeaJobData,
+} from "@/lib/queue";
 
-interface VideoIdeaJobData {
-  videoIdeaId: number;
-  creditRunId?: string;
+export const VIDEO_IDEA_RETRY_DISPOSITIONS = ["retry"] as const;
+
+export interface VideoIdeaGenerationDependencies {
+  isStorageConfigured?: boolean;
+  assertRunBudget?: typeof import("@/lib/cost-ceilings").assertRunBudget;
+  orchestrate?: typeof orchestrateVideoIdeaGeneration;
+  debitReservation?: typeof import("@/lib/billing").debitReservation;
+  recordUsageEvent?: typeof import("@/lib/usage-caps").recordUsageEvent;
+  recordContentGenerated?: typeof import("@/lib/learning-integration").recordContentGenerated;
+  notifyVideoComplete?: typeof notifyVideoComplete;
+  logError?: typeof logError;
+  notifyVideoFailed?: typeof notifyVideoFailed;
 }
 
-export async function registerVideoIdeaWorker(): Promise<void> {
-  const queueName = "video-idea-generation";
-  const concurrency = 5;
-
-  console.log(`🎬 Registering video idea generation worker for queue: "${queueName}"`);
-
-  createPipelineWorker<VideoIdeaJobData>(
-    queueName,
-    async (job: Job<VideoIdeaJobData>) => {
+export async function processVideoIdeaGenerationJob(
+  job: Job<VideoIdeaJobData>,
+  dependencies: VideoIdeaGenerationDependencies = {}
+) {
       if (!job || !job.data) {
         throw new Error("No job data received");
       }
@@ -29,27 +43,6 @@ export async function registerVideoIdeaWorker(): Promise<void> {
       console.log(`   Video Idea ID: ${videoIdeaId}${creditRunId ? ` (creditRunId: ${creditRunId})` : " (unmetered — legacy)"}`);
 
       try {
-        // ── Storage gate ───────────────────────────────────────────────────
-        // Must be inside this try/catch so the catch block's status=FAILED
-        // write and credit release run identically to any other terminal error.
-        {
-          const { isStorageConfigured } = await import("@/lib/storage");
-          if (!isStorageConfigured) {
-            throw new Error(
-              "STORAGE_NOT_CONFIGURED: Video storage (DO Spaces) is not configured. " +
-              "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
-            );
-          }
-        }
-
-        // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
-        // this catch (status=FAILED write, notification) before the pipeline
-        // wrapper releases the reservation and stops retries.
-        if (creditRunId) {
-          const { assertRunBudget } = await import("@/lib/cost-ceilings");
-          await assertRunBudget(creditRunId, "video", "video_gen");
-        }
-
         const [idea] = await db.select()
           .from(videoIdeas)
           .where(eq(videoIdeas.id, videoIdeaId))
@@ -59,45 +52,99 @@ export async function registerVideoIdeaWorker(): Promise<void> {
           throw new Error(`Video idea ${videoIdeaId} not found`);
         }
 
+        const workerJobId =
+          job.id === undefined || job.id === null ? null : String(job.id);
+        if (creditRunId && workerJobId && idea.jobId !== workerJobId) {
+          await db
+            .update(videoIdeas)
+            .set({ jobId: workerJobId })
+            .where(eq(videoIdeas.id, videoIdeaId));
+        }
+
+        const settlementOnly =
+          Boolean(creditRunId) && idea.status === "READY" && Boolean(idea.videoUrl);
+
+        if (!settlementOnly) {
+          // Generation-only prerequisites must never run during settlement
+          // retries: content is already durable and its reservation must remain.
+          const isStorageConfigured =
+            dependencies.isStorageConfigured ??
+            (await import("@/lib/storage")).isStorageConfigured;
+          if (!isStorageConfigured) {
+            throw new Error(
+              "STORAGE_NOT_CONFIGURED: Video storage (DO Spaces) is not configured. " +
+              "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
+            );
+          }
+
+          // Cost ceiling gate stays inside the processor try/catch so a genuine
+          // generation failure receives domain cleanup before wrapper policy.
+          if (creditRunId) {
+            const assertRunBudget =
+              dependencies.assertRunBudget ??
+              (await import("@/lib/cost-ceilings")).assertRunBudget;
+            await assertRunBudget(creditRunId, "video", "video_gen");
+          }
+        }
+
         const isLikeVideo = idea.isLikeVideo && !!idea.stylePrompt;
         console.log(`📋 Video idea found: "${idea.ideaTitle}" [${idea.style}/${idea.tone}]${isLikeVideo ? " (Like Video)" : ""}`);
 
-        const result = await orchestrateVideoIdeaGeneration({
-          videoIdeaId: idea.id,
-          ideaTitle: idea.ideaTitle,
-          shortIdea: idea.shortIdea,
-          companyName: idea.companyName || "",
-          targetAudience: idea.targetAudience || undefined,
-          style: idea.style as any,
-          tone: idea.tone as any,
-          callToAction: idea.callToAction,
-          website: idea.website || undefined,
-          companyLogoUrl: idea.companyLogoUrl || undefined,
-          stylePromptOverride: isLikeVideo ? (idea.stylePrompt || undefined) : undefined,
-        });
+        // A prior attempt may have completed and persisted the video before its
+        // reservation debit failed. That durable READY state is settlement-only:
+        // retry the debit below, never call Veo again.
+        const result =
+          settlementOnly && idea.videoUrl
+            ? { videoUrl: idea.videoUrl }
+            : await (dependencies.orchestrate ?? orchestrateVideoIdeaGeneration)({
+                videoIdeaId: idea.id,
+                ideaTitle: idea.ideaTitle,
+                shortIdea: idea.shortIdea,
+                companyName: idea.companyName || "",
+                targetAudience: idea.targetAudience || undefined,
+                style: idea.style as any,
+                tone: idea.tone as any,
+                callToAction: idea.callToAction,
+                website: idea.website || undefined,
+                companyLogoUrl: idea.companyLogoUrl || undefined,
+                stylePromptOverride: isLikeVideo ? (idea.stylePrompt || undefined) : undefined,
+              });
 
         console.log(`✅ Video idea generation complete: ${result.videoUrl}`);
 
         // Two-bucket billing: DEBIT reservation on success
         if (creditRunId && idea.teamId) {
-          const { debitReservation } = await import("@/lib/billing");
-          const debitResult = await debitReservation({
-            teamId: idea.teamId,
-            runId: creditRunId,
-            jobId: job.id,
-          });
+          const debitReservation =
+            dependencies.debitReservation ??
+            (await import("@/lib/billing")).debitReservation;
+          let debitResult;
+          try {
+            debitResult = await debitReservation({
+              teamId: idea.teamId,
+              runId: creditRunId,
+              jobId: job.id,
+            });
+          } catch (debitError) {
+            const debitMessage =
+              debitError instanceof Error ? debitError.message : String(debitError);
+            throw new BillingSettlementError(
+              `Debit settlement threw for video idea ${videoIdeaId}: ${debitMessage}`
+            );
+          }
           if (!debitResult.ok) {
             console.error(
               `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${creditRunId}). ` +
               `Video was generated but debit failed — throwing so BullMQ can retry the debit.`
             );
-            // "DEBIT_FAILED" marker tells createPipelineWorker never to release
-            // this reservation — the video was delivered; only the debit retries.
-            throw new Error(`DEBIT_FAILED: credit debit failed for video idea ${videoIdeaId}`);
+            throw new BillingSettlementError(
+              `Debit settlement failed for video idea ${videoIdeaId}`
+            );
           }
           console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);
           // Record completed usage event — populates spending cap meter so caps can trip.
-          const { recordUsageEvent } = await import("@/lib/usage-caps");
+          const recordUsageEvent =
+            dependencies.recordUsageEvent ??
+            (await import("@/lib/usage-caps")).recordUsageEvent;
           await recordUsageEvent({
             teamId: idea.teamId,
             action: "video",
@@ -111,12 +158,18 @@ export async function registerVideoIdeaWorker(): Promise<void> {
         // Record content generation metrics so Thompson Sampling can learn for video
         if (idea.teamId) {
           try {
-            const { recordContentGenerated } = await import("@/lib/learning-integration");
+            const recordContentGenerated =
+              dependencies.recordContentGenerated ??
+              (await import("@/lib/learning-integration")).recordContentGenerated;
             await recordContentGenerated(idea.teamId, "video", videoIdeaId, [], 75);
           } catch (metricsErr) {
             console.warn("[VIDEO_WORKER] Could not record learning metrics (non-fatal):", metricsErr);
           }
-          await notifyVideoComplete(idea.teamId, videoIdeaId, idea.ideaTitle);
+          await (dependencies.notifyVideoComplete ?? notifyVideoComplete)(
+            idea.teamId,
+            videoIdeaId,
+            idea.ideaTitle
+          );
         }
 
         return { success: true, videoUrl: result.videoUrl };
@@ -125,9 +178,31 @@ export async function registerVideoIdeaWorker(): Promise<void> {
         console.error(`❌ Video idea generation failed for ID ${videoIdeaId}:`, error);
 
         const errMsg = error instanceof Error ? error.message : String(error);
-        const isQuotaError = errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.includes("quota");
+        if (isBillingSettlementError(error)) {
+          await (dependencies.logError ?? logError)({
+            errorType: "VIDEO",
+            errorMessage: errMsg,
+            stackTrace: error instanceof Error ? error.stack : undefined,
+            severity: "error",
+            component: "VideoIdeaWorker",
+            context: { videoIdeaId, billingPending: true },
+          });
+          // Content is already durable. Preserve READY/videoUrl and let the
+          // wrapper retry settlement without ever releasing the reservation.
+          throw error;
+        }
 
-        await logError({
+        const classified = classifyError(error, "video_gen", { provider: "veo" });
+        const isQuotaError = classified.code === "RATE_LIMITED";
+        const isFinalAttempt = isFinalPipelineAttempt(
+          job,
+          classified,
+          false,
+          VIDEO_IDEA_RETRY_DISPOSITIONS
+        );
+        const willRetry = !isFinalAttempt;
+
+        await (dependencies.logError ?? logError)({
           errorType: "VIDEO",
           errorMessage: errMsg,
           stackTrace: error instanceof Error ? error.stack : undefined,
@@ -147,28 +222,18 @@ export async function registerVideoIdeaWorker(): Promise<void> {
 
         await db.update(videoIdeas)
           .set({
-            status: "FAILED",
+            // Every retryable failure remains queued between attempts, not
+            // just quota failures. Only fatal/exhausted work is terminal.
+            status: willRetry ? "EXPANDING" : "FAILED",
             progress: 0,
+            currentStage: willRetry ? "retry_wait" : "error",
             errorMessage: displayError,
             updatedAt: new Date(),
           })
           .where(eq(videoIdeas.id, videoIdeaId));
 
-        // Quota errors are swallowed below (no rethrow), so the wrapper's
-        // final-failure release never fires for them — release here instead.
-        // All other errors rethrow and let createPipelineWorker release on the
-        // final attempt.
-        if (isQuotaError && creditRunId && idea?.teamId) {
-          const { releaseReservation } = await import("@/lib/billing");
-          await releaseReservation({
-            teamId: idea.teamId,
-            runId: creditRunId,
-            reason: `Video idea generation failed (quota) for ID ${videoIdeaId}: ${displayError.substring(0, 200)}`,
-          }).catch((e: unknown) => console.warn(`[billing] releaseReservation failed for video idea ${videoIdeaId}:`, e));
-        }
-
-        if (idea?.teamId) {
-          await notifyVideoFailed(
+        if (idea?.teamId && !willRetry) {
+          await (dependencies.notifyVideoFailed ?? notifyVideoFailed)(
             idea.teamId,
             videoIdeaId,
             idea.ideaTitle,
@@ -176,30 +241,43 @@ export async function registerVideoIdeaWorker(): Promise<void> {
           );
         }
 
-        // Don't re-throw quota errors — they will always fail on retry.
-        // For other errors, re-throw so BullMQ can retry.
-        if (!isQuotaError) {
-          throw error;
-        }
-        return; // quota errors handled — no retry needed
+        // Every failure returns to the shared pipeline policy. RATE_LIMITED
+        // errors use BullMQ backoff; the wrapper releases credits only after
+        // the final failed attempt.
+        throw error;
       }
-    },
+}
+
+export async function getVideoIdeaGenerationBilling(
+  job: Pick<Job<VideoIdeaJobData>, "data">
+) {
+  if (!job.data.creditRunId) return null;
+  const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
+    .from(videoIdeas)
+    .where(eq(videoIdeas.id, job.data.videoIdeaId))
+    .limit(1);
+  return {
+    teamId: ideaRow?.teamId,
+    runId: job.data.creditRunId,
+    reason: `Video idea generation failed for ID ${job.data.videoIdeaId}`,
+  };
+}
+
+export async function registerVideoIdeaWorker(): Promise<void> {
+  const queueName = VIDEO_IDEA_GENERATION_QUEUE;
+  const concurrency = 5;
+
+  console.log(`🎬 Registering video idea generation worker for queue: "${queueName}"`);
+
+  createPipelineWorker<VideoIdeaJobData>(
+    queueName,
+    processVideoIdeaGenerationJob,
     {
       stage: "video_gen",
       concurrency,
       budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
-      getBilling: async (j) => {
-        if (!j.data.creditRunId) return null;
-        const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
-          .from(videoIdeas)
-          .where(eq(videoIdeas.id, j.data.videoIdeaId))
-          .limit(1);
-        return {
-          teamId: ideaRow?.teamId,
-          runId: j.data.creditRunId,
-          reason: `Video idea generation failed for ID ${j.data.videoIdeaId}`,
-        };
-      },
+      getBilling: getVideoIdeaGenerationBilling,
+      retryDispositions: VIDEO_IDEA_RETRY_DISPOSITIONS,
     }
   );
 

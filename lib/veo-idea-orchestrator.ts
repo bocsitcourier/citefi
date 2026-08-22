@@ -1,9 +1,9 @@
 import { db } from "@/lib/db";
-import { videoIdeas, ContentType, errorLogs } from "@/shared/schema";
+import { videoIdeas, ContentType } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { expandVideoIdea, VideoIdeaInput, ExpandedVideoConcept } from "./veo-idea-expander";
 import { generateIdeaVideoScript, IdeaVideoScript } from "./veo-idea-script-generator";
-import { generateVideoFromScript, generateIdeaVideoSlideshow } from "./veo-social-video-generator";
+import { generateVideoFromScript } from "./veo-social-video-generator";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator } from "./generation-orchestrator";
@@ -21,6 +21,13 @@ export interface VideoIdeaOrchestrationRequest {
   location?: string;
   companyLogoUrl?: string;
   stylePromptOverride?: string;
+}
+
+export async function generateVeoVideoForIdea(
+  scriptPayload: Parameters<typeof generateVideoFromScript>[0],
+  generate: typeof generateVideoFromScript = generateVideoFromScript
+) {
+  return generate(scriptPayload);
 }
 
 export interface OrchestrationProgress {
@@ -41,7 +48,7 @@ async function updateVideoIdeaProgress(
     scriptJson: unknown;
     videoUrl: string;
     thumbnailUrl: string;
-    errorMessage: string;
+    errorMessage: string | null;
     generatedAt: Date;
   }>
 ): Promise<void> {
@@ -66,7 +73,6 @@ export async function orchestrateVideoIdeaGeneration(
   console.log(`   Title: "${request.ideaTitle}"`);
   console.log(`   Style: ${request.style}, Tone: ${request.tone}`);
 
-  try {
     await updateVideoIdeaProgress(videoIdeaId, "PROCESSING", 2, "queued");
     if (onProgress) {
       await onProgress({ stage: "queued", progress: 2, message: "Job queued, preparing to process..." });
@@ -246,34 +252,16 @@ export async function orchestrateVideoIdeaGeneration(
       onProgress: veoProgressCallback
     };
 
-    let videoUrl: string;
-    let usedFallback = false;
-
-    try {
-      const result = await generateVideoFromScript(scriptPayload);
-      videoUrl = result.videoUrl;
-    } catch (veoError) {
-      const veoMsg = veoError instanceof Error ? veoError.message : String(veoError);
-      const isQuotaError = veoMsg.includes("RESOURCE_EXHAUSTED") || veoMsg.includes("429") || veoMsg.includes("quota");
-
-      if (isQuotaError) {
-        console.warn(`⚠️ Veo quota exceeded for Video Idea ${videoIdeaId} — automatically switching to image slideshow`);
-        await updateVideoIdeaProgress(videoIdeaId, "GENERATING", 30, "slideshow_fallback", {
-          errorMessage: "Veo quota exceeded — generating image slideshow instead"
-        });
-
-        const slideshowResult = await generateIdeaVideoSlideshow(scriptPayload);
-        videoUrl = slideshowResult.videoUrl;
-        usedFallback = true;
-      } else {
-        throw veoError;
-      }
-    }
+    // Provider failures, including quota/429, must escape to the BullMQ worker.
+    // The queue owns bounded retries/backoff and final credit settlement; an
+    // inline slideshow fallback would swallow that policy.
+    const result = await generateVeoVideoForIdea(scriptPayload);
+    const videoUrl = result.videoUrl;
 
     await updateVideoIdeaProgress(videoIdeaId, "READY", 100, "complete", {
       videoUrl,
       generatedAt: new Date(),
-      ...(usedFallback ? { errorMessage: "Generated as image slideshow (Veo quota exceeded)" } : {})
+      errorMessage: null,
     });
     if (onProgress) {
       await onProgress({ stage: "complete", progress: 100, message: "Video generation complete!" });
@@ -299,37 +287,6 @@ export async function orchestrateVideoIdeaGeneration(
     }
 
     return { videoUrl };
-
-  } catch (error) {
-    console.error(`❌ Video idea orchestration failed for ID ${videoIdeaId}:`, error);
-    const errMsg = error instanceof Error ? error.message : String(error);
-    
-    await updateVideoIdeaProgress(videoIdeaId, "FAILED", 0, "error", {
-      errorMessage: errMsg
-    });
-
-    // Write to error_logs so Admin Error Log panel captures Veo idea failures
-    try {
-      await db.insert(errorLogs).values({
-        errorType: "VIDEO",
-        errorMessage: `Video Idea #${videoIdeaId} generation failed: ${errMsg}`.substring(0, 2000),
-        stackTrace: error instanceof Error ? error.stack?.substring(0, 2000) : undefined,
-        severity: "error",
-      });
-    } catch (logErr) {
-      console.warn(`⚠️ Could not write video idea failure to error_logs:`, logErr);
-    }
-    
-    if (onProgress) {
-      await onProgress({ 
-        stage: "complete", 
-        progress: 0, 
-        message: `Generation failed: ${errMsg}` 
-      });
-    }
-    
-    throw error;
-  }
 }
 
 export async function resumeVideoIdeaGeneration(videoIdeaId: number): Promise<{ videoUrl: string } | null> {

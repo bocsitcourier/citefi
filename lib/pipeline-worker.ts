@@ -34,7 +34,11 @@ import {
   type Job,
   type WorkerOptions,
 } from "bullmq";
-import { classifyError, type PipelineError } from "./errors";
+import {
+  classifyError,
+  type ErrorDisposition,
+  type PipelineError,
+} from "./errors";
 import type { ContentType } from "./cost-ceilings";
 import * as queue from "./queue";
 
@@ -82,6 +86,12 @@ export interface PipelineWorkerOptions<T> {
    * brief control-plane issue from a durable model deprecation.
    */
   retryFatalErrors?: boolean;
+  /**
+   * Nonfatal dispositions that may consume the queue's retry budget. Defaults
+   * to all nonfatal dispositions for backward compatibility. Workers that do
+   * not implement fallback/degrade strategies should opt into ["retry"] only.
+   */
+  retryDispositions?: readonly ErrorDisposition[];
   /** Test injection points — do not use in production code. */
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
@@ -92,6 +102,36 @@ export interface PipelineWorkerOptions<T> {
 }
 
 export type PipelineProcessor<T> = (job: Job<T>) => Promise<unknown>;
+
+const DEFAULT_RETRY_DISPOSITIONS: readonly ErrorDisposition[] = [
+  "retry",
+  "fallback",
+  "degrade",
+];
+
+export function isPipelineErrorRetryable(
+  error: Pick<PipelineError, "disposition">,
+  retryFatalErrors = false,
+  retryDispositions: readonly ErrorDisposition[] = DEFAULT_RETRY_DISPOSITIONS
+): boolean {
+  if (error.disposition === "fatal") return retryFatalErrors;
+  return retryDispositions.includes(error.disposition);
+}
+
+export function isFinalPipelineAttempt(
+  job: { attemptsMade?: number; opts?: { attempts?: number } },
+  error: Pick<PipelineError, "disposition">,
+  retryFatalErrors = false,
+  retryDispositions: readonly ErrorDisposition[] = DEFAULT_RETRY_DISPOSITIONS
+): boolean {
+  const attemptsAllowed = job.opts?.attempts ?? 1;
+  const attemptsUsed = (job.attemptsMade ?? 0) + 1;
+  return !isPipelineErrorRetryable(
+    error,
+    retryFatalErrors,
+    retryDispositions
+  ) || attemptsUsed >= attemptsAllowed;
+}
 
 /**
  * Content is durable, but the reservation still needs to become a debit.
@@ -174,15 +214,18 @@ export function createPipelineHandler<T>(
           import("./provider-circuit-breaker").then(({ recordProviderFailure }) => recordProviderFailure(name, error)));
       await recordFailure(queueName, pe)
         .catch((circuitErr) => console.warn("[provider-circuit] failure recording failed:", circuitErr));
-      const attemptsAllowed = job.opts?.attempts ?? 1;
-      const attemptsUsed = (job.attemptsMade ?? 0) + 1;
-      const retryFatal =
-        pe.disposition === "fatal" &&
-        opts.retryFatalErrors === true &&
-        attemptsUsed < attemptsAllowed;
-      const isFinal =
-        !retryFatal &&
-        (pe.disposition === "fatal" || attemptsUsed >= attemptsAllowed);
+      const retryFatalErrors = opts.retryFatalErrors === true;
+      const canRetry = isPipelineErrorRetryable(
+        pe,
+        retryFatalErrors,
+        opts.retryDispositions
+      );
+      const isFinal = isFinalPipelineAttempt(
+        job,
+        pe,
+        retryFatalErrors,
+        opts.retryDispositions
+      );
       console.error(
         `❌ [${queueName}:${String(job.id)}] ${pe.code} (${pe.disposition})${isFinal ? " — final attempt" : ""}`
       );
@@ -218,7 +261,7 @@ export function createPipelineHandler<T>(
         }
       }
 
-      if (pe.disposition === "fatal" && !retryFatal) {
+      if (isFinal && (!canRetry || pe.disposition === "fatal")) {
         throw new UnrecoverableError(`[${pe.code}] ${pe.message}`);
       }
       throw err;
