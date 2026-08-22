@@ -199,20 +199,28 @@ export const ALL_QUEUE_NAMES = [
 // REDIS CONNECTION SINGLETON
 // ============================================================================
 
+/**
+ * Normalize a raw REDIS_URL string.
+ *
+ * The Replit javascript_mem_db integration injects REDIS_URL with a typo:
+ * "ediss://" instead of "rediss://". Call this helper whenever constructing
+ * a Redis client so both the shared connection and ad-hoc clients (e.g. in
+ * the canary health reader) apply the same fix.
+ */
+export function normalizeRedisUrl(raw?: string): { url: string; tls: boolean } {
+  let url = raw ?? process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
+  if (url.startsWith("ediss://")) {
+    url = "rediss://" + url.slice("ediss://".length);
+  }
+  return { url, tls: url.startsWith("rediss://") };
+}
+
 let _redisConn: Redis | null = null;
 
 export function getRedisConnection(): Redis {
   if (_redisConn) return _redisConn;
 
-  let url = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-
-  // The Replit javascript_mem_db integration injects REDIS_URL with a typo:
-  // "ediss://" instead of "rediss://" — normalize it here.
-  if (url.startsWith("ediss://")) {
-    url = "rediss://" + url.slice("ediss://".length);
-  }
-
-  const isTls = url.startsWith("rediss://");
+  const { url, tls: isTls } = normalizeRedisUrl();
   _redisConn = new Redis(url, {
     maxRetriesPerRequest: null, // Required by BullMQ
     enableReadyCheck: false,
