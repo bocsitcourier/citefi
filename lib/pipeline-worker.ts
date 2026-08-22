@@ -27,7 +27,13 @@
  * Lint enforcement: `new Worker(` outside this file is flagged by eslint
  * (no-restricted-syntax). Register through createPipelineWorker instead.
  */
-import { Worker, UnrecoverableError, type Job } from "bullmq";
+import {
+  Worker,
+  DelayedError,
+  UnrecoverableError,
+  type Job,
+  type WorkerOptions,
+} from "bullmq";
 import { classifyError, type PipelineError } from "./errors";
 import type { ContentType } from "./cost-ceilings";
 import * as queue from "./queue";
@@ -81,6 +87,8 @@ export interface PipelineWorkerOptions<T> {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
     recordProviderFailure?: (queueName: string, error: PipelineError) => Promise<unknown>;
   };
+  /** Worker-level test controls for deterministic lock/stall integration tests. */
+  _workerOptions?: Omit<WorkerOptions, "concurrency">;
 }
 
 export type PipelineProcessor<T> = (job: Job<T>) => Promise<unknown>;
@@ -109,6 +117,31 @@ export function isBillingSettlementError(error: unknown): error is BillingSettle
 }
 
 /**
+ * A delivery could not acquire its durable run lease. This must never release
+ * billing: BullMQ or the expired-run monitor will retry the same run.
+ */
+export class ArticleRunLeaseConflictError extends Error {
+  readonly code = "RUN_LEASE_HELD";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ArticleRunLeaseConflictError";
+  }
+}
+
+export function isArticleRunLeaseConflictError(
+  error: unknown
+): error is ArticleRunLeaseConflictError {
+  return error instanceof ArticleRunLeaseConflictError ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "RUN_LEASE_HELD"
+    );
+}
+
+/**
  * Builds the job handler (exported separately so unit tests can exercise the
  * policy without Redis or a real Worker).
  */
@@ -126,6 +159,12 @@ export function createPipelineHandler<T>(
       }
       return await processor(job);
     } catch (err) {
+      // The processor already moved this active job to BullMQ's delayed set.
+      // Treating it as a normal failure would consume attempts and could release
+      // the reservation even though the same durable run is still in progress.
+      if (err instanceof DelayedError || (err instanceof Error && err.name === "DelayedError")) {
+        throw err;
+      }
       const pe: PipelineError = classifyError(err, opts.stage);
       // A provider-side 429/5xx is systemic. Count it once in Redis before this
       // job consumes another retry; the breaker pauses affected queues at 5/2min.
@@ -151,8 +190,9 @@ export function createPipelineHandler<T>(
       // DEBIT_FAILED means the content was generated successfully and only the
       // debit needs retrying — releasing would refund a delivered product.
       const isDebitFailure = isBillingSettlementError(err);
+      const isLeaseConflict = isArticleRunLeaseConflictError(err);
 
-      if (isFinal && !isDebitFailure && opts.getBilling) {
+      if (isFinal && !isDebitFailure && !isLeaseConflict && opts.getBilling) {
         try {
           const billing = await opts.getBilling(job);
           if (billing?.teamId && billing?.runId) {
@@ -192,8 +232,11 @@ export function createPipelineWorker<T>(
   opts: PipelineWorkerOptions<T>
 ): Worker<T> {
   const { getRedisConnection } = queueModule();
-  const worker = new Worker<T>(queueName, createPipelineHandler(queueName, processor, opts) as any, {
+  const workerOptions = opts._workerOptions ?? {
     connection: getRedisConnection(),
+  };
+  const worker = new Worker<T>(queueName, createPipelineHandler(queueName, processor, opts) as any, {
+    ...workerOptions,
     concurrency: opts.concurrency ?? 1,
   });
   registeredWorkers.add(worker as Worker<unknown>);

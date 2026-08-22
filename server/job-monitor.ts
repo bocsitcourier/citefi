@@ -2,6 +2,7 @@ import {
   ARTICLE_GENERATION_QUEUE,
   getQueue,
   addArticleJob,
+  type ArticleJobData,
 } from "../lib/queue";
 import { neonHttpDb } from "../lib/db";
 import { createNotification } from "../lib/notification-service";
@@ -10,7 +11,7 @@ import {
   markArticleRunEnqueueFailed,
   reconcilePendingArticleBilling,
 } from "../lib/article-run-state";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 
 /**
  * Job Monitor - Automatic Stuck Job Detection & Recovery
@@ -65,6 +66,10 @@ async function checkStuckJobs() {
       console.log(
         `💳 Article settlement reconciliation: settled=${settlement.settled} deferred=${settlement.deferred}`
       );
+    }
+    const resumedRuns = await reconcileExpiredArticleRuns();
+    if (resumedRuns > 0) {
+      console.warn(`🔄 Requeued ${resumedRuns} expired article run(s) with their original run IDs`);
     }
     await reconcileMissingArticleEnqueues();
     await recoverStalledArticles();
@@ -128,6 +133,99 @@ export async function reconcileMissingArticleEnqueues(
     }
   }
   return failed;
+}
+
+function isArticleJobData(value: unknown): value is ArticleJobData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Partial<ArticleJobData>;
+  return (
+    typeof data.articleId === "number" &&
+    typeof data.batchId === "number" &&
+    typeof data.runId === "string" &&
+    typeof data.title === "string" &&
+    typeof data.targetUrl === "string"
+  );
+}
+
+/**
+ * BullMQ normally redelivers stalled active jobs itself. This is the durable
+ * backstop for a job that was incorrectly completed/failed, or removed, while
+ * its article run still owns checkpoint state. The same run ID and persisted
+ * payload are always reused; recovery never creates a fresh generation run.
+ */
+export async function reconcileExpiredArticleRuns(
+  now = new Date(),
+  limit = 100,
+  onlyRunIds?: string[],
+  queueOverride?: Pick<ReturnType<typeof getQueue>, "getJob">
+): Promise<number> {
+  const candidates = await neonHttpDb
+    .select({
+      articleId: articleRuns.articleId,
+      runId: articleRuns.runId,
+      jobDataJson: articleRuns.jobDataJson,
+    })
+    .from(articleRuns)
+    .innerJoin(articles, eq(articles.id, articleRuns.articleId))
+    .where(and(
+      eq(articleRuns.status, "running"),
+      or(
+        isNull(articleRuns.leaseExpiresAt),
+        lt(articleRuns.leaseExpiresAt, now)
+      ),
+      ne(articles.articleStatus, "COMPLETE"),
+      inArray(articles.articleStatus, [
+        "IN_PROGRESS",
+        "GEMINI_COMPLETE",
+        "CHATGPT_REVIEWED",
+        "GPT4_ENHANCED",
+      ]),
+      isNotNull(articleRuns.jobDataJson),
+      onlyRunIds?.length ? inArray(articleRuns.runId, onlyRunIds) : undefined
+    ))
+    .limit(limit);
+
+  if (candidates.length === 0) return 0;
+  const queue = queueOverride ?? getQueue(ARTICLE_GENERATION_QUEUE);
+  let resumed = 0;
+
+  for (const candidate of candidates) {
+    try {
+      const job = await queue.getJob(candidate.runId);
+      if (job) {
+        const state = await job.getState();
+        if (state === "completed" || state === "failed") {
+          await job.retry(state);
+          resumed += 1;
+        }
+        // Waiting/delayed/active jobs already have a BullMQ recovery owner.
+        continue;
+      }
+
+      if (!isArticleJobData(candidate.jobDataJson)) {
+        console.error(
+          `❌ Cannot recover article ${candidate.articleId} run ${candidate.runId.slice(0, 8)}: ` +
+          `durable job payload is missing`
+        );
+        continue;
+      }
+
+      await addArticleJob({
+        ...candidate.jobDataJson,
+        articleId: candidate.articleId,
+        runId: candidate.runId,
+      });
+      resumed += 1;
+    } catch (error) {
+      console.warn(
+        `⚠️ Could not recover expired article run ${candidate.runId.slice(0, 8)}; ` +
+        `leaving durable state unchanged:`,
+        error
+      );
+    }
+  }
+
+  return resumed;
 }
 
 export function summarizeBatchArticleStatuses(
@@ -198,6 +296,7 @@ async function recoverStalledArticles() {
         updatedAt: articles.updatedAt,
         lastHeartbeatAt: articles.lastHeartbeatAt,
         stallCount: articles.stallCount,
+        finalHtmlContent: articles.finalHtmlContent,
         targetUrl: jobBatches.targetUrl,
         generationParams: jobBatches.generationParams,
         businessName: jobBatches.businessName,
@@ -208,7 +307,33 @@ async function recoverStalledArticles() {
       .innerJoin(jobBatches, eq(articles.batchId, jobBatches.id))
       .where(inArray(articles.articleStatus, watchedStatuses));
 
+    const durableRunArticleIds = candidates.length > 0
+      ? await neonHttpDb
+          .select({ articleId: articleRuns.articleId })
+          .from(articleRuns)
+          .where(inArray(
+            articleRuns.articleId,
+            candidates.map((article) => article.id)
+          ))
+      : [];
+    const durablyOwnedArticles = new Set(
+      durableRunArticleIds.map((run) => run.articleId)
+    );
+
     for (const article of candidates) {
+      if (durablyOwnedArticles.has(article.id)) {
+        // The article-run lease/token monitor owns recovery for this exact run.
+        // Never replace it with a fresh run ID or discard its checkpoints.
+        continue;
+      }
+      if (
+        article.articleStatus !== "IN_PROGRESS" ||
+        (article.finalHtmlContent ?? "").trim()
+      ) {
+        // Legacy intermediate/failed content is not safe to replay under a new
+        // run ID. It requires explicit manual recovery.
+        continue;
+      }
       const timeoutMs = ARTICLE_STAGE_TIMEOUT_MS[article.articleStatus ?? ""];
       if (!timeoutMs) continue;
       const heartbeatAt = article.lastHeartbeatAt ?? article.updatedAt;

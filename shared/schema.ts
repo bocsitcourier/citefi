@@ -383,8 +383,10 @@ export const articleRuns = pgTable("article_runs", {
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
   status: varchar("status", { length: 30 }).notNull().default("queued"), // queued, running, billing_pending, completed, failed, failed_enqueue
-  leaseToken: varchar("lease_token", { length: 36 }),
+  // BullMQ delivery lock token (worker UUID + delivery counter) or internal UUID.
+  leaseToken: varchar("lease_token", { length: 128 }),
   leaseExpiresAt: timestamp("lease_expires_at"),
+  jobDataJson: jsonb("job_data_json"),
   geminiGeneratedAt: timestamp("gemini_generated_at"),
   chatgptReviewedAt: timestamp("chatgpt_reviewed_at"),
   textGeneratedAt: timestamp("text_generated_at"),

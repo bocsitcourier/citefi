@@ -1,6 +1,6 @@
 import { neonHttpDb as db } from "./db";
-import { articles, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
-import { eq, isNull, or, sql, and, lt } from "drizzle-orm";
+import { articles, articleRuns, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
+import { eq, inArray, isNull, or, sql, and, lt } from "drizzle-orm";
 import { addVideoGenerationJob, addVideoIdeaJob } from "./queue";
 import { createNotification } from "./notification-service";
 
@@ -106,21 +106,19 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
   // ─────────────────────────────────────────────────────────────────────────
   // Matches the REAL article status taxonomy written by lib/worker.ts:
   //   IN_PROGRESS     — worker is actively generating (timeout: 15 min)
-  //   GEMINI_COMPLETE — Gemini done, ChatGPT step crashed (timeout: 15 min)
-  //   CHATGPT_REVIEWED — ChatGPT done, GPT4 enhancement crashed (timeout: 15 min)
-  //
-  // NOTE: IN_PROGRESS articles are only reset if updatedAt is > 15 minutes ago
-  // to avoid cancelling articles that are legitimately running (Gemini can take
-  // up to 10 minutes). GEMINI_COMPLETE and CHATGPT_REVIEWED can be reset more
-  // aggressively (5 min) since those are fast ChatGPT/GPT4 steps.
+  // Only pre-durable legacy IN_PROGRESS rows are eligible here. Any row with an
+  // article_run, or any row with durable content, must be recovered by the
+  // same-run monitor rather than forking a fresh run ID.
   // ─────────────────────────────────────────────────────────────────────────
   try {
     const FIFTEEN_MINUTES_AGO = new Date(Date.now() - 15 * 60 * 1000);
-    const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000);
-
     // IN_PROGRESS articles that haven't been touched in 15+ minutes are orphaned
     const stuckInProgress = await withDbRetry(
-      () => db.select({ id: articles.id, articleStatus: articles.articleStatus })
+      () => db.select({
+        id: articles.id,
+        articleStatus: articles.articleStatus,
+        finalHtmlContent: articles.finalHtmlContent,
+      })
         .from(articles)
         .where(and(
           eq(articles.articleStatus, "IN_PROGRESS"),
@@ -129,23 +127,26 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
       "stuck-in-progress-articles"
     );
 
-    // Intermediate stage articles (ChatGPT/GPT4 steps are fast — 5 min is generous)
-    const stuckIntermediate = await withDbRetry(
-      () => db.select({ id: articles.id, articleStatus: articles.articleStatus })
-        .from(articles)
-        .where(and(
-          or(
-            eq(articles.articleStatus, "GEMINI_COMPLETE"),
-            eq(articles.articleStatus, "CHATGPT_REVIEWED")
-          ),
-          lt(articles.updatedAt, FIVE_MINUTES_AGO)
-        )),
-      "stuck-intermediate-articles"
+    const stuckArticles = stuckInProgress;
+    const durableRunArticleIds = stuckArticles.length > 0
+      ? await withDbRetry(
+          () => db
+            .select({ articleId: articleRuns.articleId })
+            .from(articleRuns)
+            .where(inArray(articleRuns.articleId, stuckArticles.map((article) => article.id))),
+          "durable-article-runs"
+        )
+      : [];
+    const durablyOwnedArticles = new Set(
+      durableRunArticleIds.map((run) => run.articleId)
+    );
+    const legacyStuckArticles = stuckArticles.filter(
+      (article) =>
+        !durablyOwnedArticles.has(article.id) &&
+        !(article.finalHtmlContent ?? "").trim()
     );
 
-    const stuckArticles = [...stuckInProgress, ...stuckIntermediate];
-
-    for (const article of stuckArticles) {
+    for (const article of legacyStuckArticles) {
       await db.update(articles)
         .set({ 
           articleStatus: "PENDING",
@@ -154,93 +155,16 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
         .where(eq(articles.id, article.id));
     }
     
-    stats.articlesRecovered = stuckArticles.length;
-    if (stuckArticles.length > 0) {
-      console.log(`  ✅ Recovered ${stuckArticles.length} stuck articles (${stuckInProgress.length} IN_PROGRESS, ${stuckIntermediate.length} intermediate)`);
+    stats.articlesRecovered = legacyStuckArticles.length;
+    if (legacyStuckArticles.length > 0) {
+      console.log(`  ✅ Recovered ${legacyStuckArticles.length} legacy stuck articles without durable runs`);
     }
   } catch (e) {
     console.warn("  ⚠️ Could not recover articles:", e);
   }
 
-  // 2b. Recover FAILED articles with transient errors in RUNNING batches
-  // -------------------------------------------------------------------------
-  // Transient errors are retryable: network failures, DB connection drops,
-  // Gemini/GPT timeouts.  Permanent errors (brand-safety, schema validation)
-  // are intentionally excluded so they don't loop forever.
-  // -------------------------------------------------------------------------
-  try {
-    const TRANSIENT_PATTERNS = [
-      "fetch failed",
-      "error connecting to database",
-      "econnrefused",
-      "econnreset",
-      "etimedout",
-      "exceeded hard timeout",
-      "socket hang up",
-      "network error",
-      "eai_again",
-    ];
-
-    const failedWithBatch = await db
-      .select({
-        id: articles.id,
-        batchId: articles.batchId,
-        chosenTitle: articles.chosenTitle,
-        errorMessage: articles.errorMessage,
-        batchTargetUrl: jobBatches.targetUrl,
-        batchGenerationParams: jobBatches.generationParams,
-        batchBusinessName: jobBatches.businessName,
-        batchCompanyLogoUrl: jobBatches.companyLogoUrl,
-        batchPersonaId: jobBatches.personaId,
-        batchTeamId: jobBatches.teamId,
-      })
-      .from(articles)
-      .innerJoin(jobBatches, eq(articles.batchId, jobBatches.id))
-      .where(and(
-        eq(articles.articleStatus, "FAILED"),
-        eq(jobBatches.status, "RUNNING")
-      ));
-
-    const transientFailed = failedWithBatch.filter((a) => {
-      const err = (a.errorMessage || "").toLowerCase();
-      return TRANSIENT_PATTERNS.some((p) => err.includes(p));
-    });
-
-    if (transientFailed.length > 0) {
-      const { addArticleJob } = await import("./queue");
-      for (const a of transientFailed) {
-        const params = (a.batchGenerationParams || {}) as Record<string, unknown>;
-
-        await db.update(articles)
-          .set({
-            articleStatus: "PENDING",
-            errorMessage: `Auto-recovered from transient failure: ${(a.errorMessage || "").slice(0, 80)}`,
-          })
-          .where(eq(articles.id, a.id));
-
-        await addArticleJob({
-          articleId: a.id,
-          batchId: a.batchId,
-          runId: crypto.randomUUID(),
-          title: a.chosenTitle || `Article ${a.id}`,
-          targetUrl: a.batchTargetUrl || "",
-          tone: params.tone as string | undefined,
-          wordCountMin: params.wordCountMin as number | undefined,
-          wordCountMax: params.wordCountMax as number | undefined,
-          geographicFocus: params.geographicFocus as string | undefined,
-          businessName: a.batchBusinessName || undefined,
-          companyLogoUrl: a.batchCompanyLogoUrl || undefined,
-          teamId: a.batchTeamId || undefined,
-          personaId: a.batchPersonaId || undefined,
-        });
-
-        console.log(`  🔄 Re-queued transient-failed article #${a.id}: "${(a.chosenTitle || "").slice(0, 60)}" — was: ${(a.errorMessage || "").slice(0, 70)}`);
-        stats.articlesRecovered++;
-      }
-    }
-  } catch (e) {
-    console.warn("  ⚠️ Could not recover transient-failed articles:", e);
-  }
+  // FAILED article rows are never auto-replayed on startup. A manual retry can
+  // make an explicit spend decision; durable recovery belongs to article_runs.
 
   // 2c. Recover failed publishing jobs with transient errors
   // -------------------------------------------------------------------------
@@ -622,7 +546,7 @@ export function startJobRecoveryMonitor(intervalMinutes: number = 5) {
   recoverStuckJobs().then(stats => {
     console.log(`✅ [${new Date().toISOString()}] Initial recovery check complete`);
     if (stats.videoIdeasRecovered > 0) {
-      autoRequeueRecoveredVideos().then(count => {
+      void autoRequeueRecoveredVideos().then(count => {
         if (count > 0) console.log(`  🎬 Auto-requeued ${count} recovered videos`);
       });
     }

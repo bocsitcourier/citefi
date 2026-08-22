@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Job } from "bullmq";
 import {
+  ArticleRunLeaseConflictError,
   BillingSettlementError,
   createPipelineHandler,
   drainWorkers,
@@ -78,6 +79,32 @@ test("billing settlement failures never release a delivered reservation", async 
   } as Job;
 
   await assert.rejects(() => handler(job), BillingSettlementError);
+  assert.equal(releases, 0);
+});
+
+test("lease conflicts never release a reservation on the final attempt", async () => {
+  let releases = 0;
+  const handler = createPipelineHandler(
+    "article-generation",
+    async () => {
+      throw new ArticleRunLeaseConflictError("previous delivery still owns the run");
+    },
+    {
+      stage: "text_gen",
+      getBilling: () => ({ teamId: 1, runId: "credit-run" }),
+      _deps: {
+        releaseReservation: async () => { releases += 1; },
+        recordProviderFailure: async () => {},
+      },
+    }
+  );
+  const job = {
+    id: "article-run",
+    attemptsMade: 2,
+    opts: { attempts: 3 },
+  } as Job;
+
+  await assert.rejects(() => handler(job), ArticleRunLeaseConflictError);
   assert.equal(releases, 0);
 });
 

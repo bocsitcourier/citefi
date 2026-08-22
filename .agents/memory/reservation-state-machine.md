@@ -42,6 +42,15 @@ Image delivery follows the same rule: tag uploaded assets with the durable run i
 
 **How to apply:** Any new content pipeline needs a durable run record, stable settlement key, delivered-content sweeper exclusion, independent settlement reconciliation, and an atomic checkpoint around externally created assets. Promote expired processing state into settlement only when the complete billing identity was persisted; legacy complete rows without that identity must remain untouched.
 
+## Durable worker ownership
+A queue delivery token is not proof that the previous processor has stopped. Never transfer a live durable lease merely because a stalled redelivery has a new queue token. Defer the redelivery until lease expiry, then resume the same run identity and checkpoints. Provider entry and user-visible writes must both require the matching, unexpired durable lease.
+
+Legacy watchdogs must not fork any article that already has a durable run. Fresh-run recovery is safe only for pre-durable, content-empty work; terminal, checkpointed, or payload-less rows require explicit manual recovery.
+
+**Why:** Queue lock loss and process death are not equivalent. An old processor can continue running after a queue declares it stalled, so immediate ownership transfer permits duplicate provider calls and stale content overwrites.
+
+**How to apply:** Use a lease-aware transaction for every post-claim content mutation and external-stage checkpoint. Keep redeliveries delayed without consuming attempts or releasing reservations. Recovery must reuse the persisted run ID and original payload, and externally generated assets need the same unexpired-lease fence.
+
 ## DB indexes
 - `credit_ledger_reservation_status_idx`: partial WHERE `reservation_status='RESERVED'`
 - `credit_ledger_debit_jobid_unique_idx`: UNIQUE on `(team_id, run_id, job_id) WHERE event_type='debit' AND job_id IS NOT NULL` — backstop for concurrent batch-article duplicate debits

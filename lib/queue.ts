@@ -354,6 +354,7 @@ export async function addArticleJob(data: ArticleJobData) {
     articleId: data.articleId,
     runId,
     runType: data.customInstructions ? "regeneration" : "generation",
+    jobData: enrichedData,
   });
 
   const queue = getQueue(ARTICLE_GENERATION_QUEUE);

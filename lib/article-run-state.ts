@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, lt, lte, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, getTxDb } from "./db";
 import { articleRuns, articles } from "@/shared/schema";
 
@@ -98,6 +98,7 @@ export async function prepareArticleRunForEnqueue(input: {
   articleId: number;
   runId: string;
   runType: RunType;
+  jobData?: unknown;
 }): Promise<void> {
   const now = new Date();
   await db
@@ -109,6 +110,7 @@ export async function prepareArticleRunForEnqueue(input: {
       status: "queued",
       queuedAt: now,
       startedAt: now,
+      jobDataJson: input.jobData,
     })
     .onConflictDoNothing();
 
@@ -124,6 +126,7 @@ export async function prepareArticleRunForEnqueue(input: {
       enqueueError: null,
       leaseToken: null,
       leaseExpiresAt: null,
+      ...(input.jobData !== undefined ? { jobDataJson: input.jobData } : {}),
     })
     .where(
       and(
@@ -186,6 +189,7 @@ export interface ArticleRunClaim {
 export async function claimArticleRun(input: {
   articleId: number;
   runId: string;
+  deliveryToken?: string | null;
 }): Promise<ArticleRunClaim | null> {
   const [existing] = await db
     .select()
@@ -210,7 +214,7 @@ export async function claimArticleRun(input: {
   if (existing.status === "completed") return null;
 
   const now = new Date();
-  const leaseToken = crypto.randomUUID();
+  const leaseToken = input.deliveryToken ?? crypto.randomUUID();
   const leaseExpiresAt = new Date(now.getTime() + ARTICLE_RUN_LEASE_MS);
   const claimable = or(
     inArray(articleRuns.status, [
@@ -265,11 +269,112 @@ export async function heartbeatArticleRunLease(input: {
         eq(articleRuns.articleId, input.articleId),
         eq(articleRuns.runId, input.runId),
         eq(articleRuns.leaseToken, input.leaseToken),
-        eq(articleRuns.status, "running")
+        eq(articleRuns.status, "running"),
+        gt(articleRuns.leaseExpiresAt, now)
       )
     )
     .returning({ id: articleRuns.id });
   return updated.length > 0;
+}
+
+export async function isArticleRunLeaseOwned(input: {
+  articleId: number;
+  runId: string;
+  leaseToken: string;
+  now?: Date;
+}): Promise<boolean> {
+  const now = input.now ?? new Date();
+  const [owned] = await db
+    .select({ id: articleRuns.id })
+    .from(articleRuns)
+    .where(and(
+      eq(articleRuns.articleId, input.articleId),
+      eq(articleRuns.runId, input.runId),
+      eq(articleRuns.leaseToken, input.leaseToken),
+      eq(articleRuns.status, "running"),
+      gt(articleRuns.leaseExpiresAt, now)
+    ))
+    .limit(1);
+  return Boolean(owned);
+}
+
+/**
+ * Fence an article mutation behind the durable run-row lock. Updating the run
+ * row first serializes this transaction against a competing lease claim; the
+ * article write can never commit after ownership was transferred or expired.
+ */
+export async function updateArticleForOwnedRun(input: {
+  articleId: number;
+  runId: string;
+  leaseToken: string;
+  values: Partial<typeof articles.$inferInsert>;
+}): Promise<boolean> {
+  const txDb = getTxDb();
+  return txDb.transaction(async (tx) => {
+    const now = new Date();
+    const [owned] = await tx
+      .update(articleRuns)
+      .set({
+        leaseExpiresAt: sql`${articleRuns.leaseExpiresAt}`,
+      })
+      .where(and(
+        eq(articleRuns.articleId, input.articleId),
+        eq(articleRuns.runId, input.runId),
+        eq(articleRuns.leaseToken, input.leaseToken),
+        eq(articleRuns.status, "running"),
+        gt(articleRuns.leaseExpiresAt, now)
+      ))
+      .returning({ id: articleRuns.id });
+    if (!owned) return false;
+
+    const updated = await tx
+      .update(articles)
+      .set(input.values)
+      .where(eq(articles.id, input.articleId))
+      .returning({ id: articles.id });
+    if (updated.length === 0) {
+      throw new Error(`Article ${input.articleId} disappeared during owned update`);
+    }
+    return true;
+  });
+}
+
+/**
+ * Persist provider output and its checkpoint in one lease-fenced transaction.
+ */
+export async function commitArticleRunStage(input: {
+  articleId: number;
+  runId: string;
+  leaseToken: string;
+  articleValues: Partial<typeof articles.$inferInsert>;
+  runValues: Partial<typeof articleRuns.$inferInsert>;
+}): Promise<boolean> {
+  const txDb = getTxDb();
+  return txDb.transaction(async (tx) => {
+    const now = new Date();
+    const checkpoint = await tx
+      .update(articleRuns)
+      .set(input.runValues)
+      .where(and(
+        eq(articleRuns.articleId, input.articleId),
+        eq(articleRuns.runId, input.runId),
+        eq(articleRuns.leaseToken, input.leaseToken),
+        eq(articleRuns.status, "running"),
+        gt(articleRuns.leaseExpiresAt, now)
+      ))
+      .returning({ id: articleRuns.id });
+    if (checkpoint.length === 0) return false;
+
+    const updated = await tx
+      .update(articles)
+      .set(input.articleValues)
+      .where(eq(articles.id, input.articleId))
+      .returning({ id: articles.id });
+    if (updated.length === 0) {
+      throw new Error(`Article ${input.articleId} disappeared during stage commit`);
+    }
+    return true;
+  });
 }
 
 export async function updateClaimedArticleRun(input: {
@@ -288,6 +393,27 @@ export async function updateClaimedArticleRun(input: {
         eq(articleRuns.leaseToken, input.leaseToken)
       )
     )
+    .returning({ id: articleRuns.id });
+  return updated.length > 0;
+}
+
+export async function updateActiveArticleRun(input: {
+  articleId: number;
+  runId: string;
+  leaseToken: string;
+  values: Partial<typeof articleRuns.$inferInsert>;
+}): Promise<boolean> {
+  const now = new Date();
+  const updated = await db
+    .update(articleRuns)
+    .set(input.values)
+    .where(and(
+      eq(articleRuns.articleId, input.articleId),
+      eq(articleRuns.runId, input.runId),
+      eq(articleRuns.leaseToken, input.leaseToken),
+      eq(articleRuns.status, "running"),
+      gt(articleRuns.leaseExpiresAt, now)
+    ))
     .returning({ id: articleRuns.id });
   return updated.length > 0;
 }
@@ -458,12 +584,7 @@ export async function completeArticleImageStage(input: {
 }): Promise<boolean> {
   const txDb = getTxDb();
   return txDb.transaction(async (tx) => {
-    if (input.heroImageUrl) {
-      await tx
-        .update(articles)
-        .set({ heroImageUrl: input.heroImageUrl })
-        .where(eq(articles.id, input.articleId));
-    }
+    const now = new Date();
     const updated = await tx
       .update(articleRuns)
       .set({
@@ -475,12 +596,20 @@ export async function completeArticleImageStage(input: {
         and(
           eq(articleRuns.articleId, input.articleId),
           eq(articleRuns.runId, input.runId),
-          eq(articleRuns.imageLeaseToken, input.imageLeaseToken)
+          eq(articleRuns.imageLeaseToken, input.imageLeaseToken),
+          gt(articleRuns.imageLeaseExpiresAt, now),
+          isNull(articleRuns.imageGeneratedAt)
         )
       )
       .returning({ id: articleRuns.id });
     if (updated.length === 0) {
       throw new Error(`LEASE_LOST: cannot commit image stage for run ${input.runId}`);
+    }
+    if (input.heroImageUrl) {
+      await tx
+        .update(articles)
+        .set({ heroImageUrl: input.heroImageUrl })
+        .where(eq(articles.id, input.articleId));
     }
     return true;
   });
@@ -491,6 +620,7 @@ export async function releaseArticleImageStage(input: {
   runId: string;
   imageLeaseToken: string;
 }): Promise<void> {
+  const now = new Date();
   await db
     .update(articleRuns)
     .set({
@@ -501,7 +631,8 @@ export async function releaseArticleImageStage(input: {
       and(
         eq(articleRuns.articleId, input.articleId),
         eq(articleRuns.runId, input.runId),
-        eq(articleRuns.imageLeaseToken, input.imageLeaseToken)
+        eq(articleRuns.imageLeaseToken, input.imageLeaseToken),
+        gt(articleRuns.imageLeaseExpiresAt, now)
       )
     );
 }

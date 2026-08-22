@@ -14,8 +14,9 @@ const sql = neon(databaseUrl);
 await sql`
   ALTER TABLE article_runs
     ADD COLUMN IF NOT EXISTS queued_at TIMESTAMP,
-    ADD COLUMN IF NOT EXISTS lease_token VARCHAR(36),
+    ADD COLUMN IF NOT EXISTS lease_token VARCHAR(128),
     ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS job_data_json JSONB,
     ADD COLUMN IF NOT EXISTS gemini_generated_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS chatgpt_reviewed_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS text_generated_at TIMESTAMP,
@@ -31,6 +32,11 @@ await sql`
     ADD COLUMN IF NOT EXISTS settlement_next_attempt_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS enqueue_failed_at TIMESTAMP,
     ADD COLUMN IF NOT EXISTS enqueue_error TEXT
+`;
+
+await sql`
+  ALTER TABLE article_runs
+    ALTER COLUMN lease_token TYPE VARCHAR(128)
 `;
 
 await sql`

@@ -1,5 +1,10 @@
-import { type Job } from "bullmq";
-import { BillingSettlementError, createPipelineWorker } from "./pipeline-worker";
+import { DelayedError, type Job } from "bullmq";
+import {
+  ArticleRunLeaseConflictError,
+  BillingSettlementError,
+  createPipelineWorker,
+  isArticleRunLeaseConflictError,
+} from "./pipeline-worker";
 import {
   getRedisConnection,
   getQueue,
@@ -46,12 +51,16 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   claimArticleImageStage,
   claimArticleRun,
+  commitArticleRunStage,
   completeArticleImageStage,
   getArticleResumePlan,
   heartbeatArticleRunLease,
+  isArticleRunLeaseOwned,
   nextSettlementAttemptAt,
   protectsDeliveredReservation,
   releaseArticleImageStage,
+  updateActiveArticleRun,
+  updateArticleForOwnedRun,
   updateClaimedArticleRun,
 } from "./article-run-state";
 import { generateArticleWithGemini } from "./gemini";
@@ -113,17 +122,58 @@ console.log("🔧 Initializing BullMQ workers...");
 // tests wrap them with createPipelineHandler to drive real budget-stop paths.
 // ============================================================================
 
-export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
+export interface ArticleGenerationDependencies {
+  generateGemini?: typeof generateArticleWithGemini;
+  beforeProvider?: (stage: string) => Promise<void> | void;
+}
+
+export const processArticleGenerationJob = async (
+  job: Job<ArticleJobData>,
+  dependencies: ArticleGenerationDependencies = {}
+) => {
         console.log(`📝 Processing article generation job ${job.id}`);
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
         // The watchdog uses this timestamp instead of a stage transition alone:
         // a long but healthy Gemini/GPT call should never be mistaken for a crash.
         let runLeaseToken: string | null = null;
+        let runLeaseLost = false;
+        const leaseLostError = (operation: string) =>
+          new ArticleRunLeaseConflictError(
+            `Article ${articleId} run ${runId.slice(0, 8)} lost its lease before ${operation}`
+          );
+        const assertActiveRunLease = async (operation: string) => {
+          if (!runLeaseToken || runLeaseLost) throw leaseLostError(operation);
+          const owned = await isArticleRunLeaseOwned({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+          });
+          if (!owned) {
+            runLeaseLost = true;
+            throw leaseLostError(operation);
+          }
+        };
+        const enterProviderStage = async (operation: string) => {
+          await dependencies.beforeProvider?.(operation);
+          await assertActiveRunLease(operation);
+        };
+        const updateOwnedArticle = async (
+          values: Partial<typeof articles.$inferInsert>,
+          operation: string
+        ) => {
+          if (!runLeaseToken || runLeaseLost) throw leaseLostError(operation);
+          const updated = await updateArticleForOwnedRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+            values,
+          });
+          if (!updated) {
+            runLeaseLost = true;
+            throw leaseLostError(operation);
+          }
+        };
         const heartbeat = async () => {
-          await db.update(articles)
-            .set({ lastHeartbeatAt: new Date(), updatedAt: new Date() })
-            .where(eq(articles.id, articleId))
-            .catch((err) => console.warn(`⚠️ [article ${articleId}] heartbeat update failed:`, err));
           if (runLeaseToken) {
             const renewed = await heartbeatArticleRunLease({
               articleId,
@@ -131,11 +181,30 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               leaseToken: runLeaseToken,
             }).catch(() => false);
             if (!renewed) {
+              runLeaseLost = true;
               console.error(
                 `🛑 Article ${articleId} run ${runId.slice(0, 8)} lost its worker lease`
               );
+              return;
             }
+            const articleHeartbeat = await updateArticleForOwnedRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: { lastHeartbeatAt: new Date(), updatedAt: new Date() },
+            }).catch(() => false);
+            if (!articleHeartbeat) {
+              runLeaseLost = true;
+              console.error(
+                `🛑 Article ${articleId} run ${runId.slice(0, 8)} lost its lease before heartbeat persistence`
+              );
+            }
+            return;
           }
+          await db.update(articles)
+            .set({ lastHeartbeatAt: new Date(), updatedAt: new Date() })
+            .where(eq(articles.id, articleId))
+            .catch((err) => console.warn(`⚠️ [article ${articleId}] heartbeat update failed:`, err));
         };
         await heartbeat();
         const heartbeatTimer = setInterval(() => { void heartbeat(); }, 2 * 60 * 1000);
@@ -222,17 +291,31 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             console.log(`♻️ CACHE HIT: Article ${articleId} run ${runId.slice(0,8)} completed but article is ${runArticle?.articleStatus} — continuing`);
         }
 
-        const claim = await claimArticleRun({ articleId, runId });
+        const claim = await claimArticleRun({
+          articleId,
+          runId,
+          deliveryToken: job.token,
+        });
         if (!claim) {
-          console.warn(
-            `⏭️ Article ${articleId} run ${runId.slice(0, 8)} is already owned by another worker`
-          );
           clearInterval(heartbeatTimer);
-          return;
+          const deferUntil = existingRun?.leaseExpiresAt;
+          if (
+            job.token &&
+            deferUntil &&
+            deferUntil.getTime() > Date.now() &&
+            ["running", "billing_pending"].includes(existingRun?.status ?? "")
+          ) {
+            await job.moveToDelayed(deferUntil.getTime() + 100, job.token);
+            throw new DelayedError(
+              `Article ${articleId} run ${runId.slice(0, 8)} deferred until its durable lease expires`
+            );
+          }
+          throw leaseLostError("claim");
         }
         runLeaseToken = claim.leaseToken;
+        runLeaseLost = false;
         if (articleTeamId && articleCreditRunId) {
-          const billingMetadataStored = await updateClaimedArticleRun({
+          const billingMetadataStored = await updateActiveArticleRun({
             articleId,
             runId,
             leaseToken: runLeaseToken,
@@ -301,7 +384,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               );
             }
           } else {
-            await updateClaimedArticleRun({
+            await updateActiveArticleRun({
               articleId,
               runId,
               leaseToken: runLeaseToken,
@@ -437,7 +520,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           // Skip the database update since data already exists
           skipGeminiUpdate = true;
           if (!hasGeminiCheckpoint && runLeaseToken) {
-            await updateClaimedArticleRun({
+            const backfilled = await updateActiveArticleRun({
               articleId,
               runId,
               leaseToken: runLeaseToken,
@@ -446,13 +529,14 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                 cachedGeminiOutput: geminiResult,
               },
             });
+            if (!backfilled) throw leaseLostError("backfilling the Gemini checkpoint");
           }
         } else {
           // Update status to IN_PROGRESS
-          await db
-            .update(articles)
-            .set({ articleStatus: "IN_PROGRESS" })
-            .where(eq(articles.id, articleId));
+          await updateOwnedArticle(
+            { articleStatus: "IN_PROGRESS" },
+            "marking generation in progress"
+          );
 
           // Log article generation start
           const { jobEvents } = await import("@/shared/schema");
@@ -522,9 +606,9 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
           // HARD TIMEOUT: Force-fail if Gemini call hangs for >10 minutes
           const GEMINI_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-          
+          await enterProviderStage("Gemini generation");
           geminiResult = await withTimeout(
-            generateArticleWithGemini(
+            (dependencies.generateGemini ?? generateArticleWithGemini)(
               title,
               targetUrl,
               wordCountMin || 800,
@@ -599,11 +683,11 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
           // Persist provider output and the run checkpoint atomically. A retry
           // may only skip Gemini when both writes committed together.
-          const txDb = getTxDb();
-          await txDb.transaction(async (tx) => {
-            await tx
-              .update(articles)
-              .set({
+          const committed = await commitArticleRunStage({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken!,
+            articleValues: {
                 articleStatus: "GEMINI_COMPLETE",
                 finalHtmlContent: geminiResult.rawContent,
                 seoTitle: cleanSeoTitle(geminiResult.seoTitle),
@@ -614,24 +698,13 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                 faqJson: cleanFaqAnswers(geminiResult.faq || []),
                 imagePromptsJson: geminiResult.imagePrompts || [],
                 wordCount: geminiResult.wordCount,
-              })
-              .where(eq(articles.id, articleId));
-            const checkpoint = await tx
-              .update(articleRuns)
-              .set({
-                geminiGeneratedAt: new Date(),
-                cachedGeminiOutput: geminiResult,
-              })
-              .where(and(
-                eq(articleRuns.articleId, articleId),
-                eq(articleRuns.runId, runId),
-                eq(articleRuns.leaseToken, runLeaseToken!)
-              ))
-              .returning({ id: articleRuns.id });
-            if (checkpoint.length === 0) {
-              throw new Error(`LEASE_LOST: cannot checkpoint Gemini for run ${runId}`);
-            }
+            },
+            runValues: {
+              geminiGeneratedAt: new Date(),
+              cachedGeminiOutput: geminiResult,
+            },
           });
+          if (!committed) throw leaseLostError("checkpointing Gemini");
         } else {
           console.log(`✓ Using existing Gemini metadata - no database update needed`);
         }
@@ -649,7 +722,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             
             if (!quickCheck.isClean) {
               console.log(`🔄 Stage 1.5: Reflexive validation - ${quickCheck.summary}`);
-              
+              await enterProviderStage("reflexive rewrite");
               const reflexiveResult = await generateArticleReflexive(
                 geminiResult.rawContent,
                 businessName,
@@ -661,10 +734,10 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                 geminiResult.rawContent = reflexiveResult.content;
                 
                 // Update database with cleaned content
-                await db
-                  .update(articles)
-                  .set({ finalHtmlContent: reflexiveResult.content })
-                  .where(eq(articles.id, articleId));
+                await updateOwnedArticle(
+                  { finalHtmlContent: reflexiveResult.content },
+                  "saving reflexive rewrite"
+                );
                 
                 console.log(`✅ Reflexive rewrite complete: ${reflexiveResult.initialViolations.length} → ${reflexiveResult.finalViolations.length} violations`);
                 console.log(`   Quality metrics: promo-free=${reflexiveResult.qualityMetrics.promoFreeScore}/100, educational=${reflexiveResult.qualityMetrics.educationalTone}`);
@@ -675,6 +748,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               console.log(`✅ Quick validation passed - no promotional issues detected`);
             }
           } catch (reflexiveError) {
+            if (isArticleRunLeaseConflictError(reflexiveError)) throw reflexiveError;
             console.warn(`⚠️ Reflexive validation failed, continuing with original content:`, (reflexiveError as Error).message);
           }
         }
@@ -700,6 +774,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
             (currentArticle as any)._variantArmId = articleEnhancement.variantArmId;
 
+            await enterProviderStage("generation critic");
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: currentArticle.teamId,
               contentType: ContentType.ARTICLE,
@@ -717,10 +792,10 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             if (orchestratorResult.repairs > 0) {
               geminiResult.rawContent = orchestratorResult.content;
               // Persist repaired content so resume logic picks it up cleanly
-              await db
-                .update(articles)
-                .set({ finalHtmlContent: orchestratorResult.content })
-                .where(eq(articles.id, articleId));
+              await updateOwnedArticle(
+                { finalHtmlContent: orchestratorResult.content },
+                "saving critic repair"
+              );
               console.log(
                 `🔧 Stage 1.6: Critic applied ${orchestratorResult.repairs} repair(s), quality=${orchestratorResult.qualityScore}, status=${orchestratorResult.status}`
               );
@@ -735,6 +810,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               (currentArticle as any)._armId = orchestratorResult.armId;
             }
           } catch (criticError) {
+            if (isArticleRunLeaseConflictError(criticError)) throw criticError;
             console.warn(
               `⚠️ Stage 1.6 orchestrator failed, continuing with current content:`,
               (criticError as Error).message
@@ -761,12 +837,13 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             `♻️ RESUMING: Article ${articleId} has a ChatGPT checkpoint — skipping review`
           );
           if (!hasChatgptCheckpoint && runLeaseToken) {
-            await updateClaimedArticleRun({
+            const backfilled = await updateActiveArticleRun({
               articleId,
               runId,
               leaseToken: runLeaseToken,
               values: { chatgptReviewedAt: new Date() },
             });
+            if (!backfilled) throw leaseLostError("backfilling the ChatGPT checkpoint");
           }
         } else {
           console.log(`🔍 Stage 2: ChatGPT reviewing article ${articleId}...`);
@@ -791,6 +868,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               
               // ULTRA-FAST: Run all 4 ChatGPT enrichment tasks in 1 API call
               // This reduces 4 API calls to 1 call (~75% reduction in API overhead)
+              await enterProviderStage(`ChatGPT review attempt ${attempt}`);
               batchedResult = await withTimeout(
                 batchedChatGPTReview({
                   content: geminiResult.rawContent,
@@ -812,6 +890,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               lastError = null;
               break;
             } catch (retryError) {
+              if (isArticleRunLeaseConflictError(retryError)) throw retryError;
               lastError = retryError as Error;
               console.error(`❌ Batched ChatGPT review attempt ${attempt}/3 failed:`, retryError);
               
@@ -861,33 +940,22 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             localSignals: batchedResult!.seo.localSignals,
           };
 
-          const txDb = getTxDb();
-          await txDb.transaction(async (tx) => {
-            await tx
-              .update(articles)
-              .set({
+          const committed = await commitArticleRunStage({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken!,
+            articleValues: {
                 articleStatus: "CHATGPT_REVIEWED",
                 seoScore: batchedResult!.seo.seoScore,
                 hyperlinkedKeywordsJson: batchedResult!.hyperlinks.keywords || [],
                 metaEnrichment,
-              })
-              .where(eq(articles.id, articleId));
-            const checkpoint = await tx
-              .update(articleRuns)
-              .set({
-                chatgptReviewedAt: new Date(),
-                cachedChatgptOutput: batchedResult,
-              })
-              .where(and(
-                eq(articleRuns.articleId, articleId),
-                eq(articleRuns.runId, runId),
-                eq(articleRuns.leaseToken, runLeaseToken!)
-              ))
-              .returning({ id: articleRuns.id });
-            if (checkpoint.length === 0) {
-              throw new Error(`LEASE_LOST: cannot checkpoint ChatGPT for run ${runId}`);
-            }
+            },
+            runValues: {
+              chatgptReviewedAt: new Date(),
+              cachedChatgptOutput: batchedResult,
+            },
           });
+          if (!committed) throw leaseLostError("checkpointing ChatGPT");
         } catch (reviewError) {
           console.error(`❌ CRITICAL: ChatGPT review error for article ${articleId}:`, reviewError);
           console.log(`💾 Preserving Gemini content at GEMINI_COMPLETE status for recovery`);
@@ -921,31 +989,20 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           
           // Use raw Gemini content directly for blazing fast generation
           const speedModeHtml = `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`;
-          const txDb = getTxDb();
-          await txDb.transaction(async (tx) => {
-            await tx
-              .update(articles)
-              .set({
+          const committed = await commitArticleRunStage({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken!,
+            articleValues: {
                 articleStatus: "COMPLETE",
                 finalHtmlContent: speedModeHtml,
-              })
-              .where(eq(articles.id, articleId));
-            const checkpoint = await tx
-              .update(articleRuns)
-              .set({
-                textGeneratedAt: new Date(),
-                cachedGpt4Output: { finalHtml: speedModeHtml, speedMode: true },
-              })
-              .where(and(
-                eq(articleRuns.articleId, articleId),
-                eq(articleRuns.runId, runId),
-                eq(articleRuns.leaseToken, runLeaseToken!)
-              ))
-              .returning({ id: articleRuns.id });
-            if (checkpoint.length === 0) {
-              throw new Error(`LEASE_LOST: cannot checkpoint speed-mode text for run ${runId}`);
-            }
+            },
+            runValues: {
+              textGeneratedAt: new Date(),
+              cachedGpt4Output: { finalHtml: speedModeHtml, speedMode: true },
+            },
           });
+          if (!committed) throw leaseLostError("checkpointing speed-mode text");
           
           console.log(`⚡ Article ${articleId} completed in SPEED MODE (Gemini-only)`);
         } else {
@@ -960,9 +1017,12 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           const GPT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
           const cachedGpt4 = existingRun?.cachedGpt4Output as { finalHtml?: string } | null;
           const resumeGpt4Checkpoint = resumePlan.skipGpt4;
-          const gptResult: any = resumeGpt4Checkpoint
-            ? cachedGpt4
-            : await withTimeout(
+          let gptResult: any;
+          if (resumeGpt4Checkpoint) {
+            gptResult = cachedGpt4;
+          } else {
+            await enterProviderStage("GPT-4 enhancement");
+            gptResult = await withTimeout(
                 enhanceArticleWithGPT(
                   geminiResult.rawContent,
                   geminiResult.seoTitle,
@@ -980,6 +1040,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                 GPT_TIMEOUT_MS,
                 `GPT-4 Enhancement (Article ${articleId})`
               );
+          }
           if (resumeGpt4Checkpoint) {
             console.log(
               `♻️ RESUMING: Article ${articleId} has a GPT-4 checkpoint — skipping provider call`
@@ -1027,6 +1088,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
               // Use intent-driven injection: AI finds semantically relevant anchor phrases
               // from the actual article text — not just literal keyword matches.
+              await enterProviderStage("intent hyperlink generation");
               const injection = await injectLinksWithIntent(gptResult.finalHtml, entries, pages, targetUrl, title, fallbackTerms);
               if (injection.linksInjected > 0) {
                 finalHtmlWithLinks = injection.html;
@@ -1034,6 +1096,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
                 console.warn(`⚠️ Hyperlink injection found no matches for article ${articleId} (mode: ${injection.mode})`);
               }
             } catch (hlError) {
+              if (isArticleRunLeaseConflictError(hlError)) throw hlError;
               console.warn(`⚠️ Slug map injection failed for article ${articleId}:`, hlError instanceof Error ? hlError.message : hlError);
               // Keep gptResult.finalHtml unchanged — never block article save on link failure
             }
@@ -1075,31 +1138,20 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
           // Persist final text output and checkpoint together. The cached shape
           // intentionally replaces finalHtml with the post-link version.
-          const txDb = getTxDb();
-          await txDb.transaction(async (tx) => {
-            await tx
-              .update(articles)
-              .set({
+          const committed = await commitArticleRunStage({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken!,
+            articleValues: {
                 articleStatus: "GPT4_ENHANCED",
                 finalHtmlContent: finalHtmlWithLinks,
-              })
-              .where(eq(articles.id, articleId));
-            const checkpoint = await tx
-              .update(articleRuns)
-              .set({
-                textGeneratedAt: new Date(),
-                cachedGpt4Output: { ...gptResult, finalHtml: finalHtmlWithLinks },
-              })
-              .where(and(
-                eq(articleRuns.articleId, articleId),
-                eq(articleRuns.runId, runId),
-                eq(articleRuns.leaseToken, runLeaseToken!)
-              ))
-              .returning({ id: articleRuns.id });
-            if (checkpoint.length === 0) {
-              throw new Error(`LEASE_LOST: cannot checkpoint GPT-4 for run ${runId}`);
-            }
+            },
+            runValues: {
+              textGeneratedAt: new Date(),
+              cachedGpt4Output: { ...gptResult, finalHtml: finalHtmlWithLinks },
+            },
           });
+          if (!committed) throw leaseLostError("checkpointing GPT-4");
 
           console.log(`✨ Article ${articleId} GPT-4 enhancement complete (with auto-hyperlinks)`);
           
@@ -1133,10 +1185,13 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             
             console.error(`❌ Article ${articleId} missing required enrichment: ${missing.join(", ")}`);
             
-            await db
-              .update(articles)
-              .set({ articleStatus: "FAILED", errorMessage: `Missing required fields: ${missing.join(", ")}` })
-              .where(eq(articles.id, articleId));
+            await updateOwnedArticle(
+              {
+                articleStatus: "FAILED",
+                errorMessage: `Missing required fields: ${missing.join(", ")}`,
+              },
+              "recording enrichment validation failure"
+            );
             
             await logError({
               errorType: "SCHEMA",
@@ -1170,10 +1225,13 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             if (!brandValidation.valid) {
               console.error(`❌ Article ${articleId} failed brand validation:`, brandValidation.errors);
               
-              await db
-                .update(articles)
-                .set({ articleStatus: "FAILED", errorMessage: `Brand name validation failed: ${brandValidation.errors.join(", ")}` })
-                .where(eq(articles.id, articleId));
+              await updateOwnedArticle(
+                {
+                  articleStatus: "FAILED",
+                  errorMessage: `Brand name validation failed: ${brandValidation.errors.join(", ")}`,
+                },
+                "recording brand validation failure"
+              );
               
               await logError({
                 errorType: "SYSTEM",
@@ -1197,6 +1255,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           const GUARDIAN_MAX_ATTEMPTS = 2;
 
           for (let attempt = 1; attempt <= GUARDIAN_MAX_ATTEMPTS; attempt++) {
+            await enterProviderStage(`Guardian audit attempt ${attempt}`);
             const audit = await auditArticle(guardianHtml, {
               minImages: 1,
               minHyperlinks: 3,
@@ -1223,6 +1282,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
             if (attempt < GUARDIAN_MAX_ATTEMPTS) {
               console.warn(`⚠️ Guardian rejected article ${articleId} (attempt ${attempt}). Issues: ${audit.missingElements.join("; ")}`);
+              await enterProviderStage("Guardian surgical repair");
               const fix = await applySurgicalFix({
                 html: guardianHtml,
                 missingElements: audit.missingElements,
@@ -1289,16 +1349,16 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           });
 
           // Mark article as COMPLETE and save normalized HTML
-          await db
-            .update(articles)
-            .set({
+          await updateOwnedArticle(
+            {
               articleStatus: "COMPLETE",
               finalHtmlContent: finalHtmlWithLinks,
               aiDisclosureIncluded: true,
               informationGainScore: igScore ?? null,
               qualityGateStatus: igStatus ?? null,
-            })
-            .where(eq(articles.id, articleId));
+            },
+            "marking content complete"
+          );
           
           console.log(`✅ Article ${articleId} validation passed - marked COMPLETE`);
 
@@ -1406,6 +1466,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           
           if (shouldQueueImages) {
             try {
+              await assertActiveRunLease("image generation enqueue");
               await addImageGenerationJob({
                 articleId,
                 batchId,
@@ -1415,6 +1476,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               });
               console.log(`✅ Image generation job queued - article ${articleId} can continue`);
             } catch (imageError) {
+              if (isArticleRunLeaseConflictError(imageError)) throw imageError;
               console.warn(`⚠️ Failed to queue images for article ${articleId}:`, imageError);
               // Continue even if image queueing fails
             }
@@ -1462,7 +1524,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         // Content and billing are separate durable states. A restart after this
         // point is settlement-only and must never enter a provider stage again.
         if (articleTeamId && articleCreditRunId) {
-          const billingPending = await updateClaimedArticleRun({
+          const billingPending = await updateActiveArticleRun({
             articleId,
             runId,
             leaseToken: runLeaseToken!,
@@ -1536,6 +1598,13 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         clearInterval(heartbeatTimer);
         const errorMessage = error instanceof Error ? error.message : String(error);
 
+        if (
+          error instanceof DelayedError ||
+          isArticleRunLeaseConflictError(error)
+        ) {
+          throw error;
+        }
+
         if (error instanceof BillingSettlementError) {
           console.error(`💳 Article ${articleId} content is complete but billing is pending:`, error);
           if (runLeaseToken) {
@@ -1561,6 +1630,18 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             }).catch(() => false);
           }
           throw error;
+        }
+
+        if (runLeaseToken) {
+          const stillOwned = await isArticleRunLeaseOwned({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+          }).catch(() => false);
+          if (!stillOwned) {
+            runLeaseLost = true;
+            throw leaseLostError("failure handling");
+          }
         }
 
         console.error(`❌ Article generation failed for article ${articleId}:`, error);
@@ -1664,20 +1745,50 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           if (!PRESERVED_CHECKPOINTS.includes(statusNow ?? "")) {
             // Write the user-friendly message to articles.errorMessage so the
             // Content / batch-detail page can surface it directly to users.
-            await db
-              .update(articles)
-              .set({ articleStatus: "FAILED", errorMessage: userFriendlyError })
-              .where(eq(articles.id, articleId));
+            if (runLeaseToken) {
+              await updateOwnedArticle(
+                { articleStatus: "FAILED", errorMessage: userFriendlyError },
+                "recording generation failure"
+              );
+            } else {
+              await db
+                .update(articles)
+                .set({ articleStatus: "FAILED", errorMessage: userFriendlyError })
+                .where(eq(articles.id, articleId));
+            }
           } else {
             // Preserve checkpoint — update only the error message for observability
-            await db
-              .update(articles)
-              .set({ errorMessage: userFriendlyError, updatedAt: new Date() })
-              .where(eq(articles.id, articleId));
+            if (runLeaseToken) {
+              await updateOwnedArticle(
+                { errorMessage: userFriendlyError, updatedAt: new Date() },
+                "recording checkpointed generation failure"
+              );
+            } else {
+              await db
+                .update(articles)
+                .set({ errorMessage: userFriendlyError, updatedAt: new Date() })
+                .where(eq(articles.id, articleId));
+            }
             console.warn(`⚠️ Article ${articleId} failed after reaching ${statusNow} — checkpoint preserved, will retry`);
           }
         } catch (dbError) {
+          if (isArticleRunLeaseConflictError(dbError)) throw dbError;
           console.error(`❌ Failed to update article status:`, dbError);
+        }
+
+        if (runLeaseToken) {
+          const terminalRecorded = await updateActiveArticleRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+            values: {
+              status: "failed",
+              completedAt: new Date(),
+              leaseToken: null,
+              leaseExpiresAt: null,
+            },
+          }).catch(() => false);
+          if (!terminalRecorded) throw leaseLostError("recording terminal failure");
         }
 
         // Record failure in learning ledger so the AI learning center can surface it
@@ -1702,20 +1813,6 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
         // Check batch completion even on failure
         await checkBatchCompletion(batchId);
-
-        if (runLeaseToken) {
-          await updateClaimedArticleRun({
-            articleId,
-            runId,
-            leaseToken: runLeaseToken,
-            values: {
-              status: "failed",
-              completedAt: new Date(),
-              leaseToken: null,
-              leaseExpiresAt: null,
-            },
-          }).catch(() => false);
-        }
 
         // Rethrow — createPipelineWorker classifies, releases the reservation
         // on the final attempt, and converts fatal codes to UnrecoverableError.
