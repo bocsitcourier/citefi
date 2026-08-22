@@ -216,8 +216,11 @@ export async function processVideoIdeaGenerationJob(
           .where(eq(videoIdeas.id, videoIdeaId))
           .limit(1);
 
+        const isBudgetError = classified.code === "BUDGET_EXCEEDED";
         const displayError = isQuotaError
           ? "Veo video quota exceeded. Please try again in a few minutes or switch to Slideshow mode."
+          : isBudgetError
+          ? "Generation budget reached for this run. Credits were returned — retry with a shorter prompt or contact support."
           : errMsg;
 
         await db.update(videoIdeas)
@@ -233,12 +236,28 @@ export async function processVideoIdeaGenerationJob(
           .where(eq(videoIdeas.id, videoIdeaId));
 
         if (idea?.teamId && !willRetry) {
-          await (dependencies.notifyVideoFailed ?? notifyVideoFailed)(
-            idea.teamId,
-            videoIdeaId,
-            idea.ideaTitle,
-            displayError
-          );
+          if (isBudgetError) {
+            // Budget-stopped: warn rather than error so users know credits were
+            // returned and the failure is a ceiling, not a provider problem.
+            const { createNotification } = await import("@/lib/notification-service");
+            await createNotification({
+              teamId: idea.teamId,
+              type: "warning",
+              category: "video",
+              title: "Budget Limit Reached",
+              message: `"${idea.ideaTitle.slice(0, 80)}" hit its generation budget. Credits were returned — retry with a shorter prompt.`,
+              entityId: videoIdeaId,
+              entityType: "video_idea",
+              actionUrl: `/social/idea-video`,
+            });
+          } else {
+            await (dependencies.notifyVideoFailed ?? notifyVideoFailed)(
+              idea.teamId,
+              videoIdeaId,
+              idea.ideaTitle,
+              displayError
+            );
+          }
         }
 
         // Every failure returns to the shared pipeline policy. RATE_LIMITED

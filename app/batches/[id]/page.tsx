@@ -878,6 +878,10 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
               <div className="space-y-3">
                 {articles.map((article) => {
                   const isCompleted = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(article.articleStatus);
+                  const isBudgetStopped =
+                    !!article.errorMessage &&
+                    (article.errorMessage.includes("Generation budget reached") ||
+                     article.errorMessage.includes("Credits were returned"));
                   return (
                 <div
                   key={article.id}
@@ -892,10 +896,20 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                       {article.slug && <span className="font-mono">{article.slug}</span>}
                     </div>
                     {["FAILED", "REFORMAT_FAILED"].includes(article.articleStatus) && article.errorMessage && (
-                      <p className="mt-1 text-xs text-destructive flex items-start gap-1">
-                        <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
-                        <span>{article.errorMessage}</span>
-                      </p>
+                      isBudgetStopped ? (
+                        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-2 text-xs">
+                          <p className="font-medium text-amber-800 dark:text-amber-400 flex items-center gap-1 mb-0.5">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            Budget limit reached — credits returned
+                          </p>
+                          <p className="text-amber-700 dark:text-amber-500">This article hit its generation cost ceiling. Retry with a shorter title or smaller word count.</p>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-xs text-destructive flex items-start gap-1">
+                          <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                          <span>{article.errorMessage}</span>
+                        </p>
+                      )
                     )}
                   </div>
                   <div className="flex items-center gap-3">

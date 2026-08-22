@@ -596,9 +596,16 @@ export default function IdeaToVideoPage() {
             )}
 
             {selectedIdea.status === "FAILED" && (
-              <div className="text-destructive text-sm">
-                Error: {selectedIdea.errorMessage || "Unknown error occurred"}
-              </div>
+              (selectedIdea.errorMessage?.includes("Generation budget reached") || selectedIdea.errorMessage?.includes("Credits were returned")) ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm">
+                  <p className="font-medium text-amber-800 dark:text-amber-400 mb-1">Budget limit reached — credits returned</p>
+                  <p className="text-amber-700 dark:text-amber-500">This video hit its generation cost ceiling. Your credits were returned. Try again with a shorter idea description.</p>
+                </div>
+              ) : (
+                <div className="text-destructive text-sm">
+                  Error: {selectedIdea.errorMessage || "Unknown error occurred"}
+                </div>
+              )
             )}
 
             {isPolling && (

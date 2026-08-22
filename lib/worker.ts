@@ -1815,13 +1815,18 @@ export const processArticleGenerationJob = async (
 
         // Notify the team via the in-app bell. Use the user-friendly message so
         // the notification bell shows actionable guidance, not a raw API error.
+        // Budget-stopped failures get a distinct warning-type notification with
+        // clearer wording so users know credits were returned, not lost.
         if (articleTeamId) {
+          const isBudgetFailure = classified.code === "BUDGET_EXCEEDED";
           void createNotification({
             teamId: articleTeamId,
-            type: "error",
+            type: isBudgetFailure ? "warning" : "error",
             category: "article",
-            title: "Article Generation Failed",
-            message: `"${(title || "Article").slice(0, 80)}" — ${userFriendlyError}`,
+            title: isBudgetFailure ? "Budget Limit Reached" : "Article Generation Failed",
+            message: isBudgetFailure
+              ? `"${(title || "Article").slice(0, 80)}" hit its generation budget. Credits were returned — retry with a shorter title or smaller word count.`
+              : `"${(title || "Article").slice(0, 80)}" — ${userFriendlyError}`,
             entityId: articleId,
             entityType: "article",
             actionUrl: `/batches/${batchId}`,
@@ -2042,10 +2047,17 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
               const { socialPosts: spTable, errorLogs: errLogsTable } = await import("@/shared/schema");
               const { eq: eqFail } = await import("drizzle-orm");
               const errMsg = error instanceof Error ? error.message : String(error);
+              // Produce a cleaner user-facing message for budget failures so the
+              // UI can render a distinct "budget stopped" state instead of the
+              // raw internal run-ID message from assertRunBudget.
+              const videoErrClassified = classifyError(error, "video_gen");
+              const userFriendlyVideoMsg = videoErrClassified.code === "BUDGET_EXCEEDED"
+                ? "Generation budget reached for this run. Credits were returned — retry with a shorter prompt or contact support."
+                : errMsg;
               await failDb.update(spTable)
                 .set({
                   videoStatus: "FAILED",
-                  errorMessage: errMsg.substring(0, 1000),
+                  errorMessage: userFriendlyVideoMsg.substring(0, 1000),
                   updatedAt: new Date(),
                 })
                 .where(eqFail(spTable.id, socialPostId));

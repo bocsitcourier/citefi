@@ -945,7 +945,12 @@ export default function SocialPostDetailPage() {
                 <XCircle className="w-16 h-16 mx-auto text-destructive" />
                 <div>
                   <p className="text-lg font-medium mb-2">Video generation failed</p>
-                  {post.errorMessage?.includes("RESOURCE_EXHAUSTED") || post.errorMessage?.includes("quota") ? (
+                  {post.errorMessage?.includes("Generation budget reached") || post.errorMessage?.includes("Credits were returned") ? (
+                    <div className="text-sm mb-4 space-y-1 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-left">
+                      <p className="font-medium text-amber-800 dark:text-amber-400">Budget limit reached — credits returned</p>
+                      <p className="text-amber-700 dark:text-amber-500">This video hit its generation cost ceiling. Your credits were returned. Try again with a shorter prompt or switch to the <strong>Fast Slideshow</strong> option.</p>
+                    </div>
+                  ) : post.errorMessage?.includes("RESOURCE_EXHAUSTED") || post.errorMessage?.includes("quota") ? (
                     <div className="text-sm text-muted-foreground mb-4 space-y-1">
                       <p className="text-destructive font-medium">Veo API quota exceeded</p>
                       <p>Your Veo AI video quota is used up. Try the <strong>Fast Slideshow</strong> option instead — it uses Gemini images and is much faster.</p>
