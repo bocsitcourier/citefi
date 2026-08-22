@@ -217,7 +217,9 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     // 3) videoStatus FAILED (UI not stuck at GENERATING).
     const [p] = await db.select().from(socialPosts).where(eq(socialPosts.id, post.id));
     assert.equal(p.videoStatus, "FAILED");
-    assert.match(p.errorMessage ?? "", /BUDGET_EXCEEDED|cost ceiling/i);
+    // Accept both the legacy raw cost-ceiling message and the new user-friendly
+    // budget-stop copy stored by the worker ("Generation budget reached…").
+    assert.match(p.errorMessage ?? "", /BUDGET_EXCEEDED|cost ceiling|budget reached/i);
 
     // 4) Failure captured in the admin error log.
     const errRows = await db.select().from(errorLogs)
