@@ -1,70 +1,36 @@
 import { CheckCircle2, Zap, Rocket, TrendingUp, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { TOP_UPS } from "@/lib/billing/plans";
+import {
+  BILLING_PLANS,
+  getAnnualPriceUsd,
+  PUBLIC_PRICING_PLAN_IDS,
+  TOP_UPS,
+} from "@/lib/billing/plans";
+import { CREDIT_MENU as CREDIT_COSTS } from "@/lib/credit-menu";
 
-const PLANS = [
-  {
-    id: "free",
-    name: "Free",
-    priceUsd: 0,
-    annualPriceUsd: 0,
-    monthlyCredits: 30,
-    icon: Zap,
-    features: [
-      "30 one-time credits",
-      "Article generation",
-      "Social posts",
-      "Basic SEO tools",
-    ],
-    cta: "Get started free",
-    ctaHref: "/register",
-    highlight: false,
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    priceUsd: 29,
-    annualPriceUsd: 290,
-    monthlyCredits: 50,
-    icon: Rocket,
-    features: [
-      "50 credits per month",
-      "Everything in Free",
-      "Podcast generation",
-      "Video scripts",
-      "Priority queue",
-    ],
-    cta: "Start Starter",
-    ctaHref: "/settings/billing",
-    highlight: false,
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    priceUsd: 89,
-    annualPriceUsd: 890,
-    monthlyCredits: 200,
-    icon: TrendingUp,
-    features: [
-      "200 credits per month",
-      "Everything in Starter",
-      "AI learning system",
-      "Content clusters",
-      "Batch generation",
-      "Advanced analytics",
-    ],
-    cta: "Go Growth",
-    ctaHref: "/settings/billing",
-    highlight: true,
-    badge: "Most Popular",
-  },
-];
+const PLAN_PRESENTATION: Record<(typeof PUBLIC_PRICING_PLAN_IDS)[number], {
+  icon: typeof Zap;
+  cta: string;
+  ctaHref: string;
+  highlight: boolean;
+  badge?: string;
+}> = {
+  free: { icon: Zap, cta: "Get started free", ctaHref: "/register", highlight: false },
+  starter: { icon: Rocket, cta: "Start Starter", ctaHref: "/settings/billing", highlight: false },
+  growth: { icon: TrendingUp, cta: "Go Growth", ctaHref: "/settings/billing", highlight: true, badge: "Most Popular" },
+  agency: { icon: Rocket, cta: "Start Agency", ctaHref: "/settings/billing", highlight: false },
+};
+const PLANS = PUBLIC_PRICING_PLAN_IDS.map((id) => ({
+  ...BILLING_PLANS[id],
+  annualPriceUsd: getAnnualPriceUsd(BILLING_PLANS[id]),
+  ...PLAN_PRESENTATION[id],
+}));
 
-const CREDIT_MENU = [
-  { operation: "Article", credits: 10, description: "Full SEO article with hyperlinking, schema, images" },
-  { operation: "Podcast", credits: 8, description: "Two-voice AI podcast from any article" },
-  { operation: "Video", credits: 15, description: "60-second social video with TTS narration" },
-  { operation: "Social post", credits: 4, description: "Platform-optimised posts for 3–5 channels" },
+const CREDIT_MENU_ITEMS = [
+  { operation: "Article", credits: CREDIT_COSTS.article, description: "Full SEO article with hyperlinking, schema, images" },
+  { operation: "Podcast", credits: CREDIT_COSTS.podcast, description: "Two-voice AI podcast from any article" },
+  { operation: "Video", credits: CREDIT_COSTS.video, description: "60-second social video with TTS narration" },
+  { operation: "Social post batch", credits: CREDIT_COSTS.social_batch, description: "Platform-optimised posts for 3–5 channels" },
 ];
 
 export const metadata = {
@@ -83,7 +49,7 @@ export default function PricingPage() {
         </h1>
         <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
           Buy credits once. Use them for articles, podcasts, videos, or social posts.
-          No seats. No per-word pricing. No surprises.
+          Clear seat limits by plan. No per-word pricing. No surprise overages.
         </p>
       </section>
 
@@ -97,7 +63,7 @@ export default function PricingPage() {
 
       {/* Plans */}
       <section className="max-w-6xl mx-auto px-4 pb-20">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
           {PLANS.map((plan) => {
             const Icon = plan.icon;
             const annualMonthly = plan.annualPriceUsd > 0
@@ -111,7 +77,7 @@ export default function PricingPage() {
                 }`}
                 data-testid={`card-plan-${plan.id}`}
               >
-                {"badge" in plan && plan.badge && plan.highlight && (
+                {plan.badge && plan.highlight && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">
                       {plan.badge}
@@ -177,7 +143,7 @@ export default function PricingPage() {
             Fixed cost per operation — no surprise charges.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {CREDIT_MENU.map((item) => (
+            {CREDIT_MENU_ITEMS.map((item) => (
               <div
                 key={item.operation}
                 className="bg-card border border-border rounded-md p-4 flex items-start gap-3"
@@ -249,7 +215,7 @@ export default function PricingPage() {
             },
             {
               q: "Is there a free trial?",
-              a: "The Free plan gives you 30 credits to try every content type with no credit card required.",
+              a: "The Free plan gives one workspace 30 one-time credits to try core content generation with no credit card required.",
             },
             {
               q: "How does annual billing work?",

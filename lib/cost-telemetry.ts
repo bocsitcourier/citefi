@@ -1,3 +1,6 @@
+import { BILLING_PLANS } from "@/lib/billing/plans";
+import { CREDIT_MENU } from "@/lib/credit-menu";
+
 import { db } from "./db";
 import { costTelemetry } from "@/shared/schema";
 
@@ -48,6 +51,7 @@ const TTS_PRICE_PER_MILLION_CHARS = 15.00;
 
 // Image generation: flat rate per image (DALL-E 3 standard 1024×1024)
 const IMAGE_PRICE_USD = 0.04;
+export const PROVIDER_RATE_CARD_VERSION = "2026-08-22";
 
 export type OperationType =
   | "article_title_pool"
@@ -96,6 +100,78 @@ export interface VideoUsage {
   videoSeconds: number;
 }
 
+const FIXED_PRICE_OPERATIONS = new Set<OperationType>([
+  "podcast_tts",
+  "video_tts",
+  "image_generation",
+]);
+
+function lookupModelPrice(model: string): { input: number; output: number } | null {
+  const normalizedModel = model.toLowerCase().replace(/-\d{8}$/, "");
+  return PRICE_PER_MILLION[normalizedModel] ?? PRICE_PER_MILLION[model] ?? null;
+}
+
+/**
+ * Returns whether a telemetry event can be valued by the locked rate card.
+ * Unknown models may still be logged with a zero placeholder, but they must
+ * block margin certification rather than being treated as free.
+ */
+export function hasKnownProviderRate(operationType: string, model: string): boolean {
+  if (FIXED_PRICE_OPERATIONS.has(operationType as OperationType)) return true;
+  return lookupModelPrice(model) !== null;
+}
+
+export interface MarginCertificationInput {
+  composition: ReadonlyArray<{ op: string; weight: number }>;
+  p90CostMicrousdByOperation: Readonly<Record<string, number>>;
+  successfulSamplesByOperation: Readonly<Record<string, number>>;
+  unpricedModelsByOperation: Readonly<Record<string, readonly string[]>>;
+  minimumSuccessfulSamples: number;
+  invoiceReconciliationRecorded: boolean;
+}
+
+export interface MarginCertificationEvaluation {
+  p90CostMicrousd: number;
+  missingOperations: string[];
+  insufficientSampleOperations: string[];
+  unpricedModels: string[];
+  blockers: string[];
+  certificationReady: boolean;
+}
+
+export function evaluateMarginCertification(
+  input: MarginCertificationInput
+): MarginCertificationEvaluation {
+  const missingOperations = input.composition
+    .filter(({ op }) => input.p90CostMicrousdByOperation[op] == null)
+    .map(({ op }) => op);
+  const insufficientSampleOperations = input.composition
+    .filter(({ op }) => (input.successfulSamplesByOperation[op] ?? 0) < input.minimumSuccessfulSamples)
+    .map(({ op }) => op);
+  const unpricedModels = input.composition.flatMap(
+    ({ op }) => input.unpricedModelsByOperation[op] ?? []
+  );
+  const p90CostMicrousd = input.composition.reduce(
+    (sum, { op, weight }) => sum + (input.p90CostMicrousdByOperation[op] ?? 0) * weight,
+    0
+  );
+  const blockers = [
+    ...missingOperations.map((op) => `missing:${op}`),
+    ...insufficientSampleOperations.map((op) => `insufficient_samples:${op}`),
+    ...unpricedModels.map((model) => `unpriced:${model}`),
+    ...(!input.invoiceReconciliationRecorded ? ["invoice_reconciliation_not_recorded"] : []),
+  ];
+
+  return {
+    p90CostMicrousd,
+    missingOperations,
+    insufficientSampleOperations,
+    unpricedModels,
+    blockers,
+    certificationReady: blockers.length === 0,
+  };
+}
+
 // ============================================================================
 // COST CALCULATION
 // ============================================================================
@@ -105,11 +181,7 @@ export function calculateTokenCostMicrousd(
   inputTokens: number,
   outputTokens: number
 ): number {
-  const normalizedModel = model.toLowerCase().replace(/-\d{8}$/, "");
-  const prices =
-    (PRICE_PER_MILLION as Record<string, { input: number; output: number }>)[normalizedModel] ??
-    (PRICE_PER_MILLION as Record<string, { input: number; output: number }>)[model] ??
-    null;
+  const prices = lookupModelPrice(model);
 
   if (!prices) {
     return 0;
@@ -133,8 +205,7 @@ export function calculateImageCostMicrousd(imageCount: number): number {
 
 /** Veo pricing is per second of generated video (stored in `output`). */
 export function calculateVideoCostMicrousd(model: string, videoSeconds: number): number {
-  const prices =
-    (PRICE_PER_MILLION as Record<string, { input: number; output: number }>)[model.toLowerCase()] ?? null;
+  const prices = lookupModelPrice(model);
   if (!prices) return 0;
   return Math.round(videoSeconds * prices.output * 1_000_000);
 }
@@ -150,19 +221,19 @@ export function microusdToUsd(microusd: number): number {
 // ============================================================================
 
 export const CREDIT_ANCHORS: Record<string, number> = {
-  article: 10,
-  video: 15,
-  podcast: 8,
-  social: 4,
+  article: CREDIT_MENU.article,
+  video: CREDIT_MENU.video,
+  podcast: CREDIT_MENU.podcast,
+  social: CREDIT_MENU.social_batch,
 };
 
 // Plan credit-to-USD conversion rates (credit value in USD)
-export const PLAN_CREDIT_VALUE_USD: Record<string, number> = {
-  free: 0,
-  starter: 29 / 50,   // $0.58/credit
-  growth: 89 / 200,   // $0.445/credit
-  agency: 249 / 500,  // $0.498/credit (pooled, approximate)
-};
+export const PLAN_CREDIT_VALUE_USD: Record<string, number> = Object.fromEntries(
+  Object.values(BILLING_PLANS).map((plan) => [
+    plan.id,
+    plan.monthlyCredits > 0 ? plan.priceUsd / plan.monthlyCredits : 0,
+  ])
+);
 
 export interface CreditAnchorHealth {
   operationType: string;
@@ -179,7 +250,7 @@ export function validateCreditAnchor(
   planKey: keyof typeof PLAN_CREDIT_VALUE_USD = "growth"
 ): CreditAnchorHealth {
   const credits = CREDIT_ANCHORS[operationType] ?? 10;
-  const revenueUsd = credits * PLAN_CREDIT_VALUE_USD[planKey];
+  const revenueUsd = credits * (PLAN_CREDIT_VALUE_USD[planKey] ?? 0);
   const marginPct = revenueUsd > 0 ? ((revenueUsd - avgCostUsd) / revenueUsd) * 100 : 100;
 
   let status: "healthy" | "warning" | "critical";

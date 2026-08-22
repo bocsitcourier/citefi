@@ -3,6 +3,13 @@
 ## Overview
 Citefi is a dual-AI SEO content generation platform specializing in scalable, high-quality, and SEO-optimized content, with a primary focus on local SEO. It integrates deep local intelligence (ZIP codes, neighborhoods, regulations, authority entities) and E-E-A-T signals into all generated content. The platform aims to provide a robust solution for businesses needing advanced local SEO content generation, ensuring content is location-based and answer-first optimized for AI citations.
 
+## Launch Governance
+- The locked blueprint decision register is `reports/blueprint-decision-register-2026-08-22.md`.
+- Machine-readable commercial, product-policy, external-approval, and release-gate defaults live in `lib/launch-governance.ts`.
+- Runtime pricing and plan allowances come only from `lib/billing/plans.ts`; billable operation costs come only from `lib/credit-menu.ts`.
+- Google and Meta approvals never block export-only behavior. Direct ad publishing remains disabled until the platform-specific approval and certification gates pass.
+- The Release Owner must use `reports/launch-certification-checklist.md`; until its blocking gates are green, the product is an advanced beta / conditional launch candidate, not blueprint-complete.
+
 ## User Preferences
 - **Communication style:** Simple, everyday language
 - **Development approach:** Get core working first, then expand features incrementally

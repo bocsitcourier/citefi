@@ -3,7 +3,15 @@ import { requireAdmin } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { costTelemetry } from "@/shared/schema";
 import { sql, gte, and, eq } from "drizzle-orm";
-import { validateCreditAnchor, microusdToUsd, CREDIT_ANCHORS } from "@/lib/cost-telemetry";
+import {
+  validateCreditAnchor,
+  microusdToUsd,
+  CREDIT_ANCHORS,
+  evaluateMarginCertification,
+  hasKnownProviderRate,
+  PROVIDER_RATE_CARD_VERSION,
+} from "@/lib/cost-telemetry";
+import { COMMERCIAL_LAUNCH_DEFAULTS } from "@/lib/launch-governance";
 
 // How each product deliverable is composed of individual AI operations.
 // Weight = how many of that operation go into one product unit.
@@ -57,7 +65,7 @@ export async function GET(req: NextRequest) {
           callCount:        sql<number>`count(*)::int`,
           totalCostMicrousd:sql<number>`coalesce(sum(cost_microusd), 0)::bigint`,
           avgCostMicrousd:  sql<number>`coalesce(avg(cost_microusd), 0)::int`,
-          p95CostMicrousd:  sql<number>`coalesce(percentile_cont(0.95) within group (order by cost_microusd), 0)::int`,
+          p90CostMicrousd:  sql<number>`coalesce(percentile_cont(0.90) within group (order by cost_microusd), 0)::int`,
           totalTokens:      sql<number>`coalesce(sum(total_tokens), 0)::bigint`,
           avgInputTokens:   sql<number>`coalesce(avg(input_tokens), 0)::int`,
           avgOutputTokens:  sql<number>`coalesce(avg(output_tokens), 0)::int`,
@@ -71,13 +79,14 @@ export async function GET(req: NextRequest) {
         .select({
           provider:         costTelemetry.provider,
           model:            costTelemetry.model,
+          operationType:    costTelemetry.operationType,
           callCount:        sql<number>`count(*)::int`,
           totalCostMicrousd:sql<number>`coalesce(sum(cost_microusd), 0)::bigint`,
           avgCostMicrousd:  sql<number>`coalesce(avg(cost_microusd), 0)::int`,
         })
         .from(costTelemetry)
-        .where(and(gte(costTelemetry.createdAt, since), eq(costTelemetry.success, 1)))
-        .groupBy(costTelemetry.provider, costTelemetry.model)
+        .where(gte(costTelemetry.createdAt, since))
+        .groupBy(costTelemetry.provider, costTelemetry.model, costTelemetry.operationType)
         .orderBy(sql`sum(cost_microusd) desc`),
 
       db
@@ -100,24 +109,50 @@ export async function GET(req: NextRequest) {
 
     const summaryRow = summary[0];
 
-    // Build a map of operationType → avg cost (microUSD) from observed data.
-    const opAvgCosts: Record<string, number> = {};
+    const minimumSamples =
+      COMMERCIAL_LAUNCH_DEFAULTS.marginPolicy.minimumSuccessfulSamplesPerOperation;
+    const opP90Costs: Record<string, number> = {};
+    const opSampleCounts: Record<string, number> = {};
     for (const row of byOperation) {
-      opAvgCosts[row.operationType] = Number(row.avgCostMicrousd);
+      opP90Costs[row.operationType] = Number(row.p90CostMicrousd);
+      opSampleCounts[row.operationType] = Number(row.callCount);
     }
 
-    // Compute weighted product cost using PRODUCT_COMPOSITION.
+    const unpricedByOperation: Record<string, string[]> = {};
+    for (const row of byModel) {
+      if (!hasKnownProviderRate(row.operationType, row.model)) {
+        const models = unpricedByOperation[row.operationType] ?? [];
+        models.push(`${row.provider}/${row.model}`);
+        unpricedByOperation[row.operationType] = models;
+      }
+    }
+
+    // No invoice-reconciliation record exists yet, so this endpoint can expose
+    // p90 estimates but must not represent them as certified margin.
+    const invoiceReconciliationRecorded = false;
     const creditAnchorHealth = Object.entries(CREDIT_ANCHORS).map(([product]) => {
       const composition = PRODUCT_COMPOSITION[product] ?? [];
-      const missingOps = composition.filter(({ op }) => opAvgCosts[op] == null).map(({ op }) => op);
-      const totalCostMicrousd = composition.reduce((sum, { op, weight }) => {
-        return sum + (opAvgCosts[op] ?? 0) * weight;
-      }, 0);
-      const avgCostUsd = microusdToUsd(totalCostMicrousd);
+      const certification = evaluateMarginCertification({
+        composition,
+        p90CostMicrousdByOperation: opP90Costs,
+        successfulSamplesByOperation: opSampleCounts,
+        unpricedModelsByOperation: unpricedByOperation,
+        minimumSuccessfulSamples: minimumSamples,
+        invoiceReconciliationRecorded,
+      });
+      const p90CostUsd = microusdToUsd(certification.p90CostMicrousd);
+      const estimate = validateCreditAnchor(product, p90CostUsd);
       return {
-        ...validateCreditAnchor(product, avgCostUsd),
-        hasAllData: missingOps.length === 0,
-        missingOperations: missingOps,
+        ...estimate,
+        p90CostUsd,
+        costBasis: "p90",
+        status: certification.certificationReady ? estimate.status : "not_measured",
+        certificationReady: certification.certificationReady,
+        certificationBlockers: certification.blockers,
+        hasAllData: certification.missingOperations.length === 0,
+        missingOperations: certification.missingOperations,
+        insufficientSampleOperations: certification.insufficientSampleOperations,
+        unpricedModels: certification.unpricedModels,
       };
     });
 
@@ -136,7 +171,7 @@ export async function GET(req: NextRequest) {
         callCount:      r.callCount,
         totalCostUsd:   microusdToUsd(Number(r.totalCostMicrousd)),
         avgCostUsd:     microusdToUsd(Number(r.avgCostMicrousd)),
-        p95CostUsd:     microusdToUsd(Number(r.p95CostMicrousd)),
+        p90CostUsd:     microusdToUsd(Number(r.p90CostMicrousd)),
         totalTokens:    Number(r.totalTokens),
         avgInputTokens: r.avgInputTokens,
         avgOutputTokens:r.avgOutputTokens,
@@ -144,10 +179,23 @@ export async function GET(req: NextRequest) {
       byModel: byModel.map((r) => ({
         provider:     r.provider,
         model:        r.model,
+        operationType:r.operationType,
         callCount:    r.callCount,
         totalCostUsd: microusdToUsd(Number(r.totalCostMicrousd)),
         avgCostUsd:   microusdToUsd(Number(r.avgCostMicrousd)),
+        rateKnown:    hasKnownProviderRate(r.operationType, r.model),
       })),
+      marginCertification: {
+        status: "not_certified",
+        rateCardVersion: PROVIDER_RATE_CARD_VERSION,
+        costBasis: "p90",
+        minimumSuccessfulSamplesPerOperation: minimumSamples,
+        invoiceReconciliationRecorded,
+        blockers: [
+          "invoice_reconciliation_not_recorded",
+          ...Object.values(unpricedByOperation).flat().map((model) => `unpriced:${model}`),
+        ],
+      },
       creditAnchorHealth,
       recentEvents: recentRows.map((r) => ({
         id:            r.id,
@@ -158,6 +206,7 @@ export async function GET(req: NextRequest) {
         totalTokens:   r.totalTokens,
         latencyMs:     r.latencyMs,
         success:       r.success === 1,
+        rateKnown:     hasKnownProviderRate(r.operationType, r.model),
         createdAt:     r.createdAt,
       })),
     });

@@ -20,11 +20,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "Local SEO Content Engine for Agencies | Citefi",
+    default: "Local SEO Content Platform for Agencies | Citefi",
     template: "%s | Citefi",
   },
   description:
-    "Generate 50+ local SEO articles per batch. Citefi injects real ZIP-code data, E-E-A-T signals, and local entity context automatically. From $99/month.",
+    "Generate locally grounded SEO articles, social content, videos, and podcasts with Brand Intelligence, review, and export workflows.",
   keywords: [
     "local SEO",
     "AI content generation",

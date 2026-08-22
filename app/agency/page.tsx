@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { BILLING_PLANS } from "@/lib/billing/plans";
 import {
   Dialog,
   DialogContent,
@@ -291,7 +292,9 @@ export default function AgencyPage() {
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">Active Clients</p>
             <p className="text-2xl font-bold mt-1">{activeClients.length}</p>
-            <p className="text-xs text-muted-foreground">of 25 max</p>
+            <p className="text-xs text-muted-foreground">
+              of {BILLING_PLANS.agency.maxClientWorkspaces} max
+            </p>
           </CardContent>
         </Card>
         <Card>

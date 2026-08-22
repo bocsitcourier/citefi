@@ -1,4 +1,6 @@
 export type PlanId = "free" | "starter" | "growth" | "agency" | "enterprise";
+export const SELF_SERVE_PLAN_IDS = ["starter", "growth", "agency"] as const satisfies readonly PlanId[];
+export const PUBLIC_PRICING_PLAN_IDS = ["free", ...SELF_SERVE_PLAN_IDS] as const satisfies readonly PlanId[];
 
 export interface BillingPlan {
   id: PlanId;
@@ -13,7 +15,12 @@ export interface BillingPlan {
   salesAssisted?: boolean;
   /** Maximum number of team seats (members + pending invites). null = unlimited */
   maxSeats: number | null;
+  /** Maximum active child client workspaces. null = unlimited. */
+  maxClientWorkspaces: number | null;
 }
+
+/** Annual subscriptions charge for 10 months and provide 12 months of service. */
+export const ANNUAL_BILLING_CHARGED_MONTHS = 10;
 
 export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
   free: {
@@ -24,6 +31,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripePriceEnvKey: "",
     oneTime: true,
     maxSeats: 1,
+    maxClientWorkspaces: 0,
     features: [
       "30 one-time credits",
       "Article generation",
@@ -39,6 +47,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripePriceEnvKey: "STRIPE_PRICE_STARTER",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_STARTER_ANNUAL",
     maxSeats: 3,
+    maxClientWorkspaces: 0,
     features: [
       "50 credits per month",
       "Everything in Free",
@@ -55,6 +64,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripePriceEnvKey: "STRIPE_PRICE_GROWTH",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_GROWTH_ANNUAL",
     maxSeats: 10,
+    maxClientWorkspaces: 0,
     features: [
       "200 credits per month",
       "Everything in Starter",
@@ -72,12 +82,13 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripePriceEnvKey: "STRIPE_PRICE_AGENCY",
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_AGENCY_ANNUAL",
     maxSeats: 25,
+    maxClientWorkspaces: 25,
     features: [
       "1,000 credits per month",
       "Everything in Growth",
-      "Up to 10 client sub-teams",
-      "Pooled credits across all seats",
-      "Client dashboard & reporting",
+      "Up to 25 client sub-teams",
+      "Separate client workspace credit balances",
+      "Client workspace management",
       "White-label content generation",
       "Agency admin console",
       "Priority support",
@@ -92,6 +103,7 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     stripeAnnualPriceEnvKey: "STRIPE_PRICE_ENTERPRISE_ANNUAL",
     salesAssisted: true,
     maxSeats: null,
+    maxClientWorkspaces: null,
     features: [
       "5,000 credits per month",
       "Everything in Agency",
@@ -103,6 +115,10 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
     ],
   },
 };
+
+export function getAnnualPriceUsd(plan: BillingPlan): number {
+  return plan.priceUsd * ANNUAL_BILLING_CHARGED_MONTHS;
+}
 
 export interface TopUp {
   id: string;

@@ -22,7 +22,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { TOP_UPS } from "@/lib/billing/plans";
+import {
+  BILLING_PLANS,
+  getAnnualPriceUsd,
+  SELF_SERVE_PLAN_IDS,
+  TOP_UPS,
+  type PlanId,
+} from "@/lib/billing/plans";
 
 interface BillingStatus {
   plan: {
@@ -57,7 +63,7 @@ interface BillingStatus {
 }
 
 interface PlanConfig {
-  id: string;
+  id: PlanId;
   name: string;
   priceUsd: number;
   annualPriceUsd: number;
@@ -67,41 +73,19 @@ interface PlanConfig {
   highlight?: boolean;
 }
 
-const PLANS: PlanConfig[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    priceUsd: 29,
-    annualPriceUsd: 290,
-    monthlyCredits: 50,
-    icon: <Rocket className="w-5 h-5" />,
-    features: [
-      "50 credits per month",
-      "Article generation",
-      "Social posts",
-      "Podcast generation",
-      "Video scripts",
-      "Priority queue",
-    ],
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    priceUsd: 89,
-    annualPriceUsd: 890,
-    monthlyCredits: 200,
-    icon: <TrendingUp className="w-5 h-5" />,
-    highlight: true,
-    features: [
-      "200 credits per month",
-      "Everything in Starter",
-      "AI learning system",
-      "Content clusters",
-      "Batch generation",
-      "Advanced analytics",
-    ],
-  },
-];
+const PLAN_PRESENTATION: Record<(typeof SELF_SERVE_PLAN_IDS)[number], {
+  icon: React.ReactNode;
+  highlight?: boolean;
+}> = {
+  starter: { icon: <Rocket className="w-5 h-5" /> },
+  growth: { icon: <TrendingUp className="w-5 h-5" />, highlight: true },
+  agency: { icon: <Zap className="w-5 h-5" /> },
+};
+const PLANS: PlanConfig[] = SELF_SERVE_PLAN_IDS.map((id) => ({
+  ...BILLING_PLANS[id],
+  annualPriceUsd: getAnnualPriceUsd(BILLING_PLANS[id]),
+  ...PLAN_PRESENTATION[id],
+}));
 
 async function fetchBillingStatus(): Promise<BillingStatus> {
   const res = await fetch("/api/billing/status", { credentials: "include" });
@@ -461,7 +445,7 @@ export default function BillingPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {PLANS.map((plan) => {
             const isCurrent = currentPlanId === plan.id;
             const isCheckingOut = checkingOut === plan.id;

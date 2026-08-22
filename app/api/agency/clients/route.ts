@@ -6,8 +6,9 @@ import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { upsertClientBrandProfile } from "@/lib/client-brand-profile-service";
 import { addIntelligenceResearchJob } from "@/lib/queue";
+import { BILLING_PLANS } from "@/lib/billing/plans";
 
-const MAX_CLIENTS_PER_AGENCY = 25;
+const MAX_CLIENTS_PER_AGENCY = BILLING_PLANS.agency.maxClientWorkspaces ?? 0;
 
 async function getAgencyTeam(teamId: number) {
   const [team] = await db
@@ -116,6 +117,10 @@ export async function POST(req: NextRequest) {
         clientStatus: teams.clientStatus,
         createdAt: teams.createdAt,
       });
+
+    if (!newTeam) {
+      throw new Error("Client team insert returned no row");
+    }
 
     // Auto-add the creating agency admin as an admin of the client team
     await db.insert(teamMembers).values({

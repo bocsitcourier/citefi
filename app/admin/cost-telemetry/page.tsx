@@ -32,7 +32,7 @@ interface ByOperation {
   callCount: number;
   totalCostUsd: number;
   avgCostUsd: number;
-  p95CostUsd: number;
+  p90CostUsd: number;
   totalTokens: number;
   avgInputTokens: number;
   avgOutputTokens: number;
@@ -41,9 +41,11 @@ interface ByOperation {
 interface ByModel {
   provider: string;
   model: string;
+  operationType: string;
   callCount: number;
   totalCostUsd: number;
   avgCostUsd: number;
+  rateKnown: boolean;
 }
 
 interface CreditAnchorHealth {
@@ -52,9 +54,12 @@ interface CreditAnchorHealth {
   avgCostUsd: number;
   revenuePerCreditUsd: number;
   grossMarginPct: number;
-  status: "healthy" | "warning" | "critical";
+  status: "healthy" | "warning" | "critical" | "not_measured";
   hasAllData: boolean;
   missingOperations: string[];
+  p90CostUsd: number;
+  certificationReady: boolean;
+  certificationBlockers: string[];
 }
 
 interface RecentEvent {
@@ -66,6 +71,7 @@ interface RecentEvent {
   totalTokens: number | null;
   latencyMs: number | null;
   success: boolean;
+  rateKnown: boolean;
   createdAt: string;
 }
 
@@ -77,6 +83,14 @@ interface TelemetryData {
   byModel: ByModel[];
   creditAnchorHealth: CreditAnchorHealth[];
   recentEvents: RecentEvent[];
+  marginCertification: {
+    status: "not_certified" | "certified";
+    rateCardVersion: string;
+    costBasis: "p90";
+    minimumSuccessfulSamplesPerOperation: number;
+    invoiceReconciliationRecorded: boolean;
+    blockers: string[];
+  };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -108,6 +122,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   healthy:  { label: "Healthy",  variant: "default" },
   warning:  { label: "Warning",  variant: "secondary" },
   critical: { label: "Critical", variant: "destructive" },
+  not_measured: { label: "Not certified", variant: "secondary" },
 };
 
 const PERIOD_OPTIONS = [
@@ -254,7 +269,7 @@ export default function CostTelemetryPage() {
             <CardHeader>
               <CardTitle>Credit Anchor Validation</CardTitle>
               <CardDescription>
-                Measured AI spend vs. planned credit revenue per product · Growth plan ($0.445/credit)
+                P90 provider-cost estimate vs. planned credit revenue · certification requires 100+ samples per component, known rates, and invoice reconciliation
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -267,28 +282,28 @@ export default function CostTelemetryPage() {
                       <TableHead>Product</TableHead>
                       <TableHead className="text-right">Credits</TableHead>
                       <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">Avg COGS</TableHead>
+                      <TableHead className="text-right">P90 COGS</TableHead>
                       <TableHead className="text-right">Gross Margin</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.creditAnchorHealth.map((row) => {
-                      const badge = STATUS_BADGE[row.status];
+                      const badge = STATUS_BADGE[row.status] ?? STATUS_BADGE.not_measured!;
                       return (
                         <TableRow key={row.operationType} data-testid={`row-anchor-${row.operationType}`}>
                           <TableCell className="font-medium capitalize">{row.operationType}</TableCell>
                           <TableCell className="text-right">{row.credits}</TableCell>
                           <TableCell className="text-right">{usd(row.revenuePerCreditUsd)}</TableCell>
                           <TableCell className="text-right">
-                            {row.hasAllData ? usd(row.avgCostUsd) : (
+                            {row.hasAllData ? usd(row.p90CostUsd) : (
                               <span className="text-muted-foreground text-xs">
-                                {usd(row.avgCostUsd)} (partial)
+                                {usd(row.p90CostUsd)} (partial)
                               </span>
                             )}
                           </TableCell>
                           <TableCell className="text-right font-medium">
-                            {row.grossMarginPct.toFixed(1)}%
+                            {row.certificationReady ? `${row.grossMarginPct.toFixed(1)}%` : "—"}
                           </TableCell>
                           <TableCell>
                             <Badge variant={badge.variant} data-testid={`badge-status-${row.operationType}`}>
@@ -297,6 +312,11 @@ export default function CostTelemetryPage() {
                             {!row.hasAllData && row.missingOperations.length > 0 && (
                               <p className="text-xs text-muted-foreground mt-1">
                                 Missing data: {row.missingOperations.join(", ")}
+                              </p>
+                            )}
+                            {!row.certificationReady && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {row.certificationBlockers.join(", ")}
                               </p>
                             )}
                           </TableCell>
@@ -325,7 +345,7 @@ export default function CostTelemetryPage() {
                       <TableHead>Operation</TableHead>
                       <TableHead className="text-right">Calls</TableHead>
                       <TableHead className="text-right">Avg Cost</TableHead>
-                      <TableHead className="text-right">p95 Cost</TableHead>
+                      <TableHead className="text-right">P90 Cost</TableHead>
                       <TableHead className="text-right">Total Spend</TableHead>
                       <TableHead className="text-right">Avg Tokens In</TableHead>
                       <TableHead className="text-right">Avg Tokens Out</TableHead>
@@ -337,7 +357,7 @@ export default function CostTelemetryPage() {
                         <TableCell className="font-medium text-sm">{row.operationType}</TableCell>
                         <TableCell className="text-right text-sm">{num(row.callCount)}</TableCell>
                         <TableCell className="text-right text-sm">{usd(row.avgCostUsd)}</TableCell>
-                        <TableCell className="text-right text-sm text-muted-foreground">{usd(row.p95CostUsd)}</TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">{usd(row.p90CostUsd)}</TableCell>
                         <TableCell className="text-right text-sm font-medium">{usd(row.totalCostUsd)}</TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">{num(row.avgInputTokens)}</TableCell>
                         <TableCell className="text-right text-sm text-muted-foreground">{num(row.avgOutputTokens)}</TableCell>
@@ -371,13 +391,20 @@ export default function CostTelemetryPage() {
                   </TableHeader>
                   <TableBody>
                     {data.byModel.map((row) => (
-                      <TableRow key={`${row.provider}-${row.model}`} data-testid={`row-model-${row.model}`}>
+                      <TableRow key={`${row.provider}-${row.model}-${row.operationType}`} data-testid={`row-model-${row.model}`}>
                         <TableCell>
                           <Badge variant="outline" className="capitalize text-xs">
                             {row.provider}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{row.model}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {row.model}
+                          {!row.rateKnown && (
+                            <Badge variant="destructive" className="ml-2 text-[10px]">
+                              Unpriced
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right text-sm">{num(row.callCount)}</TableCell>
                         <TableCell className="text-right text-sm">{usd(row.avgCostUsd)}</TableCell>
                         <TableCell className="text-right text-sm font-medium">{usd(row.totalCostUsd)}</TableCell>

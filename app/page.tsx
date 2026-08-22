@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { BILLING_PLANS, SELF_SERVE_PLAN_IDS } from "@/lib/billing/plans";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +26,33 @@ import {
   ChevronRight,
   Sparkles,
 } from "lucide-react";
+
+const PRICING_SUMMARY = `Citefi starts free with ${BILLING_PLANS.free.monthlyCredits} one-time credits. Starter is $${BILLING_PLANS.starter.priceUsd}/month for ${BILLING_PLANS.starter.monthlyCredits} monthly credits, Growth is $${BILLING_PLANS.growth.priceUsd}/month for ${BILLING_PLANS.growth.monthlyCredits}, and Agency is $${BILLING_PLANS.agency.priceUsd}/month for ${BILLING_PLANS.agency.monthlyCredits.toLocaleString()} credits and up to ${BILLING_PLANS.agency.maxClientWorkspaces} client workspaces.`;
+const HOMEPAGE_PLAN_PRESENTATION: Record<(typeof SELF_SERVE_PLAN_IDS)[number], {
+  description: string;
+  cta: string;
+  highlighted: boolean;
+}> = {
+  starter: {
+    description: "For solo operators and small local businesses.",
+    cta: "Start Starter",
+    highlighted: false,
+  },
+  growth: {
+    description: "For growing teams producing content at scale.",
+    cta: "Start Growth",
+    highlighted: true,
+  },
+  agency: {
+    description: "For agencies managing up to 25 separate client workspaces.",
+    cta: "Start Agency",
+    highlighted: false,
+  },
+};
+const HOMEPAGE_PLANS = SELF_SERVE_PLAN_IDS.map((id) => ({
+  ...BILLING_PLANS[id],
+  ...HOMEPAGE_PLAN_PRESENTATION[id],
+}));
 
 export default function MarketingPage() {
   const router = useRouter();
@@ -703,56 +731,7 @@ export default function MarketingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                name: "Starter",
-                price: "From $99",
-                period: "/mo",
-                description: "Perfect for solo operators and small local businesses.",
-                features: [
-                  "1 team workspace",
-                  "Full 4-stage pipeline",
-                  "50 articles per batch",
-                  "Local SEO intelligence",
-                  "Social post generation",
-                ],
-                cta: "Start Free Trial",
-                highlighted: false,
-                testId: "pricing-starter",
-              },
-              {
-                name: "Growth",
-                price: "From $299",
-                period: "/mo",
-                description: "The choice for growing agencies managing multiple clients.",
-                features: [
-                  "Up to 10 client workspaces",
-                  "Unlimited batches",
-                  "AI videos + podcasts",
-                  "Brand Intelligence",
-                  "Priority support",
-                ],
-                cta: "Get Started",
-                highlighted: true,
-                testId: "pricing-growth",
-              },
-              {
-                name: "Agency",
-                price: "Custom",
-                period: "",
-                description: "Built for enterprise agencies with 50+ client accounts.",
-                features: [
-                  "Unlimited client workspaces",
-                  "White-label publishing",
-                  "Dedicated account manager",
-                  "Custom pipeline configuration",
-                  "SLA & enterprise support",
-                ],
-                cta: "Contact Sales",
-                highlighted: false,
-                testId: "pricing-agency",
-              },
-            ].map((plan) => (
+            {HOMEPAGE_PLANS.map((plan) => (
               <div
                 key={plan.name}
                 className={`rounded-md border p-6 flex flex-col space-y-5 ${
@@ -760,7 +739,7 @@ export default function MarketingPage() {
                     ? "border-primary bg-primary/5 ring-1 ring-primary/30"
                     : "border-border bg-background"
                 }`}
-                data-testid={plan.testId}
+                data-testid={`pricing-${plan.id}`}
               >
                 {plan.highlighted && (
                   <div className="inline-flex self-start">
@@ -772,8 +751,8 @@ export default function MarketingPage() {
                 <div className="space-y-1">
                   <h3 className="text-base font-bold text-foreground">{plan.name}</h3>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-bold text-foreground">{plan.price}</span>
-                    <span className="text-sm text-muted-foreground">{plan.period}</span>
+                    <span className="text-3xl font-bold text-foreground">${plan.priceUsd}</span>
+                    <span className="text-sm text-muted-foreground">/mo</span>
                   </div>
                   <p className="text-xs text-muted-foreground">{plan.description}</p>
                 </div>
@@ -785,11 +764,11 @@ export default function MarketingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link href={plan.cta === "Contact Sales" ? "/login" : "/signup"}>
+                <Link href="/signup">
                   <Button
                     className="w-full"
                     variant={plan.highlighted ? "default" : "outline"}
-                    data-testid={`${plan.testId}-cta`}
+                    data-testid={`pricing-${plan.id}-cta`}
                   >
                     {plan.cta}
                   </Button>
@@ -825,7 +804,7 @@ export default function MarketingPage() {
               },
               {
                 q: "How much does Citefi cost?",
-                a: "Citefi starts at $99/month for the Starter plan, which includes 1 workspace and 50 articles per batch with the full 4-stage pipeline. The Growth plan starts at $299/month for up to 10 client workspaces and includes AI videos and podcasts. Enterprise Agency plans are custom-priced for organizations with 50+ client accounts.",
+                a: PRICING_SUMMARY,
                 id: "faq-pricing",
               },
               {
@@ -1077,7 +1056,7 @@ export default function MarketingPage() {
                 name: "How much does Citefi cost?",
                 acceptedAnswer: {
                   "@type": "Answer",
-                  text: "Citefi starts at $99/month for the Starter plan, which includes 1 workspace and 50 articles per batch with the full 4-stage pipeline. The Growth plan starts at $299/month for up to 10 client workspaces and includes AI videos and podcasts. Enterprise Agency plans are custom-priced.",
+                  text: PRICING_SUMMARY,
                 },
               },
               {

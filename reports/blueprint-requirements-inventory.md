@@ -1,5 +1,7 @@
 ### Requirements Inventory
 
+> **Decision status:** All recommendations and assumptions in this inventory are now dispositioned in `reports/blueprint-decision-register-2026-08-22.md`. Commercial and policy defaults are machine-readable in `lib/launch-governance.ts`; final QA must use `reports/launch-certification-checklist.md`.
+
 | Category | Requirement / Goal | Status | Line Ref(s) |
 | :--- | :--- | :--- | :--- |
 | **Product Positioning & Core Workflow** | Position as "Local Marketing Campaign Engine" (URL-to-campaign); prioritize workflow over generic AI writing. | [R] | [L7], [L191], [L193] |
