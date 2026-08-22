@@ -97,6 +97,160 @@ void test("full retry lifecycle (3 attempts): release fires exactly once total",
   assert.equal(d.calls.length, 1, "exactly one release across the whole retry lifecycle");
 });
 
+void test("a failed batch article releases only its share and duplicate final failures are idempotent", async () => {
+  const { db } = await import("../../lib/db");
+  const { reserveCredits, debitReservation, releaseReservation } = await import("../../lib/billing");
+  const { users, teams, teamMembers, creditBalances, creditLedger } = await import("../../shared/schema");
+  const { eq } = await import("drizzle-orm");
+
+  const perArticleCredits = 7;
+  const articleIds = [101, 102, 103] as const;
+  const runId = `test-batch-release-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let teamId: number | undefined;
+  let userId: number | undefined;
+
+  try {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `${runId}@test.invalid`,
+        passwordHash: "x",
+        role: "member",
+        accountStatus: "active",
+      })
+      .returning({ id: users.id });
+    assert.ok(user, "test user must be created");
+    userId = user.id;
+
+    const [team] = await db
+      .insert(teams)
+      .values({ name: `Batch release ${runId}`, createdBy: userId })
+      .returning({ id: teams.id });
+    assert.ok(team, "test team must be created");
+    teamId = team.id;
+
+    await db.insert(teamMembers).values({ teamId, userId, role: "owner" });
+    await db.insert(creditBalances).values({
+      teamId,
+      allowanceCredits: 100,
+      purchasedCredits: 0,
+      allowanceUsed: 0,
+      purchasedUsed: 0,
+      reservedCredits: 0,
+      balance: 100,
+    });
+
+    const reserved = await reserveCredits({
+      teamId,
+      operationType: "article",
+      runId,
+      amount: articleIds.length * perArticleCredits,
+    });
+    assert.equal(reserved.ok, true, "the three-article batch reservation must succeed");
+
+    // Exercise the exact production article-worker resolver. Without its
+    // amount and article-scoped release key, releaseReservation defaults to
+    // the entire batch and duplicate final deliveries can refund siblings.
+    const { getArticleGenerationBilling } = await import("../../lib/worker");
+    let preclaimsAtBarrier = 0;
+    let openPreclaimBarrier!: () => void;
+    const preclaimBarrier = new Promise<void>((resolve) => {
+      openPreclaimBarrier = resolve;
+    });
+    const handler = createPipelineHandler(
+      "article-generation",
+      async () => { throw new Error("Gemini unavailable"); },
+      {
+        stage: "text_gen",
+        getBilling: getArticleGenerationBilling,
+        _deps: {
+          // Pause both real billing transactions after their compatibility
+          // lookup but before the unique claim. Removing the atomic claim would
+          // now deterministically let both deliveries decrement the reservation.
+          releaseReservation: async (args: Parameters<typeof releaseReservation>[0]) => {
+            return releaseReservation(args, {
+              afterExistingReleaseCheck: async () => {
+                preclaimsAtBarrier += 1;
+                if (preclaimsAtBarrier === 2) openPreclaimBarrier();
+                await preclaimBarrier;
+              },
+            });
+          },
+          recordProviderFailure: async () => {},
+        },
+      } as any
+    );
+    const failedArticle = makeJob({
+      attemptsMade: 2,
+      attempts: 3,
+      data: {
+        teamId,
+        creditRunId: runId,
+        articleId: articleIds[0],
+        creditCostPerUnit: perArticleCredits,
+      },
+    });
+
+    await Promise.all([
+      assert.rejects(() => handler(failedArticle)),
+      assert.rejects(() => handler(failedArticle)),
+    ]);
+
+    const [balanceAfterFailure] = await db
+      .select({ reservedCredits: creditBalances.reservedCredits })
+      .from(creditBalances)
+      .where(eq(creditBalances.teamId, teamId));
+    assert.ok(balanceAfterFailure, "test credit balance must exist");
+    assert.equal(
+      balanceAfterFailure.reservedCredits,
+      perArticleCredits * 2,
+      "only the failed article's share may be released"
+    );
+
+    const releases = await db
+      .select({
+        amount: creditLedger.amount,
+        reason: creditLedger.reason,
+        idempotencyKey: creditLedger.idempotencyKey,
+      })
+      .from(creditLedger)
+      .where(eq(creditLedger.runId, runId));
+    const releaseEvents = releases.filter((event) => event.reason?.includes(`[releaseKey:article:${articleIds[0]}]`));
+    assert.equal(releaseEvents.length, 1, "the article release key must make duplicate final failures idempotent");
+    assert.equal(releaseEvents[0]?.amount, perArticleCredits);
+    assert.match(
+      releaseEvents[0]?.idempotencyKey ?? "",
+      /^credit-release:[a-f0-9]{64}$/,
+      "the release must be protected by a durable DB-unique claim"
+    );
+
+    const siblingDebit = await debitReservation({
+      teamId,
+      runId,
+      jobId: `article:${articleIds[1]}`,
+      amount: perArticleCredits,
+    });
+    assert.equal(siblingDebit.ok, true, "a sibling article must still debit the shared reservation");
+
+    const [balanceAfterSiblingDebit] = await db
+      .select({ reservedCredits: creditBalances.reservedCredits })
+      .from(creditBalances)
+      .where(eq(creditBalances.teamId, teamId));
+    assert.ok(balanceAfterSiblingDebit, "test credit balance must exist after sibling debit");
+    assert.equal(balanceAfterSiblingDebit.reservedCredits, perArticleCredits);
+  } finally {
+    if (teamId !== undefined) {
+      await db.delete(creditLedger).where(eq(creditLedger.teamId, teamId));
+      await db.delete(creditBalances).where(eq(creditBalances.teamId, teamId));
+      await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
+      await db.delete(teams).where(eq(teams.id, teamId));
+    }
+    if (userId !== undefined) {
+      await db.delete(users).where(eq(users.id, userId));
+    }
+  }
+});
+
 void test("fatal error: releases immediately and throws UnrecoverableError", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => { throw new Error("401 unauthorized: invalid api key"); },

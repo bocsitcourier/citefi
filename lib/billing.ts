@@ -11,6 +11,7 @@
  */
 
 import { eq, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { getTxDb, db } from "./db";
 import { creditBalances, creditLedger, teams } from "@/shared/schema";
 import { getCreditCost, getEffectiveCreditCost, type OperationType } from "./credit-menu";
@@ -555,7 +556,14 @@ export async function releaseReservation(params: {
    * single-unit jobs where only one release per runId is expected.
    */
   releaseKey?: string;
-}): Promise<void> {
+}, testHooks: {
+  /**
+   * Test-only synchronization seam for proving concurrent keyed releases.
+   * Runs inside the transaction after the legacy reason lookup and immediately
+   * before the DB-unique idempotency claim.
+   */
+  afterExistingReleaseCheck?: () => Promise<void>;
+} = {}): Promise<void> {
   const { teamId, runId, userId, reason } = params;
 
   const txDb = await getTxDb();
@@ -673,8 +681,10 @@ export async function releaseReservation(params: {
     // ── Partial release path (or legacy null-status rows) ─────────────────────
     // Partial releases (batch: amount < reservation.amount) keep the status as
     // RESERVED so remaining per-article debits can still proceed.  Idempotency
-    // is enforced by the releaseKey embedded in the reason field.  Both partial
-    // and null-status rows use the same LIKE guard here.
+    // is enforced by a DB-unique ledger idempotency key. The reason LIKE check
+    // preserves compatibility with releases written before that durable key was
+    // introduced; it is only an optimization/backward-compatibility check and
+    // is not the concurrency guard.
     const [existingRelease] = await tx
       .select({ id: creditLedger.id })
       .from(creditLedger)
@@ -688,6 +698,46 @@ export async function releaseReservation(params: {
     if (existingRelease) {
       console.warn(`[billing] Release already recorded for runId=${runId} key=${params.releaseKey ?? 'none'} — skipping (idempotent)`);
       return;
+    }
+
+    await testHooks.afterExistingReleaseCheck?.();
+
+    const releaseReason = params.releaseKey
+      ? `${reason ?? `Release for ${reservation.operationType} (runId: ${runId})`} [releaseKey:${params.releaseKey}]`
+      : (reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`);
+    const releaseIdempotencyKey = params.releaseKey
+      ? `credit-release:${createHash("sha256")
+          .update(`${teamId}:${runId}:${params.releaseKey}`)
+          .digest("hex")}`
+      : undefined;
+
+    // Atomically claim keyed partial releases before touching reservedCredits.
+    // Concurrent duplicate final deliveries race on the unique
+    // credit_ledger.idempotency_key constraint: exactly one inserts the claim;
+    // the loser waits for that transaction and then returns without decrementing.
+    if (releaseIdempotencyKey) {
+      const claimed = await tx
+        .insert(creditLedger)
+        .values({
+          teamId,
+          userId: userId ?? null,
+          amount,
+          balanceAfter: 0,
+          eventType: "release",
+          operationType: reservation.operationType,
+          runId,
+          reason: releaseReason,
+          idempotencyKey: releaseIdempotencyKey,
+        })
+        .onConflictDoNothing({ target: creditLedger.idempotencyKey })
+        .returning({ id: creditLedger.id });
+
+      if (claimed.length === 0) {
+        console.warn(
+          `[billing] Release already claimed for runId=${runId} key=${params.releaseKey} — skipping (idempotent)`
+        );
+        return;
+      }
     }
 
     // Release: decrement reservedCredits.
@@ -704,25 +754,33 @@ export async function releaseReservation(params: {
       .returning({ id: creditBalances.id });
 
     if (releaseRows.length === 0) {
+      if (releaseIdempotencyKey) {
+        // Throw so the transaction rolls back the keyed ledger claim. Otherwise
+        // a transient balance mismatch would permanently consume the key without
+        // releasing any credits.
+        throw new Error(
+          `[billing] releaseReservation BLOCKED for teamId=${teamId} runId=${runId} — ` +
+          `reservedCredits < ${amount}; rolling back release claim`
+        );
+      }
       console.warn(`[billing] releaseReservation BLOCKED for teamId=${teamId} runId=${runId} — reservedCredits < ${amount}. Skipping ledger insert.`);
       return;
     }
 
-    // Insert release ledger row
-    await tx.insert(creditLedger).values({
-      teamId,
-      userId: userId ?? null,
-      amount,
-      balanceAfter: 0,
-      eventType: "release",
-      operationType: reservation.operationType,
-      runId,
-      // Embed releaseKey in the stored reason so the LIKE idempotency check
-      // (above) can match it reliably regardless of the caller-supplied reason.
-      reason: params.releaseKey
-        ? `${reason ?? `Release for ${reservation.operationType} (runId: ${runId})`} [releaseKey:${params.releaseKey}]`
-        : (reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`),
-    });
+    // Keyed releases inserted their ledger row as the atomic claim above.
+    // Legacy/no-key releases still write the event after the balance update.
+    if (!releaseIdempotencyKey) {
+      await tx.insert(creditLedger).values({
+        teamId,
+        userId: userId ?? null,
+        amount,
+        balanceAfter: 0,
+        eventType: "release",
+        operationType: reservation.operationType,
+        runId,
+        reason: releaseReason,
+      });
+    }
   });
 }
 

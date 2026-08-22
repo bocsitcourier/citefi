@@ -82,6 +82,23 @@ import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
 import { classifyError } from "./errors";
 
+export async function getArticleGenerationBilling(
+  job: Pick<Job<ArticleJobData>, "data">
+) {
+  return {
+    teamId: job.data.teamId,
+    runId: job.data.creditRunId,
+    // Legacy jobs predating creditCostPerUnit must resolve the normal article
+    // price. Leaving amount undefined would release the entire batch reserve.
+    amount:
+      job.data.creditCostPerUnit ??
+      (await import("@/lib/credit-menu")).getCreditCost("article") ??
+      10,
+    releaseKey: `article:${job.data.articleId}`,
+    reason: `Article ${job.data.articleId} generation failed`,
+  };
+}
+
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
   if (!str) return null;
@@ -2283,20 +2300,9 @@ export async function registerWorkers() {
     // (creditRunId): telemetry is recorded under the run-context ID, and the
     // gate sums telemetry by that same ID — a mismatch makes ceilings see $0.
     budget: { contentType: "article", getRunId: (j) => j.data.creditRunId },
-    getBilling: async (j) => ({
-      teamId: j.data.teamId,
-      runId: j.data.creditRunId,
-      // Partial-release amount: mirror the processor's per-article cost
-      // resolution. Legacy jobs predating creditCostPerUnit in job data must
-      // fall back to the resolved credit cost — an omitted amount would
-      // release the ENTIRE multi-article batch reservation.
-      amount:
-        j.data.creditCostPerUnit ??
-        (await import("@/lib/credit-menu")).getCreditCost("article") ??
-        10,
-      releaseKey: `article:${j.data.articleId}`,
-      reason: `Article ${j.data.articleId} generation failed`,
-    }),
+    // A shared resolver keeps the production callback and the billing-safety
+    // integration test on the exact same amount/key path.
+    getBilling: getArticleGenerationBilling,
   });
 
   const geminiRateLimit = parseInt(process.env.GEMINI_RATE_LIMIT || "10");

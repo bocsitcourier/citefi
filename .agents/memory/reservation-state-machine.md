@@ -22,7 +22,14 @@ After the CAS claim (RESERVED→DEBITED or RESERVED→RELEASED), if the `credit_
 | debitReservation | amount >= reservation.amount | RESERVED→DEBITED | status check + UNIQUE index |
 | debitReservation | amount < reservation.amount | none | pre-lock SELECT + post-lock re-check |
 | releaseReservation | amount >= reservation.amount | RESERVED→RELEASED | status check |
-| releaseReservation | amount < reservation.amount | none | releaseKey in reason LIKE |
+| releaseReservation | amount < reservation.amount | none | DB-unique hashed release claim |
+
+## Partial-release concurrency
+Keyed partial releases must claim a deterministic `credit_ledger.idempotency_key` inside the same transaction **before** decrementing `reservedCredits`. A reason-text lookup is retained only for legacy compatibility; it is not a concurrency guard. If the balance guard fails after the claim, throw so the transaction rolls back both the claim and any partial work.
+
+**Why:** Concurrent duplicate final deliveries can both pass a read-before-write reason check. Without a unique atomic claim, each can decrement the shared batch reservation and consume credits reserved for sibling articles.
+
+**How to apply:** Every multi-unit release must supply a stable unit-scoped `releaseKey`. Derive a bounded deterministic idempotency key from team, run, and release identity, rely on the database uniqueness constraint to choose one winner, and treat the loser as an idempotent no-op.
 
 ## Sweeper
 Every 6h on `reservation-sweeper` queue. For each RESERVED row older than 24h:
@@ -54,3 +61,4 @@ Legacy watchdogs must not fork any article that already has a durable run. Fresh
 ## DB indexes
 - `credit_ledger_reservation_status_idx`: partial WHERE `reservation_status='RESERVED'`
 - `credit_ledger_debit_jobid_unique_idx`: UNIQUE on `(team_id, run_id, job_id) WHERE event_type='debit' AND job_id IS NOT NULL` — backstop for concurrent batch-article duplicate debits
+- `credit_ledger_idempotency_idx`: global UNIQUE index used by hashed partial-release claims and other ledger idempotency identities
