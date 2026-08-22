@@ -13,6 +13,7 @@
  */
 
 import assert from "node:assert/strict";
+import { UnrecoverableError, type Job } from "bullmq";
 import Redis from "ioredis";
 import {
   CANARY_JOB_OPTIONS,
@@ -27,6 +28,7 @@ import {
   type CanaryDeps,
   type CanaryResult,
 } from "../../lib/canary-worker";
+import { createPipelineHandler } from "../../lib/pipeline-worker";
 import { getRedisClientConfig, normalizeRedisUrl } from "../../lib/queue";
 
 const TEST_REDIS_URL = "redis://127.0.0.1:6379/14";
@@ -255,6 +257,62 @@ async function main(): Promise<void> {
       type: "fixed",
       delay: 5 * 60 * 1000,
     });
+  });
+
+  await check("fatal model errors use the canary retry budget and report once", async () => {
+    let notifications = 0;
+    let errorLogs = 0;
+    let providerFailureRecords = 0;
+
+    const processor = async (job: Job<Record<string, never>>) =>
+      runCanary(makeTestDeps({
+        textGen: async () => {
+          throw new Error("404 model gemini-deprecated is not found");
+        },
+        reportFailure: job.attemptsMade === 0,
+        notifyAdmins: async () => { notifications += 1; },
+        logError: async () => { errorLogs += 1; },
+      }));
+
+    const handler = createPipelineHandler("canary", processor, {
+      stage: "text_gen",
+      retryFatalErrors: true,
+      _deps: {
+        recordProviderFailure: async () => {
+          providerFailureRecords += 1;
+        },
+      },
+    });
+
+    const firstAttempt = {
+      id: "canary-test",
+      data: {},
+      attemptsMade: 0,
+      opts: { attempts: CANARY_JOB_OPTIONS.attempts },
+    } as Job<Record<string, never>>;
+
+    await assert.rejects(handler(firstAttempt), (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.equal(err instanceof UnrecoverableError, false);
+      assert.match(err.message, /model gemini-deprecated is not found/);
+      return true;
+    });
+
+    const retryAttempt = {
+      ...firstAttempt,
+      attemptsMade: 1,
+    } as Job<Record<string, never>>;
+
+    await assert.rejects(handler(retryAttempt), (err: unknown) => {
+      assert.ok(err instanceof UnrecoverableError);
+      assert.match(err.message, /model gemini-deprecated is not found/);
+      return true;
+    });
+
+    assert.equal(CANARY_JOB_OPTIONS.backoff.delay, 5 * 60 * 1000);
+    assert.equal(notifications, 1);
+    assert.equal(errorLogs, 1);
+    assert.equal(providerFailureRecords, 2);
   });
 
   await check("never-run, failed, and stale canaries degrade health", () => {

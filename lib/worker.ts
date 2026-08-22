@@ -4239,7 +4239,11 @@ export async function registerWorkers() {
     );
     createPipelineWorker(CANARY_QUEUE, async (job) => {
       await runCanary({ reportFailure: job.attemptsMade === 0 });
-    }, { stage: "text_gen", concurrency: 1 });
+    }, {
+      stage: "text_gen",
+      concurrency: 1,
+      retryFatalErrors: true,
+    });
     console.log("🐤 Daily model health canary registered (06:00 UTC)");
   } catch (error) {
     console.error("⚠️ Failed to register canary worker:", error);

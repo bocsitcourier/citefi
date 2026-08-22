@@ -68,6 +68,14 @@ export interface PipelineWorkerOptions<T> {
    * missing teamId/runId) when the job carries no reservation.
    */
   getBilling?: (job: Job<T>) => PipelineBilling | null | undefined | Promise<PipelineBilling | null | undefined>;
+  /**
+   * Allow a queue to use its configured retry budget even when the shared
+   * taxonomy classifies the error as fatal. This is intentionally opt-in:
+   * most pipelines should skip retries for auth/config/model-not-found errors,
+   * while health canaries must retry those exact failures to distinguish a
+   * brief control-plane issue from a durable model deprecation.
+   */
+  retryFatalErrors?: boolean;
   /** Test injection points — do not use in production code. */
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
@@ -105,9 +113,14 @@ export function createPipelineHandler<T>(
       await recordFailure(queueName, pe)
         .catch((circuitErr) => console.warn("[provider-circuit] failure recording failed:", circuitErr));
       const attemptsAllowed = job.opts?.attempts ?? 1;
+      const attemptsUsed = (job.attemptsMade ?? 0) + 1;
+      const retryFatal =
+        pe.disposition === "fatal" &&
+        opts.retryFatalErrors === true &&
+        attemptsUsed < attemptsAllowed;
       const isFinal =
-        pe.disposition === "fatal" ||
-        (job.attemptsMade ?? 0) + 1 >= attemptsAllowed;
+        !retryFatal &&
+        (pe.disposition === "fatal" || attemptsUsed >= attemptsAllowed);
       console.error(
         `❌ [${queueName}:${String(job.id)}] ${pe.code} (${pe.disposition})${isFinal ? " — final attempt" : ""}`
       );
@@ -143,7 +156,7 @@ export function createPipelineHandler<T>(
         }
       }
 
-      if (pe.disposition === "fatal") {
+      if (pe.disposition === "fatal" && !retryFatal) {
         throw new UnrecoverableError(`[${pe.code}] ${pe.message}`);
       }
       throw err;
