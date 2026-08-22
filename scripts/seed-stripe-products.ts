@@ -8,11 +8,9 @@
  *   STRIPE_PRICE_STARTER_ANNUAL=price_xxx
  *   STRIPE_PRICE_GROWTH=price_xxx
  *   STRIPE_PRICE_GROWTH_ANNUAL=price_xxx
- *   STRIPE_PRICE_TOPUP_20=price_xxx
- *   STRIPE_PRICE_TOPUP_50=price_xxx
- *   STRIPE_PRICE_TOPUP_100=price_xxx
- *   STRIPE_PRICE_TOPUP_250=price_xxx
- *   STRIPE_PRICE_TOPUP_500=price_xxx
+ *   STRIPE_PRICE_TOPUP_5=price_xxx
+ *   STRIPE_PRICE_TOPUP_10=price_xxx
+ *   STRIPE_PRICE_TOPUP_25=price_xxx
  */
 
 import "dotenv/config";
@@ -39,11 +37,9 @@ const PLANS = [
 ];
 
 const TOP_UPS = [
-  { name: "20 Credits — Starter Pack",   envKey: "STRIPE_PRICE_TOPUP_20",  priceUsd: 12,  credits: 20  },
-  { name: "50 Credits — Small Pack",     envKey: "STRIPE_PRICE_TOPUP_50",  priceUsd: 25,  credits: 50  },
-  { name: "100 Credits — Medium Pack",   envKey: "STRIPE_PRICE_TOPUP_100", priceUsd: 45,  credits: 100 },
-  { name: "250 Credits — Large Pack",    envKey: "STRIPE_PRICE_TOPUP_250", priceUsd: 100, credits: 250 },
-  { name: "500 Credits — Bulk Pack",     envKey: "STRIPE_PRICE_TOPUP_500", priceUsd: 180, credits: 500 },
+  { name: "$5 Credit Pack — 10 Credits",  envKey: "STRIPE_PRICE_TOPUP_5",  priceUsd: 5,  credits: 10 },
+  { name: "$10 Credit Pack — 20 Credits", envKey: "STRIPE_PRICE_TOPUP_10", priceUsd: 10, credits: 20 },
+  { name: "$25 Credit Pack — 50 Credits", envKey: "STRIPE_PRICE_TOPUP_25", priceUsd: 25, credits: 50 },
 ];
 
 async function getStripeKey(): Promise<string> {

@@ -62,17 +62,6 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
     currentPeriodEnd !== null &&
     new Date(currentPeriodEnd) < new Date();
 
-  if (trialExpired) {
-    return {
-      allowed: false,
-      planId,
-      billingStatus,
-      creditBalance: 0,
-      trialExpired: true,
-      reason: "Your trial has ended. Add a payment method to continue generating content.",
-    };
-  }
-
   // Effective balance: prefer two-bucket total when bucket grants exist,
   // otherwise fall back to legacy balance column (pre-migration teams).
   const allowanceRemaining = Math.max(0, (balanceRow?.allowanceCredits ?? 0) - (balanceRow?.allowanceUsed ?? 0));
@@ -84,6 +73,17 @@ export async function checkTeamPaywall(teamId: number): Promise<PaywallResult> {
   // Always allow when there are credits — reserveCredits() is the enforcement layer
   if (creditBalance > 0) {
     return { allowed: true, planId, billingStatus, creditBalance };
+  }
+
+  if (trialExpired) {
+    return {
+      allowed: false,
+      planId,
+      billingStatus,
+      creditBalance,
+      trialExpired: true,
+      reason: "Your trial has ended. Add credits or a payment method to continue generating content.",
+    };
   }
 
   // Zero credits: check plan status

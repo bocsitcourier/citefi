@@ -653,6 +653,9 @@ export async function grantPurchased(params: {
       .update(creditBalances)
       .set({
         purchasedCredits: sql`${creditBalances.purchasedCredits} + ${amount}`,
+        // Keep the legacy combined balance aligned for older dashboard and API
+        // consumers while the two-bucket fields remain the source of truth.
+        balance: sql`${creditBalances.balance} + ${amount}`,
         updatedAt: new Date(),
       })
       .where(eq(creditBalances.teamId, teamId))

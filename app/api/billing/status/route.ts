@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
-import { teams, creditBalances } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { teams, creditBalances, creditLedger } from "@/shared/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
@@ -26,11 +26,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    const [balance] = await db
-      .select()
-      .from(creditBalances)
-      .where(eq(creditBalances.teamId, teamId))
-      .limit(1);
+    const [[balance], purchases] = await Promise.all([
+      db
+        .select()
+        .from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId))
+        .limit(1),
+      db
+        .select({
+          id: creditLedger.id,
+          amount: creditLedger.amount,
+          reason: creditLedger.reason,
+          createdAt: creditLedger.createdAt,
+        })
+        .from(creditLedger)
+        .where(
+          and(
+            eq(creditLedger.teamId, teamId),
+            eq(creditLedger.eventType, "grant"),
+            eq(creditLedger.operationType, "topup")
+          )
+        )
+        .orderBy(desc(creditLedger.createdAt))
+        .limit(10),
+    ]);
 
     const plan = BILLING_PLANS[team.billingPlan as keyof typeof BILLING_PLANS] ?? BILLING_PLANS.free;
     const hasActivePlan =
@@ -78,6 +97,7 @@ export async function GET(req: NextRequest) {
         periodStart: balance?.periodStart ?? null,
         periodEnd: balance?.periodEnd ?? null,
       },
+      purchases,
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

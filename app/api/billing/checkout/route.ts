@@ -121,9 +121,19 @@ export async function POST(req: NextRequest) {
       mode: data.kind === "subscription" ? "subscription" : "payment",
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: { teamId: String(teamId), userId: String(userId), kind: data.kind },
+      metadata: {
+        teamId: String(teamId),
+        userId: String(userId),
+        kind: data.kind,
+        ...(data.kind === "topup" && { topUpId: data.topUpId }),
+      },
       ...(data.kind === "subscription" && {
         subscription_data: { metadata: { teamId: String(teamId) } },
+      }),
+      ...(data.kind === "topup" && {
+        payment_intent_data: {
+          metadata: { teamId: String(teamId), topUpId: data.topUpId },
+        },
       }),
     };
 

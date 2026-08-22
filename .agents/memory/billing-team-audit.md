@@ -10,6 +10,11 @@ description: Bugs fixed during comprehensive architect-led audit of billing, cre
 **Why:** Spec says "Failed payment → generation blocked." The old code allowed past_due teams with 0 credits, contradicting this.
 **File:** `lib/billing/paywall.ts` — check `isPaymentFailed` before `hasActivePaidPlan`.
 
+## Purchased credits take precedence over an expired trial
+**Rule:** Any positive available credit balance, including purchased top-ups, must pass the generation paywall before trial-expiry status is considered.
+**Why:** A client who has paid for a one-time credit pack must be able to use it immediately; rejecting an expired trial first makes a successful purchase appear ineffective.
+**How to apply:** Keep the positive-balance return before every zero-credit status gate, including trial expiry and failed subscription payment handling.
+
 ## Stripe webhook unknown price — fail closed
 **Rule:** If `getPlanByStripePriceId(priceId)` returns null in `checkout.session.completed` or `customer.subscription.updated`, preserve the team's existing `billingPlan` and log an error. Never downgrade to 'free'.
 **Why:** An unknown price is a misconfiguration; downgrading silently to free gives them zero credits while Stripe thinks they have a paid plan.

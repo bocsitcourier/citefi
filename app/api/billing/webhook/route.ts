@@ -51,6 +51,49 @@ async function resolveTeamId(
   return parseTeamIdFromMetadata(metadata);
 }
 
+/**
+ * Grant a one-time credit pack only after Stripe has confirmed payment.
+ * The ledger idempotency key is anchored to the Checkout Session rather than
+ * the webhook event, so checkout.session.completed and delayed-payment events
+ * cannot both credit the same purchase.
+ */
+async function grantTopUpForCheckoutSession(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  teamId: number
+): Promise<void> {
+  if (session.mode !== "payment") return;
+
+  if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+    console.log(
+      `[billing/webhook] Top-up session ${session.id} is ${session.payment_status}; awaiting payment confirmation`
+    );
+    return;
+  }
+
+  const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+    limit: 5,
+    expand: ["data.price"],
+  });
+  const price = lineItems.data[0]?.price;
+  const topUp = price ? getTopUpByStripePriceId(price.id) : null;
+
+  // Price lookup is deliberately allow-listed through TOP_UPS. Do not credit
+  // an arbitrary one-time Stripe product if a price is misconfigured.
+  if (!topUp) {
+    console.error(`[billing/webhook] Unrecognised top-up price for session ${session.id}`);
+    return;
+  }
+
+  await grantPurchased({
+    teamId,
+    amount: topUp.credits,
+    idempotencyKey: `topup-${session.id}`,
+    reason: `Top-up: ${topUp.label} ($${topUp.priceUsd})`,
+  });
+  console.log(`[billing/webhook] Granted ${topUp.credits} purchased credits to team ${teamId}`);
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const sig = req.headers.get("stripe-signature");
@@ -143,25 +186,21 @@ export async function POST(req: NextRequest) {
             reason: `Plan activated: ${plan.name} (${plan.monthlyCredits} credits)`,
           });
         } else if (session.mode === "payment") {
-          const lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
-            limit: 5,
-            expand: ["data.price"],
-          });
-          const price = lineItems.data[0]?.price;
-          const topUp = price ? getTopUpByStripePriceId(price.id) : null;
-
-          if (topUp) {
-            await grantPurchased({
-              teamId,
-              amount: topUp.credits,
-              idempotencyKey: `topup-${session.id}`,
-              reason: `Top-up: ${topUp.label} ($${topUp.priceUsd})`,
-            });
-            console.log(`[billing/webhook] Granted ${topUp.credits} purchased credits to team ${teamId}`);
-          } else {
-            console.warn(`[billing/webhook] Unrecognised top-up price for session ${session.id}`);
-          }
+          await grantTopUpForCheckoutSession(stripe, session, teamId);
         }
+        break;
+      }
+
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        teamId = parseTeamIdFromMetadata(session.metadata);
+
+        if (!teamId) {
+          console.warn(`[billing/webhook] ${event.type}: no teamId in metadata for session ${session.id}`);
+          break;
+        }
+
+        await grantTopUpForCheckoutSession(stripe, session, teamId);
         break;
       }
 

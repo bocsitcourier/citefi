@@ -113,11 +113,9 @@ export interface TopUp {
 }
 
 export const TOP_UPS: TopUp[] = [
-  { id: "topup_20",  credits: 20,  priceUsd: 12,  stripePriceEnvKey: "STRIPE_PRICE_TOPUP_20",  label: "Starter Pack — 20 credits" },
-  { id: "topup_50",  credits: 50,  priceUsd: 25,  stripePriceEnvKey: "STRIPE_PRICE_TOPUP_50",  label: "Small Pack — 50 credits" },
-  { id: "topup_100", credits: 100, priceUsd: 45,  stripePriceEnvKey: "STRIPE_PRICE_TOPUP_100", label: "Medium Pack — 100 credits" },
-  { id: "topup_250", credits: 250, priceUsd: 100, stripePriceEnvKey: "STRIPE_PRICE_TOPUP_250", label: "Large Pack — 250 credits" },
-  { id: "topup_500", credits: 500, priceUsd: 180, stripePriceEnvKey: "STRIPE_PRICE_TOPUP_500", label: "Bulk Pack — 500 credits" },
+  { id: "topup_5",  credits: 10, priceUsd: 5,  stripePriceEnvKey: "STRIPE_PRICE_TOPUP_5",  label: "$5 Pack — 10 credits" },
+  { id: "topup_10", credits: 20, priceUsd: 10, stripePriceEnvKey: "STRIPE_PRICE_TOPUP_10", label: "$10 Pack — 20 credits" },
+  { id: "topup_25", credits: 50, priceUsd: 25, stripePriceEnvKey: "STRIPE_PRICE_TOPUP_25", label: "$25 Pack — 50 credits" },
 ];
 
 export function getPlanById(planId: string): BillingPlan | null {

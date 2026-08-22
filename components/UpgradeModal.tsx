@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap, ArrowUpRight, X } from "lucide-react";
-import { BILLING_PLANS } from "@/lib/billing/plans";
+import { BILLING_PLANS, TOP_UPS } from "@/lib/billing/plans";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 
@@ -54,6 +54,17 @@ export function UpgradeModal() {
     },
   });
 
+  const topUpMutation = useMutation({
+    mutationFn: (topUpId: string) =>
+      apiRequest("/api/billing/checkout", { method: "POST", body: JSON.stringify({ kind: "topup", topUpId }) }),
+    onSuccess: (res) => {
+      if (res?.url) window.location.href = res.url;
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not start credit purchase", description: err.message, variant: "destructive" });
+    },
+  });
+
   const handleClose = useCallback(() => {
     setOpen(false);
   }, []);
@@ -66,10 +77,10 @@ export function UpgradeModal() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
-            {isFreePlan ? "Upgrade to continue" : "Out of credits"}
+            {isFreePlan ? "Add credits or upgrade" : "Out of credits"}
           </DialogTitle>
           <DialogDescription>
-            {detail?.reason ?? detail?.message ?? "You've used all your available credits. Choose a plan to continue generating content."}
+            {detail?.reason ?? detail?.message ?? "You've used all your available credits. Add a pack now or choose a plan to continue."}
           </DialogDescription>
         </DialogHeader>
 
@@ -113,6 +124,37 @@ export function UpgradeModal() {
               </div>
             );
           })}
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">Add credits now</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              One-time packs are available whenever you run out and never expire.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {TOP_UPS.map((topUp) => (
+              <div key={topUp.id} className="rounded-md border p-3 space-y-2" data-testid={`upgrade-topup-${topUp.id}`}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-semibold text-sm">${topUp.priceUsd}</span>
+                  <span className="text-xs text-muted-foreground">{topUp.credits} credits</span>
+                </div>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  variant="secondary"
+                  disabled={topUpMutation.isPending}
+                  onClick={() => topUpMutation.mutate(topUp.id)}
+                  data-testid={`button-topup-from-modal-${topUp.id}`}
+                >
+                  {topUpMutation.isPending
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <>Add credits</>}
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
 
         <DialogFooter className="flex flex-col sm:flex-row items-center gap-2">

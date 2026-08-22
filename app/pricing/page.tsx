@@ -1,5 +1,6 @@
 import { CheckCircle2, Zap, Rocket, TrendingUp, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { TOP_UPS } from "@/lib/billing/plans";
 
 const PLANS = [
   {
@@ -64,14 +65,6 @@ const CREDIT_MENU = [
   { operation: "Podcast", credits: 8, description: "Two-voice AI podcast from any article" },
   { operation: "Video", credits: 15, description: "60-second social video with TTS narration" },
   { operation: "Social post", credits: 4, description: "Platform-optimised posts for 3–5 channels" },
-];
-
-const TOP_UPS = [
-  { id: "topup_20",  credits: 20,  priceUsd: 12,  label: "Starter Pack" },
-  { id: "topup_50",  credits: 50,  priceUsd: 25,  label: "Small Pack" },
-  { id: "topup_100", credits: 100, priceUsd: 45,  label: "Medium Pack" },
-  { id: "topup_250", credits: 250, priceUsd: 100, label: "Large Pack" },
-  { id: "topup_500", credits: 500, priceUsd: 180, label: "Bulk Pack" },
 ];
 
 export const metadata = {
@@ -209,7 +202,7 @@ export default function PricingPage() {
         <p className="text-muted-foreground text-center mb-8">
           One-time purchases that never expire — stack them on any plan.
         </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {TOP_UPS.map((t) => {
             const cpp = (t.priceUsd / t.credits).toFixed(2);
             return (

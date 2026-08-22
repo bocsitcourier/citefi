@@ -26,7 +26,18 @@ interface BillingStatus {
     hasCustomer: boolean;
     hasSubscription: boolean;
   };
-  credits: { balance: number };
+  credits: {
+    balance: number;
+    allowanceRemaining: number;
+    purchasedRemaining: number;
+    totalRemaining: number;
+  };
+  purchases: Array<{
+    id: number;
+    amount: number;
+    reason: string | null;
+    createdAt: string;
+  }>;
 }
 
 const PLAN_ORDER: string[] = ["free", "starter", "growth", "agency", "enterprise"];
@@ -193,7 +204,7 @@ export default function BillingPage() {
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <p className="text-xs text-muted-foreground">Credits balance</p>
-              <p className="text-2xl font-bold" data-testid="text-billing-credits">{credits.balance.toLocaleString()}</p>
+              <p className="text-2xl font-bold" data-testid="text-billing-credits">{credits.totalRemaining.toLocaleString()}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Monthly allowance</p>
@@ -279,37 +290,63 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Top-ups — only for active paid plans */}
-      {billing.hasActivePlan && !trialExpired && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Buy extra credits</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {TOP_UPS.map(t => (
-              <Card key={t.id}>
-                <CardContent className="pt-5 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <Zap className="h-4 w-4 text-primary" />
-                      <span className="font-semibold">{t.credits.toLocaleString()} credits</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-0.5">${t.priceUsd} one-time</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => topUpMutation.mutate({ topUpId: t.id })}
-                    disabled={topUpMutation.isPending}
-                    data-testid={`button-topup-${t.id}`}
-                  >
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    Buy
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Add credits</h2>
+          <p className="text-sm text-muted-foreground mt-1">One-time packs never expire and can be purchased again whenever you need them.</p>
         </div>
-      )}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {TOP_UPS.map(t => (
+            <Card key={t.id}>
+              <CardContent className="pt-5 flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <span className="font-semibold">{t.credits.toLocaleString()} credits</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-0.5">${t.priceUsd} one-time</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => topUpMutation.mutate({ topUpId: t.id })}
+                  disabled={topUpMutation.isPending}
+                  data-testid={`button-topup-${t.id}`}
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Buy
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <Card data-testid="client-credit-purchase-history">
+        <CardHeader>
+          <CardTitle className="text-base">Credit purchase history</CardTitle>
+          <CardDescription>Completed one-time credit packs for this team.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.purchases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No credit packs purchased yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {data.purchases.map((purchase) => (
+                <div key={purchase.id} className="flex items-center justify-between gap-4 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{purchase.reason ?? "Credit pack"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(purchase.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-primary shrink-0">+{purchase.amount.toLocaleString()} credits</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

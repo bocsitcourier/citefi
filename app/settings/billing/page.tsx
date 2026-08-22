@@ -22,6 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TOP_UPS } from "@/lib/billing/plans";
 
 interface BillingStatus {
   plan: {
@@ -47,6 +48,12 @@ interface BillingStatus {
     allowanceCredits: number;
     purchasedCredits: number;
   };
+  purchases: Array<{
+    id: number;
+    amount: number;
+    reason: string | null;
+    createdAt: string;
+  }>;
 }
 
 interface PlanConfig {
@@ -58,13 +65,6 @@ interface PlanConfig {
   features: string[];
   icon: React.ReactNode;
   highlight?: boolean;
-}
-
-interface TopUpConfig {
-  id: string;
-  credits: number;
-  priceUsd: number;
-  label: string;
 }
 
 const PLANS: PlanConfig[] = [
@@ -101,14 +101,6 @@ const PLANS: PlanConfig[] = [
       "Advanced analytics",
     ],
   },
-];
-
-const TOP_UPS: TopUpConfig[] = [
-  { id: "topup_20",  credits: 20,  priceUsd: 12,  label: "Starter Pack" },
-  { id: "topup_50",  credits: 50,  priceUsd: 25,  label: "Small Pack" },
-  { id: "topup_100", credits: 100, priceUsd: 45,  label: "Medium Pack" },
-  { id: "topup_250", credits: 250, priceUsd: 100, label: "Large Pack" },
-  { id: "topup_500", credits: 500, priceUsd: 180, label: "Bulk Pack" },
 ];
 
 async function fetchBillingStatus(): Promise<BillingStatus> {
@@ -181,7 +173,7 @@ export default function BillingPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("success")) {
-      toast({ title: "Payment successful", description: "Your plan has been activated." });
+      toast({ title: "Payment successful", description: "Your subscription or credit balance will update shortly." });
       refetch();
       window.history.replaceState({}, "", "/settings/billing");
     }
@@ -217,15 +209,7 @@ export default function BillingPage() {
     }
   }
 
-  async function handleTopUp(topUp: TopUpConfig) {
-    if (billing?.plan.id === "free") {
-      toast({
-        title: "Upgrade required",
-        description: "Top-ups are not available on the Free plan. Upgrade to Starter or Growth first.",
-        variant: "destructive",
-      });
-      return;
-    }
+  async function handleTopUp(topUp: (typeof TOP_UPS)[number]) {
     setCheckingOut(topUp.id);
     try {
       const result = await createCheckout({ kind: "topup", topUpId: topUp.id });
@@ -434,7 +418,7 @@ export default function BillingPage() {
               <div>
                 <p className="font-medium text-yellow-900 dark:text-yellow-300">Free credits exhausted</p>
                 <p className="text-sm text-yellow-800/80 dark:text-yellow-400/80 mt-1">
-                  You have used all your free credits. Upgrade to continue generating content.
+                  You have used all your free credits. Add a credit pack or upgrade to continue generating content.
                 </p>
               </div>
             </div>
@@ -448,7 +432,7 @@ export default function BillingPage() {
             <div className="flex items-start gap-3">
               <Zap className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-sm text-muted-foreground">
-                You are on the <strong>Free plan</strong> — {totalRemaining} credits remaining. Top-ups are not available on the Free plan. Upgrade for more credits and recurring allowances.
+                You are on the <strong>Free plan</strong> — {totalRemaining} credits remaining. Add a pack whenever you need more, or upgrade for recurring monthly allowances.
               </p>
             </div>
           </CardContent>
@@ -548,16 +532,13 @@ export default function BillingPage() {
       <div>
         <h2 className="text-lg font-semibold mb-1">Credit Top-Ups</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          One-time purchases — never expire.
-          {currentPlanId === "free" && (
-            <span className="ml-1 text-amber-600 dark:text-amber-400">Requires Starter or Growth plan.</span>
-          )}
+          Add credits whenever you need them. One-time purchases never expire and can be bought again at any time.
         </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {TOP_UPS.map((topUp) => {
             const isCheckingOut = checkingOut === topUp.id;
             const cpl = (topUp.priceUsd / topUp.credits).toFixed(2);
-            const disabled = currentPlanId === "free" || !!checkingOut;
+            const disabled = !!checkingOut;
             return (
               <Card key={topUp.id}>
                 <CardContent className="pt-4 pb-4">
@@ -589,6 +570,34 @@ export default function BillingPage() {
           })}
         </div>
       </div>
+
+      <Card data-testid="credit-purchase-history">
+        <CardHeader>
+          <CardTitle className="text-base">Credit purchase history</CardTitle>
+          <CardDescription>Completed credit packs for this team.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {billing.purchases.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No credit packs purchased yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {billing.purchases.map((purchase) => (
+                <div key={purchase.id} className="flex items-center justify-between gap-4 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{purchase.reason ?? "Credit pack"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(purchase.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-primary shrink-0">
+                    +{purchase.amount.toLocaleString()} credits
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
