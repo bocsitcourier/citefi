@@ -62,6 +62,14 @@ geminiRateLimiter.on("failed", async (error, jobInfo) => {
 
 console.log(`🔧 Gemini rate limiter initialized: ${GEMINI_REQUESTS_PER_MINUTE} requests/minute, max ${MAX_CONCURRENT_REQUESTS} concurrent`);
 
+/** Stop limiter-owned timers so test and worker processes can exit cleanly. */
+export async function closeGeminiRateLimiter(): Promise<void> {
+  await geminiRateLimiter.stop({
+    dropWaitingJobs: true,
+    dropErrorMessage: "Gemini rate limiter is shutting down",
+  });
+}
+
 /**
  * US State abbreviation to full name mapping
  */

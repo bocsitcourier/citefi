@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { db } from "./db";
 import { articleAssets, articles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { uploadMedia } from "./storage";
 import { logError } from "./error-logger";
 import { throttledGeminiRequest } from "./gemini";
@@ -51,11 +51,45 @@ export async function generateImagesForArticle(
   articleId: number,
   imagePrompts: string[],
   businessName?: string,
-  targetUrl?: string
+  targetUrl?: string,
+  generationRunId?: string
 ): Promise<ImageGenerationResult[]> {
   if (!imagePrompts || imagePrompts.length === 0) {
     console.warn(`⚠️ No image prompts provided for article ${articleId} — skipping image generation`);
     return [];
+  }
+
+  // An upload may have committed before the worker could atomically attach it
+  // to the article and checkpoint the run. Reuse that durable asset on retry;
+  // never issue another provider call for the same run.
+  if (generationRunId) {
+    const [existingRunAsset] = await db
+      .select({
+        id: articleAssets.id,
+        storageUrl: articleAssets.storageUrl,
+        imagePromptUsed: articleAssets.imagePromptUsed,
+        fileFormat: articleAssets.fileFormat,
+      })
+      .from(articleAssets)
+      .where(and(
+        eq(articleAssets.articleId, articleId),
+        isNull(articleAssets.deletedAt),
+        sql`${articleAssets.metadataJson}->>'articleRunId' = ${generationRunId}`
+      ))
+      .limit(1);
+
+    if (existingRunAsset) {
+      console.log(
+        `♻️ Reusing already-uploaded image for article ${articleId}, run ${generationRunId.slice(0, 8)}`
+      );
+      return [{
+        url: existingRunAsset.storageUrl,
+        prompt: existingRunAsset.imagePromptUsed ?? "checkpoint recovery",
+        format: existingRunAsset.fileFormat,
+        assetId: existingRunAsset.id,
+        reused: true,
+      }];
+    }
   }
 
   // ── Step 1: Fetch article metadata for memory lookup ─────────────────────
@@ -88,15 +122,17 @@ export async function generateImagesForArticle(
 
   if (reusedUrl) {
     // Reuse existing image — no Gemini API call needed
-    try {
-      await db
-        .update(articles)
-        .set({ heroImageUrl: reusedUrl })
-        .where(eq(articles.id, articleId));
-      console.log(`♻️ Hero image reused for article ${articleId} — $0.00 AI cost`);
-    } catch (err) {
-      console.error(`❌ Failed to set reused hero image for article ${articleId}:`, err);
+    if (!generationRunId) {
+      try {
+        await db
+          .update(articles)
+          .set({ heroImageUrl: reusedUrl })
+          .where(eq(articles.id, articleId));
+      } catch (err) {
+        console.error(`❌ Failed to set reused hero image for article ${articleId}:`, err);
+      }
     }
+    console.log(`♻️ Hero image reused for article ${articleId} — $0.00 AI cost`);
     return [{ url: reusedUrl, prompt: "reused", format: "png", reused: true }];
   }
 
@@ -168,6 +204,7 @@ export async function generateImagesForArticle(
           model: getModel("geminiImage"),
           isHeroImage: true,
           originalPrompt: heroPromptRaw,
+          ...(generationRunId ? { articleRunId: generationRunId } : {}),
         },
       });
 
@@ -180,13 +217,14 @@ export async function generateImagesForArticle(
         .where(eq(articleAssets.storageUrl, permanentUrl))
         .limit(1);
 
-      // Persist hero image URL on the article
-      await db
-        .update(articles)
-        .set({ heroImageUrl: permanentUrl })
-        .where(eq(articles.id, articleId));
-
-      console.log(`✅ Hero image set for article ${articleId}`);
+      // Run-aware callers commit the article URL and image checkpoint together.
+      if (!generationRunId) {
+        await db
+          .update(articles)
+          .set({ heroImageUrl: permanentUrl })
+          .where(eq(articles.id, articleId));
+        console.log(`✅ Hero image set for article ${articleId}`);
+      }
 
       return [{ url: permanentUrl, prompt: heroPromptRaw, format: "png", assetId: asset?.id }];
     } catch (error) {
@@ -212,13 +250,15 @@ export async function generateImagesForArticle(
 
   // ── All retries failed: set fallback placeholder ─────────────────────────
   console.error(`❌ Hero image generation failed for article ${articleId} — applying fallback`);
-  try {
-    await db
-      .update(articles)
-      .set({ heroImageUrl: FALLBACK_HERO_IMAGE })
-      .where(eq(articles.id, articleId));
-  } catch (err) {
-    console.error(`❌ Failed to set fallback hero image:`, err);
+  if (!generationRunId) {
+    try {
+      await db
+        .update(articles)
+        .set({ heroImageUrl: FALLBACK_HERO_IMAGE })
+        .where(eq(articles.id, articleId));
+    } catch (err) {
+      console.error(`❌ Failed to set fallback hero image:`, err);
+    }
   }
 
   await logError({
@@ -228,7 +268,9 @@ export async function generateImagesForArticle(
     articleId,
   });
 
-  return [];
+  return generationRunId
+    ? [{ url: FALLBACK_HERO_IMAGE, prompt: "fallback", format: "svg", reused: true }]
+    : [];
 }
 
 export async function generateSingleImage(prompt: string): Promise<string | null> {

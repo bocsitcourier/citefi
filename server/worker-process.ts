@@ -4,6 +4,7 @@ import { registerWorkers } from "../lib/worker";
 import { validateAndResolveModels } from "../lib/model-resolver";
 import { validateApprovalTokenSecret } from "../lib/approval-token";
 import { closeQueues } from "../lib/queue";
+import { closePipelineWorkers } from "../lib/pipeline-worker";
 import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
 import { neonHttpDb } from "../lib/db";
@@ -137,23 +138,50 @@ async function startWorkers() {
   }
 }
 
-// Graceful shutdown
-async function shutdown() {
-  console.log("\n🛑 Shutting down workers...");
+let shutdownPromise: Promise<void> | null = null;
+
+// Graceful shutdown. One owner coordinates all resources so a queue-level
+// signal handler cannot exit the process before active workers have drained.
+async function shutdown(signal: NodeJS.Signals) {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+  console.log(`\n🛑 ${signal} received — draining workers...`);
+  let exitCode = 0;
   try {
     if (keepAliveTimer) clearInterval(keepAliveTimer);
     await stopJobMonitor();
+    const [
+      { stopProviderCircuitScheduler },
+      { stopSpendBreakerScheduler },
+    ] = await Promise.all([
+      import("../lib/provider-circuit-breaker"),
+      import("../lib/spend-breaker"),
+    ]);
+    stopProviderCircuitScheduler();
+    stopSpendBreakerScheduler();
+
+    const result = await closePipelineWorkers(30_000);
+    if (result.timedOut) {
+      exitCode = 1;
+      console.error(
+        `⚠️ Forced shutdown after deadline (${result.forced} worker connection(s)); BullMQ will recover unfinished jobs`
+      );
+    } else {
+      console.log(`✅ Drained ${result.drained} BullMQ worker(s)`);
+    }
     await closeQueues();
     console.log("✅ Workers stopped gracefully");
-    process.exit(0);
   } catch (error) {
     console.error("❌ Error during shutdown:", error);
-    process.exit(1);
+    exitCode = 1;
   }
+  process.exit(exitCode);
+  })();
+  return shutdownPromise;
 }
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
 
 // Start the workers
 startWorkers();

@@ -127,7 +127,7 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
     // 2) Article marked FAILED (not left PENDING forever).
     const [a] = await db.select().from(articles).where(eq(articles.id, article.id));
     assert.equal(a.articleStatus, "FAILED", "article must be marked FAILED");
-    assert.match(a.errorMessage ?? "", /BUDGET_EXCEEDED|cost ceiling/i);
+    assert.match(a.errorMessage ?? "", /budget reached|BUDGET_EXCEEDED|cost ceiling/i);
 
     // 3) Batch completion logic ran: with its only article FAILED, the batch
     //    must be terminal (FAILED), not stuck RUNNING.

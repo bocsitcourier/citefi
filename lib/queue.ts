@@ -1,4 +1,4 @@
-import { Queue } from "bullmq";
+import { Queue, type Job } from "bullmq";
 import Redis, { type RedisOptions } from "ioredis";
 
 // ============================================================================
@@ -83,6 +83,7 @@ export interface SocialPostJobData {
 export interface ImageGenerationJobData {
   articleId: number;
   batchId: number;
+  runId?: string;
   imagePrompts: string[];
   businessName?: string;
 }
@@ -307,10 +308,28 @@ export async function addBatchGenerationJob(data: BatchJobData) {
     );
   }
 
-  const job = await getQueue(BATCH_GENERATION_QUEUE).add("batch", data, {
-    attempts: 2,
-    backoff: { type: "exponential", delay: 10000 },
-  });
+  const queue = getQueue(BATCH_GENERATION_QUEUE);
+  const jobId = `batch:${data.batchId}`;
+  let job: Job;
+  try {
+    job = await queue.add("batch", data, {
+      jobId,
+      attempts: 2,
+      backoff: { type: "exponential", delay: 10000 },
+    });
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+    if (accepted) return accepted.id ?? jobId;
+    const [{ db }, { jobBatches }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(jobBatches)
+      .set({ status: "FAILED_ENQUEUE" })
+      .where(eq(jobBatches.id, data.batchId));
+    throw error;
+  }
 
   console.log(
     `📦 Queued batch generation job: ${job.id} for batch ${data.batchId} (brand: ${data.businessName})`
@@ -327,21 +346,67 @@ export async function addArticleJob(data: ArticleJobData) {
 
   const runId = data.runId || crypto.randomUUID();
   const enrichedData = { ...data, runId };
+  const {
+    prepareArticleRunForEnqueue,
+    markArticleRunEnqueueFailed,
+  } = await import("./article-run-state");
+  await prepareArticleRunForEnqueue({
+    articleId: data.articleId,
+    runId,
+    runType: data.customInstructions ? "regeneration" : "generation",
+  });
 
-  const job = await getQueue(ARTICLE_GENERATION_QUEUE).add(
-    "article",
-    enrichedData,
-    {
-      jobId: runId,  // BullMQ native dedup: double-clicks get the same job
-      attempts: 3,
-      backoff: { type: "exponential", delay: 5000 },
+  const queue = getQueue(ARTICLE_GENERATION_QUEUE);
+  let job: Job;
+  try {
+    job = await queue.add(
+      "article",
+      enrichedData,
+      {
+        jobId: runId,  // BullMQ native dedup: double-clicks get the same job
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
+      }
+    );
+  } catch (enqueueError) {
+    // Queue.add() can time out after Redis accepted the write. Confirm absence
+    // before declaring FAILED_ENQUEUE so a retry cannot race an existing job.
+    const acceptedJob = await findJobAfterAmbiguousEnqueue(queue, runId);
+    if (acceptedJob) {
+      console.warn(
+        `⚠️ Article enqueue returned an error but job ${runId} exists; treating it as accepted`
+      );
+      return acceptedJob.id ?? runId;
     }
-  );
+
+    await markArticleRunEnqueueFailed({
+      articleId: data.articleId,
+      runId,
+      error: enqueueError,
+    });
+    throw enqueueError;
+  }
 
   console.log(
     `✅ Article job queued: ${job.id} for article ${data.articleId} (brand: ${data.businessName}, runId: ${runId.slice(0, 8)}...)`
   );
   return job.id ?? null;
+}
+
+const ENQUEUE_CONFIRMATION_DELAYS_MS = [100, 250, 500] as const;
+
+export async function findJobAfterAmbiguousEnqueue(
+  queue: Pick<Queue, "getJob">,
+  jobId: string,
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<Job | null> {
+  for (const delayMs of ENQUEUE_CONFIRMATION_DELAYS_MS) {
+    const job = await queue.getJob(jobId);
+    if (job) return job;
+    await sleep(delayMs);
+  }
+  return (await queue.getJob(jobId)) ?? null;
 }
 
 export async function addSocialPostJob(
@@ -354,15 +419,31 @@ export async function addSocialPostJob(
   };
 
   // BullMQ deduplication via jobId (equivalent to pg-boss singletonKey)
-  if (options?.singletonKey) {
-    jobOpts.jobId = options.singletonKey;
-  }
+  const enqueueJobId =
+    options?.singletonKey ?? `social:${data.socialPostId}:${crypto.randomUUID()}`;
+  jobOpts.jobId = enqueueJobId;
 
-  const job = await getQueue(SOCIAL_POST_GENERATION_QUEUE).add(
-    "social-post",
-    data,
-    jobOpts
-  );
+  const queue = getQueue(SOCIAL_POST_GENERATION_QUEUE);
+  let job: Job;
+  try {
+    job = await queue.add("social-post", data, jobOpts);
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, enqueueJobId);
+    if (accepted) return accepted.id ?? enqueueJobId;
+    const [{ db }, { socialPosts }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(socialPosts)
+      .set({
+        status: "FAILED_ENQUEUE",
+        errorMessage: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(socialPosts.id, data.socialPostId));
+    throw error;
+  }
 
   if (!job) {
     if (options?.singletonKey) {
@@ -392,7 +473,9 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
   const job = await getQueue(IMAGE_GENERATION_QUEUE).add("image", data, {
     // Dedup by articleId: prevents a race where two parallel requests both
     // queue image generation for the same article.
-    jobId: `image:${data.articleId}`,
+    jobId: data.runId
+      ? `image:${data.articleId}:${data.runId}`
+      : `image:${data.articleId}`,
     attempts: 2,
     backoff: { type: "exponential", delay: 10000 },
   });
@@ -451,10 +534,32 @@ export async function addSiteCrawlJob(data: SiteCrawlJobData) {
 }
 
 export async function addPublishingJob(data: PublishingJobData) {
-  const job = await getQueue(CONTENT_PUBLISHING_QUEUE).add("publish", data, {
-    attempts: 2,
-    backoff: { type: "exponential", delay: 30000 },
-  });
+  const queue = getQueue(CONTENT_PUBLISHING_QUEUE);
+  const jobId = `publishing:${data.dbJobId}`;
+  let job: Job;
+  try {
+    job = await queue.add("publish", data, {
+      jobId,
+      attempts: 2,
+      backoff: { type: "exponential", delay: 30000 },
+    });
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+    if (accepted) return accepted.id ?? jobId;
+    const [{ db }, { publishingJobs }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(publishingJobs)
+      .set({
+        status: "failed_enqueue",
+        lastError: error instanceof Error ? error.message.slice(0, 2000) : String(error).slice(0, 2000),
+        updatedAt: new Date(),
+      })
+      .where(eq(publishingJobs.id, data.dbJobId));
+    throw error;
+  }
 
   console.log(
     `📤 Publishing job queued: ${job.id} for db job ${data.dbJobId} (team ${data.teamId})`
@@ -481,13 +586,34 @@ export async function addIntelligenceResearchJob(
 }
 
 export async function addPodcastGenerationJob(data: PodcastJobData) {
-  const job = await getQueue(PODCAST_GENERATION_QUEUE).add("podcast", data, {
+  const queue = getQueue(PODCAST_GENERATION_QUEUE);
+  const jobId = `podcast:${data.articleId}`;
+  let job: Job;
+  try {
+    job = await queue.add("podcast", data, {
     // Dedup by articleId: prevents double-submits while the job is pending/active.
     // Once the job reaches a terminal state and is removed, a new one can be added.
-    jobId: `podcast:${data.articleId}`,
+    jobId,
     attempts: 3,
     backoff: { type: "exponential", delay: 60000 },
   });
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+    if (accepted) return accepted.id ?? jobId;
+    const [{ db }, { articles }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(articles)
+      .set({
+        podcastStatus: "failed_enqueue",
+        errorMessage: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(articles.id, data.articleId));
+    throw error;
+  }
 
   console.log(
     `🎙️ Podcast generation job queued: ${job.id} for article ${data.articleId}`
@@ -496,18 +622,37 @@ export async function addPodcastGenerationJob(data: PodcastJobData) {
 }
 
 export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { delayMs?: number }) {
-  const job = await getQueue(SOCIAL_VIDEO_GENERATION_QUEUE).add(
-    "social-video",
-    data,
-    {
+  const queue = getQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
+  const jobId = data.creditRunId
+    ? `video:${data.creditRunId}`
+    : `video:${data.socialPostId}:${crypto.randomUUID()}`;
+  let job: Job;
+  try {
+    job = await queue.add("social-video", data, {
       // Dedup by creditRunId so a double-submit uses the same reservation.
       // Falls back to socialPostId + timestamp so intentional retries after
       // failure still create new jobs.
-      jobId: data.creditRunId ? `video:${data.creditRunId}` : `video:${data.socialPostId}:${Date.now()}`,
+      jobId,
       attempts: 1, // No retries — each attempt consumes a credit reservation
       ...(opts?.delayMs ? { delay: opts.delayMs } : {}),
-    }
-  );
+    });
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+    if (accepted) return accepted.id ?? jobId;
+    const [{ db }, { socialPosts }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(socialPosts)
+      .set({
+        videoStatus: "FAILED_ENQUEUE",
+        errorMessage: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(socialPosts.id, data.socialPostId));
+    throw error;
+  }
 
   console.log(
     `🎬 Social video job queued: ${job.id} for social post ${data.socialPostId}`
@@ -516,13 +661,33 @@ export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { d
 }
 
 export async function addVideoIdeaJob(data: VideoIdeaJobData) {
-  const job = await getQueue(VIDEO_IDEA_GENERATION_QUEUE).add(
-    "video-idea",
-    data,
-    {
+  const queue = getQueue(VIDEO_IDEA_GENERATION_QUEUE);
+  const jobId = data.creditRunId
+    ? `video-idea:${data.creditRunId}`
+    : `video-idea:${data.videoIdeaId}:${crypto.randomUUID()}`;
+  let job: Job;
+  try {
+    job = await queue.add("video-idea", data, {
+      jobId,
       attempts: 1, // No retries — each attempt consumes a credit reservation
-    }
-  );
+    });
+  } catch (error) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+    if (accepted) return accepted.id ?? jobId;
+    const [{ db }, { videoIdeas }, { eq }] = await Promise.all([
+      import("./db"),
+      import("@/shared/schema"),
+      import("drizzle-orm"),
+    ]);
+    await db.update(videoIdeas)
+      .set({
+        status: "FAILED_ENQUEUE",
+        errorMessage: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
+        updatedAt: new Date(),
+      })
+      .where(eq(videoIdeas.id, data.videoIdeaId));
+    throw error;
+  }
   console.log(`🎬 Video idea job queued: ${job.id} for video ${data.videoIdeaId}`);
   return job.id ?? null;
 }
@@ -587,15 +752,3 @@ export async function closeQueues() {
 
   console.log("🛑 BullMQ queues and Redis connection closed");
 }
-
-process.on("SIGTERM", async () => {
-  console.log("SIGTERM received, closing queues...");
-  await closeQueues();
-  process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  console.log("SIGINT received, closing queues...");
-  await closeQueues();
-  process.exit(0);
-});

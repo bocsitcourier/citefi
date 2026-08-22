@@ -225,12 +225,22 @@ export async function getProviderCircuitStatus(): Promise<Record<ProtectedProvid
   return result;
 }
 
+let providerCircuitTimer: NodeJS.Timeout | null = null;
+
 export function startProviderCircuitScheduler(): void {
+  if (providerCircuitTimer) return;
   const run = () => probeOpenProviderCircuits().catch((err) =>
     console.warn("[provider-circuit] probe scheduler failed:", err instanceof Error ? err.message : err)
   );
   run();
-  const timer = setInterval(run, PROBE_INTERVAL_MS);
-  timer.unref();
+  providerCircuitTimer = setInterval(run, PROBE_INTERVAL_MS);
+  providerCircuitTimer.unref();
   console.log("⏱️ Provider circuit probe scheduler registered (every 60s)");
+}
+
+export function stopProviderCircuitScheduler(): void {
+  if (!providerCircuitTimer) return;
+  clearInterval(providerCircuitTimer);
+  providerCircuitTimer = null;
+  console.log("🛑 Provider circuit probe scheduler stopped");
 }

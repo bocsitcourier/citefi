@@ -126,7 +126,7 @@ export async function callOpenAI<T>(
   });
 }
 
-setInterval(() => {
+const openAIStatsTimer = setInterval(() => {
   if (totalCalls > 0) {
     const stats = getOpenAIStats();
     console.log(
@@ -135,3 +135,13 @@ setInterval(() => {
     );
   }
 }, 60000);
+openAIStatsTimer.unref();
+
+/** Stop limiter-owned resources so test and worker processes can exit cleanly. */
+export async function closeOpenAIClient(): Promise<void> {
+  clearInterval(openAIStatsTimer);
+  await openaiLimiter.stop({
+    dropWaitingJobs: true,
+    dropErrorMessage: "OpenAI rate limiter is shutting down",
+  });
+}

@@ -1,6 +1,6 @@
 ---
 name: Reservation state machine
-description: credit_ledger reserve rows enforce RESERVED→DEBITED|RELEASED; CAS rules, throw-on-guard-failure invariant, sweeper per-reservation remaining calc.
+description: credit_ledger reserve rows enforce RESERVED→DEBITED|RELEASED; CAS rules, delivered-content settlement, and safe stale sweeping.
 ---
 
 # Reservation State Machine
@@ -26,11 +26,21 @@ After the CAS claim (RESERVED→DEBITED or RESERVED→RELEASED), if the `credit_
 
 ## Sweeper
 Every 6h on `reservation-sweeper` queue. For each RESERVED row older than 24h:
+0. Protect reservations linked to delivered content that is still awaiting debit settlement.
 1. Compute `remaining = reservation.amount − sum(|debits|) − sum(prior_releases)` from the ledger (never from team-wide `reservedCredits` aggregate — that would over-release)
 2. If remaining ≤ 0: directly flip status to RELEASED (no balance change)
 3. If remaining > 0: call `releaseReservation(amount=remaining)`, then directly flip status to RELEASED
 
 **Why:** Team-wide `reservedCredits` aggregate must not drive per-reservation sweeping.
+
+## Delivered-content settlement
+Once content is durably delivered, a failed debit is a settlement problem, not a generation failure. Persist the original billing identity before delivery, preserve the reservation, and let an independent reconciler retry the idempotent debit. Recovery must include both explicit billing-pending state and expired processing state whose content is already complete.
+
+Image delivery follows the same rule: tag uploaded assets with the durable run identity, reuse them after a crash, and commit the user-visible image reference plus stage checkpoint atomically.
+
+**Why:** Worker retry exhaustion must never produce either free delivered content or a duplicate provider generation.
+
+**How to apply:** Any new content pipeline needs a durable run record, stable settlement key, delivered-content sweeper exclusion, independent settlement reconciliation, and an atomic checkpoint around externally created assets. Promote expired processing state into settlement only when the complete billing identity was persisted; legacy complete rows without that identity must remain untouched.
 
 ## DB indexes
 - `credit_ledger_reservation_status_idx`: partial WHERE `reservation_status='RESERVED'`

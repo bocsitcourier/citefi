@@ -1,5 +1,5 @@
 import { type Job } from "bullmq";
-import { createPipelineWorker } from "./pipeline-worker";
+import { BillingSettlementError, createPipelineWorker } from "./pipeline-worker";
 import {
   getRedisConnection,
   getQueue,
@@ -40,9 +40,20 @@ import {
   type SignupCompetitorIntakeJobData,
 } from "@/lib/queue";
 import { cancelCapReservation } from "@/lib/usage-caps";
-import { db } from "./db";
-import { jobBatches, articles, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
+import { db, getTxDb } from "./db";
+import { jobBatches, articles, articleRuns, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
+import {
+  claimArticleImageStage,
+  claimArticleRun,
+  completeArticleImageStage,
+  getArticleResumePlan,
+  heartbeatArticleRunLease,
+  nextSettlementAttemptAt,
+  protectsDeliveredReservation,
+  releaseArticleImageStage,
+  updateClaimedArticleRun,
+} from "./article-run-state";
 import { generateArticleWithGemini } from "./gemini";
 import { enhanceArticleWithGPT } from "./openai";
 import { validateBrandInOutput } from "./branding";
@@ -107,11 +118,25 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
         // The watchdog uses this timestamp instead of a stage transition alone:
         // a long but healthy Gemini/GPT call should never be mistaken for a crash.
-        const heartbeat = () =>
-          db.update(articles)
+        let runLeaseToken: string | null = null;
+        const heartbeat = async () => {
+          await db.update(articles)
             .set({ lastHeartbeatAt: new Date(), updatedAt: new Date() })
             .where(eq(articles.id, articleId))
             .catch((err) => console.warn(`⚠️ [article ${articleId}] heartbeat update failed:`, err));
+          if (runLeaseToken) {
+            const renewed = await heartbeatArticleRunLease({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+            }).catch(() => false);
+            if (!renewed) {
+              console.error(
+                `🛑 Article ${articleId} run ${runId.slice(0, 8)} lost its worker lease`
+              );
+            }
+          }
+        };
         await heartbeat();
         const heartbeatTimer = setInterval(() => { void heartbeat(); }, 2 * 60 * 1000);
         heartbeatTimer.unref();
@@ -120,6 +145,11 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         // that predate this field being stored in job data.
         const { getCreditCost: _getCreditCost } = await import("@/lib/credit-menu");
         const articleCreditCost = rawCreditCostPerUnit ?? _getCreditCost("article") ?? 10;
+        let persistedBillingTeamId: number | null = articleTeamId ?? null;
+        let persistedBillingRunId: string | null = articleCreditRunId ?? null;
+        let persistedBillingAmount = articleCreditCost;
+        let persistedBillingJobId = String(job.id);
+        let persistedSettlementAttempts = 0;
 
       try {
         // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
@@ -162,7 +192,6 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         }
 
         // STEP 1: Check article_runs for existing run records (duplicate detection & cache lookup)
-        const { articleRuns } = await import("@/shared/schema");
         const [existingRun] = await db
           .select()
           .from(articleRuns)
@@ -171,10 +200,14 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             eq(articleRuns.runId, runId)
           ))
           .limit(1);
+        persistedBillingTeamId = existingRun?.billingTeamId ?? persistedBillingTeamId;
+        persistedBillingRunId = existingRun?.billingRunId ?? persistedBillingRunId;
+        persistedBillingAmount = existingRun?.billingAmount ?? persistedBillingAmount;
+        persistedBillingJobId = existingRun?.billingJobId ?? persistedBillingJobId;
+        persistedSettlementAttempts = existingRun?.settlementAttempts ?? 0;
         
-        // STEP 2: Handle existing runs based on status
-        if (existingRun) {
-          if (existingRun.status === 'completed') {
+        // STEP 2: Handle already-settled runs before trying to claim ownership.
+        if (existingRun?.status === "completed") {
             // This run already finished. Check if the article itself is in a terminal state.
             // If so, there is nothing to do — return early to avoid double-generation.
             const [runArticle] = await db.select({ articleStatus: articles.articleStatus })
@@ -182,61 +215,127 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             const terminalStatuses = ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED'];
             if (runArticle && terminalStatuses.includes(runArticle.articleStatus || '')) {
               console.log(`⏭️ SKIPPING: Article ${articleId} run ${runId.slice(0,8)} already completed and article is ${runArticle.articleStatus} — no regeneration needed`);
-              // Ensure any outstanding reservation is debited before returning.
-              // This path is reached on a pg-boss retry when the prior attempt completed
-              // generation + DB write but failed on debit, causing the job to retry.
-              // ok:false means no reservation exists (pre-billing article, or already debited
-              // and reservation cleared) — safe to ignore; do NOT throw here or we create
-              // an infinite retry loop on an article that cannot be regenerated.
-              if (articleTeamId && articleCreditRunId) {
-                const { debitReservation } = await import("@/lib/billing");
-                const debitResult = await debitReservation({
-                  teamId: articleTeamId,
-                  runId: articleCreditRunId,
-                  amount: articleCreditCost,
-                  jobId: String(job.id),
-                });
-                if (!debitResult.ok) {
-                  console.warn(`[billing] article ${articleId} terminal-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
-                }
-              }
-               clearInterval(heartbeatTimer);
+              clearInterval(heartbeatTimer);
               return;
             }
             // Run completed but article isn't in terminal state — continue to regenerate
             console.log(`♻️ CACHE HIT: Article ${articleId} run ${runId.slice(0,8)} completed but article is ${runArticle?.articleStatus} — continuing`);
-          } else if (existingRun.status === 'running') {
-            // Update heartbeat timestamp to show this worker is actively processing
-            // This allows legitimate pg-boss retries to resume work instead of getting stuck
-            console.log(`🔄 RESUMING: Article ${articleId} run ${runId.slice(0,8)} continuing from previous attempt`);
-            await db
-              .update(articleRuns)
-              .set({ startedAt: new Date() }) // Heartbeat update
-              .where(eq(articleRuns.id, existingRun.id));
-          } else if (existingRun.status === 'failed') {
-            // Previous run failed - retry with fresh attempt
-            console.log(`🔁 RETRY: Article ${articleId} run ${runId.slice(0,8)} retrying after previous failure`);
-            await db
-              .update(articleRuns)
-              .set({ status: 'running', startedAt: new Date() })
-              .where(eq(articleRuns.id, existingRun.id));
-          }
-        } else {
-          // STEP 3: Create new run record
-          await db.insert(articleRuns).values({
+        }
+
+        const claim = await claimArticleRun({ articleId, runId });
+        if (!claim) {
+          console.warn(
+            `⏭️ Article ${articleId} run ${runId.slice(0, 8)} is already owned by another worker`
+          );
+          clearInterval(heartbeatTimer);
+          return;
+        }
+        runLeaseToken = claim.leaseToken;
+        if (articleTeamId && articleCreditRunId) {
+          const billingMetadataStored = await updateClaimedArticleRun({
             articleId,
             runId,
-            status: 'running',
-            runType: customInstructions ? 'regeneration' : 'generation',
+            leaseToken: runLeaseToken,
+            values: {
+              billingTeamId: articleTeamId,
+              billingRunId: articleCreditRunId,
+              billingAmount: articleCreditCost,
+              billingJobId: String(job.id),
+            },
           });
-          console.log(`🆕 Created article run record: article ${articleId}, runId ${runId.slice(0,8)}`);
+          if (!billingMetadataStored) {
+            throw new Error(`LEASE_LOST: cannot persist billing metadata for run ${runId}`);
+          }
         }
+        console.log(
+          `${claim.previousStatus === "queued" ? "▶️ STARTING" : "🔄 RESUMING"}: ` +
+          `Article ${articleId} run ${runId.slice(0, 8)} (from ${claim.previousStatus})`
+        );
         
         // Check current article status to resume from previous stage if needed
         const [currentArticle] = await db
           .select()
           .from(articles)
           .where(eq(articles.id, articleId));
+        const resumePlan = getArticleResumePlan({
+          run: existingRun,
+          article: currentArticle,
+        });
+
+        // Content is already durable but its debit did not settle. Claiming this
+        // state is settlement-only: never re-enter a provider stage.
+        if (
+          claim.previousStatus === "billing_pending" &&
+          resumePlan.settlementOnly
+        ) {
+          const settlementTeamId = existingRun?.billingTeamId ?? articleTeamId;
+          const settlementRunId = existingRun?.billingRunId ?? articleCreditRunId;
+          const settlementAmount = existingRun?.billingAmount ?? articleCreditCost;
+          const settlementJobId = existingRun?.billingJobId ?? String(job.id);
+          if (settlementTeamId && settlementRunId && settlementJobId) {
+            const { debitReservation } = await import("@/lib/billing");
+            const debitResult = await debitReservation({
+              teamId: settlementTeamId,
+              runId: settlementRunId,
+              amount: settlementAmount,
+              jobId: settlementJobId,
+            });
+            if (!debitResult.ok) {
+              await updateClaimedArticleRun({
+                articleId,
+                runId,
+                leaseToken: runLeaseToken,
+                values: {
+                  status: "billing_pending",
+                  completedAt: new Date(),
+                  leaseToken: null,
+                  leaseExpiresAt: null,
+                  settlementLastError: "Reservation debit returned ok:false",
+                  settlementNextAttemptAt: nextSettlementAttemptAt(
+                    (existingRun?.settlementAttempts ?? 0) + 1
+                  ),
+                },
+              });
+              throw new BillingSettlementError(
+                `Debit settlement failed for article ${articleId}`
+              );
+            }
+          } else {
+            await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: {
+                status: "billing_pending",
+                completedAt: new Date(),
+                leaseToken: null,
+                leaseExpiresAt: null,
+                settlementLastError: "Billing settlement metadata is incomplete",
+                settlementNextAttemptAt: nextSettlementAttemptAt(
+                  (existingRun?.settlementAttempts ?? 0) + 1
+                ),
+              },
+            });
+            throw new BillingSettlementError(
+              `Billing settlement metadata is incomplete for article ${articleId}`
+            );
+          }
+          await updateClaimedArticleRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+            values: {
+              status: "completed",
+              completedAt: new Date(),
+              leaseToken: null,
+              leaseExpiresAt: null,
+              settlementLastError: null,
+              settlementNextAttemptAt: null,
+            },
+          });
+          clearInterval(heartbeatTimer);
+          return;
+        }
 
         // IDEMPOTENCY GUARD: Never regenerate an article that has reached COMPLETE.
         // GPT4_ENHANCED is an intermediate status (pre-Guardian); articles stuck
@@ -248,6 +347,20 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           // Same rationale as the existingRun early-return above: on a debit-failure
           // retry we must attempt the debit; ok:false just means no reservation to debit.
           if (articleTeamId && articleCreditRunId) {
+            await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: {
+                status: "billing_pending",
+                completedAt: new Date(),
+                billingTeamId: articleTeamId,
+                billingRunId: articleCreditRunId,
+                billingAmount: articleCreditCost,
+                billingJobId: String(job.id),
+                settlementNextAttemptAt: new Date(),
+              },
+            });
             const { debitReservation } = await import("@/lib/billing");
             const debitResult = await debitReservation({
               teamId: articleTeamId,
@@ -256,20 +369,56 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               jobId: String(job.id),
             });
             if (!debitResult.ok) {
-              console.warn(`[billing] article ${articleId} final-status-skip: no outstanding reservation for runId=${articleCreditRunId} — debit skipped.`);
+              await updateClaimedArticleRun({
+                articleId,
+                runId,
+                leaseToken: runLeaseToken,
+                values: {
+                  status: "billing_pending",
+                  completedAt: new Date(),
+                  leaseToken: null,
+                  leaseExpiresAt: null,
+                  settlementLastError: "Reservation debit returned ok:false",
+                  settlementNextAttemptAt: nextSettlementAttemptAt(
+                    (existingRun?.settlementAttempts ?? 0) + 1
+                  ),
+                },
+              });
+              throw new BillingSettlementError(
+                `Debit settlement failed for completed article ${articleId}`
+              );
             }
           }
-           clearInterval(heartbeatTimer);
+          await updateClaimedArticleRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+            values: {
+              status: "completed",
+              completedAt: new Date(),
+              leaseToken: null,
+              leaseExpiresAt: null,
+              settlementLastError: null,
+              settlementNextAttemptAt: null,
+            },
+          });
+          clearInterval(heartbeatTimer);
           return;
         }
         
         let geminiResult: any;
         let skipGeminiUpdate = false;
         
-        // RESUME LOGIC: Skip Gemini if content is already generated (preserve expensive work).
-        // Covers both GEMINI_COMPLETE (Gemini done, ChatGPT pending) and GPT4_ENHANCED
-        // (ChatGPT done, Guardian/disclosure/COMPLETE pending — re-runs ChatGPT cheaply).
-        if ((currentArticle?.articleStatus === "GEMINI_COMPLETE" || currentArticle?.articleStatus === "GPT4_ENHANCED") && currentArticle?.finalHtmlContent) {
+        const hasGeminiCheckpoint = Boolean(existingRun?.geminiGeneratedAt);
+        if (hasGeminiCheckpoint && !currentArticle?.finalHtmlContent) {
+          throw new Error(
+            `CHECKPOINT_CORRUPT: article ${articleId} has geminiGeneratedAt but no durable content`
+          );
+        }
+
+        // RESUME LOGIC: the run checkpoint is primary evidence. Explicit legacy
+        // stage states remain supported and are backfilled under the active lease.
+        if (resumePlan.skipGemini && currentArticle?.finalHtmlContent) {
           console.log(`♻️ RESUMING: Article ${articleId} is ${currentArticle.articleStatus} — skipping Gemini, resuming from ChatGPT review`);
           
           // Hydrate geminiResult from EXISTING saved metadata (reuse everything as-is)
@@ -287,6 +436,17 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           
           // Skip the database update since data already exists
           skipGeminiUpdate = true;
+          if (!hasGeminiCheckpoint && runLeaseToken) {
+            await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: {
+                geminiGeneratedAt: new Date(),
+                cachedGeminiOutput: geminiResult,
+              },
+            });
+          }
         } else {
           // Update status to IN_PROGRESS
           await db
@@ -437,22 +597,41 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             console.log(`⚠️ Slug collision detected - using unique slug: ${uniqueSlug}`);
           }
 
-          // Update with Gemini content
-          await db
-            .update(articles)
-            .set({
-              articleStatus: "GEMINI_COMPLETE",
-              finalHtmlContent: geminiResult.rawContent,
-              seoTitle: cleanSeoTitle(geminiResult.seoTitle),
-              metaDescription: cleanMetaDescription(geminiResult.metaDescription),
-              slug: uniqueSlug,
-              keywordsJson: geminiResult.keywords || [],
-              hashtagsJson: geminiResult.hashtags || [],
-              faqJson: cleanFaqAnswers(geminiResult.faq || []),
-              imagePromptsJson: geminiResult.imagePrompts || [],
-              wordCount: geminiResult.wordCount,
-            })
-            .where(eq(articles.id, articleId));
+          // Persist provider output and the run checkpoint atomically. A retry
+          // may only skip Gemini when both writes committed together.
+          const txDb = getTxDb();
+          await txDb.transaction(async (tx) => {
+            await tx
+              .update(articles)
+              .set({
+                articleStatus: "GEMINI_COMPLETE",
+                finalHtmlContent: geminiResult.rawContent,
+                seoTitle: cleanSeoTitle(geminiResult.seoTitle),
+                metaDescription: cleanMetaDescription(geminiResult.metaDescription),
+                slug: uniqueSlug,
+                keywordsJson: geminiResult.keywords || [],
+                hashtagsJson: geminiResult.hashtags || [],
+                faqJson: cleanFaqAnswers(geminiResult.faq || []),
+                imagePromptsJson: geminiResult.imagePrompts || [],
+                wordCount: geminiResult.wordCount,
+              })
+              .where(eq(articles.id, articleId));
+            const checkpoint = await tx
+              .update(articleRuns)
+              .set({
+                geminiGeneratedAt: new Date(),
+                cachedGeminiOutput: geminiResult,
+              })
+              .where(and(
+                eq(articleRuns.articleId, articleId),
+                eq(articleRuns.runId, runId),
+                eq(articleRuns.leaseToken, runLeaseToken!)
+              ))
+              .returning({ id: articleRuns.id });
+            if (checkpoint.length === 0) {
+              throw new Error(`LEASE_LOST: cannot checkpoint Gemini for run ${runId}`);
+            }
+          });
         } else {
           console.log(`✓ Using existing Gemini metadata - no database update needed`);
         }
@@ -530,7 +709,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               brief: {
                 topic: title,
                 location: geographicFocus || undefined,
-                targetWords: Math.round((wordCountMin + wordCountMax) / 2),
+                targetWords: Math.round(((wordCountMin ?? 800) + (wordCountMax ?? 2000)) / 2),
               },
               kind: "article",
             });
@@ -567,12 +746,28 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         // Set DISABLE_CHATGPT_REVIEW=true to skip for speed testing
         const disableChatGPTReview = process.env.DISABLE_CHATGPT_REVIEW === "true";
         let hyperlinksForGPT: any[] = [];
+        const hasChatgptCheckpoint = Boolean(existingRun?.chatgptReviewedAt);
         
         if (disableChatGPTReview) {
           console.log(`⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article ${articleId}`);
           // FALLBACK: Use Gemini keywords when ChatGPT review is disabled
           hyperlinksForGPT = (geminiResult.keywords || []).map((k: string) => ({ keyword: k, category: 'primary_service' }));
           console.log(`📋 Using ${hyperlinksForGPT.length} Gemini keywords as hyperlink fallback`);
+        } else if (resumePlan.skipChatgpt) {
+          hyperlinksForGPT = Array.isArray(currentArticle?.hyperlinkedKeywordsJson)
+            ? currentArticle.hyperlinkedKeywordsJson as any[]
+            : [];
+          console.log(
+            `♻️ RESUMING: Article ${articleId} has a ChatGPT checkpoint — skipping review`
+          );
+          if (!hasChatgptCheckpoint && runLeaseToken) {
+            await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: { chatgptReviewedAt: new Date() },
+            });
+          }
         } else {
           console.log(`🔍 Stage 2: ChatGPT reviewing article ${articleId}...`);
         
@@ -583,7 +778,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
 
           // Execute batched ChatGPT enrichment with retry logic
           let lastError: Error | null = null;
-          let batchedResult;
+          let batchedResult: any;
           
           for (let attempt = 1; attempt <= 3; attempt++) {
             try {
@@ -666,15 +861,33 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             localSignals: batchedResult!.seo.localSignals,
           };
 
-          await db
-            .update(articles)
-            .set({
-              articleStatus: "CHATGPT_REVIEWED",
-              seoScore: batchedResult!.seo.seoScore,
-              hyperlinkedKeywordsJson: batchedResult!.hyperlinks.keywords || [],
-              metaEnrichment,
-            })
-            .where(eq(articles.id, articleId));
+          const txDb = getTxDb();
+          await txDb.transaction(async (tx) => {
+            await tx
+              .update(articles)
+              .set({
+                articleStatus: "CHATGPT_REVIEWED",
+                seoScore: batchedResult!.seo.seoScore,
+                hyperlinkedKeywordsJson: batchedResult!.hyperlinks.keywords || [],
+                metaEnrichment,
+              })
+              .where(eq(articles.id, articleId));
+            const checkpoint = await tx
+              .update(articleRuns)
+              .set({
+                chatgptReviewedAt: new Date(),
+                cachedChatgptOutput: batchedResult,
+              })
+              .where(and(
+                eq(articleRuns.articleId, articleId),
+                eq(articleRuns.runId, runId),
+                eq(articleRuns.leaseToken, runLeaseToken!)
+              ))
+              .returning({ id: articleRuns.id });
+            if (checkpoint.length === 0) {
+              throw new Error(`LEASE_LOST: cannot checkpoint ChatGPT for run ${runId}`);
+            }
+          });
         } catch (reviewError) {
           console.error(`❌ CRITICAL: ChatGPT review error for article ${articleId}:`, reviewError);
           console.log(`💾 Preserving Gemini content at GEMINI_COMPLETE status for recovery`);
@@ -707,13 +920,32 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           console.log(`⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article ${articleId}`);
           
           // Use raw Gemini content directly for blazing fast generation
-          await db
-            .update(articles)
-            .set({
-              articleStatus: "COMPLETE",
-              finalHtmlContent: `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`,
-            })
-            .where(eq(articles.id, articleId));
+          const speedModeHtml = `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`;
+          const txDb = getTxDb();
+          await txDb.transaction(async (tx) => {
+            await tx
+              .update(articles)
+              .set({
+                articleStatus: "COMPLETE",
+                finalHtmlContent: speedModeHtml,
+              })
+              .where(eq(articles.id, articleId));
+            const checkpoint = await tx
+              .update(articleRuns)
+              .set({
+                textGeneratedAt: new Date(),
+                cachedGpt4Output: { finalHtml: speedModeHtml, speedMode: true },
+              })
+              .where(and(
+                eq(articleRuns.articleId, articleId),
+                eq(articleRuns.runId, runId),
+                eq(articleRuns.leaseToken, runLeaseToken!)
+              ))
+              .returning({ id: articleRuns.id });
+            if (checkpoint.length === 0) {
+              throw new Error(`LEASE_LOST: cannot checkpoint speed-mode text for run ${runId}`);
+            }
+          });
           
           console.log(`⚡ Article ${articleId} completed in SPEED MODE (Gemini-only)`);
         } else {
@@ -726,25 +958,33 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           // HARD TIMEOUT: Force-fail if GPT-4 call hangs for >20 minutes
           // (Normal: 3 min timeout × 5 retries = ~16 min max)
           const GPT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
-          
-          const gptResult = await withTimeout(
-            enhanceArticleWithGPT(
-              geminiResult.rawContent,
-              geminiResult.seoTitle,
-              geminiResult.metaDescription,
-              geminiResult.keywords,
-              imageUrls,
-              semanticClusterId,
-              hyperlinksForGPT,
-              geminiResult.hashtags || [],
-              geminiResult.faq || [],
-              targetUrl,
-              businessName,
-              geographicFocus  // Pass location so local phrase extractor can find geo-relevant phrases
-            ),
-            GPT_TIMEOUT_MS,
-            `GPT-4 Enhancement (Article ${articleId})`
-          );
+          const cachedGpt4 = existingRun?.cachedGpt4Output as { finalHtml?: string } | null;
+          const resumeGpt4Checkpoint = resumePlan.skipGpt4;
+          const gptResult: any = resumeGpt4Checkpoint
+            ? cachedGpt4
+            : await withTimeout(
+                enhanceArticleWithGPT(
+                  geminiResult.rawContent,
+                  geminiResult.seoTitle,
+                  geminiResult.metaDescription,
+                  geminiResult.keywords,
+                  imageUrls,
+                  semanticClusterId,
+                  hyperlinksForGPT,
+                  geminiResult.hashtags || [],
+                  geminiResult.faq || [],
+                  targetUrl,
+                  businessName,
+                  geographicFocus  // Pass location so local phrase extractor can find geo-relevant phrases
+                ),
+                GPT_TIMEOUT_MS,
+                `GPT-4 Enhancement (Article ${articleId})`
+              );
+          if (resumeGpt4Checkpoint) {
+            console.log(
+              `♻️ RESUMING: Article ${articleId} has a GPT-4 checkpoint — skipping provider call`
+            );
+          }
 
           // -----------------------------------------------------------------------
           // HYPERLINK APPLICATION — Global Slug Map + Cheerio DOM Engine
@@ -762,7 +1002,9 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           // -----------------------------------------------------------------------
           let finalHtmlWithLinks = gptResult.finalHtml;
 
-          if (!targetUrl || !targetUrl.match(/^https?:\/\//i)) {
+          if (resumeGpt4Checkpoint) {
+            console.log(`♻️ Reusing checkpointed hyperlink output for article ${articleId}`);
+          } else if (!targetUrl || !targetUrl.match(/^https?:\/\//i)) {
             console.log(`⚠️ No valid targetUrl for batch ${batchId} — skipping hyperlink injection for article ${articleId}`);
           } else {
             try {
@@ -831,14 +1073,33 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             }
           }
 
-          // Mark as GPT4_ENHANCED before final completion - NOW WITH HYPERLINKS APPLIED
-          await db
-            .update(articles)
-            .set({
-              articleStatus: "GPT4_ENHANCED",
-              finalHtmlContent: finalHtmlWithLinks,
-            })
-            .where(eq(articles.id, articleId));
+          // Persist final text output and checkpoint together. The cached shape
+          // intentionally replaces finalHtml with the post-link version.
+          const txDb = getTxDb();
+          await txDb.transaction(async (tx) => {
+            await tx
+              .update(articles)
+              .set({
+                articleStatus: "GPT4_ENHANCED",
+                finalHtmlContent: finalHtmlWithLinks,
+              })
+              .where(eq(articles.id, articleId));
+            const checkpoint = await tx
+              .update(articleRuns)
+              .set({
+                textGeneratedAt: new Date(),
+                cachedGpt4Output: { ...gptResult, finalHtml: finalHtmlWithLinks },
+              })
+              .where(and(
+                eq(articleRuns.articleId, articleId),
+                eq(articleRuns.runId, runId),
+                eq(articleRuns.leaseToken, runLeaseToken!)
+              ))
+              .returning({ id: articleRuns.id });
+            if (checkpoint.length === 0) {
+              throw new Error(`LEASE_LOST: cannot checkpoint GPT-4 for run ${runId}`);
+            }
+          });
 
           console.log(`✨ Article ${articleId} GPT-4 enhancement complete (with auto-hyperlinks)`);
           
@@ -1148,6 +1409,7 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
               await addImageGenerationJob({
                 articleId,
                 batchId,
+                runId,
                 imagePrompts: geminiResult.imagePrompts,
                 businessName, // Pass business name for brand lock in images
               });
@@ -1197,9 +1459,30 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           payloadJson: { articleId, wordCount: geminiResult.wordCount }
         });
 
+        // Content and billing are separate durable states. A restart after this
+        // point is settlement-only and must never enter a provider stage again.
+        if (articleTeamId && articleCreditRunId) {
+          const billingPending = await updateClaimedArticleRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken!,
+            values: {
+              status: "billing_pending",
+              completedAt: new Date(),
+              billingTeamId: articleTeamId,
+              billingRunId: articleCreditRunId,
+              billingAmount: articleCreditCost,
+              billingJobId: String(job.id),
+              settlementLastError: null,
+              settlementNextAttemptAt: new Date(),
+            },
+          });
+          if (!billingPending) {
+            throw new Error(`LEASE_LOST: cannot enter billing settlement for run ${runId}`);
+          }
+        }
+
         // Two-bucket billing: DEBIT on success (converts reservation to actual usage).
-        // FATAL if debit fails — pg-boss will retry the job; the article is already written
-        // so the generation step is skipped on retry but the debit attempt is repeated.
         if (articleTeamId && articleCreditRunId) {
           const { debitReservation } = await import("@/lib/billing");
           const debitResult = await debitReservation({
@@ -1209,9 +1492,9 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
             jobId: String(job.id),
           });
           if (!debitResult.ok) {
-            throw new Error(
-              `[billing] DEBIT_FAILED for article ${articleId} (teamId=${articleTeamId} runId=${articleCreditRunId} amount=${articleCreditCost}). ` +
-              `Marking job failed so pg-boss retries the debit. Content was generated successfully.`
+            throw new BillingSettlementError(
+              `Debit settlement failed for article ${articleId} ` +
+              `(teamId=${articleTeamId} runId=${articleCreditRunId} amount=${articleCreditCost})`
             );
           }
 
@@ -1228,14 +1511,59 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
           }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
         }
 
+        const settled = await updateClaimedArticleRun({
+          articleId,
+          runId,
+          leaseToken: runLeaseToken!,
+          values: {
+            status: "completed",
+            completedAt: new Date(),
+            leaseToken: null,
+            leaseExpiresAt: null,
+            settlementLastError: null,
+            settlementNextAttemptAt: null,
+          },
+        });
+        if (!settled) {
+          throw new Error(`LEASE_LOST: cannot complete settled run ${runId}`);
+        }
+
         // Check if all articles in batch are complete
         await checkBatchCompletion(batchId);
         clearInterval(heartbeatTimer);
 
       } catch (error) {
         clearInterval(heartbeatTimer);
-        console.error(`❌ Article generation failed for article ${articleId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
+
+        if (error instanceof BillingSettlementError) {
+          console.error(`💳 Article ${articleId} content is complete but billing is pending:`, error);
+          if (runLeaseToken) {
+            await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken,
+              values: {
+                status: "billing_pending",
+                completedAt: new Date(),
+                leaseToken: null,
+                leaseExpiresAt: null,
+                billingTeamId: persistedBillingTeamId,
+                billingRunId: persistedBillingRunId,
+                billingAmount: persistedBillingAmount,
+                billingJobId: persistedBillingJobId,
+                settlementAttempts: persistedSettlementAttempts + 1,
+                settlementLastError: errorMessage.slice(0, 2000),
+                settlementNextAttemptAt: nextSettlementAttemptAt(
+                  persistedSettlementAttempts + 1
+                ),
+              },
+            }).catch(() => false);
+          }
+          throw error;
+        }
+
+        console.error(`❌ Article generation failed for article ${articleId}:`, error);
 
         // Classify the error for disposition, user-facing message, and admin log type.
         const classified = classifyError(error, "text_gen");
@@ -1375,6 +1703,20 @@ export const processArticleGenerationJob = async (job: Job<ArticleJobData>) => {
         // Check batch completion even on failure
         await checkBatchCompletion(batchId);
 
+        if (runLeaseToken) {
+          await updateClaimedArticleRun({
+            articleId,
+            runId,
+            leaseToken: runLeaseToken,
+            values: {
+              status: "failed",
+              completedAt: new Date(),
+              leaseToken: null,
+              leaseExpiresAt: null,
+            },
+          }).catch(() => false);
+        }
+
         // Rethrow — createPipelineWorker classifies, releases the reservation
         // on the final attempt, and converts fatal codes to UnrecoverableError.
         throw error;
@@ -1411,6 +1753,14 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
+            // Cost ceiling gate must precede infrastructure preflights. A run
+            // that has already exhausted its budget should stop deterministically
+            // even when optional storage is also unavailable.
+            if (videoCreditRunId) {
+              const { assertRunBudget } = await import("@/lib/cost-ceilings");
+              await assertRunBudget(videoCreditRunId, "video", "video_gen");
+            }
+
             // ── Storage gate (INSIDE the catch domain) ──────────────────────
             // Must be inside this try/catch so that on failure the catch block
             // releases the per-user Redis concurrency slot, cleans up temp
@@ -1425,16 +1775,6 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                   "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
                 );
               }
-            }
-
-            // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED gets this
-            // catch's domain cleanup (slot release, temp files, status=FAILED)
-            // before the wrapper applies release/UnrecoverableError. Veo is the
-            // most expensive per attempt — stop before generating if prior
-            // attempts already hit the ceiling.
-            if (videoCreditRunId) {
-              const { assertRunBudget } = await import("@/lib/cost-ceilings");
-              await assertRunBudget(videoCreditRunId, "video", "video_gen");
             }
 
             const { generateSocialVideo } = await import("./social-video-generator");
@@ -1913,9 +2253,37 @@ export async function registerWorkers() {
             }
 
             console.log(`🖼️ Processing image generation job ${job.id}`);
-            const { articleId, batchId, imagePrompts, businessName: jobBusinessName } = job.data;
+            const { articleId, batchId, runId: imageRunId, imagePrompts, businessName: jobBusinessName } = job.data;
+            let imageLeaseToken: string | null = null;
 
             try {
+              if (imageRunId) {
+                const [run] = await db
+                  .select({ imageGeneratedAt: articleRuns.imageGeneratedAt })
+                  .from(articleRuns)
+                  .where(and(
+                    eq(articleRuns.articleId, articleId),
+                    eq(articleRuns.runId, imageRunId)
+                  ))
+                  .limit(1);
+                if (run?.imageGeneratedAt) {
+                  console.log(
+                    `⏭️ Image stage already completed for article ${articleId}, run ${imageRunId.slice(0, 8)}`
+                  );
+                  return;
+                }
+                imageLeaseToken = await claimArticleImageStage({
+                  articleId,
+                  runId: imageRunId,
+                });
+                if (!imageLeaseToken) {
+                  console.log(
+                    `⏭️ Image stage for article ${articleId} is already owned by another worker`
+                  );
+                  return;
+                }
+              }
+
               // CRITICAL: Validate businessName from job data first (new batches)
               let businessName = jobBusinessName;
               let targetUrl = '';
@@ -1991,11 +2359,37 @@ export async function registerWorkers() {
               }
 
               const { generateImagesForArticle } = await import("@/lib/gemini-image-generator");
-              const imageResults = await generateImagesForArticle(articleId, finalImagePrompts, businessName, targetUrl);
+              const imageResults = await generateImagesForArticle(
+                articleId,
+                finalImagePrompts,
+                businessName,
+                targetUrl,
+                imageRunId
+              );
+              if (imageRunId && imageLeaseToken) {
+                const completed = await completeArticleImageStage({
+                  articleId,
+                  runId: imageRunId,
+                  imageLeaseToken,
+                  heroImageUrl: imageResults[0]?.url ?? null,
+                });
+                if (!completed) {
+                  throw new Error(
+                    `LEASE_LOST: cannot checkpoint image stage for run ${imageRunId}`
+                  );
+                }
+              }
               console.log(`✅ [Job ${job.id}] Generated ${imageResults.length}/${imagePrompts.length} images for article ${articleId}`);
             } catch (error) {
               console.error(`❌ [Job ${job.id}] Image generation failed for article ${articleId}:`, error);
-              // Don't throw - images are optional, article is already complete
+              if (imageRunId && imageLeaseToken) {
+                await releaseArticleImageStage({
+                  articleId,
+                  runId: imageRunId,
+                  imageLeaseToken,
+                }).catch(() => {});
+              }
+              throw error;
             }
     }, { stage: "image_gen", concurrency: IMAGE_WORKERS });
     
@@ -4288,11 +4682,48 @@ export async function registerWorkers() {
 
       console.warn(`[reservation-sweeper] Found ${stale.length} stale RESERVED reservation(s) older than 24h — releasing`);
 
+      const staleRunIds = stale
+        .map((row) => row.runId)
+        .filter((runId): runId is string => Boolean(runId));
+      const deliveredSettlements = staleRunIds.length > 0
+        ? await db
+            .select({
+              status: articleRuns.status,
+              billingRunId: articleRuns.billingRunId,
+              articleStatus: articles.articleStatus,
+            })
+            .from(articleRuns)
+            .innerJoin(articles, eq(articles.id, articleRuns.articleId))
+            .where(and(
+              inArray(articleRuns.billingRunId, staleRunIds),
+              inArray(articleRuns.status, ["billing_pending", "running"])
+            ))
+        : [];
+      const protectedBillingRunIds = new Set(
+        deliveredSettlements
+          .filter((run) => protectsDeliveredReservation({
+            articleRunStatus: run.status,
+            articleStatus: run.articleStatus,
+            billingRunId: run.billingRunId,
+            reservationRunId: run.billingRunId,
+          }))
+          .map((run) => run.billingRunId!)
+      );
+
       let released = 0;
       let skipped = 0;
 
       for (const row of stale) {
         try {
+          if (row.runId && protectedBillingRunIds.has(row.runId)) {
+            skipped++;
+            console.warn(
+              `[reservation-sweeper] Protected delivered content for runId=${row.runId}; ` +
+              `leaving reservation RESERVED for settlement reconciliation`
+            );
+            continue;
+          }
+
           // Compute per-reservation remaining credits from the ledger, not from the
           // team-wide reservedCredits aggregate.  Using reservation.amount directly
           // would over-release for partially-settled batch reservations (partial debits

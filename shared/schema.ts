@@ -379,9 +379,27 @@ export const articleRuns = pgTable("article_runs", {
   articleId: integer("article_id").notNull().references(() => articles.id),
   runId: varchar("run_id", { length: 36 }).notNull(), // UUID v4
   runType: varchar("run_type", { length: 50 }).notNull().default("generation"), // generation, regeneration, manual
+  queuedAt: timestamp("queued_at").notNull().defaultNow(),
   startedAt: timestamp("started_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
-  status: varchar("status", { length: 20 }).notNull().default("running"), // running, completed, failed
+  status: varchar("status", { length: 30 }).notNull().default("queued"), // queued, running, billing_pending, completed, failed, failed_enqueue
+  leaseToken: varchar("lease_token", { length: 36 }),
+  leaseExpiresAt: timestamp("lease_expires_at"),
+  geminiGeneratedAt: timestamp("gemini_generated_at"),
+  chatgptReviewedAt: timestamp("chatgpt_reviewed_at"),
+  textGeneratedAt: timestamp("text_generated_at"),
+  imageGeneratedAt: timestamp("image_generated_at"),
+  imageLeaseToken: varchar("image_lease_token", { length: 36 }),
+  imageLeaseExpiresAt: timestamp("image_lease_expires_at"),
+  billingTeamId: integer("billing_team_id").references(() => teams.id),
+  billingRunId: varchar("billing_run_id", { length: 255 }),
+  billingAmount: integer("billing_amount"),
+  billingJobId: varchar("billing_job_id", { length: 255 }),
+  settlementAttempts: integer("settlement_attempts").notNull().default(0),
+  settlementLastError: text("settlement_last_error"),
+  settlementNextAttemptAt: timestamp("settlement_next_attempt_at"),
+  enqueueFailedAt: timestamp("enqueue_failed_at"),
+  enqueueError: text("enqueue_error"),
   cachedGeminiOutput: jsonb("cached_gemini_output"), // Stage 1 output
   cachedChatgptOutput: jsonb("cached_chatgpt_output"), // Stage 2 output  
   cachedGpt4Output: jsonb("cached_gpt4_output"), // Stage 3 output
@@ -389,8 +407,11 @@ export const articleRuns = pgTable("article_runs", {
   // CRITICAL: Unique constraint prevents duplicate runs and enables cache lookup
   articleRunsUnique: uniqueIndex("article_runs_article_id_run_id_unique").on(table.articleId, table.runId),
   articleIdIdx: index("article_runs_article_id_idx").on(table.articleId),
-  runIdIdx: index("article_runs_run_id_idx").on(table.runId),
+  runIdUnique: uniqueIndex("article_runs_run_id_unique").on(table.runId),
   statusIdx: index("article_runs_status_idx").on(table.status),
+  queuedStatusIdx: index("article_runs_status_queued_at_idx").on(table.status, table.queuedAt),
+  settlementIdx: index("article_runs_settlement_idx").on(table.status, table.settlementNextAttemptAt),
+  billingRunIdx: index("article_runs_billing_run_id_idx").on(table.billingRunId),
 }));
 
 // Locales table - geographic locations with coordinates for geo-first features

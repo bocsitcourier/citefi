@@ -86,6 +86,29 @@ export interface PipelineWorkerOptions<T> {
 export type PipelineProcessor<T> = (job: Job<T>) => Promise<unknown>;
 
 /**
+ * Content is durable, but the reservation still needs to become a debit.
+ * This structured error is intentionally excluded from generic release policy.
+ */
+export class BillingSettlementError extends Error {
+  readonly code = "DEBIT_FAILED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "BillingSettlementError";
+  }
+}
+
+export function isBillingSettlementError(error: unknown): error is BillingSettlementError {
+  return error instanceof BillingSettlementError ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "DEBIT_FAILED"
+    );
+}
+
+/**
  * Builds the job handler (exported separately so unit tests can exercise the
  * policy without Redis or a real Worker).
  */
@@ -127,8 +150,7 @@ export function createPipelineHandler<T>(
 
       // DEBIT_FAILED means the content was generated successfully and only the
       // debit needs retrying — releasing would refund a delivered product.
-      const rawMsg = err instanceof Error ? err.message : String(err);
-      const isDebitFailure = rawMsg.includes("DEBIT_FAILED");
+      const isDebitFailure = isBillingSettlementError(err);
 
       if (isFinal && !isDebitFailure && opts.getBilling) {
         try {
@@ -170,8 +192,71 @@ export function createPipelineWorker<T>(
   opts: PipelineWorkerOptions<T>
 ): Worker<T> {
   const { getRedisConnection } = queueModule();
-  return new Worker<T>(queueName, createPipelineHandler(queueName, processor, opts) as any, {
+  const worker = new Worker<T>(queueName, createPipelineHandler(queueName, processor, opts) as any, {
     connection: getRedisConnection(),
     concurrency: opts.concurrency ?? 1,
   });
+  registeredWorkers.add(worker as Worker<unknown>);
+  worker.on("closed", () => {
+    registeredWorkers.delete(worker as Worker<unknown>);
+  });
+  return worker;
+}
+
+const registeredWorkers = new Set<Worker<unknown>>();
+
+export interface WorkerDrainResult {
+  drained: number;
+  forced: number;
+  timedOut: boolean;
+}
+
+export interface CloseableWorker {
+  close(force?: boolean): Promise<void>;
+}
+
+export async function drainWorkers(
+  workers: CloseableWorker[],
+  timeoutMs: number
+): Promise<WorkerDrainResult> {
+  if (workers.length === 0) {
+    return { drained: 0, forced: 0, timedOut: false };
+  }
+
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const graceful = Promise.allSettled(workers.map((worker) => worker.close(false)));
+  const deadline = new Promise<"timeout">((resolve) => {
+    timeoutHandle = setTimeout(() => resolve("timeout"), timeoutMs);
+  });
+
+  const outcome = await Promise.race([
+    graceful.then(() => "drained" as const),
+    deadline,
+  ]);
+  if (timeoutHandle) clearTimeout(timeoutHandle);
+
+  if (outcome === "drained") {
+    return { drained: workers.length, forced: 0, timedOut: false };
+  }
+
+  await Promise.allSettled(workers.map((worker) => worker.close(true)));
+  return { drained: 0, forced: workers.length, timedOut: true };
+}
+
+/**
+ * Stop intake and wait for active processors. BullMQ close(true) cannot cancel
+ * an already-issued provider request, so it is reserved for the process-wide
+ * shutdown deadline after the graceful drain has been given a chance.
+ */
+export async function closePipelineWorkers(
+  timeoutMs = 30_000
+): Promise<WorkerDrainResult> {
+  const workers = [...registeredWorkers];
+  const result = await drainWorkers(workers, timeoutMs);
+  if (result.timedOut) {
+    console.error(
+      `⚠️ Worker drain exceeded ${timeoutMs}ms; force-closed ${result.forced} worker connection(s)`
+    );
+  }
+  return result;
 }

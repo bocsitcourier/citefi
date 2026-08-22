@@ -96,6 +96,7 @@ const isWorkerProcess = process.env.WORKER_PROCESS === "true";
 
 // Held so closeDb() can end the pool deterministically (test teardown).
 let mainPool: Pool | null = null;
+let _txPool: Pool | null = null;
 
 function buildDb(): NeonHttpDatabase<typeof schema> {
   const connectionString =
@@ -124,14 +125,17 @@ function buildDb(): NeonHttpDatabase<typeof schema> {
 export const db = buildDb();
 
 /**
- * Deterministically close the main pooled connection (no-op for the Neon HTTP
- * driver). Intended for test teardown so node:test processes exit cleanly.
+ * Deterministically close every pooled connection owned by this module (a
+ * no-op for pools that were never opened). Intended for test teardown and
+ * graceful worker shutdown so node:test/processes exit cleanly.
  */
 export async function closeDb(): Promise<void> {
-  if (mainPool) {
-    await mainPool.end().catch(() => {});
-    mainPool = null;
-  }
+  const pools = [mainPool, _txPool].filter(
+    (pool, index, all): pool is Pool => Boolean(pool) && all.indexOf(pool) === index
+  );
+  mainPool = null;
+  _txPool = null;
+  await Promise.all(pools.map((pool) => pool.end().catch(() => {})));
 }
 
 // ─── Stateless / HTTP client ──────────────────────────────────────────────────
@@ -150,8 +154,6 @@ export const statelessDb = neonHttpDb;
 // ─── Transaction-capable pooled client (for API routes) ─────────────────────
 // The Neon HTTP driver does NOT support interactive transactions.
 // Use this for multi-step atomic writes. Works with both Neon and local pg.
-let _txPool: Pool | null = null;
-
 export function getTxDb() {
   if (!_txPool) {
     _txPool = makePool(

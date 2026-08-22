@@ -1,9 +1,16 @@
-import { getQueue } from "../lib/queue";
+import {
+  ARTICLE_GENERATION_QUEUE,
+  getQueue,
+  addArticleJob,
+} from "../lib/queue";
 import { neonHttpDb } from "../lib/db";
-import { addArticleJob } from "../lib/queue";
 import { createNotification } from "../lib/notification-service";
-import { articles, jobBatches } from "../shared/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { articles, articleRuns, jobBatches } from "../shared/schema";
+import {
+  markArticleRunEnqueueFailed,
+  reconcilePendingArticleBilling,
+} from "../lib/article-run-state";
+import { and, eq, inArray, lt } from "drizzle-orm";
 
 /**
  * Job Monitor - Automatic Stuck Job Detection & Recovery
@@ -15,17 +22,19 @@ import { and, eq, inArray } from "drizzle-orm";
  */
 
 let monitorInterval: NodeJS.Timeout | null = null;
+let memoryInterval: NodeJS.Timeout | null = null;
 
 export async function startJobMonitor() {
   console.log("🔍 Starting job monitor - checking for stuck jobs every 5 minutes");
 
   // Memory monitoring - log stats every 2 minutes to catch memory leaks
-  setInterval(() => {
+  memoryInterval = setInterval(() => {
     const memUsage = process.memoryUsage();
     const memMB = (memUsage.rss / 1024 / 1024).toFixed(2);
     const heapMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
     console.log(`📊 Memory: ${memMB} MB RSS, ${heapMB} MB Heap`);
   }, 120000);
+  memoryInterval.unref();
 
   // Run immediately on start
   await checkStuckJobs();
@@ -42,11 +51,22 @@ export async function stopJobMonitor() {
     monitorInterval = null;
     console.log("🛑 Job monitor stopped");
   }
+  if (memoryInterval) {
+    clearInterval(memoryInterval);
+    memoryInterval = null;
+  }
 }
 
 async function checkStuckJobs() {
   try {
     await logQueueDepths();
+    const settlement = await reconcilePendingArticleBilling();
+    if (settlement.settled > 0 || settlement.deferred > 0) {
+      console.log(
+        `💳 Article settlement reconciliation: settled=${settlement.settled} deferred=${settlement.deferred}`
+      );
+    }
+    await reconcileMissingArticleEnqueues();
     await recoverStalledArticles();
     await reconcileStuckBatches();
     const now = new Date().toISOString();
@@ -54,6 +74,93 @@ async function checkStuckJobs() {
   } catch (error) {
     console.error("❌ Job monitor error:", error);
   }
+}
+
+const ARTICLE_ENQUEUE_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * Queue.add can fail ambiguously, so enqueue helpers leave durable evidence.
+ * Only after the grace period and a direct BullMQ lookup confirms absence do
+ * we transition the run to failed_enqueue.
+ */
+export async function reconcileMissingArticleEnqueues(
+  now = new Date()
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - ARTICLE_ENQUEUE_GRACE_MS);
+  const candidates = await neonHttpDb
+    .select({
+      articleId: articleRuns.articleId,
+      runId: articleRuns.runId,
+    })
+    .from(articleRuns)
+    .where(and(
+      eq(articleRuns.status, "queued"),
+      lt(articleRuns.queuedAt, cutoff)
+    ));
+
+  if (candidates.length === 0) return 0;
+  const queue = getQueue(ARTICLE_GENERATION_QUEUE);
+  let failed = 0;
+
+  for (const candidate of candidates) {
+    try {
+      const job = await queue.getJob(candidate.runId);
+      if (job) continue;
+      const changed = await markArticleRunEnqueueFailed({
+        articleId: candidate.articleId,
+        runId: candidate.runId,
+        error: new Error(
+          `BullMQ job ${candidate.runId} was absent after the five-minute enqueue grace period`
+        ),
+      });
+      if (changed) {
+        failed += 1;
+        console.error(
+          `❌ Article ${candidate.articleId} run ${candidate.runId.slice(0, 8)} marked FAILED_ENQUEUE`
+        );
+      }
+    } catch (error) {
+      // A Redis outage is not proof that the job is absent.
+      console.warn(
+        `⚠️ Could not verify queued article run ${candidate.runId}; leaving it queued:`,
+        error
+      );
+    }
+  }
+  return failed;
+}
+
+export function summarizeBatchArticleStatuses(
+  statuses: Array<string | null>
+): {
+  totalArticles: number;
+  completedArticles: number;
+  failedArticles: number;
+  terminalArticles: number;
+  finalStatus: "COMPLETE" | "PARTIAL_COMPLETE" | "FAILED" | null;
+} {
+  const totalArticles = statuses.length;
+  const completedArticles = statuses.filter((status) => status === "COMPLETE").length;
+  const failedArticles = statuses.filter(
+    (status) => status === "FAILED" || status === "DEAD"
+  ).length;
+  const terminalArticles = completedArticles + failedArticles;
+  const finalStatus =
+    totalArticles === 0 || terminalArticles !== totalArticles
+      ? null
+      : completedArticles === totalArticles
+      ? "COMPLETE"
+      : completedArticles > 0
+      ? "PARTIAL_COMPLETE"
+      : "FAILED";
+
+  return {
+    totalArticles,
+    completedArticles,
+    failedArticles,
+    terminalArticles,
+    finalStatus,
+  };
 }
 
 const ARTICLE_STALL_MESSAGE = "Stalled — auto-recovered";
@@ -212,7 +319,7 @@ async function logQueueDepths() {
 
 /**
  * Reconcile batches that are stuck in RUNNING/PARTIAL_COMPLETE
- * when all their articles are in terminal states (COMPLETE/FAILED)
+ * when all their articles are in terminal states (COMPLETE/FAILED/DEAD)
  */
 async function reconcileStuckBatches() {
   try {
@@ -232,20 +339,16 @@ async function reconcileStuckBatches() {
 
       if (batchArticles.length === 0) continue;
 
-      const totalArticles = batchArticles.length;
-      const completedArticles = batchArticles.filter(a => a.articleStatus === "COMPLETE").length;
-      const failedArticles = batchArticles.filter(a => a.articleStatus === "FAILED").length;
-      const terminalArticles = completedArticles + failedArticles;
+      const {
+        totalArticles,
+        completedArticles,
+        failedArticles,
+        finalStatus,
+      } = summarizeBatchArticleStatuses(
+        batchArticles.map((article) => article.articleStatus)
+      );
 
-      if (terminalArticles === totalArticles) {
-        let finalStatus: string;
-        if (completedArticles === totalArticles) {
-          finalStatus = "COMPLETE";
-        } else if (completedArticles > 0) {
-          finalStatus = "PARTIAL_COMPLETE";
-        } else {
-          finalStatus = "FAILED";
-        }
+      if (finalStatus) {
 
         if (batch.status !== finalStatus) {
           await neonHttpDb

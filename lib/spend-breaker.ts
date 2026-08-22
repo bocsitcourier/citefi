@@ -182,12 +182,23 @@ export async function clearBreaker(): Promise<void> {
 }
 
 /** Register the 5-minute evaluation loop. Call once in the worker process. */
+let spendBreakerTimer: NodeJS.Timeout | null = null;
+
 export function startSpendBreakerScheduler(): void {
+  if (spendBreakerTimer) return;
   const run = () =>
     evaluateSpendBreaker().catch((e) =>
       console.warn("[spend-breaker] evaluation failed:", e instanceof Error ? e.message : e)
     );
   run(); // evaluate immediately at boot (picks up state after restart)
-  setInterval(run, 5 * 60 * 1000);
+  spendBreakerTimer = setInterval(run, 5 * 60 * 1000);
+  spendBreakerTimer.unref();
   console.log(`⏱️ Spend breaker scheduler registered (every 5 min, daily budget $${DAILY_BUDGET_USD})`);
+}
+
+export function stopSpendBreakerScheduler(): void {
+  if (!spendBreakerTimer) return;
+  clearInterval(spendBreakerTimer);
+  spendBreakerTimer = null;
+  console.log("🛑 Spend breaker scheduler stopped");
 }

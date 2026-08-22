@@ -13,7 +13,10 @@ after(async () => {
   await closeDb();
 });
 import { UnrecoverableError } from "bullmq";
-import { createPipelineHandler } from "../../lib/pipeline-worker";
+import {
+  BillingSettlementError,
+  createPipelineHandler,
+} from "../../lib/pipeline-worker";
 
 type AnyJob = any;
 
@@ -108,7 +111,7 @@ void test("fatal error: releases immediately and throws UnrecoverableError", asy
 void test("DEBIT_FAILED: never releases (content was delivered; only the debit retries)", async () => {
   const d = deps();
   const handler = createPipelineHandler("q", async () => {
-    throw new Error("[billing] DEBIT_FAILED for article 42 — retrying debit");
+    throw new BillingSettlementError("debit unavailable for article 42");
   }, { ...billingOpts, _deps: d._deps } as any);
   await assert.rejects(() => handler(makeJob({ attemptsMade: 2, attempts: 3 })));
   assert.equal(d.calls.length, 0, "DEBIT_FAILED must not refund a delivered product");
