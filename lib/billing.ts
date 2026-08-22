@@ -265,10 +265,14 @@ export async function reserveCredits(params: {
       };
     }
 
-    const updated = updatedRows[0];
+    // updatedRows is non-empty here: the WHERE guard above would have returned
+    // early (ok:false) before we reach this line if the update failed.
+    const updated = updatedRows[0]!;
     const after = computeRemaining(updated);
 
-    // Insert ledger row (eventType = "reserve")
+    // Insert ledger row (eventType = "reserve") with the initial RESERVED state.
+    // The state machine: RESERVED → DEBITED (debitReservation wins the CAS)
+    //                    RESERVED → RELEASED (releaseReservation wins the CAS)
     await tx.insert(creditLedger).values({
       teamId,
       userId: userId ?? null,
@@ -277,6 +281,7 @@ export async function reserveCredits(params: {
       eventType: "reserve",
       operationType,
       runId,
+      reservationStatus: "RESERVED",
       reason: `Reserve ${amount} credits for ${operationType} (runId: ${runId})`,
     });
 
@@ -336,9 +341,11 @@ export async function debitReservation(params: {
     // Support partial debits for batch/multi-unit reservations
     const amount = params.amount ?? reservation.amount;
 
-    // ── Idempotency: prevent double-debit ────────────────────────────────────
+    // ── Idempotency: prevent double-debit (jobId path) ───────────────────────
     // For batch reservations jobId is unique per article, so runId+jobId is
     // the idempotency key.  For single-unit jobs (no jobId), runId alone suffices.
+    // This check covers the partial-debit (batch) case where we do NOT flip the
+    // reservation_status (so it can't act as the idempotency signal there).
     const [existingDebit] = await tx
       .select({ id: creditLedger.id })
       .from(creditLedger)
@@ -355,6 +362,56 @@ export async function debitReservation(params: {
       return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
     }
 
+    // ── State-machine atomic claim (full debits only) ─────────────────────────
+    // A full debit (amount >= reservation amount) settles the reservation
+    // permanently.  We CAS the status row from RESERVED → DEBITED so a
+    // concurrent releaseReservation() call loses the race and stops without
+    // touching credit_balances.
+    //
+    // Partial debits (multi-article batches) keep reservation_status=RESERVED
+    // so subsequent per-article debits can still proceed; their race safety
+    // comes from the FOR UPDATE lock on credit_balances below + jobId idempotency.
+    const isFullDebit = amount >= reservation.amount;
+    if (isFullDebit && reservation.reservationStatus !== null) {
+      const claimed = await tx
+        .update(creditLedger)
+        .set({ reservationStatus: "DEBITED" })
+        .where(
+          sql`${creditLedger.id} = ${reservation.id} AND ${creditLedger.reservationStatus} = 'RESERVED'`
+        )
+        .returning({ id: creditLedger.id });
+
+      if (claimed.length === 0) {
+        // Someone else already settled this reservation — find out who won.
+        const [curr] = await tx
+          .select({ reservationStatus: creditLedger.reservationStatus })
+          .from(creditLedger)
+          .where(eq(creditLedger.id, reservation.id))
+          .limit(1);
+
+        if (curr?.reservationStatus === "DEBITED") {
+          // The reservation was already debited (e.g. job succeeded on an earlier
+          // retry and a stale retry is now re-entering).  Idempotent ok:true.
+          console.warn(`[billing] Reservation ${runId} already DEBITED — returning idempotently`);
+          const balance = await getBucketBalance(teamId);
+          return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
+        }
+        if (curr?.reservationStatus === "RELEASED") {
+          // The reservation was released (final-failure path) before this
+          // successful attempt could debit it.  Content was produced without a
+          // charge — log loudly so ops can investigate.
+          console.error(
+            `[billing] MONEY BUG: reservation ${runId} (teamId=${teamId}) was RELEASED before debit settled — ` +
+            `content delivered without charge. Investigate immediately.`
+          );
+          const balance = await getBucketBalance(teamId);
+          return { ok: false, fromAllowance: 0, fromPurchased: 0, ...balance };
+        }
+        // null → legacy row without status (pre-migration); fall through to
+        // the existing credit_balances guard as the backstop.
+      }
+    }
+
     // Read current state — FOR UPDATE acquires an exclusive row lock on the
     // credit_balances row for this team before we compute the allowance/purchased
     // split. This serialises concurrent debits (e.g. multiple batch article
@@ -368,6 +425,28 @@ export async function debitReservation(params: {
       .for("update");
 
     if (!row) throw new Error(`credit_balances row missing for team ${teamId}`);
+
+    // ── Re-check jobId idempotency AFTER the lock ─────────────────────────────
+    // The pre-check above (before the lock) is an optimisation for the common
+    // case.  Under read-committed, two concurrent callers can both pass the
+    // pre-check and then block on the FOR UPDATE.  Once the first commits, the
+    // second must re-examine the ledger while holding the lock so it sees the
+    // committed debit and returns idempotently instead of double-debiting.
+    if (jobId) {
+      const [postLockCheck] = await tx
+        .select({ id: creditLedger.id })
+        .from(creditLedger)
+        .where(
+          sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'debit' AND ${creditLedger.jobId} = ${jobId}`
+        )
+        .limit(1);
+
+      if (postLockCheck) {
+        console.warn(`[billing] Debit already recorded (post-lock check) for runId=${runId} jobId=${jobId} — returning idempotently`);
+        const balance = await getBucketBalance(teamId);
+        return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
+      }
+    }
 
     // Compute bucket split: allowance first, then purchased.
     // Safe under concurrency because the FOR UPDATE lock above guarantees no
@@ -394,14 +473,24 @@ export async function debitReservation(params: {
       .returning();
 
     if (updatedRows.length === 0) {
-      // Reservation capacity exhausted — idempotency check above should normally
-      // catch duplicate calls, but guard here as a final backstop.
-      console.error(`[billing] debitReservation BLOCKED for teamId=${teamId} runId=${runId} — reservedCredits < ${amount}. Possible duplicate debit.`);
-      const balance = await getBucketBalance(teamId);
-      return { ok: false, fromAllowance: 0, fromPurchased: 0, ...balance };
+      // The balance guard failed AFTER we may have already claimed RESERVED → DEBITED.
+      // Throw so the transaction rolls back the status claim, restoring RESERVED.
+      // This prevents a stranded DEBITED status with no corresponding balance
+      // decrement or debit ledger entry.
+      //
+      // Triggers: batch reservation has been partially settled (partial debits reduce
+      // team reservedCredits), or another concurrent reservation consumed the aggregate.
+      // The correct flow is to compute the actual per-reservation remaining amount
+      // before calling debitReservation() — for partial batch debits, each call uses
+      // a per-article amount that is always <= the team aggregate held for this batch.
+      throw new Error(
+        `[billing] debitReservation: reservedCredits insufficient for teamId=${teamId} ` +
+        `runId=${runId} amount=${amount} — rolling back any DEBITED status claim to prevent stranded status`
+      );
     }
 
-    const [updated] = updatedRows;
+    // updatedRows is non-empty: the WHERE+RETURNING guard above ensures this.
+    const updated = updatedRows[0]!;
 
     // Invariant check: allowanceUsed must never exceed allowanceCredits.
     // A violation indicates a concurrent-write bug that slipped through
@@ -489,9 +578,103 @@ export async function releaseReservation(params: {
     // Support partial releases for batch/multi-unit reservations
     const amount = params.amount ?? reservation.amount;
 
-    // ── Idempotency: prevent double-release ──────────────────────────────────
-    // releaseKey distinguishes partial releases on the same runId (batch mode).
-    // Without it, only one release per runId is permitted (single-unit mode).
+    // ── State-machine atomic claim (full releases only) ───────────────────────
+    // The CAS RESERVED → RELEASED is only safe for full releases (amount >=
+    // reservation.amount).  A partial release (batch: releasing leftover credits
+    // for one article while others are still in-flight) must NOT flip the row to
+    // RELEASED, because subsequent per-article debits deliberately skip the CAS
+    // and would still try to debit — which is correct.
+    //
+    // Symmetry with debitReservation():
+    //   Full debit  → CAS RESERVED → DEBITED   (no more debits expected)
+    //   Partial debit → no CAS, jobId + FOR UPDATE guard
+    //   Full release  → CAS RESERVED → RELEASED (no more activity expected)
+    //   Partial release → no CAS, releaseKey + reservedCredits guard
+    //
+    // Legacy rows (reservation_status IS NULL) always use the original
+    // LIKE-based idempotency check.
+    const isFullRelease = amount >= reservation.amount;
+
+    if (isFullRelease && reservation.reservationStatus !== null) {
+      const claimed = await tx
+        .update(creditLedger)
+        .set({ reservationStatus: "RELEASED" })
+        .where(
+          sql`${creditLedger.id} = ${reservation.id} AND ${creditLedger.reservationStatus} = 'RESERVED'`
+        )
+        .returning({ id: creditLedger.id });
+
+      if (claimed.length === 0) {
+        // Find what state the reservation is in now.
+        const [curr] = await tx
+          .select({ reservationStatus: creditLedger.reservationStatus })
+          .from(creditLedger)
+          .where(eq(creditLedger.id, reservation.id))
+          .limit(1);
+
+        if (curr?.reservationStatus === "RELEASED") {
+          console.warn(`[billing] Release already settled for runId=${runId} — idempotent`);
+          return;
+        }
+        if (curr?.reservationStatus === "DEBITED") {
+          // The job succeeded on a concurrent or earlier attempt and the
+          // debit already settled.  Releasing would double-refund the team.
+          console.warn(
+            `[billing] Cannot release runId=${runId} (teamId=${teamId}): ` +
+            `reservation already DEBITED — content was charged, skipping release`
+          );
+          return;
+        }
+        // null → fall through to legacy path below
+      } else {
+        // We own the full-release claim.  Proceed to decrement credit_balances.
+        // (Skips the legacy idempotency block below.)
+        const releaseRows = await tx
+          .update(creditBalances)
+          .set({
+            reservedCredits: sql`${creditBalances.reservedCredits} - ${amount}`,
+            updatedAt: new Date(),
+          })
+          .where(
+            sql`${creditBalances.teamId} = ${teamId} AND ${creditBalances.reservedCredits} >= ${amount}`
+          )
+          .returning({ id: creditBalances.id });
+
+        if (releaseRows.length === 0) {
+          // The balance guard failed AFTER we already claimed RESERVED → RELEASED.
+          // Throw so the transaction rolls back the status claim, restoring RESERVED.
+          // This prevents a stranded RELEASED status with no corresponding balance
+          // decrement.  Callers should compute the actual remaining amount before
+          // releasing (the sweeper does this; a full-release of an already-partially-
+          // settled reservation is the main trigger for this guard failure).
+          throw new Error(
+            `[billing] releaseReservation: reservedCredits insufficient for full release ` +
+            `runId=${runId} teamId=${teamId} amount=${amount} — ` +
+            `rolling back RELEASED status claim to prevent stranded status`
+          );
+        }
+
+        await tx.insert(creditLedger).values({
+          teamId,
+          userId: userId ?? null,
+          amount,
+          balanceAfter: 0,
+          eventType: "release",
+          operationType: reservation.operationType,
+          runId,
+          reason: params.releaseKey
+            ? `${reason ?? `Release for ${reservation.operationType} (runId: ${runId})`} [releaseKey:${params.releaseKey}]`
+            : (reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`),
+        });
+        return;
+      }
+    }
+
+    // ── Partial release path (or legacy null-status rows) ─────────────────────
+    // Partial releases (batch: amount < reservation.amount) keep the status as
+    // RESERVED so remaining per-article debits can still proceed.  Idempotency
+    // is enforced by the releaseKey embedded in the reason field.  Both partial
+    // and null-status rows use the same LIKE guard here.
     const [existingRelease] = await tx
       .select({ id: creditLedger.id })
       .from(creditLedger)
@@ -508,9 +691,7 @@ export async function releaseReservation(params: {
     }
 
     // Release: decrement reservedCredits.
-    // WHERE guard enforces reservedCredits >= amount to prevent underflow if
-    // a partial batch release fires more than expected (double-call after
-    // idempotency check is a last-resort backstop).
+    // WHERE guard enforces reservedCredits >= amount to prevent underflow.
     const releaseRows = await tx
       .update(creditBalances)
       .set({
@@ -579,6 +760,7 @@ export async function grantAllowance(params: {
     await ensureBucketRow(teamId, tx);
 
     // Reset allowance bucket; preserve purchased, zero allowanceUsed for new period
+    // ensureBucketRow above guarantees the row exists.
     const [updated] = await tx
       .update(creditBalances)
       .set({
@@ -590,6 +772,7 @@ export async function grantAllowance(params: {
       })
       .where(eq(creditBalances.teamId, teamId))
       .returning();
+    if (!updated) throw new Error(`creditBalances row missing for team ${teamId} — ensureBucketRow should prevent this`);
 
     await tx.insert(creditLedger).values({
       teamId,
@@ -660,6 +843,7 @@ export async function grantPurchased(params: {
       })
       .where(eq(creditBalances.teamId, teamId))
       .returning();
+    if (!updated) throw new Error(`creditBalances row missing for team ${teamId} — ensureBucketRow should prevent this`);
 
     await tx.insert(creditLedger).values({
       teamId,
@@ -717,6 +901,7 @@ export async function adminAdjust(params: {
       })
       .where(eq(creditBalances.teamId, teamId))
       .returning();
+    if (!updated) throw new Error(`creditBalances row missing for team ${teamId} — ensureBucketRow should prevent this`);
 
     await tx.insert(creditLedger).values({
       teamId,

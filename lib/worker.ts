@@ -34,6 +34,7 @@ import {
   DAILY_BRIEF_QUEUE,
   SIGNUP_COMPETITOR_INTAKE_QUEUE,
   CANARY_QUEUE,
+  RESERVATION_SWEEPER_QUEUE,
   type PodcastJobData,
   type DailyBriefJobData,
   type SignupCompetitorIntakeJobData,
@@ -4248,6 +4249,115 @@ export async function registerWorkers() {
   } catch (error) {
     console.error("⚠️ Failed to register canary worker:", error);
     // Non-critical — don't throw; other workers keep running
+  }
+
+  // ── Stale reservation sweeper ──────────────────────────────────────────────
+  // Runs every 6 hours. Releases any credit_ledger reserve rows that have been
+  // stuck in RESERVED for more than 24 h (worker crashed after generation but
+  // before debit, and BullMQ never retried).  The release CAS ensures an
+  // in-flight debit that finally completes after the sweep cannot double-settle.
+  try {
+    const sweepQueue = getQueue(RESERVATION_SWEEPER_QUEUE);
+    await sweepQueue.upsertJobScheduler(
+      `${RESERVATION_SWEEPER_QUEUE}-cron`,
+      { every: 6 * 60 * 60 * 1000 }, // every 6 hours
+      { name: RESERVATION_SWEEPER_QUEUE, data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { count: 20 } } }
+    );
+    createPipelineWorker(RESERVATION_SWEEPER_QUEUE, async (_job) => {
+      const { db } = await import("./db");
+      const { creditLedger: ledger } = await import("../shared/schema");
+      const { releaseReservation } = await import("./billing");
+      const { sql: drizzleSql } = await import("drizzle-orm");
+
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const stale = await db
+        .select({ id: ledger.id, teamId: ledger.teamId, runId: ledger.runId, amount: ledger.amount })
+        .from(ledger)
+        .where(
+          drizzleSql`${ledger.eventType} = 'reserve'
+            AND ${ledger.reservationStatus} = 'RESERVED'
+            AND ${ledger.createdAt} < ${cutoff}`
+        )
+        .limit(500);
+
+      if (stale.length === 0) {
+        console.log("[reservation-sweeper] No stale reservations found");
+        return;
+      }
+
+      console.warn(`[reservation-sweeper] Found ${stale.length} stale RESERVED reservation(s) older than 24h — releasing`);
+
+      let released = 0;
+      let skipped = 0;
+
+      for (const row of stale) {
+        try {
+          // Compute per-reservation remaining credits from the ledger, not from the
+          // team-wide reservedCredits aggregate.  Using reservation.amount directly
+          // would over-release for partially-settled batch reservations (partial debits
+          // + partial releases already accounted for some credits).
+          const events = await db
+            .select({ eventType: ledger.eventType, amount: ledger.amount })
+            .from(ledger)
+            .where(
+              drizzleSql`${ledger.teamId} = ${row.teamId}
+                AND ${ledger.runId} = ${row.runId}
+                AND ${ledger.eventType} IN ('debit', 'release')`
+            );
+
+          const debited = events
+            .filter(e => e.eventType === "debit")
+            .reduce((sum, e) => sum + Math.abs(e.amount ?? 0), 0);
+          const priorReleased = events
+            .filter(e => e.eventType === "release")
+            .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+          const remaining = (row.amount ?? 0) - debited - priorReleased;
+
+          if (remaining <= 0) {
+            // Reservation is already fully settled (debits + releases cover everything).
+            // Just flip the status to RELEASED — no balance change needed.
+            await db
+              .update(ledger)
+              .set({ reservationStatus: "RELEASED" })
+              .where(drizzleSql`${ledger.id} = ${row.id} AND ${ledger.reservationStatus} = 'RESERVED'`);
+            released++;
+            console.log(`[reservation-sweeper] runId=${row.runId} teamId=${row.teamId} already fully settled — marked RELEASED`);
+            continue;
+          }
+
+          // remaining > 0: release the actual held amount, not the original reservation amount.
+          await releaseReservation({
+            teamId: row.teamId,
+            runId: row.runId!,
+            amount: remaining,
+            reason: "Stale reservation sweeper (>24h RESERVED, no worker completed)",
+          });
+
+          // If the release was partial (remaining < row.amount), releaseReservation kept
+          // status=RESERVED.  Flip it to RELEASED now since the sweeper's intent is to
+          // fully terminate this reservation.
+          await db
+            .update(ledger)
+            .set({ reservationStatus: "RELEASED" })
+            .where(drizzleSql`${ledger.id} = ${row.id} AND ${ledger.reservationStatus} = 'RESERVED'`);
+
+          released++;
+          console.log(`[reservation-sweeper] Released runId=${row.runId} teamId=${row.teamId} remaining=${remaining} (original=${row.amount})`);
+        } catch (err) {
+          skipped++;
+          console.error(`[reservation-sweeper] Failed to release runId=${row.runId}:`, err instanceof Error ? err.message : err);
+        }
+      }
+
+      console.log(`[reservation-sweeper] Done: released=${released} skipped=${skipped}`);
+    }, {
+      stage: "text_gen",
+      concurrency: 1,
+    });
+    console.log("🧹 Stale reservation sweeper registered (every 6 hours)");
+  } catch (error) {
+    console.error("⚠️ Failed to register reservation sweeper:", error);
   }
 
   // Start daily brief scheduler (runs every hour, checks per-user timezone + cadence)

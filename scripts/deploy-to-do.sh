@@ -169,6 +169,16 @@ else
   echo "Build artifacts present and code unchanged — skipping build."
 fi
 
+# ── Schema migration ──────────────────────────────────────────────────────
+# Apply any schema changes declared in shared/schema.ts before reloading the
+# app process.  Running db:push here ensures new columns / indexes are present
+# before the new code starts, preventing startup failures on first deploy of
+# a schema-changing release.  The command is idempotent (Drizzle skips
+# already-present columns/indexes) so it is safe to run on every deploy.
+echo "Applying schema changes (db:push)..."
+npm run db:push -- --force 2>&1 | tail -20
+echo "Schema up to date."
+
 # ── PM2 reload ────────────────────────────────────────────────────────────
 echo "Reloading PM2..."
 # Capture restart counts BEFORE reload so we can detect crash-loops after

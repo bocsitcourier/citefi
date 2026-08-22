@@ -2829,12 +2829,29 @@ export const creditLedger = pgTable("credit_ledger", {
   idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
   reason: text("reason"),
   reversedAt: timestamp("reversed_at"),
+  /**
+   * DB-enforced state machine for reserve rows (null on non-reserve / legacy rows).
+   * Transitions:  RESERVED → DEBITED  (debitReservation wins)
+   *               RESERVED → RELEASED (releaseReservation wins)
+   * The transition is a conditional UPDATE with RETURNING; only one concurrent
+   * caller gets rowCount=1 — the loser sees rowCount=0 and stops.
+   */
+  reservationStatus: varchar("reservation_status", { length: 20 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   teamCreatedIdx: index("credit_ledger_team_created_idx").on(t.teamId, t.createdAt),
   productIdx: index("credit_ledger_product_idx").on(t.productType, t.createdAt),
   idempotencyIdx: uniqueIndex("credit_ledger_idempotency_idx").on(t.idempotencyKey),
   runIdIdx: index("credit_ledger_run_id_idx").on(t.runId),
+  reservationStatusIdx: index("credit_ledger_reservation_status_idx").on(t.reservationStatus, t.createdAt),
+  /**
+   * DB-level backstop for batch-article debit idempotency.
+   * Prevents two concurrent workers from double-debiting the same job.
+   * Only applies when job_id IS NOT NULL (single-unit jobs have no jobId).
+   */
+  debitJobIdUniqueIdx: uniqueIndex("credit_ledger_debit_jobid_unique_idx")
+    .on(t.teamId, t.runId, t.jobId)
+    .where(sql`event_type = 'debit' AND job_id IS NOT NULL`),
 }));
 
 export type CreditLedger = typeof creditLedger.$inferSelect;
