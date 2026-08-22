@@ -12,3 +12,10 @@ id = "ktgqGFWtgiJC6vis1C37-"
 uri = "file://DO_SSH_PUBLIC_KEY.txt"
 type = "text"
 title = "Public Key → paste on your DO droplet"
+
+[[outputs]]
+id = "xMPKZ7_U821LW7vQknaNV"
+uri = "file://reports/citefi-full-qa-blueprint-comparison-2026-08-22.md"
+type = "text"
+title = "Citefi Full QA & Blueprint Comparison"
+description = "Architect verdict, implementation scorecard, browser and test evidence, and prioritized launch gaps."
