@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";
+import { getLastCanaryResult } from "@/lib/canary-worker";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -64,10 +65,18 @@ function checkModels(): { ok: boolean; ready: boolean; models: Record<string, st
 export async function GET(request: NextRequest) {
   const full = request.nextUrl.searchParams.get("full") === "1";
 
-  const [dbResult, redisResult, providerCircuits] = await Promise.all([
+  const [dbResult, redisResult, providerCircuits, canaryResult] = await Promise.all([
     checkDatabase(),
     full ? checkRedis() : Promise.resolve({ ok: true, latencyMs: 0, note: "skipped (use ?full=1)" }),
     getProviderCircuitStatus().catch((err) => ({ error: (err as Error).message })),
+    getLastCanaryResult().catch(() => ({
+      status: "never_run" as const,
+      lastRunAt: null,
+      error: null,
+      stage: null,
+      provider: null,
+      durationMs: null,
+    })),
   ]);
   const modelResult = checkModels();
 
@@ -87,6 +96,14 @@ export async function GET(request: NextRequest) {
           doSpaces: !!process.env.DO_SPACES_BUCKET,
         },
         providerCircuits,
+        canary: {
+          last_canary_run: canaryResult.lastRunAt,
+          last_canary_status: canaryResult.status,
+          last_canary_error: canaryResult.error,
+          last_canary_stage: canaryResult.stage,
+          last_canary_provider: canaryResult.provider,
+          last_canary_duration_ms: canaryResult.durationMs,
+        },
       },
     },
     { status }

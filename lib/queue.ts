@@ -166,6 +166,7 @@ export const INTELLIGENCE_RESEARCH_QUEUE = "intelligence-research";
 export const PODCAST_GENERATION_QUEUE = "article-podcast";
 export const DAILY_BRIEF_QUEUE = "daily-brief";
 export const SIGNUP_COMPETITOR_INTAKE_QUEUE = "signup-competitor-intake";
+export const CANARY_QUEUE = "canary";
 
 export const ALL_QUEUE_NAMES = [
   BATCH_GENERATION_QUEUE,
@@ -182,6 +183,7 @@ export const ALL_QUEUE_NAMES = [
   PODCAST_GENERATION_QUEUE,
   DAILY_BRIEF_QUEUE,
   SIGNUP_COMPETITOR_INTAKE_QUEUE,
+  CANARY_QUEUE,
   "video-orphan-sweeper",
   "engagement-scoring",
   "conversion-labeler",

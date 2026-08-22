@@ -33,6 +33,7 @@ import {
   PODCAST_GENERATION_QUEUE,
   DAILY_BRIEF_QUEUE,
   SIGNUP_COMPETITOR_INTAKE_QUEUE,
+  CANARY_QUEUE,
   type PodcastJobData,
   type DailyBriefJobData,
   type SignupCompetitorIntakeJobData,
@@ -4216,6 +4217,25 @@ export async function registerWorkers() {
     await initializeScheduler();
   } catch (error) {
     console.error("⚠️ Failed to initialize content scheduler:", error);
+  }
+
+  // Daily model health canary — runs at 06:00 UTC to detect model deprecations
+  // within hours. A single job triggers the canary; results are exposed on /api/health.
+  try {
+    const canaryQueue = getQueue(CANARY_QUEUE);
+    await canaryQueue.upsertJobScheduler(
+      `${CANARY_QUEUE}-daily`,
+      { pattern: "0 6 * * *", tz: "UTC" },
+      { name: CANARY_QUEUE, data: {} }
+    );
+    createPipelineWorker(CANARY_QUEUE, async (_job) => {
+      const { runCanary } = await import("./canary-worker");
+      await runCanary();
+    }, { stage: "text_gen", concurrency: 1 });
+    console.log("🐤 Daily model health canary registered (06:00 UTC)");
+  } catch (error) {
+    console.error("⚠️ Failed to register canary worker:", error);
+    // Non-critical — don't throw; other workers keep running
   }
 
   // Start daily brief scheduler (runs every hour, checks per-user timezone + cadence)
