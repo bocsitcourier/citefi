@@ -16,8 +16,7 @@
  */
 
 import type Redis from "ioredis";
-import { normalizeRedisUrl } from "./queue";
-import { logError } from "./error-logger";
+import { getRedisClientConfig } from "./queue";
 
 // ── Result type ───────────────────────────────────────────────────────────────
 
@@ -32,6 +31,15 @@ export interface CanaryResult {
 
 const REDIS_KEY = "canary:last_result";
 const REDIS_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days — survive worker restarts
+export const CANARY_STAGE_TIMEOUT_MS = 2 * 60 * 1000;
+export const CANARY_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
+export const CANARY_SCHEDULE_PATTERN = "0 6 * * *";
+export const CANARY_JOB_OPTIONS = {
+  attempts: 2,
+  backoff: { type: "fixed" as const, delay: 5 * 60 * 1000 },
+  removeOnComplete: 30,
+  removeOnFail: 30,
+};
 
 const NEVER_RUN: CanaryResult = {
   status: "never_run",
@@ -50,16 +58,24 @@ const NEVER_RUN: CanaryResult = {
  */
 async function makeTransientClient(urlOverride?: string): Promise<Redis> {
   const { default: IORedis } = await import("ioredis");
-  const { url, tls } = normalizeRedisUrl(urlOverride);
-  const client = new IORedis(url, {
+  const { url, options } = getRedisClientConfig(urlOverride, {
     lazyConnect: true,
     connectTimeout: 3000,
     commandTimeout: 3000,
     maxRetriesPerRequest: 0,
-    ...(tls && { tls: {} }),
   });
-  await client.connect();
-  return client;
+  const client = new IORedis(url, options);
+  client.on("error", () => {
+    // Connection errors are surfaced to the awaiting operation. This listener
+    // prevents EventEmitter "error" events from becoming uncaught exceptions.
+  });
+  try {
+    await client.connect();
+    return client;
+  } catch (err) {
+    client.disconnect();
+    throw err;
+  }
 }
 
 /** Write a canary result to Redis. Exported for testing. */
@@ -167,13 +183,54 @@ export const MIN_ARTICLE_CHARS = 400;
 /** Minimum bytes for a real image vs an empty/error response. */
 export const MIN_IMAGE_BYTES = 1024;
 
+export function evaluateCanaryHealth(
+  result: CanaryResult,
+  nowMs = Date.now()
+): { ok: boolean; stale: boolean; reason: string | null } {
+  if (result.status === "never_run" || !result.lastRunAt) {
+    return { ok: false, stale: true, reason: "Canary has never completed" };
+  }
+  if (result.status === "fail") {
+    return { ok: false, stale: false, reason: result.error ?? "Canary failed" };
+  }
+  const lastRunMs = Date.parse(result.lastRunAt);
+  const stale = !Number.isFinite(lastRunMs) || nowMs - lastRunMs > CANARY_STALE_AFTER_MS;
+  return {
+    ok: !stale,
+    stale,
+    reason: stale ? "Last successful canary is older than 36 hours" : null,
+  };
+}
+
+async function withCanaryTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  stage: string,
+  timeoutMs: number
+): Promise<T> {
+  const controller = new AbortController();
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Canary ${stage} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timeoutHandle.unref();
+  });
+
+  try {
+    return await Promise.race([operation(controller.signal), timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 // ── Injectable deps (for testing) ────────────────────────────────────────────
 
 export interface CanaryDeps {
   /** Override text generation. Return the raw text output. */
-  textGen?: () => Promise<string>;
+  textGen?: (signal?: AbortSignal) => Promise<string>;
   /** Override image generation. Return the image byte count. */
-  imageGen?: () => Promise<number>;
+  imageGen?: (signal?: AbortSignal) => Promise<number>;
   /** Override admin notification (spy in tests). */
   notifyAdmins?: (stage: string, provider: string, message: string) => Promise<void>;
   /**
@@ -183,6 +240,10 @@ export interface CanaryDeps {
   logError?: (stage: string, provider: string, message: string, durationMs: number) => Promise<void>;
   /** Pre-connected Redis client (tests inject DB-14 client). */
   redis?: Redis;
+  /** Per-stage hard timeout; production defaults to two minutes. */
+  timeoutMs?: number;
+  /** False on BullMQ retries to prevent duplicate admin alerts/error logs. */
+  reportFailure?: boolean;
 }
 
 // ── Core runner ───────────────────────────────────────────────────────────────
@@ -192,9 +253,11 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
   const start = Date.now();
   let stage = "text_generation";
   const provider = "gemini";
+  const timeoutMs = deps?.timeoutMs ?? CANARY_STAGE_TIMEOUT_MS;
 
   const notifyFn = deps?.notifyAdmins ?? notifyAdminsOfCanaryFailure;
   const logFn = deps?.logError ?? (async (s: string, p: string, msg: string, ms: number) => {
+    const { logError } = await import("./error-logger");
     await logError({
       errorType: "SYSTEM",
       errorMessage: `[canary] stage=${s} provider=${p}: ${msg}`,
@@ -209,7 +272,11 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
     let textOutput: string;
 
     if (deps?.textGen) {
-      textOutput = await deps.textGen();
+      textOutput = await withCanaryTimeout(
+        (signal) => deps.textGen!(signal),
+        stage,
+        timeoutMs
+      );
     } else {
       const { GoogleGenAI } = await import("@google/genai");
       const { getModel } = await import("./model-resolver");
@@ -218,25 +285,33 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const textModel = getModel("geminiArticle");
 
-      const textResponse = await throttledGeminiRequest(() =>
-        genAI.models.generateContent({
-          model: textModel,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: [
-                    "Write a 200-word professional article titled",
-                    '"How AI Content Tools Help Small Businesses".',
-                    "Return plain HTML with <h1>, <p> tags only.",
-                    "This is an automated health check — content quality does not matter.",
-                  ].join(" "),
-                },
-              ],
+      const textResponse = await withCanaryTimeout(
+        (signal) => throttledGeminiRequest(() =>
+          genAI.models.generateContent({
+            model: textModel,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: [
+                      "Write a 200-word professional article titled",
+                      '"How AI Content Tools Help Small Businesses".',
+                      "Return plain HTML with <h1>, <p> tags only.",
+                      "This is an automated health check — content quality does not matter.",
+                    ].join(" "),
+                  },
+                ],
+              },
+            ],
+            config: {
+              abortSignal: signal,
+              httpOptions: { timeout: timeoutMs },
             },
-          ],
-        })
+          })
+        ),
+        stage,
+        timeoutMs
       );
 
       textOutput =
@@ -259,7 +334,11 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
     let imageBytes: number;
 
     if (deps?.imageGen) {
-      imageBytes = await deps.imageGen();
+      imageBytes = await withCanaryTimeout(
+        (signal) => deps.imageGen!(signal),
+        stage,
+        timeoutMs
+      );
     } else {
       const { GoogleGenAI } = await import("@google/genai");
       const { getModel } = await import("./model-resolver");
@@ -268,21 +347,29 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const imageModel = getModel("geminiImage");
 
-      const imgResponse = await throttledGeminiRequest(() =>
-        genAI.models.generateContent({
-          model: imageModel,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: "A minimal abstract blue gradient background, professional, no text. 256×256 pixels.",
-                },
-              ],
+      const imgResponse = await withCanaryTimeout(
+        (signal) => throttledGeminiRequest(() =>
+          genAI.models.generateContent({
+            model: imageModel,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: "A minimal abstract blue gradient background, professional, no text. 256×256 pixels.",
+                  },
+                ],
+              },
+            ],
+            config: {
+              responseModalities: ["Image"],
+              abortSignal: signal,
+              httpOptions: { timeout: timeoutMs },
             },
-          ],
-          config: { responseModalities: ["Image"] },
-        })
+          })
+        ),
+        stage,
+        timeoutMs
       );
 
       imageBytes = 0;
@@ -336,19 +423,26 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       `❌ [canary] Daily model health check FAILED — stage="${stage}" provider="${provider}": ${message}`
     );
 
-    // Per-admin in-app notification (non-fatal — notification failure must not
-    // prevent the Redis write or the structured error log from completing)
-    try {
-      await notifyFn(stage, provider, message);
-    } catch (notifyErr) {
-      console.error("[canary] notifyAdmins threw (non-fatal):", notifyErr);
+    if (deps?.reportFailure !== false) {
+      // Per-admin in-app notification (non-fatal — notification failure must not
+      // prevent the Redis write or the structured error log from completing)
+      try {
+        await notifyFn(stage, provider, message);
+      } catch (notifyErr) {
+        console.error("[canary] notifyAdmins threw (non-fatal):", notifyErr);
+      }
+
+      // Structured error log (visible in /admin/error-logs)
+      try {
+        await logFn(stage, provider, message, durationMs);
+      } catch (logErr) {
+        console.error("[canary] Failed to write error log:", logErr);
+      }
     }
 
-    // Structured error log (visible in /admin/error-logs)
-    try {
-      await logFn(stage, provider, message, durationMs);
-    } catch (logErr) {
-      console.error("[canary] Failed to write error log:", logErr);
-    }
+    // BullMQ must record and retry failed canaries instead of marking them as
+    // completed. Persistence/reporting happens first so operators still see
+    // the initial failure even if the retry later succeeds.
+    throw err instanceof Error ? err : new Error(message);
   }
 }

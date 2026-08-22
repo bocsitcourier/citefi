@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import Redis from "ioredis";
+import Redis, { type RedisOptions } from "ioredis";
 
 // ============================================================================
 // JOB DATA INTERFACES (unchanged — all API routes depend on these)
@@ -215,18 +215,36 @@ export function normalizeRedisUrl(raw?: string): { url: string; tls: boolean } {
   return { url, tls: url.startsWith("rediss://") };
 }
 
+/**
+ * Build a consistent ioredis URL/options pair for every process.
+ * Callers provide purpose-specific options; TLS is added automatically for
+ * normalized rediss:// URLs.
+ */
+export function getRedisClientConfig(
+  raw?: string,
+  options: RedisOptions = {}
+): { url: string; options: RedisOptions } {
+  const { url, tls } = normalizeRedisUrl(raw);
+  return {
+    url,
+    options: {
+      ...options,
+      ...(tls && { tls: options.tls ?? {} }),
+    },
+  };
+}
+
 let _redisConn: Redis | null = null;
 
 export function getRedisConnection(): Redis {
   if (_redisConn) return _redisConn;
 
-  const { url, tls: isTls } = normalizeRedisUrl();
-  _redisConn = new Redis(url, {
+  const { url, options } = getRedisClientConfig(undefined, {
     maxRetriesPerRequest: null, // Required by BullMQ
     enableReadyCheck: false,
     lazyConnect: false,
-    ...(isTls && { tls: {} }),
   });
+  _redisConn = new Redis(url, options);
 
   _redisConn.on("error", (err) => {
     console.error("❌ Redis connection error:", err.message);

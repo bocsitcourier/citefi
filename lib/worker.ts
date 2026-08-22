@@ -4222,15 +4222,23 @@ export async function registerWorkers() {
   // Daily model health canary — runs at 06:00 UTC to detect model deprecations
   // within hours. A single job triggers the canary; results are exposed on /api/health.
   try {
+    const {
+      runCanary,
+      CANARY_SCHEDULE_PATTERN,
+      CANARY_JOB_OPTIONS,
+    } = await import("./canary-worker");
     const canaryQueue = getQueue(CANARY_QUEUE);
     await canaryQueue.upsertJobScheduler(
       `${CANARY_QUEUE}-daily`,
-      { pattern: "0 6 * * *", tz: "UTC" },
-      { name: CANARY_QUEUE, data: {} }
+      { pattern: CANARY_SCHEDULE_PATTERN, tz: "UTC" },
+      {
+        name: CANARY_QUEUE,
+        data: {},
+        opts: CANARY_JOB_OPTIONS,
+      }
     );
-    createPipelineWorker(CANARY_QUEUE, async (_job) => {
-      const { runCanary } = await import("./canary-worker");
-      await runCanary();
+    createPipelineWorker(CANARY_QUEUE, async (job) => {
+      await runCanary({ reportFailure: job.attemptsMade === 0 });
     }, { stage: "text_gen", concurrency: 1 });
     console.log("🐤 Daily model health canary registered (06:00 UTC)");
   } catch (error) {

@@ -24,3 +24,4 @@
 - [Daily Marketing Brief architecture](daily-brief-architecture.md) — 4 tables + BullMQ daily-brief queue + lib/brief/ module; signup hook enqueues signup-competitor-intake; cadence enforcement + UTC date fix applied in scheduler + /today route; admin panel at /admin/briefs.
 - [Pipeline worker policy](pipeline-worker-policy.md) — all BullMQ workers register via createPipelineWorker; policy (classify/release/fatal) lives there once; budget gates stay in processors.
 - [Model resolver (Level 2 startup validation)](model-resolver.md) — RESOLVED_MODELS mutable object; validateAndResolveModels() before registerWorkers(); per-tier fallback chains; CRITICAL_TIERS throw on no live model.
+- [Node test-runner IPC](node-test-runner-ipc.md) — Node 20 isolation can intermittently corrupt IPC for tsx + real-service suites; use a deterministic direct-process harness.

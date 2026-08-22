@@ -13,7 +13,8 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";
-import { getLastCanaryResult } from "@/lib/canary-worker";
+import { evaluateCanaryHealth, getLastCanaryResult } from "@/lib/canary-worker";
+import { getRedisClientConfig } from "@/lib/queue";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -29,16 +30,24 @@ async function checkDatabase(): Promise<{ ok: boolean; latencyMs: number; error?
 
 async function checkRedis(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
   const t = Date.now();
+  let client: InstanceType<typeof import("ioredis").default> | null = null;
   try {
     const Redis = (await import("ioredis")).default;
-    const url = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-    const client = new Redis(url, { lazyConnect: true, connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 0 });
+    const { url, options } = getRedisClientConfig(undefined, {
+      lazyConnect: true,
+      connectTimeout: 3000,
+      commandTimeout: 3000,
+      maxRetriesPerRequest: 0,
+    });
+    client = new Redis(url, options);
+    client.on("error", () => {});
     await client.connect();
     await client.ping();
-    await client.quit();
     return { ok: true, latencyMs: Date.now() - t };
   } catch (err) {
     return { ok: false, latencyMs: Date.now() - t, error: (err as Error).message.slice(0, 120) };
+  } finally {
+    client?.disconnect();
   }
 }
 
@@ -79,8 +88,9 @@ export async function GET(request: NextRequest) {
     })),
   ]);
   const modelResult = checkModels();
+  const canaryHealth = evaluateCanaryHealth(canaryResult);
 
-  const allOk = dbResult.ok && redisResult.ok;
+  const allOk = dbResult.ok && redisResult.ok && canaryHealth.ok;
   const status = allOk ? 200 : 503;
 
   return NextResponse.json(
@@ -103,6 +113,9 @@ export async function GET(request: NextRequest) {
           last_canary_stage: canaryResult.stage,
           last_canary_provider: canaryResult.provider,
           last_canary_duration_ms: canaryResult.durationMs,
+          ok: canaryHealth.ok,
+          stale: canaryHealth.stale,
+          health_reason: canaryHealth.reason,
         },
       },
     },

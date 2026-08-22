@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "NODE_ENV=production tsx server/production.ts",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test:canary": "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm tests/pipeline/canary-worker.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.919.0",
