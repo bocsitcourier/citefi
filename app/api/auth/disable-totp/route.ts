@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { users, totpSecrets, activityLogs } from "@/shared/schema";
 import { verifyToken } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized - Invalid or expired session" }, { status: 401 });
     }
 
-    await db.delete(totpSecrets).where(eq(totpSecrets.userId, authResult.userId));
-    await db.update(users)
+    await systemDb.delete(totpSecrets).where(eq(totpSecrets.userId, authResult.userId));
+    await systemDb.update(users)
       .set({ twoFactorEnabled: 0, twoFactorMethod: null })
       .where(eq(users.id, authResult.userId));
 
-    await db.insert(activityLogs).values({
+    await systemDb.insert(activityLogs).values({
       userId: authResult.userId,
       action: "totp_disabled",
       resource: "users",

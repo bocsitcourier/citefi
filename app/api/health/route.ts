@@ -9,7 +9,7 @@
  * model-list validation); omit for the fast cache-based check.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";

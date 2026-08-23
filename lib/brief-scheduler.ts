@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { dailyBriefPreferences, users, dailyBriefs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { addDailyBriefJob } from "./queue";

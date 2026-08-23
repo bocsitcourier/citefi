@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";

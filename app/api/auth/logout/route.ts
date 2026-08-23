@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { sessions, activityLogs } from "@/shared/schema";
 import { verifyToken, hashToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME, getTokenFromRequest } from "@/lib/api/auth";
@@ -37,13 +37,13 @@ export async function POST(req: Request) {
     const tokenHash = hashToken(token);
 
     // Terminate session: set both isActive=0 and forceLogoutAt for consistency with force-logout.
-    await db
+    await systemDb
       .update(sessions)
       .set({ isActive: 0, forceLogoutAt: new Date() })
       .where(eq(sessions.tokenHash, tokenHash));
 
     // Log logout activity
-    await db.insert(activityLogs).values({
+    await systemDb.insert(activityLogs).values({
       userId: payload.userId,
       action: "logout",
       resource: "users",

@@ -4,8 +4,15 @@
  *
  * Run: WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/pipeline/pipeline-worker.test.ts
  */
-import { test, after } from "node:test";
+import { test as nodeTest, after } from "node:test";
 import assert from "node:assert/strict";
+import { runWithSystemContext } from "../../lib/tenant-context";
+
+function test(name: string, fn: () => void | Promise<void>) {
+  return nodeTest(name, () =>
+    runWithSystemContext("pipeline test fixture setup", fn)
+  );
+}
 
 // Close the pooled DB connection so the test process exits deterministically.
 after(async () => {

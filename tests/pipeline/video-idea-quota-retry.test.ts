@@ -6,10 +6,20 @@
  *     --test tests/pipeline/video-idea-quota-retry.test.ts
  */
 import assert from "node:assert/strict";
-import { after, test } from "node:test";
+import { after, test as nodeTest } from "node:test";
 import { UnrecoverableError, type Job } from "bullmq";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../lib/db";
+import {
+  runWithBlockedDatabaseContext,
+  runWithSystemContext,
+} from "../../lib/tenant-context";
+
+function test(name: string, fn: () => void | Promise<void>) {
+  return nodeTest(name, () =>
+    runWithSystemContext("video idea retry test fixture setup", fn)
+  );
+}
 import {
   debitReservation,
   releaseReservation,
@@ -146,6 +156,7 @@ void test("Veo quota failures retry before the wrapper releases credits on the f
       (job) => processVideoIdeaGenerationJob(job, dependencies),
       {
         stage: "video_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         getBilling: getVideoIdeaGenerationBilling,
         _deps: {
           recordProviderFailure: async () => {},
@@ -166,7 +177,11 @@ void test("Veo quota failures retry before the wrapper releases credits on the f
 
     for (const attemptsMade of [0, 1]) {
       await assert.rejects(
-        () => handler(makeJob(attemptsMade)),
+        () =>
+          runWithBlockedDatabaseContext(
+            "simulate unscoped BullMQ delivery",
+            () => handler(makeJob(attemptsMade))
+          ),
         /RESOURCE_EXHAUSTED/
       );
       assert.equal(releases.length, 0, "transient quota attempts must preserve the reservation");
@@ -193,7 +208,11 @@ void test("Veo quota failures retry before the wrapper releases credits on the f
     }
 
     await assert.rejects(
-      () => handler(makeJob(2)),
+      () =>
+        runWithBlockedDatabaseContext(
+          "simulate unscoped BullMQ final delivery",
+          () => handler(makeJob(2))
+        ),
       /RESOURCE_EXHAUSTED/
     );
 
@@ -357,6 +376,7 @@ void test("non-quota errors follow the worker's retry disposition policy", async
       (job) => processVideoIdeaGenerationJob(job, policyDependencies),
       {
         stage: "video_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         retryDispositions: VIDEO_IDEA_RETRY_DISPOSITIONS,
         _deps: { recordProviderFailure: async () => {} },
       }
@@ -512,6 +532,7 @@ void test("debit retries settle a durable video without regenerating or refundin
       (job) => processVideoIdeaGenerationJob(job, dependencies),
       {
         stage: "video_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         getBilling: getVideoIdeaGenerationBilling,
         retryDispositions: VIDEO_IDEA_RETRY_DISPOSITIONS,
         _deps: {

@@ -276,6 +276,7 @@ async function main(): Promise<void> {
 
     const handler = createPipelineHandler("canary", processor, {
       stage: "text_gen",
+      execution: { scope: "system", reason: "canary test" },
       retryFatalErrors: true,
       _deps: {
         recordProviderFailure: async () => {

@@ -5,6 +5,19 @@ import { drizzle as drizzlePooled } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import pLimit from "p-limit";
 import * as schema from "@/shared/schema";
+import {
+  getDatabaseExecutionContext,
+  type TenantExecutionContext,
+} from "@/lib/tenant-context";
+
+export class UnscopedDatabaseAccessError extends Error {
+  constructor() {
+    super(
+      "Database access requires a validated tenant context or an explicit system context"
+    );
+    this.name = "UnscopedDatabaseAccessError";
+  }
+}
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
@@ -69,7 +82,32 @@ export async function safeQuery<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // ─── Shared pool factory ──────────────────────────────────────────────────────
-function makePool(connectionString: string, max: number, idleMs: number): Pool {
+async function applyTenantSessionContext(
+  client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  context: TenantExecutionContext
+): Promise<void> {
+  await client.query("SET LOCAL ROLE citefi_tenant");
+  await client.query(
+    `SELECT
+       set_config('citefi.actor_type', $1, true),
+       set_config('citefi.user_id', $2, true),
+       set_config('citefi.team_id', $3, true),
+       set_config('citefi.member_role', $4, true)`,
+    [
+      context.actorType,
+      context.userId == null ? "" : String(context.userId),
+      String(context.teamId),
+      context.role,
+    ]
+  );
+}
+
+function makePool(
+  connectionString: string,
+  max: number,
+  idleMs: number,
+  contextAware = false
+): Pool {
   const pool = new Pool({
     connectionString,
     max,
@@ -84,6 +122,74 @@ function makePool(connectionString: string, max: number, idleMs: number): Pool {
     );
   });
   process.on("beforeExit", () => pool.end().catch(() => {}));
+
+  if (contextAware) {
+    const rawQuery = pool.query.bind(pool);
+    const rawConnect = pool.connect.bind(pool);
+
+    (pool as any).query = (
+      queryConfig: unknown,
+      valuesOrCallback?: unknown,
+      maybeCallback?: unknown
+    ) => {
+      const context = getDatabaseExecutionContext();
+      if (!context || context.scope === "blocked") {
+        const error = new UnscopedDatabaseAccessError();
+        const callback =
+          typeof valuesOrCallback === "function"
+            ? valuesOrCallback
+            : typeof maybeCallback === "function"
+              ? maybeCallback
+              : undefined;
+        if (callback) {
+          queueMicrotask(() => (callback as Function)(error));
+          return;
+        }
+        return Promise.reject(error);
+      }
+      if (context.scope === "system") {
+        return (rawQuery as any)(queryConfig, valuesOrCallback, maybeCallback);
+      }
+
+      const callback =
+        typeof valuesOrCallback === "function"
+          ? valuesOrCallback
+          : typeof maybeCallback === "function"
+            ? maybeCallback
+            : undefined;
+      const values = typeof valuesOrCallback === "function"
+        ? undefined
+        : valuesOrCallback;
+
+      const promise = (async () => {
+        const client = await rawConnect();
+        try {
+          await client.query("BEGIN");
+          await applyTenantSessionContext(client, context);
+          const result = values === undefined
+            ? await (client.query as any)(queryConfig)
+            : await (client.query as any)(queryConfig, values);
+          await client.query("COMMIT");
+          return result;
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        } finally {
+          client.release();
+        }
+      })();
+
+      if (callback) {
+        promise.then(
+          (result) => (callback as Function)(null, result),
+          (error) => (callback as Function)(error)
+        );
+        return;
+      }
+      return promise;
+    };
+  }
+
   return pool;
 }
 
@@ -96,30 +202,28 @@ const isWorkerProcess = process.env.WORKER_PROCESS === "true";
 
 // Held so closeDb() can end the pool deterministically (test teardown).
 let mainPool: Pool | null = null;
+let systemPool: Pool | null = null;
 let _txPool: Pool | null = null;
+let _systemTxDb: ReturnType<typeof drizzlePooled> | null = null;
 
 function buildDb(): NeonHttpDatabase<typeof schema> {
   const connectionString =
     process.env.DATABASE_POOLED_URL ?? DATABASE_URL;
 
-  if (isWorkerProcess || !isNeonCloud) {
+  {
     const max = isWorkerProcess ? 20 : 10;
     const idleMs = isWorkerProcess ? 900_000 : 30_000;
-    const pool = makePool(connectionString, max, idleMs);
+    const pool = makePool(connectionString, max, idleMs, true);
     mainPool = pool;
 
     console.log(
       isNeonCloud
-        ? `🔌 DB: pooled pg → Neon cloud (max ${max} conns, semaphore ${DB_CONCURRENCY})`
+        ? `🔌 DB: tenant-aware pooled pg → Neon cloud (max ${max} conns, semaphore ${DB_CONCURRENCY})`
         : `🔌 DB: pooled pg → local postgres (max ${max} conns, semaphore ${DB_CONCURRENCY})`
     );
 
     return drizzlePooled(pool, { schema }) as unknown as NeonHttpDatabase<typeof schema>;
   }
-
-  // Neon HTTP for main Next.js process when talking to Neon cloud
-  console.log(`🔌 DB: Neon HTTP driver (serverless) → Neon cloud`);
-  return drizzle(neon(DATABASE_URL), { schema });
 }
 
 export const db = buildDb();
@@ -130,25 +234,49 @@ export const db = buildDb();
  * graceful worker shutdown so node:test/processes exit cleanly.
  */
 export async function closeDb(): Promise<void> {
-  const pools = [mainPool, _txPool].filter(
+  const pools = [mainPool, systemPool, _txPool].filter(
     (pool, index, all): pool is Pool => Boolean(pool) && all.indexOf(pool) === index
   );
   mainPool = null;
+  systemPool = null;
   _txPool = null;
+  _systemTxDb = null;
   await Promise.all(pools.map((pool) => pool.end().catch(() => {})));
 }
 
-// ─── Stateless / HTTP client ──────────────────────────────────────────────────
-// For Neon cloud: uses the HTTP driver (immune to idle connection expiry).
-// For local postgres: reuses a small pool — same behaviour, no HTTP overhead.
-export const neonHttpDb: NeonHttpDatabase<typeof schema> = isNeonCloud
-  ? drizzle(neon(DATABASE_URL), { schema })
-  : (drizzlePooled(
-      makePool(process.env.DATABASE_POOLED_URL ?? DATABASE_URL, 5, 30_000),
-      { schema }
-    ) as unknown as NeonHttpDatabase<typeof schema>);
+// ─── Explicit privileged system client ────────────────────────────────────────
+// This is intentionally a separately named pooled client. It preserves normal
+// PostgreSQL RETURNING/transaction semantics while making BYPASSRLS access
+// visible at every call site. Tenant-facing code must use `db`, never this.
+systemPool = makePool(
+  process.env.DATABASE_POOLED_URL ?? DATABASE_URL,
+  5,
+  30_000
+);
+export const systemDb = drizzlePooled(systemPool, { schema });
 
-// Alias used by video-pipeline and other stateless modules for clarity.
+/**
+ * Context-enforced stateless facade. System/bootstrap callers must import the
+ * deliberately named systemDb instead; tenant callers are routed through the
+ * pooled RLS gateway because Neon HTTP cannot preserve transaction-local role.
+ */
+export const neonHttpDb: NeonHttpDatabase<typeof schema> = new Proxy(
+  systemDb as unknown as NeonHttpDatabase<typeof schema>,
+  {
+  get(target, property) {
+    const context = getDatabaseExecutionContext();
+    if (!context || context.scope === "blocked") {
+      throw new UnscopedDatabaseAccessError();
+    }
+    const selected = context.scope === "tenant"
+      ? (db as unknown as typeof systemDb)
+      : target;
+    const value = Reflect.get(selected, property, selected);
+    return typeof value === "function" ? value.bind(selected) : value;
+  },
+  }
+);
+
 export const statelessDb = neonHttpDb;
 
 // ─── Transaction-capable pooled client (for API routes) ─────────────────────
@@ -161,6 +289,70 @@ export function getTxDb() {
       5,
       30_000
     );
+    _systemTxDb = drizzlePooled(_txPool, { schema });
   }
-  return drizzlePooled(_txPool, { schema });
+  if (!_systemTxDb) {
+    _systemTxDb = drizzlePooled(_txPool, { schema });
+  }
+
+  const context = getDatabaseExecutionContext();
+  if (!context || context.scope === "blocked") {
+    throw new UnscopedDatabaseAccessError();
+  }
+  if (context.scope === "system") {
+    return _systemTxDb;
+  }
+
+  // Legacy callers use getTxDb() for both one-off statements and interactive
+  // transactions. Under a validated tenant context neither path may touch the
+  // BYPASSRLS login role directly:
+  //   * one-off statements go through the context-aware main pool;
+  //   * transaction() delegates to withTenantTransaction(), which checks out
+  //     one connection and applies SET LOCAL ROLE + transaction-local GUCs.
+  const tenantDb = db as unknown as typeof _systemTxDb;
+  return new Proxy(_systemTxDb, {
+    get(target, property) {
+      if (property === "transaction") {
+        return async (fn: (tx: typeof _systemTxDb) => Promise<unknown>) =>
+          withTenantTransaction((tx) => fn(tx));
+      }
+      const value = Reflect.get(tenantDb, property, tenantDb);
+      return typeof value === "function" ? value.bind(tenantDb) : value;
+    },
+  });
+}
+
+/**
+ * Run an interactive transaction on one checked-out connection using the
+ * current validated tenant context. SET LOCAL and ROLE are transaction-scoped,
+ * so pooled connections cannot retain another request's identity.
+ */
+export async function withTenantTransaction<T>(
+  fn: (tx: ReturnType<typeof getTxDb>) => Promise<T>
+): Promise<T> {
+  const context = getDatabaseExecutionContext();
+  if (context?.scope !== "tenant") {
+    throw new Error("Tenant transaction requested without a validated tenant context");
+  }
+  if (!_txPool) {
+    _txPool = makePool(
+      process.env.DATABASE_POOLED_URL ?? DATABASE_URL,
+      5,
+      30_000
+    );
+  }
+  const client = await _txPool.connect();
+  try {
+    await client.query("BEGIN");
+    await applyTenantSessionContext(client, context);
+    const tx = drizzlePooled(client, { schema }) as unknown as ReturnType<typeof getTxDb>;
+    const result = await fn(tx);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }

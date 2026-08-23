@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { userInvites } from '@/shared/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import crypto from 'crypto';

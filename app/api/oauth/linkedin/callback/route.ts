@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { storeOAuthCredentials, verifyOAuthState } from '@/lib/publishing/channels/social/oauth-service';
+import { enterSystemContext } from '@/lib/tenant-context';
 
 const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
 const LINKEDIN_REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] ? 'https://' + process.env.REPLIT_DOMAINS.split(',')[0] : 'http://localhost:5000'}/api/oauth/linkedin/callback`;
 
 export async function GET(request: NextRequest) {
+  enterSystemContext("LinkedIn OAuth callback persistence");
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');

@@ -195,6 +195,7 @@ export async function POST(
           await addImageGenerationJob({
             articleId: article.id,
             batchId,
+            teamId,
             imagePrompts: finalPrompts,
             businessName,
           });

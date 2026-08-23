@@ -8,8 +8,10 @@ import { sendPendingApprovalEmail, sendNewSignupAdminNotification } from "@/lib/
 import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
 import { notifyAdminsNewSignup } from "@/lib/notification-service";
 import { addSignupCompetitorIntakeJob } from "@/lib/queue";
+import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: Request) {
+  enterSystemContext("public signup bootstrap");
   try {
     const body = await req.json();
     const { email, password, fullName, teamName, role } = body;
@@ -193,6 +195,7 @@ export async function POST(req: Request) {
             status: 'queued',
             payloadJson: { fullName: newUser.fullName },
           }).returning();
+          if (!intakeRow) throw new Error("Failed to create signup competitor intake");
           await addSignupCompetitorIntakeJob({ intakeId: intakeRow.id, email: newUser.email, companyName: teamName || undefined });
         } catch (intakeErr) {
           console.error('Failed to queue competitor intake:', intakeErr);

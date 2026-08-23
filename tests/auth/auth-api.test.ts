@@ -10,6 +10,9 @@
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { seedAuthUsers, cleanupAuthUsers, cleanupSignupUsers, type SeedResult } from "./seed-auth.js";
+import { closeDb, systemDb } from "../../lib/db.js";
+import { errorLogs, teams, users } from "../../shared/schema.js";
+import { eq } from "drizzle-orm";
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const COOKIE_NAME = "auth_token";
@@ -98,7 +101,10 @@ async function waitForServer(
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${BASE_URL}/api/health`);
-      if (res.ok) {
+      // Any HTTP response proves the server and route bundle are accepting
+      // requests. /api/health may intentionally return 503 when an external
+      // model canary is degraded; that must not suppress independent auth tests.
+      if (res.status >= 200 && res.status < 600) {
         // Pre-warm auth route bundles so Next.js compiles them before tests run.
         // Only warm login here — signup pre-warming is done in before() using a
         // RUN_ID-scoped IP so it doesn't burn shared rate-limit quota.
@@ -145,8 +151,12 @@ before(async () => {
 });
 
 after(async () => {
-  await cleanupAuthUsers(seed);
-  await cleanupSignupUsers(signupCreatedIds);
+  try {
+    await cleanupAuthUsers(seed);
+    await cleanupSignupUsers(signupCreatedIds);
+  } finally {
+    await closeDb();
+  }
 });
 
 // ── Login — success paths ─────────────────────────────────────────────────────
@@ -475,5 +485,104 @@ describe("Signup — rate limiting", () => {
       }
     }
     assert.ok(got429, "Should receive 429 within 8 signup attempts from the same IP");
+  });
+});
+
+// ── Explicit privileged route scopes ─────────────────────────────────────────
+
+describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
+  test("authenticated client error screenshot can create its system error row", async () => {
+    const cookie = await loginAndGetCookie(seed.activeUser.email, seed.password);
+    assert.ok(cookie, "Active user login must succeed");
+
+    const form = new FormData();
+    form.append(
+      "screenshot",
+      new Blob(
+        [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])],
+        { type: "image/png" }
+      ),
+      "tenant-scope-test.png"
+    );
+    form.append("errorMessage", `Tenant scope route test ${RUN_ID}`);
+    form.append("pageUrl", "/tenant-scope-test");
+
+    const res = await fetch(`${BASE_URL}/api/client/error-screenshot`, {
+      method: "POST",
+      headers: { cookie },
+      body: form,
+    });
+    assert.equal(res.status, 200, `Expected screenshot route 200, got ${res.status}`);
+    const body: any = await res.json();
+    assert.equal(typeof body.errorLogId, "number");
+
+    const [row] = await systemDb
+      .select({ screenshotUrl: errorLogs.screenshotUrl })
+      .from(errorLogs)
+      .where(eq(errorLogs.id, body.errorLogId))
+      .limit(1);
+    assert.ok(row, "System error row must be persisted");
+
+    await systemDb.delete(errorLogs).where(eq(errorLogs.id, body.errorLogId));
+
+    if (
+      row.screenshotUrl?.startsWith("[private]") &&
+      process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID
+    ) {
+      const { objectStorageClient } = await import("../../lib/storage.js");
+      const objectName = `.private/${row.screenshotUrl.slice("[private]".length)}`;
+      await objectStorageClient
+        .bucket(process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID)
+        .file(objectName)
+        .delete()
+        .catch(() => {});
+    }
+  });
+
+  test("self-service account deletion can remove the authenticated user", async () => {
+    const fakeSubscriptionId = `sub_account_delete_guard_${RUN_ID}`;
+    await systemDb
+      .update(teams)
+      .set({
+        stripeSubscriptionId: fakeSubscriptionId,
+        billingStatus: "active",
+      })
+      .where(eq(teams.id, seed.team.id));
+
+    const cookie = await loginAndGetCookie(seed.activeUser.email, seed.password);
+    assert.ok(cookie, "Active user login must succeed");
+
+    const res = await fetch(`${BASE_URL}/api/account/delete`, {
+      method: "POST",
+      headers: { cookie },
+    });
+    const body: any = await res.json();
+    assert.equal(
+      res.status,
+      200,
+      `Expected account deletion 200, got ${res.status}: ${JSON.stringify(body)}`
+    );
+
+    const deleted = await systemDb
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, seed.activeUser.id));
+    assert.equal(deleted.length, 0, "Deleted user must no longer exist");
+
+    const [sharedTeam] = await systemDb
+      .select({
+        stripeSubscriptionId: teams.stripeSubscriptionId,
+        billingStatus: teams.billingStatus,
+      })
+      .from(teams)
+      .where(eq(teams.id, seed.team.id))
+      .limit(1);
+    assert.ok(sharedTeam, "The shared team must survive a member deleting their account");
+    assert.equal(
+      sharedTeam.stripeSubscriptionId,
+      fakeSubscriptionId,
+      "A member deleting their account must not cancel the shared subscription"
+    );
+    assert.equal(sharedTeam.billingStatus, "active");
   });
 });

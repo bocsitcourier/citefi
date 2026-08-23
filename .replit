@@ -135,7 +135,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "redis-server --daemonize yes --save '' --appendonly no >/dev/null 2>&1; sleep 1; WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm --test --test-force-exit tests/pipeline/budget-stop-cleanup.test.ts tests/pipeline/pipeline-worker.test.ts"
+args = "redis-server --daemonize yes --save '' --appendonly no >/dev/null 2>&1; sleep 1; WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm tests/pipeline/budget-stop-cleanup.test.ts && WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm tests/pipeline/pipeline-worker.test.ts"
 
 [agent]
 integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascript_database:1.0.0", "javascript_object_storage:1.0.0"]

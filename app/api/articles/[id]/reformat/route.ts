@@ -35,7 +35,7 @@ export async function POST(
     }
 
     // Queue reformat job (runs in background - instant response)
-    const jobId = await addReformatJob({ articleId });
+    const jobId = await addReformatJob({ articleId, teamId });
 
     if (!jobId) {
       console.error(`❌ Reformat job silently rejected by queue for article ${articleId} — queue not ready`);

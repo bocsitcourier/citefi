@@ -20,6 +20,7 @@
 import { db } from "./db";
 import { costTelemetry } from "@/shared/schema";
 import { gte, sum } from "drizzle-orm";
+import { runWithSystemContext } from "./tenant-context";
 
 const DAILY_BUDGET_USD = parseFloat(process.env.PLATFORM_DAILY_BUDGET_USD || "50");
 const SOFT_LIMIT_PCT = 0.8;
@@ -187,9 +188,12 @@ let spendBreakerTimer: NodeJS.Timeout | null = null;
 export function startSpendBreakerScheduler(): void {
   if (spendBreakerTimer) return;
   const run = () =>
-    evaluateSpendBreaker().catch((e) =>
-      console.warn("[spend-breaker] evaluation failed:", e instanceof Error ? e.message : e)
-    );
+    runWithSystemContext(
+      "platform spend breaker cross-tenant evaluation",
+      () => evaluateSpendBreaker()
+    ).catch((e) =>
+        console.warn("[spend-breaker] evaluation failed:", e instanceof Error ? e.message : e)
+      );
   run(); // evaluate immediately at boot (picks up state after restart)
   spendBreakerTimer = setInterval(run, 5 * 60 * 1000);
   spendBreakerTimer.unref();

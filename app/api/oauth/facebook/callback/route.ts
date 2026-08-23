@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { storeOAuthCredentials, verifyOAuthState } from '@/lib/publishing/channels/social/oauth-service';
+import { enterSystemContext } from '@/lib/tenant-context';
 
 const FACEBOOK_APP_ID = process.env.FACEBOOK_APP_ID;
 const FACEBOOK_APP_SECRET = process.env.FACEBOOK_APP_SECRET;
 const FACEBOOK_REDIRECT_URI = process.env.FACEBOOK_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] ? 'https://' + process.env.REPLIT_DOMAINS.split(',')[0] : 'http://localhost:5000'}/api/oauth/facebook/callback`;
 
 export async function GET(request: NextRequest) {
+  enterSystemContext("Facebook OAuth callback persistence");
   try {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');

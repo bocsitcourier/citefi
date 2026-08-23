@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { teams, billingEvents } from "@/shared/schema";
 import { eq, isNull } from "drizzle-orm";
 import { grantAllowance, grantPurchased } from "@/lib/billing";
 import { getPlanByStripePriceId, getTopUpByStripePriceId } from "@/lib/billing/plans";
 import { getStripeClient, getStripeWebhookSecret } from "@/lib/stripe";
 import type Stripe from "stripe";
+import { enterSystemContext } from "@/lib/tenant-context";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +96,7 @@ async function grantTopUpForCheckoutSession(
 }
 
 export async function POST(req: NextRequest) {
+  enterSystemContext("verified Stripe billing webhook");
   const rawBody = await req.text();
   const sig = req.headers.get("stripe-signature");
 

@@ -65,6 +65,7 @@ test("billing settlement failures never release a delivered reservation", async 
     },
     {
       stage: "text_gen",
+      execution: { scope: "system", reason: "restart-safety test" },
       getBilling: () => ({ teamId: 1, runId: "credit-run" }),
       _deps: {
         releaseReservation: async () => { releases += 1; },
@@ -91,6 +92,7 @@ test("lease conflicts never release a reservation on the final attempt", async (
     },
     {
       stage: "text_gen",
+      execution: { scope: "system", reason: "restart-safety test" },
       getBilling: () => ({ teamId: 1, runId: "credit-run" }),
       _deps: {
         releaseReservation: async () => { releases += 1; },

@@ -5,7 +5,7 @@
  *
  * Run with:  npx tsx --test tests/auth/auth-api.test.ts
  */
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import {
   users,
   teams,
@@ -41,12 +41,14 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
       accountStatus: "active",
     })
     .returning({ id: users.id, email: users.email });
+  if (!adminRow) throw new Error("Failed to seed admin user");
 
   // 2. Create team with admin as creator
   const [teamRow] = await db
     .insert(teams)
     .values({ name: `Test Team ${runId}`, createdBy: adminRow.id })
     .returning({ id: teams.id });
+  if (!teamRow) throw new Error("Failed to seed auth team");
 
   // 3. Update admin's defaultTeamId now that team exists
   await db
@@ -65,6 +67,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!activeRow) throw new Error("Failed to seed active user");
 
   const [suspendedRow] = await db
     .insert(users)
@@ -76,6 +79,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!suspendedRow) throw new Error("Failed to seed suspended user");
 
   const [twoFaRow] = await db
     .insert(users)
@@ -89,6 +93,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!twoFaRow) throw new Error("Failed to seed two-factor user");
 
   // 5. Wire team memberships
   await db.insert(teamMembers).values([

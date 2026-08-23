@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, passwordResets, activityLogs } from "@/shared/schema";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";

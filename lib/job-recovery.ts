@@ -1,8 +1,12 @@
-import { neonHttpDb as db } from "./db";
+import { systemDb as db } from "./db";
 import { articles, articleRuns, jobBatches, socialPosts, videoIdeas, errorLogs, publishingJobs } from "@/shared/schema";
 import { eq, inArray, isNull, or, sql, and, lt } from "drizzle-orm";
 import { addVideoGenerationJob, addVideoIdeaJob } from "./queue";
 import { createNotification } from "./notification-service";
+import {
+  runWithSystemContext,
+  runWithTenantContext,
+} from "./tenant-context";
 
 const STUCK_JOB_TIMEOUT_MINUTES = 30;
 
@@ -356,11 +360,20 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           // Release the credit reservation so credits are not stranded indefinitely.
           if (post.videoCreditRunId && post.teamId) {
             const { releaseReservation } = await import("./billing");
-            await releaseReservation({
-              teamId: post.teamId,
-              runId: post.videoCreditRunId,
-              reason: `Recovery: STORAGE_NOT_CONFIGURED for social post ${post.id}`,
-            }).catch((e) => console.warn(`  ⚠️ [recovery] releaseReservation for post ${post.id}:`, e));
+            await runWithTenantContext(
+              {
+                actorType: "worker",
+                userId: null,
+                teamId: post.teamId,
+                role: "worker",
+              },
+              () =>
+                releaseReservation({
+                  teamId: post.teamId!,
+                  runId: post.videoCreditRunId!,
+                  reason: `Recovery: STORAGE_NOT_CONFIGURED for social post ${post.id}`,
+                })
+            ).catch((e) => console.warn(`  ⚠️ [recovery] releaseReservation for post ${post.id}:`, e));
           }
 
           // Cancel the spending-cap reservation that was persisted with this post.
@@ -368,9 +381,23 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           // unrelated concurrent reservations for the same team are not affected.
           if (post.videoCapReservationId) {
             const { cancelCapReservation } = await import("./usage-caps");
-            await cancelCapReservation(post.videoCapReservationId).catch((e) =>
-              console.warn(`  ⚠️ [recovery] cancelCapReservation(${post.videoCapReservationId}) for post ${post.id}:`, e)
-            );
+            if (!post.teamId) {
+              console.warn(
+                `  ⚠️ [recovery] Cannot cancel cap reservation for post ${post.id}: teamId is missing`
+              );
+            } else {
+              await runWithTenantContext(
+                {
+                  actorType: "worker",
+                  userId: null,
+                  teamId: post.teamId,
+                  role: "worker",
+                },
+                () => cancelCapReservation(post.videoCapReservationId!)
+              ).catch((e) =>
+                console.warn(`  ⚠️ [recovery] cancelCapReservation(${post.videoCapReservationId}) for post ${post.id}:`, e)
+              );
+            }
           }
 
           // Release the per-user Redis concurrency slot so the user can start
@@ -409,12 +436,27 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
           // Pass the original creditRunId so the pipeline worker can debit or
           // release the same reservation that was created at enqueue time.
-          await addVideoGenerationJob({
-            socialPostId: post.id,
-            platform,
-            videoType: post.videoType || "slideshow",
-            ...(post.videoCreditRunId ? { creditRunId: post.videoCreditRunId } : {}),
-          });
+          if (!post.teamId) {
+            throw new Error(
+              `Cannot recover social video ${post.id} without a positive teamId`
+            );
+          }
+          await runWithTenantContext(
+            {
+              actorType: "worker",
+              userId: null,
+              teamId: post.teamId,
+              role: "worker",
+            },
+            () =>
+              addVideoGenerationJob({
+                socialPostId: post.id,
+                platform,
+                videoType: post.videoType || "slideshow",
+                teamId: post.teamId!,
+                ...(post.videoCreditRunId ? { creditRunId: post.videoCreditRunId } : {}),
+              })
+          );
 
           console.log(`  🔄 Re-queued Social Post #${post.id} ${isVeo ? "Veo" : "slideshow"} video (was generating ${elapsedMinutes.toFixed(1)}min, max ${maxMinutes}min)`);
           requeued++;
@@ -435,16 +477,25 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
 
           // Notify the team via the in-app bell
           if (post.teamId) {
-            void createNotification({
-              teamId: post.teamId,
-              type: "error",
-              category: "video",
-              title: "Video Generation Timed Out",
-              message: `A ${post.videoType === "veo" ? "Veo AI" : "slideshow"} video timed out after ${elapsedMinutes.toFixed(0)} minutes. Open Social Media to click Regenerate Video.`,
-              entityId: post.id,
-              entityType: "social_post",
-              actionUrl: `/social/dashboard`,
-            }).catch(() => {});
+            void runWithTenantContext(
+              {
+                actorType: "worker",
+                userId: null,
+                teamId: post.teamId,
+                role: "worker",
+              },
+              () =>
+                createNotification({
+                  teamId: post.teamId!,
+                  type: "error",
+                  category: "video",
+                  title: "Video Generation Timed Out",
+                  message: `A ${post.videoType === "veo" ? "Veo AI" : "slideshow"} video timed out after ${elapsedMinutes.toFixed(0)} minutes. Open Social Media to click Regenerate Video.`,
+                  entityId: post.id,
+                  entityType: "social_post",
+                  actionUrl: `/social/dashboard`,
+                })
+            ).catch(() => {});
           }
 
           console.log(`  ❌ Timed out Social Post #${post.id} after ${elapsedMinutes.toFixed(0)}min → FAILED`);
@@ -504,6 +555,8 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
   try {
     const pendingVideos = await db.select({ 
       id: videoIdeas.id, 
+      teamId: videoIdeas.teamId,
+      userId: videoIdeas.userId,
       ideaTitle: videoIdeas.ideaTitle,
       errorMessage: videoIdeas.errorMessage 
     })
@@ -515,6 +568,7 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
     let queued = 0;
     for (const video of pendingVideos) {
       if (video.errorMessage?.includes("Auto-recovered")) {
+        const jobData = getRecoveredVideoJobData(video);
         await db.update(videoIdeas)
           .set({ 
             status: "EXPANDING",
@@ -524,7 +578,10 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
           })
           .where(eq(videoIdeas.id, video.id));
         
-        await addVideoIdeaJob({ videoIdeaId: video.id });
+        await runWithSystemContext(
+          `auto-requeue recovered video idea ${video.id}`,
+          () => addVideoIdeaJob(jobData)
+        );
         console.log(`  🎬 Auto-requeued video: "${video.ideaTitle}" (ID: ${video.id})`);
         queued++;
       }
@@ -535,6 +592,23 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
     console.warn("  ⚠️ Auto-requeue failed:", e);
     return 0;
   }
+}
+
+export function getRecoveredVideoJobData(video: {
+  id: number;
+  teamId: number | null;
+  userId: number;
+}) {
+  if (!Number.isInteger(video.teamId) || (video.teamId ?? 0) <= 0) {
+    throw new Error(
+      `Cannot auto-requeue recovered video ${video.id} without a positive teamId`
+    );
+  }
+  return {
+    videoIdeaId: video.id,
+    teamId: video.teamId!,
+    userId: video.userId,
+  };
 }
 
 let recoveryInterval: NodeJS.Timeout | null = null;

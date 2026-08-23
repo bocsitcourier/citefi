@@ -7,7 +7,8 @@ import { closeQueues } from "../lib/queue";
 import { closePipelineWorkers } from "../lib/pipeline-worker";
 import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
-import { neonHttpDb } from "../lib/db";
+import { systemDb } from "../lib/db";
+import { runWithSystemContext } from "../lib/tenant-context";
 
 config({ path: '.env.local', override: true });
 
@@ -29,14 +30,16 @@ process.on("uncaughtException", (err: Error) => {
     console.error(`❌ [worker] Uncaught exception — logging but NOT exiting:`, err);
     // Fire-and-forget — do not await; uncaughtException handlers must not block
     import("../lib/error-logger").then(({ logError }) => {
-      logError({
-        errorType: "SYSTEM",
-        errorMessage: `[worker:uncaughtException] ${msg}`,
-        stackTrace: err.stack,
-        severity: "critical",
-        component: "worker-process",
-        context: { name: err.name },
-      }).catch(() => {});
+      runWithSystemContext("worker uncaught exception audit logging", () =>
+        logError({
+          errorType: "SYSTEM",
+          errorMessage: `[worker:uncaughtException] ${msg}`,
+          stackTrace: err.stack,
+          severity: "critical",
+          component: "worker-process",
+          context: { name: err.name },
+        })
+      ).catch(() => {});
     }).catch(() => {});
   }
 });
@@ -46,13 +49,15 @@ process.on("unhandledRejection", (reason: unknown) => {
   const msg = err.message;
   console.error(`⚠️ [worker] Unhandled promise rejection (non-fatal): ${msg}`);
   import("../lib/error-logger").then(({ logError }) => {
-    logError({
-      errorType: "SYSTEM",
-      errorMessage: `[worker:unhandledRejection] ${msg}`,
-      stackTrace: err.stack,
-      severity: "error",
-      component: "worker-process",
-    }).catch(() => {});
+    runWithSystemContext("worker unhandled rejection audit logging", () =>
+      logError({
+        errorType: "SYSTEM",
+        errorMessage: `[worker:unhandledRejection] ${msg}`,
+        stackTrace: err.stack,
+        severity: "error",
+        component: "worker-process",
+      })
+    ).catch(() => {});
   }).catch(() => {});
 });
 
@@ -67,7 +72,7 @@ let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 function startNeonKeepAlive() {
   keepAliveTimer = setInterval(async () => {
     try {
-      await neonHttpDb.execute(sql`SELECT 1`);
+      await systemDb.execute(sql`SELECT 1`);
     } catch (e) {
       console.warn(`⚠️ [worker] Neon keep-alive ping failed (non-fatal):`, (e as Error).message);
     }
@@ -99,7 +104,10 @@ async function startWorkers() {
     }
 
     // Validate publishing secrets before starting workers
-    await ensurePublishingSecretsReady();
+    await runWithSystemContext(
+      "worker bootstrap publishing secret validation",
+      () => ensurePublishingSecretsReady()
+    );
 
     // Assert APPROVAL_TOKEN_SECRET is set (required in production).
     // Fails fast here so a missing env var surfaces at startup, not when the

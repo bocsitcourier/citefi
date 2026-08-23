@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken, JWTPayload } from "../../lib/auth";
-import { db } from "../../lib/db";
-import { users, sessions, activityLogs, teamMembers } from "../../shared/schema";
-import { eq, and } from "drizzle-orm";
+import { systemDb as db } from "../../lib/db";
+import { users, sessions, activityLogs, teamMembers, teams } from "../../shared/schema";
+import { eq, and, isNull } from "drizzle-orm";
+import { enterTenantContext } from "../../lib/tenant-context";
 
 // Extend Express Request to include user info with team context
 declare global {
@@ -78,14 +79,34 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(403).json({ error: "Forbidden - Account is not active" });
     }
 
-    // CRITICAL: Get user's team for multi-tenant isolation
-    // Users can be in multiple teams, but we use the first one for now
-    // TODO: Add team switching capability for users in multiple teams
+    const selectedTeamId = session.teamContextId ?? user.defaultTeamId;
+    if (!selectedTeamId) {
+      return res.status(409).json({
+        error: "Team context required - select an active team before continuing",
+      });
+    }
+
     const [teamMembership] = await db
-      .select()
+      .select({ teamId: teamMembers.teamId, role: teamMembers.role })
       .from(teamMembers)
-      .where(eq(teamMembers.userId, user.id))
+      .innerJoin(
+        teams,
+        and(
+          eq(teams.id, teamMembers.teamId),
+          isNull(teams.deletedAt),
+          eq(teams.clientStatus, "active")
+        )
+      )
+      .where(
+        and(
+          eq(teamMembers.userId, user.id),
+          eq(teamMembers.teamId, selectedTeamId)
+        )
+      )
       .limit(1);
+    if (!teamMembership) {
+      return res.status(403).json({ error: "Forbidden - Team context is no longer authorized" });
+    }
 
     // Update last activity timestamp
     await db
@@ -99,8 +120,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       id: user.id,
       email: user.email,
       role: user.role,
-      teamId: teamMembership?.teamId || null, // null for users not yet in a team
+      teamId: teamMembership.teamId,
     };
+    enterTenantContext({
+      actorType: "web",
+      userId: user.id,
+      teamId: teamMembership.teamId,
+      role: teamMembership.role,
+    });
 
     return next();
   } catch (error) {

@@ -5,8 +5,10 @@ import { generateAccessToken, hashToken, verifyTOTPToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and, gt } from "drizzle-orm";
+import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: Request) {
+  enterSystemContext("pre-session two-factor verification");
   try {
     const ip = getClientIp(req);
     const rl = await rateLimitDb(`2fa-verify:${ip}`, 5, 15 * 60 * 1000);
@@ -181,6 +183,7 @@ export async function POST(req: Request) {
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
         isActive: 1,
+        teamContextId: user.defaultTeamId,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       });
 

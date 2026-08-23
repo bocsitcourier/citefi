@@ -63,10 +63,16 @@ export async function POST(request: NextRequest) {
 
         const params = (batch.generationParams as any) || {};
         const runId = crypto.randomUUID();
+        const teamId = article.teamId ?? batch.teamId;
+        if (!teamId) {
+          skipped.push({ id: articleId, reason: "Article tenant owner is missing" });
+          continue;
+        }
 
         await addArticleJob({
           articleId: article.id,
           batchId: article.batchId,
+          teamId,
           runId,
           title: article.chosenTitle,
           targetUrl: batch.targetUrl,
@@ -94,7 +100,7 @@ export async function POST(request: NextRequest) {
             errorType: "REQUEUE_FAILED",
             errorMessage: reason,
             severity: "error",
-            context: { articleId, triggeredBy: adminUserId },
+            stackTrace: `articleId=${articleId}; triggeredBy=${adminUserId}`,
           })
           .catch((logErr) =>
             console.error("Failed to write requeue error log:", logErr)

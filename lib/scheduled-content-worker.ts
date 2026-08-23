@@ -1,4 +1,5 @@
-import { neonHttpDb as db } from "./db";
+import { db, systemDb } from "./db";
+import { runWithTenantContext } from "./tenant-context";
 import { contentSchedules, scheduleRuns, jobBatches } from "@/shared/schema";
 import { eq, and, lte, isNull, sql } from "drizzle-orm";
 import { generateTitlePool } from "./gemini";
@@ -28,7 +29,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
   console.log(`🕐 Executing scheduled run for schedule ${scheduleId}`);
   
   const nextRunTime = calculateNextRun("0 2 * * *", "UTC");
-  const updateResult = await db
+  const updateResult = await systemDb
     .update(contentSchedules)
     .set({
       nextRunAt: nextRunTime,
@@ -50,6 +51,14 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
   }
   
   const schedule = updateResult[0]!;
+  return runWithTenantContext(
+    {
+      actorType: "worker",
+      userId: null,
+      teamId: schedule.teamId,
+      role: "worker",
+    },
+    async () => {
   
   const [runRow] = await db
     .insert(scheduleRuns)
@@ -238,12 +247,14 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       })
       .where(eq(contentSchedules.id, schedule.id));
   }
+    }
+  );
 }
 
 export async function checkDueSchedules(): Promise<void> {
   const now = new Date();
   
-  const dueSchedules = await db
+  const dueSchedules = await systemDb
     .select({ id: contentSchedules.id })
     .from(contentSchedules)
     .where(
@@ -270,7 +281,7 @@ export async function checkDueSchedules(): Promise<void> {
 export async function initializeScheduler(): Promise<void> {
   console.log("🕐 Initializing content scheduler...");
   
-  const activeSchedules = await db
+  const activeSchedules = await systemDb
     .select()
     .from(contentSchedules)
     .where(
@@ -283,7 +294,7 @@ export async function initializeScheduler(): Promise<void> {
   
   for (const schedule of activeSchedules) {
     const nextRun = calculateNextRun(schedule.cronExpression, schedule.timezone);
-    await db
+    await systemDb
       .update(contentSchedules)
       .set({ nextRunAt: nextRun })
       .where(eq(contentSchedules.id, schedule.id));

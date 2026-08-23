@@ -198,6 +198,7 @@ export async function POST(request: NextRequest) {
         resumeJobId = await addSocialPostJob({
           socialPostId: existingPost.id,
           userId,
+          teamId,
           prompt,
           platforms: validatedData.platforms.map(p => p.toLowerCase()),
           tone: validatedData.tone,

@@ -13,16 +13,19 @@ import {
   jobBatches,
   socialPosts,
   teams,
-  teamMembers,
 } from "@/shared/schema";
 import { eq, count } from "drizzle-orm";
 import { requireAuth, AUTH_COOKIE_NAME } from "@/lib/api/auth";
-import { getStripeClient } from "@/lib/stripe";
 import { deliverEmail } from "@/lib/email";
+import {
+  enterSystemContext,
+  runWithSystemContext,
+} from "@/lib/tenant-context";
 
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await requireAuth(req);
+    enterSystemContext(`self-service account lifecycle for user ${userId}`);
 
     const [targetUser] = await db
       .select({ id: users.id, email: users.email, role: users.role })
@@ -46,42 +49,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Cancel Stripe subscription best-effort (outside transaction — external side-effect)
-    try {
-      const [teamMembership] = await db
-        .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
-        .from(teamMembers)
-        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-        .where(eq(teamMembers.userId, userId))
-        .limit(1);
-
-      if (teamMembership?.stripeSubscriptionId) {
-        const stripe = await getStripeClient();
-        await stripe.subscriptions.cancel(teamMembership.stripeSubscriptionId).catch(() => {});
-        await db
-          .update(teams)
-          .set({ billingStatus: "canceled", cancelAtPeriodEnd: false })
-          .where(eq(teams.id, teamMembership.teamId));
-      }
-    } catch (_) {}
-
     // Wrap all sequential deletes in a transaction so a mid-sequence failure
     // cannot leave the user record orphaned with auth data partially deleted.
-    const txDb = await getTxDb();
-    await txDb.transaction(async (tx) => {
-      await tx.delete(sessions).where(eq(sessions.userId, userId));
-      await tx.delete(activityLogs).where(eq(activityLogs.userId, userId));
-      await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
-      await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
-      await tx.delete(loginHistory).where(eq(loginHistory.userId, userId));
-      await tx.delete(passwordResets).where(eq(passwordResets.userId, userId));
-      await tx.delete(userQuotas).where(eq(userQuotas.userId, userId));
-      // Null out nullable FK references where this user is referenced
-      await tx.update(userInvites).set({ acceptedBy: null }).where(eq(userInvites.acceptedBy, userId));
-      await tx.update(sessions).set({ terminatedBy: null }).where(eq(sessions.terminatedBy, userId));
-      await tx.update(passwordResets).set({ initiatedBy: null }).where(eq(passwordResets.initiatedBy, userId));
-      // team_members has ON DELETE CASCADE — deleted automatically when user row is removed
-      await tx.delete(users).where(eq(users.id, userId));
+    await runWithSystemContext(`self-service account deletion for user ${userId}`, async () => {
+      const txDb = getTxDb();
+      await txDb.transaction(async (tx) => {
+        await tx.delete(sessions).where(eq(sessions.userId, userId));
+        await tx.delete(activityLogs).where(eq(activityLogs.userId, userId));
+        await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
+        await tx.delete(emailVerificationCodes).where(eq(emailVerificationCodes.userId, userId));
+        await tx.delete(loginHistory).where(eq(loginHistory.userId, userId));
+        await tx.delete(passwordResets).where(eq(passwordResets.userId, userId));
+        await tx.delete(userQuotas).where(eq(userQuotas.userId, userId));
+        // Null out nullable FK references where this user is referenced
+        await tx.update(userInvites).set({ acceptedBy: null }).where(eq(userInvites.acceptedBy, userId));
+        await tx.update(sessions).set({ terminatedBy: null }).where(eq(sessions.terminatedBy, userId));
+        await tx.update(passwordResets).set({ initiatedBy: null }).where(eq(passwordResets.initiatedBy, userId));
+        // team_members has ON DELETE CASCADE — deleted automatically when user row is removed
+        await tx.delete(users).where(eq(users.id, userId));
+      });
     });
 
     // Send confirmation email (fire-and-forget, outside transaction)

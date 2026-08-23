@@ -26,7 +26,7 @@
  */
 
 import "dotenv/config";
-import { db } from "../lib/db";
+import { systemDb as db } from "../lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, inArray, and, isNotNull, asc } from "drizzle-orm";
 import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "../lib/slug-map-injector";

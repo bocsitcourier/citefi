@@ -24,10 +24,16 @@ export async function POST(request: NextRequest) {
       try {
         const params = (batch.generationParams as any) || {};
         const runId = crypto.randomUUID();
+        const teamId = article.teamId ?? batch.teamId;
+        if (!teamId) {
+          failed.push({ id: article.id, reason: "Article tenant owner is missing" });
+          continue;
+        }
 
         await addArticleJob({
           articleId: article.id,
           batchId: article.batchId,
+          teamId,
           runId,
           title: article.chosenTitle!,
           targetUrl: batch.targetUrl,
@@ -57,11 +63,9 @@ export async function POST(request: NextRequest) {
             errorType: "REQUEUE_PENDING_FAILED",
             errorMessage: reason,
             severity: "error",
-            context: {
-              articleId: article.id,
-              batchId: article.batchId,
-              triggeredBy: adminUserId,
-            },
+            stackTrace:
+              `articleId=${article.id}; batchId=${article.batchId}; ` +
+              `triggeredBy=${adminUserId}`,
           })
           .catch((logErr) =>
             console.error("Failed to write requeue-pending error log:", logErr)

@@ -1,4 +1,4 @@
-import { db } from '../lib/db';
+import { systemDb as db } from '../lib/db';
 import { articles, jobBatches } from '../shared/schema';
 import { and, eq, inArray } from 'drizzle-orm';
 import { addArticleJob } from '../lib/queue';
@@ -34,9 +34,16 @@ async function createJobsForGeminiComplete() {
       }
       
       const batchAny = batch as any;
+      const teamId = article.teamId ?? batch.teamId;
+      if (!teamId) {
+        console.error(`❌ Article ${article.id}: tenant owner is missing`);
+        failed++;
+        continue;
+      }
       await addArticleJob({
         articleId: article.id,
         batchId: article.batchId,
+        teamId,
         runId: crypto.randomUUID(),
         title: article.chosenTitle,
         targetUrl: batch.targetUrl || '',

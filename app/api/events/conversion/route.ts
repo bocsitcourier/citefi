@@ -10,7 +10,8 @@
  * GET /api/events/conversion  (requireTeamMember) — read total conversions
  */
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, systemDb } from "@/lib/db";
+import { runWithTenantContext } from "@/lib/tenant-context";
 import { contentEvents, teams, articles, socialPosts } from "@/shared/schema";
 import { eq, and, count, desc } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
@@ -96,19 +97,27 @@ export async function POST(req: NextRequest) {
 
     for (const ct of contentTypesToTry) {
       if (ct === "article") {
-        const [article] = await db
+        const [article] = await systemDb
           .select({ teamId: articles.teamId })
           .from(articles)
           .where(eq(articles.id, resolvedContentId))
           .limit(1);
-        if (article) { resolvedTeamId = article.teamId; resolvedContentType = "article"; break; }
+        if (article?.teamId) {
+          resolvedTeamId = article.teamId;
+          resolvedContentType = "article";
+          break;
+        }
       } else {
-        const [post] = await db
+        const [post] = await systemDb
           .select({ teamId: socialPosts.teamId })
           .from(socialPosts)
           .where(eq(socialPosts.id, resolvedContentId))
           .limit(1);
-        if (post) { resolvedTeamId = post.teamId; resolvedContentType = "social_post"; break; }
+        if (post?.teamId) {
+          resolvedTeamId = post.teamId;
+          resolvedContentType = "social_post";
+          break;
+        }
       }
     }
 
@@ -119,7 +128,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 2: Look up the team's HMAC secret (teamId is now resolved)
-  const [teamRow] = await db
+  const [teamRow] = await systemDb
     .select({ id: teams.id, conversionWebhookSecret: teams.conversionWebhookSecret })
     .from(teams)
     .where(eq(teams.id, resolvedTeamId))
@@ -141,11 +150,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Step 3: Resolve contentId via visitor attribution if still not known
-  const effectiveContentType = resolvedContentType ?? "article";
+  // Signature verification is the trust boundary. Everything after it runs as
+  // the resolved team, so visitor attribution, ownership checks, and the write
+  // are all constrained by PostgreSQL RLS.
+  return await runWithTenantContext(
+    {
+      actorType: "worker",
+      userId: null,
+      teamId: resolvedTeamId,
+      role: "signed_conversion_webhook",
+    },
+    async () => {
+      // Step 3: Resolve contentId via visitor attribution if still not known
+      const effectiveContentType = resolvedContentType ?? "article";
 
-  if (!resolvedContentId && data.visitorId) {
-    const [lastEvent] = await db
+      if (!resolvedContentId && data.visitorId) {
+        const [lastEvent] = await db
       .select({
         contentType: contentEvents.contentType,
         articleId: contentEvents.articleId,
@@ -161,15 +181,15 @@ export async function POST(req: NextRequest) {
       .orderBy(desc(contentEvents.createdAt))
       .limit(1);
 
-    if (lastEvent) {
-      resolvedContentType = lastEvent.contentType as "article" | "social_post";
-      resolvedContentId = (lastEvent.articleId ?? lastEvent.socialPostId) ?? undefined;
-    }
-  }
+        if (lastEvent) {
+          resolvedContentType = lastEvent.contentType as "article" | "social_post";
+          resolvedContentId = (lastEvent.articleId ?? lastEvent.socialPostId) ?? undefined;
+        }
+      }
 
   // Step 4: Fallback — resolve via utmContent (CRM/checkout callbacks that only know UTM tag)
-  if (!resolvedContentId && data.utmContent) {
-    const [utmEvent] = await db
+      if (!resolvedContentId && data.utmContent) {
+        const [utmEvent] = await db
       .select({
         contentType: contentEvents.contentType,
         articleId: contentEvents.articleId,
@@ -185,65 +205,73 @@ export async function POST(req: NextRequest) {
       .orderBy(desc(contentEvents.createdAt))
       .limit(1);
 
-    if (utmEvent) {
-      resolvedContentType = utmEvent.contentType as "article" | "social_post";
-      resolvedContentId = (utmEvent.articleId ?? utmEvent.socialPostId) ?? undefined;
-    }
-  }
+        if (utmEvent) {
+          resolvedContentType = utmEvent.contentType as "article" | "social_post";
+          resolvedContentId = (utmEvent.articleId ?? utmEvent.socialPostId) ?? undefined;
+        }
+      }
 
-  if (!resolvedContentId) {
-    return NextResponse.json(
-      { error: "Cannot resolve content: provide contentId, a visitorId with prior events, or a utmContent value matching tracked events" },
-      { status: 422 }
-    );
-  }
+      if (!resolvedContentId) {
+        return NextResponse.json(
+          { error: "Cannot resolve content: provide contentId, a visitorId with prior events, or a utmContent value matching tracked events" },
+          { status: 422 }
+        );
+      }
 
   // Step 5: Verify resolved content belongs to the resolved team (anti-spoofing)
-  const finalContentType = resolvedContentType ?? effectiveContentType;
-  if (finalContentType === "article") {
-    const [article] = await db
+      const finalContentType = resolvedContentType ?? effectiveContentType;
+      if (finalContentType === "article") {
+        const [article] = await db
       .select({ teamId: articles.teamId })
       .from(articles)
       .where(eq(articles.id, resolvedContentId))
       .limit(1);
-    if (!article || article.teamId !== resolvedTeamId) {
-      return new NextResponse(null, { status: 204 });
-    }
-  } else {
-    const [post] = await db
+        if (!article || article.teamId !== resolvedTeamId) {
+          return new NextResponse(null, { status: 204 });
+        }
+      } else {
+        const [post] = await db
       .select({ teamId: socialPosts.teamId })
       .from(socialPosts)
       .where(eq(socialPosts.id, resolvedContentId))
       .limit(1);
-    if (!post || post.teamId !== resolvedTeamId) {
-      return new NextResponse(null, { status: 204 });
+        if (!post || post.teamId !== resolvedTeamId) {
+          return new NextResponse(null, { status: 204 });
+        }
+      }
+
+      const [row] = await db
+        .insert(contentEvents)
+        .values({
+          teamId: resolvedTeamId,
+          contentType: finalContentType,
+          articleId: finalContentType === "article" ? resolvedContentId : null,
+          socialPostId: finalContentType === "social_post" ? resolvedContentId : null,
+          eventType: "conversion",
+          visitorId: data.visitorId ?? null,
+          conversionType: data.conversionType ?? null,
+          conversionValue: data.value ?? null,
+          journeyId: data.journeyId ?? null,
+          journeyStep: data.journeyStep ?? null,
+          utmSource: data.utmSource ?? null,
+          utmMedium: data.utmMedium ?? null,
+          utmCampaign: data.utmCampaign ?? null,
+          utmContent: data.utmContent ?? null,
+          metadata: data.metadata ?? null,
+        })
+        .returning({ id: contentEvents.id });
+
+      if (!row) {
+        return NextResponse.json(
+          { error: "Failed to record conversion" },
+          { status: 500 }
+        );
+      }
+
+      console.log(`[conversion] teamId=${resolvedTeamId} contentId=${resolvedContentId} type=${data.conversionType ?? "—"} value=${data.value ?? "—"}`);
+      return NextResponse.json({ ok: true, id: row.id });
     }
-  }
-
-  const [row] = await db
-    .insert(contentEvents)
-    .values({
-      teamId: resolvedTeamId,
-      contentType: finalContentType,
-      articleId: finalContentType === "article" ? resolvedContentId : null,
-      socialPostId: finalContentType === "social_post" ? resolvedContentId : null,
-      eventType: "conversion",
-      visitorId: data.visitorId ?? null,
-      conversionType: data.conversionType ?? null,
-      conversionValue: data.value ?? null,
-      journeyId: data.journeyId ?? null,
-      journeyStep: data.journeyStep ?? null,
-      utmSource: data.utmSource ?? null,
-      utmMedium: data.utmMedium ?? null,
-      utmCampaign: data.utmCampaign ?? null,
-      utmContent: data.utmContent ?? null,
-      metadata: data.metadata ?? null,
-    })
-    .returning({ id: contentEvents.id });
-
-  console.log(`[conversion] teamId=${resolvedTeamId} contentId=${resolvedContentId} type=${data.conversionType ?? "—"} value=${data.value ?? "—"}`);
-
-  return NextResponse.json({ ok: true, id: row.id });
+  );
 }
 
 export async function GET(req: NextRequest) {

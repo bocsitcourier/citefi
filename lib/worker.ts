@@ -2,7 +2,9 @@ import { DelayedError, type Job } from "bullmq";
 import {
   ArticleRunLeaseConflictError,
   BillingSettlementError,
+  assertEntityTeam,
   createPipelineWorker,
+  currentTenantTeamId,
   isArticleRunLeaseConflictError,
 } from "./pipeline-worker";
 import {
@@ -45,7 +47,7 @@ import {
   type SignupCompetitorIntakeJobData,
 } from "@/lib/queue";
 import { cancelCapReservation } from "@/lib/usage-caps";
-import { db, getTxDb } from "./db";
+import { db, getTxDb, systemDb } from "./db";
 import { jobBatches, articles, articleRuns, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import {
@@ -238,6 +240,23 @@ export const processArticleGenerationJob = async (
         let persistedSettlementAttempts = 0;
 
       try {
+        // Authoritative entity/team cross-check at processor entry: the article
+        // row's owner must match the tenant this job runs as. A mismatch is
+        // fatal and must never release/debit against the wrong tenant.
+        {
+          const [ownerRow] = await db
+            .select({ teamId: articles.teamId })
+            .from(articles)
+            .where(eq(articles.id, articleId))
+            .limit(1);
+          assertEntityTeam({
+            entity: "article",
+            entityId: articleId,
+            jobTeamId: currentTenantTeamId(),
+            entityTeamId: ownerRow?.teamId,
+          });
+        }
+
         // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through
         // this processor's catch (status write, batch completion) before the
         // createPipelineWorker wrapper applies release/UnrecoverableError.
@@ -1487,6 +1506,7 @@ export const processArticleGenerationJob = async (
               await addImageGenerationJob({
                 articleId,
                 batchId,
+                teamId: articleTeamId,
                 runId,
                 imagePrompts: geminiResult.imagePrompts,
                 businessName, // Pass business name for brand lock in images
@@ -1904,11 +1924,20 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
             const { socialPosts } = await import("@/shared/schema");
             const { eq } = await import("drizzle-orm");
             
-            const [post] = await db.select({ videoType: socialPosts.videoType })
+            const [post] = await db.select({ videoType: socialPosts.videoType, teamId: socialPosts.teamId })
               .from(socialPosts)
               .where(eq(socialPosts.id, socialPostId))
               .limit(1);
-            
+
+            // Authoritative entity/team cross-check before generating/billing:
+            // the social post's owner must match the tenant this job runs as.
+            assertEntityTeam({
+              entity: "socialPost(video)",
+              entityId: socialPostId,
+              jobTeamId: currentTenantTeamId(),
+              entityTeamId: post?.teamId,
+            });
+
             const videoType = post?.videoType || "slideshow";
             
             let result;
@@ -2043,7 +2072,7 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
             // Mark the social post videoStatus as FAILED so the UI reflects the error
             // (prevents posts from staying stuck at "GENERATING" when pg-boss retries are exhausted)
             try {
-              const { db: failDb } = await import("./db");
+              const { db: failDb, systemDb: failSystemDb } = await import("./db");
               const { socialPosts: spTable, errorLogs: errLogsTable } = await import("@/shared/schema");
               const { eq: eqFail } = await import("drizzle-orm");
               const errMsg = error instanceof Error ? error.message : String(error);
@@ -2063,7 +2092,11 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                 .where(eqFail(spTable.id, socialPostId));
 
               // Write to error_logs so Admin Error Log panel captures video failures
-              await failDb.insert(errLogsTable).values({
+              // error_logs has no social-post/team foreign key, so this
+              // parentless operational row cannot be tenant-attributed by RLS.
+              // Keep the global write explicit and narrow; the post status
+              // update above remains tenant-scoped.
+              await failSystemDb.insert(errLogsTable).values({
                 errorType: "VIDEO",
                 errorMessage: `Social Post #${socialPostId} video generation failed: ${errMsg}`.substring(0, 2000),
                 stackTrace: error instanceof Error ? error.stack?.substring(0, 2000) : undefined,
@@ -2101,6 +2134,23 @@ export async function registerWorkers() {
         }
 
       try {
+        // Authoritative entity/team cross-check: the batch row's owner must
+        // match the tenant (payload teamId) this job runs as before we spawn
+        // per-article jobs that carry that teamId.
+        {
+          const [batchOwner] = await db
+            .select({ teamId: jobBatches.teamId })
+            .from(jobBatches)
+            .where(eq(jobBatches.id, batchId))
+            .limit(1);
+          assertEntityTeam({
+            entity: "batch",
+            entityId: batchId,
+            jobTeamId: currentTenantTeamId(),
+            entityTeamId: batchOwner?.teamId,
+          });
+        }
+
         await db
           .update(jobBatches)
           .set({ 
@@ -2294,7 +2344,11 @@ export async function registerWorkers() {
 
         throw error;
       }
-  }, { stage: "enqueue", concurrency: 1 });
+  }, {
+    stage: "enqueue",
+    concurrency: 1,
+    execution: { scope: "tenant", getTeamId: (j) => j.data.teamId },
+  });
 
   // ============================================================================
   // ARTICLE GENERATION WORKER
@@ -2308,6 +2362,7 @@ export async function registerWorkers() {
   createPipelineWorker(ARTICLE_GENERATION_QUEUE, processArticleGenerationJob, {
     stage: "text_gen",
     concurrency: CONCURRENT_WORKERS,
+    execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
     // getRunId MUST match the ID the processor's assertRunBudget gate queries
     // (creditRunId): telemetry is recorded under the run-context ID, and the
     // gate sums telemetry by that same ID — a mismatch makes ceilings see $0.
@@ -2335,6 +2390,7 @@ export async function registerWorkers() {
     }, {
       stage: "text_gen",
       concurrency: 5,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
       budget: { contentType: "social_post", getRunId: (j) => j.data.creditRunId },
       getBilling: (j) => ({
         teamId: j.data.teamId,
@@ -2409,6 +2465,15 @@ export async function registerWorkers() {
                 .select()
                 .from(jobBatches)
                 .where(eq(jobBatches.id, batchId));
+
+              // Authoritative entity/team cross-check: the batch this image job
+              // belongs to must be owned by the tenant this job runs as.
+              assertEntityTeam({
+                entity: "batch(image)",
+                entityId: batchId,
+                jobTeamId: currentTenantTeamId(),
+                entityTeamId: batch?.teamId,
+              });
               
               if (!businessName || businessName.trim().length === 0) {
                 businessName = batch?.businessName ?? undefined;
@@ -2506,7 +2571,11 @@ export async function registerWorkers() {
               }
               throw error;
             }
-    }, { stage: "image_gen", concurrency: IMAGE_WORKERS });
+    }, {
+      stage: "image_gen",
+      concurrency: IMAGE_WORKERS,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+    });
     
     console.log(`✅ Registered ${IMAGE_WORKERS} image generation workers successfully`);
   } catch (error) {
@@ -2535,6 +2604,16 @@ export async function registerWorkers() {
               console.error(`❌ Article ${articleId} not found - skipping reformat`);
               return;
             }
+
+            // Authoritative entity/team cross-check: the article's owner must
+            // match the tenant this job is running as. A mismatch is fatal and
+            // must never touch another tenant's rows.
+            assertEntityTeam({
+              entity: "article(reformat)",
+              entityId: articleId,
+              jobTeamId: currentTenantTeamId(),
+              entityTeamId: article.teamId,
+            });
 
             // Mark as REFORMATTING immediately so the UI shows progress
             await db
@@ -2748,7 +2827,26 @@ export async function registerWorkers() {
               .catch(() => {}); // non-blocking — prevent cascading DB errors
             // Don't throw - let user retry if needed
           }
-    }, { stage: "text_gen", concurrency: 5 });
+    }, {
+      stage: "text_gen",
+      concurrency: 5,
+      execution: {
+        scope: "tenant",
+        getTeamId: async (j) => {
+          if (j.data.teamId) return j.data.teamId;
+          // Legacy reformat jobs predate teamId in the payload — resolve the
+          // owning team from the durable article row.
+          const [row] = await db
+            .select({ teamId: articles.teamId })
+            .from(articles)
+            .where(eq(articles.id, j.data.articleId))
+            .limit(1);
+          return row?.teamId ?? null;
+        },
+        systemTeamResolutionReason:
+          "legacy reformat job: resolve durable article owner",
+      },
+    });
     
     console.log(`✅ Reformat worker registered successfully`);
   } catch (error) {
@@ -2830,7 +2928,14 @@ export async function registerWorkers() {
           } catch (sweepErr) {
             console.warn(`⚠️ Recurring video sweeper error (non-fatal):`, (sweepErr as Error).message);
           }
-        }, { stage: "scheduler", concurrency: 1 }
+        }, {
+          stage: "scheduler",
+          concurrency: 1,
+          execution: {
+            scope: "system",
+            reason: "video-orphan-sweeper: cross-tenant stuck video job sweep",
+          },
+        }
       );
       console.log(`⏱️ Recurring video orphan sweeper registered (runs every 2 min)`);
     } catch (scheduleErr) {
@@ -2861,7 +2966,14 @@ export async function registerWorkers() {
           console.error(`🚨 Engagement scoring job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "engagement-scoring: cross-tenant matured-content labeling sweep",
+        },
+      });
       console.log(`⏱️ Engagement scoring scheduler registered (every 6h)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register engagement scoring scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3138,7 +3250,14 @@ export async function registerWorkers() {
           console.error(`🚨 ConversionLabeler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "conversion-labeler: cross-tenant conversion labeling sweep",
+        },
+      });
       console.log(`⏱️ ConversionLabeler scheduler registered (nightly 02:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register ConversionLabeler scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3165,7 +3284,14 @@ export async function registerWorkers() {
           console.error(`🚨 Underperformer archiving job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "underperformer-archiving: cross-tenant archival sweep",
+        },
+      });
       console.log(`⏱️ Underperformer archiving scheduler registered (weekly Monday 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register underperformer archiving scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3724,7 +3850,14 @@ export async function registerWorkers() {
           console.error(`🚨 Cohort mining job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed (not silently completed)
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "cohort-mining: cross-tenant cohort discovery sweep",
+        },
+      });
       console.log(`⏱️ Cohort mining scheduler registered (nightly 03:00 UTC)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register cohort mining scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -3982,6 +4115,7 @@ export async function registerWorkers() {
                     generationParams: { journeyStepId: step.id, journeyId: journey.id } as any,
                   })
                   .returning();
+                if (!batch) throw new Error(`Journey ${journey.id}: failed to create article batch`);
 
                 await _db
                   .update(jSteps)
@@ -4022,6 +4156,7 @@ export async function registerWorkers() {
                     companyName: teamInfo.businessName,
                   })
                   .returning();
+                if (!post) throw new Error(`Journey ${journey.id}: failed to create social post`);
 
                 await _db
                   .update(jSteps)
@@ -4032,6 +4167,7 @@ export async function registerWorkers() {
                 await addSocialPostJob({
                   socialPostId: post.id,
                   userId: teamInfo.userId,
+                  teamId: journey.teamId,
                   prompt: journeyMeta.journeyContext
                     ? `${topicAngle}\n\n${journeyMeta.journeyContext}`
                     : topicAngle,
@@ -4116,6 +4252,7 @@ export async function registerWorkers() {
                     videoType: "slideshow",
                   })
                   .returning();
+                if (!post) throw new Error(`Journey ${journey.id}: failed to create video post`);
 
                 await _db
                   .update(jSteps)
@@ -4125,6 +4262,7 @@ export async function registerWorkers() {
                 await addVideoGenerationJob({
                   socialPostId: post.id,
                   platform: step.channel ?? "instagram",
+                  teamId: journey.teamId,
                   journeyStepId: step.id,
                 });
               }
@@ -4148,7 +4286,14 @@ export async function registerWorkers() {
           console.error(`🚨 Journey scheduler job failed:`, (e as Error).message);
           throw e; // rethrow so pg-boss marks job failed
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "journey-scheduler: cross-tenant journey step scheduling sweep",
+        },
+      });
       console.log(`⏱️ Journey scheduler registered (every 15 min)`);
     } catch (scheduleErr) {
       console.warn(`⚠️ Could not register journey scheduler (non-fatal):`, (scheduleErr as Error).message);
@@ -4226,7 +4371,14 @@ export async function registerWorkers() {
             console.error(`[credit-period-reset] Error for team ${t.id}:`, (err as Error).message);
           }
         }
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "credit-period-reset: cross-tenant billing period reset sweep",
+        },
+      });
       console.log("⏱️ Credit period reset registered (daily 00:05 UTC)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register credit-period-reset scheduler (non-fatal):", (scheduleErr as Error).message);
@@ -4280,7 +4432,14 @@ export async function registerWorkers() {
           }
         }
         if (corrected > 0) console.log(`[stripe-reconcile] Corrected ${corrected}/${teamsWithSub.length} teams`);
-      }, { stage: "scheduler", concurrency: 1 });
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "stripe-reconcile: cross-tenant subscription reconciliation sweep",
+        },
+      });
       console.log("⏱️ Stripe reconciliation registered (every 15 min)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
@@ -4289,6 +4448,22 @@ export async function registerWorkers() {
     createPipelineWorker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, processSocialVideoJob, {
       stage: "video_gen",
       concurrency: 3,
+      execution: {
+        scope: "tenant",
+        getTeamId: async (j) => {
+          if (j.data.teamId) return j.data.teamId;
+          // Resolve the owning team from the durable social post when the
+          // payload predates teamId (legacy jobs).
+          const [row] = await db
+            .select({ teamId: socialPosts.teamId })
+            .from(socialPosts)
+            .where(eq(socialPosts.id, j.data.socialPostId))
+            .limit(1);
+          return row?.teamId ?? null;
+        },
+        systemTeamResolutionReason:
+          "legacy social video job: resolve durable social post owner",
+      },
       budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
       getBilling: async (j) => {
         if (!j.data.creditRunId) return null;
@@ -4349,7 +4524,11 @@ export async function registerWorkers() {
             console.error(`❌ Site crawl job ${job.id} failed:`, error);
             throw error;
           }
-    }, { stage: "crawl", concurrency: 1 });
+    }, {
+      stage: "crawl",
+      concurrency: 1,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+    });
     console.log("✅ Site crawl worker registered successfully");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register site crawl worker:", error);
@@ -4373,7 +4552,14 @@ export async function registerWorkers() {
             console.error(`❌ Cleanup job ${job.id} failed:`, error);
             throw error; // Re-throw for pg-boss retry logic
           }
-    }, { stage: "maintenance", concurrency: 1 });
+    }, {
+      stage: "maintenance",
+      concurrency: 1,
+      execution: {
+        scope: "system",
+        reason: "cleanup: cross-tenant media/log/orphan/session retention sweep",
+      },
+    });
     
     console.log("✅ Cleanup worker registered successfully");
   } catch (error) {
@@ -4392,6 +4578,22 @@ export async function registerWorkers() {
           const { dbJobId } = job.data;
           console.log(`📤 Processing publishing job ${job.id}: db job ${dbJobId}`);
           try {
+            // Authoritative entity/team cross-check: the publishing job row's
+            // owner must match the tenant this job runs as.
+            {
+              const { publishingJobs } = await import("@/shared/schema");
+              const [pjRow] = await db
+                .select({ teamId: publishingJobs.teamId })
+                .from(publishingJobs)
+                .where(eq(publishingJobs.id, dbJobId))
+                .limit(1);
+              assertEntityTeam({
+                entity: "publishingJob",
+                entityId: dbJobId,
+                jobTeamId: currentTenantTeamId(),
+                entityTeamId: pjRow?.teamId,
+              });
+            }
             const { processPublishingJob } = await import("./publishing");
             const result = await processPublishingJob(dbJobId);
             if (result.success) {
@@ -4412,7 +4614,11 @@ export async function registerWorkers() {
             console.error(`❌ Publishing worker error for job ${dbJobId}:`, error);
             throw error;
           }
-    }, { stage: "publish", concurrency: 4 });
+    }, {
+      stage: "publish",
+      concurrency: 4,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+    });
     console.log("✅ Content publishing worker registered (4 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register content publishing worker:", error);
@@ -4435,7 +4641,11 @@ export async function registerWorkers() {
             console.error(`❌ Intelligence research job ${job.id} failed:`, error);
             throw error;
           }
-    }, { stage: "text_gen", concurrency: 2 });
+    }, {
+      stage: "text_gen",
+      concurrency: 2,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+    });
     console.log("✅ Intelligence research worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register intelligence research worker:", error);
@@ -4454,6 +4664,21 @@ export async function registerWorkers() {
           const { articleId, teamId, tone, duration, journeyStepId, creditRunId, userId } = job.data;
           console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
           try {
+            // Authoritative entity/team cross-check: the article the podcast is
+            // generated from must belong to the tenant this job runs as.
+            {
+              const [artRow] = await db
+                .select({ teamId: articles.teamId })
+                .from(articles)
+                .where(eq(articles.id, articleId))
+                .limit(1);
+              assertEntityTeam({
+                entity: "article(podcast)",
+                entityId: articleId,
+                jobTeamId: currentTenantTeamId(),
+                entityTeamId: artRow?.teamId,
+              });
+            }
             const { generateArticlePodcast } = await import("./podcast-worker");
             await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120", creditRunId, userId });
 
@@ -4481,6 +4706,11 @@ export async function registerWorkers() {
     }, {
       stage: "text_gen",
       concurrency: 2,
+      execution: {
+        scope: "tenant",
+        getTeamId: (j) => j.data.teamId ?? null,
+        getUserId: (j) => j.data.userId ?? null,
+      },
       budget: { contentType: "podcast", getRunId: (j) => j.data.creditRunId },
       getBilling: (j) => ({
         teamId: j.data.teamId,
@@ -4591,7 +4821,15 @@ export async function registerWorkers() {
         console.error(`❌ Daily brief job ${job.id} failed for user ${userId}:`, error);
         throw error;
       }
-    }, { stage: "text_gen", concurrency: 2 });
+    }, {
+      stage: "text_gen",
+      concurrency: 2,
+      execution: {
+        scope: "tenant",
+        getTeamId: (j) => j.data.teamId ?? null,
+        getUserId: (j) => j.data.userId ?? null,
+      },
+    });
     console.log("✅ Daily brief worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register daily brief worker:", error);
@@ -4648,7 +4886,19 @@ export async function registerWorkers() {
         console.error(`❌ Signup competitor intake job ${job.id} failed:`, error);
         throw error;
       }
-    }, { stage: "text_gen", concurrency: 2 });
+    }, {
+      stage: "text_gen",
+      concurrency: 2,
+      // System scope: the intake row may not yet be resolved to a team (a
+      // signup can arrive before its team exists), so this worker legitimately
+      // reads the global intake table and resolves/attributes a team lazily.
+      // Tenant-resolved follow-on work (intelligence research) is enqueued with
+      // an explicit teamId and runs in tenant context on its own worker.
+      execution: {
+        scope: "system",
+        reason: "signup-competitor-intake: resolve intake to a team (may be unresolved)",
+      },
+    });
     console.log("✅ Signup competitor intake worker registered (2 concurrent workers)");
   } catch (error) {
     console.error("❌ CRITICAL: Failed to register signup competitor intake worker:", error);
@@ -4666,7 +4916,11 @@ export async function registerWorkers() {
             console.error(`❌ Citation probe job ${job.id} failed:`, err);
             throw err; // Allow pg-boss retry
           }
-    }, { stage: "text_gen", concurrency: 3 });
+    }, {
+      stage: "text_gen",
+      concurrency: 3,
+      execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+    });
     console.log("✅ Citation probe worker registered (3 concurrent workers)");
   } catch (error) {
     console.error("❌ Failed to register citation probe worker:", error);
@@ -4692,7 +4946,7 @@ export async function registerWorkers() {
   try {
     const { publishingJobs: pjTable } = await import("@/shared/schema");
     const { isNull } = await import("drizzle-orm");
-    const allPending = await db
+    const allPending = await systemDb
       .select({ id: pjTable.id, teamId: pjTable.teamId, pgBossJobId: pjTable.pgBossJobId })
       .from(pjTable)
       .where(isNull(pjTable.pgBossJobId));
@@ -4705,7 +4959,7 @@ export async function registerWorkers() {
         try {
           const queueJobId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
           if (queueJobId) {
-            await db.update(pjTable)
+            await systemDb.update(pjTable)
               .set({ pgBossJobId: queueJobId, status: 'queued', updatedAt: new Date() })
               .where(eqOp(pjTable.id, job.id));
           }
@@ -4753,6 +5007,10 @@ export async function registerWorkers() {
       stage: "text_gen",
       concurrency: 1,
       retryFatalErrors: true,
+      execution: {
+        scope: "system",
+        reason: "canary: model-health probe (no tenant data)",
+      },
     });
     console.log("🐤 Daily model health canary registered (06:00 UTC)");
   } catch (error) {
@@ -4776,6 +5034,10 @@ export async function registerWorkers() {
     }, {
       stage: "text_gen",
       concurrency: 1,
+      execution: {
+        scope: "system",
+        reason: "reservation-sweeper: cross-tenant stale reservation release",
+      },
     });
     console.log("🧹 Stale reservation sweeper registered (every 6 hours)");
   } catch (error) {
@@ -5229,6 +5491,7 @@ async function checkBatchCompletion(batchId: number) {
         .limit(10);
 
       for (const res of reservations) {
+        if (!res.runId) continue;
         const ledgerRows = await db
           .select({ eventType: creditLedger.eventType, amount: creditLedger.amount })
           .from(creditLedger)

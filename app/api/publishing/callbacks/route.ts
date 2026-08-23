@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { publishingJobs, publishingConnections, publishingCallbacks } from '@/shared/schema';
 import { eq } from 'drizzle-orm';
 import { getApiKeyForConnection } from '@/lib/publishing';
+import { enterSystemContext } from '@/lib/tenant-context';
 
 const callbackSchema = z.object({
   jobId: z.string(),
@@ -40,6 +41,7 @@ function verifyHmacSignature(
 }
 
 export async function POST(request: NextRequest) {
+  enterSystemContext("signed publishing provider callback");
   try {
     const signature = request.headers.get('x-citefi-signature');
     const timestamp = request.headers.get('x-citefi-timestamp');

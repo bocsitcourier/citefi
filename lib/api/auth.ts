@@ -1,8 +1,13 @@
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, sessions, teamMembers, teams } from "@/shared/schema";
 import { verifyToken as verifyJWT, hashToken } from "@/lib/auth";
 import { eq, and, isNull, gt, ne } from "drizzle-orm";
+import {
+  enterBlockedDatabaseContext,
+  enterSystemContext,
+  enterTenantContext,
+} from "@/lib/tenant-context";
 
 /** Five-minute throttle for lastActivityAt writes — one DB write per session per 5 min. */
 const ACTIVITY_THROTTLE_MS = 5 * 60 * 1000;
@@ -22,6 +27,59 @@ export interface AuthenticatedUser {
 }
 
 export const AUTH_COOKIE_NAME = "auth_token";
+
+type TeamAuthResult = { userId: number; teamId: number; role: string };
+
+function activateTenantContext(result: TeamAuthResult): TeamAuthResult {
+  enterTenantContext({
+    actorType: "web",
+    userId: result.userId,
+    teamId: result.teamId,
+    role: result.role,
+  });
+  return result;
+}
+
+async function resolveDirectTeamMembership(
+  userId: number,
+  defaultTeamId: number | null,
+  allowedRoles?: readonly string[]
+): Promise<{ teamId: number; role: string } | null> {
+  const query = db
+    .select({ teamId: teamMembers.teamId, role: teamMembers.role })
+    .from(teamMembers)
+    .innerJoin(
+      teams,
+      and(
+        eq(teams.id, teamMembers.teamId),
+        isNull(teams.deletedAt),
+        eq(teams.clientStatus, "active")
+      )
+    )
+    .where(
+      defaultTeamId
+        ? and(eq(teamMembers.userId, userId), eq(teamMembers.teamId, defaultTeamId))
+        : eq(teamMembers.userId, userId)
+    )
+    .limit(defaultTeamId ? 1 : 2);
+
+  const memberships = await query;
+  const filtered = allowedRoles
+    ? memberships.filter((membership) => allowedRoles.includes(membership.role))
+    : memberships;
+
+  if (defaultTeamId && filtered.length === 0) {
+    const error: any = new Error("Access denied: default team context is no longer authorized");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (!defaultTeamId && filtered.length > 1) {
+    const error: any = new Error("Multiple teams are available; select an active team before continuing");
+    error.statusCode = 409;
+    throw error;
+  }
+  return filtered[0] ?? null;
+}
 
 /**
  * Extract the auth token from a request, preferring a valid Authorization
@@ -86,19 +144,30 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
     throw new Error("Account is not active");
   }
 
-  // CRITICAL: Get user's team for multi-tenant isolation
-  const [teamMembership] = await db
-    .select()
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, user.id))
-    .limit(1);
+  const teamMembership = await resolveDirectTeamMembership(
+    user.id,
+    user.defaultTeamId
+  );
+  if (teamMembership) {
+    activateTenantContext({
+      userId: user.id,
+      teamId: teamMembership.teamId,
+      role: teamMembership.role,
+    });
+  } else {
+    // verifyTokenFromRequestImpl performs session verification in a temporary
+    // system scope. A user with no valid team must never inherit that privilege.
+    enterBlockedDatabaseContext(
+      `authenticated user ${user.id} has no validated tenant context`
+    );
+  }
 
   return {
     id: user.id,
     email: user.email,
     role: user.role as "admin" | "team_member",
     accountStatus: user.accountStatus,
-    teamId: teamMembership?.teamId || null,
+    teamId: teamMembership?.teamId ?? null,
   };
 }
 
@@ -166,6 +235,7 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
     throw error;
   }
 
+  enterSystemContext(`platform admin request by user ${authResult.userId}`);
   return authResult.userId;
 }
 
@@ -175,6 +245,11 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
  * Exported as both verifyTokenFromRequest and as an alias verifyToken for backwards compatibility
  */
 async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number; teamContextId: number | null } | null> {
+  // Session and identity lookup is a deliberate pre-tenant bootstrap phase.
+  // Team-scoped guards replace this with a validated tenant context before
+  // returning to their route; identity/admin callers remain explicitly system.
+  enterSystemContext("authenticated session bootstrap");
+
   // Build ordered candidate list: Bearer header first, then HttpOnly cookie.
   // If Bearer holds a stale/revoked token (e.g. localStorage legacy token), we
   // transparently fall through to the cookie so users aren't force-logged-out.
@@ -294,11 +369,23 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     const [directMembership] = await db
       .select({ role: teamMembers.role })
       .from(teamMembers)
+      .innerJoin(
+        teams,
+        and(
+          eq(teams.id, teamMembers.teamId),
+          isNull(teams.deletedAt),
+          eq(teams.clientStatus, "active")
+        )
+      )
       .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
       .limit(1);
 
-    if (directMembership) {
-      return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
+    if (directMembership && ["owner", "admin", "member"].includes(directMembership.role)) {
+      return activateTenantContext({
+        userId: user.id,
+        teamId: authResult.teamContextId,
+        role: directMembership.role,
+      });
     }
 
     // Check 2: agency-admin inheritance — user is admin of the client team's parent agency.
@@ -306,7 +393,11 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
-      .where(and(eq(teams.id, authResult.teamContextId), isNull(teams.deletedAt)))
+      .where(and(
+        eq(teams.id, authResult.teamContextId),
+        isNull(teams.deletedAt),
+        eq(teams.clientStatus, "active")
+      ))
       .limit(1);
 
     if (targetTeam?.parentTeamId) {
@@ -317,8 +408,12 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
         .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
         .limit(1);
 
-      if (agencyMembership?.role === "admin") {
-        return { userId: user.id, teamId: authResult.teamContextId, role: "admin" };
+      if (agencyMembership && ["owner", "admin"].includes(agencyMembership.role)) {
+        return activateTenantContext({
+          userId: user.id,
+          teamId: authResult.teamContextId,
+          role: "admin",
+        });
       }
     }
 
@@ -329,12 +424,11 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     throw error;
   }
 
-  // No explicit context — resolve from first direct team membership
-  const [teamMembership] = await db
-    .select()
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, user.id))
-    .limit(1);
+  const teamMembership = await resolveDirectTeamMembership(
+    user.id,
+    user.defaultTeamId,
+    ["owner", "admin", "member"]
+  );
   
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: User must be assigned to a team");
@@ -342,11 +436,11 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
     throw error;
   }
   
-  return {
+  return activateTenantContext({
     userId: user.id,
     teamId: teamMembership.teamId,
     role: teamMembership.role,
-  };
+  });
 }
 
 /**
@@ -379,18 +473,34 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
   if (authResult.teamContextId) {
     // Global admins bypass team-role check for any context
     if (user.role === "admin") {
-      return { userId: user.id, teamId: authResult.teamContextId };
+      return activateTenantContext({
+        userId: user.id,
+        teamId: authResult.teamContextId,
+        role: "platform_admin",
+      });
     }
 
     // Direct membership with admin role
     const [directMembership] = await db
       .select({ role: teamMembers.role })
       .from(teamMembers)
+      .innerJoin(
+        teams,
+        and(
+          eq(teams.id, teamMembers.teamId),
+          isNull(teams.deletedAt),
+          eq(teams.clientStatus, "active")
+        )
+      )
       .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
       .limit(1);
 
-    if (directMembership?.role === "admin") {
-      return { userId: user.id, teamId: authResult.teamContextId };
+    if (directMembership && ["owner", "admin"].includes(directMembership.role)) {
+      return activateTenantContext({
+        userId: user.id,
+        teamId: authResult.teamContextId,
+        role: directMembership.role,
+      });
     }
 
     // Agency-admin inheritance: user is admin of the parent agency team.
@@ -398,7 +508,11 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
     const [targetTeam] = await db
       .select({ parentTeamId: teams.parentTeamId })
       .from(teams)
-      .where(and(eq(teams.id, authResult.teamContextId), isNull(teams.deletedAt)))
+      .where(and(
+        eq(teams.id, authResult.teamContextId),
+        isNull(teams.deletedAt),
+        eq(teams.clientStatus, "active")
+      ))
       .limit(1);
 
     if (targetTeam?.parentTeamId) {
@@ -409,8 +523,12 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
         .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
         .limit(1);
 
-      if (agencyMembership?.role === "admin") {
-        return { userId: user.id, teamId: authResult.teamContextId };
+      if (agencyMembership && ["owner", "admin"].includes(agencyMembership.role)) {
+        return activateTenantContext({
+          userId: user.id,
+          teamId: authResult.teamContextId,
+          role: "admin",
+        });
       }
     }
 
@@ -422,25 +540,28 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
 
   // Global admins bypass team-role check
   if (user.role === "admin") {
-    const [teamMembership] = await db
-      .select()
-      .from(teamMembers)
-      .where(eq(teamMembers.userId, user.id))
-      .limit(1);
+    const teamMembership = await resolveDirectTeamMembership(
+      user.id,
+      user.defaultTeamId
+    );
     if (!teamMembership?.teamId) {
       const error: any = new Error("Access denied: No team membership");
       error.statusCode = 403;
       throw error;
     }
-    return { userId: user.id, teamId: teamMembership.teamId };
+    return activateTenantContext({
+      userId: user.id,
+      teamId: teamMembership.teamId,
+      role: "platform_admin",
+    });
   }
 
   // For regular team members, require role='admin' in team_members
-  const [teamMembership] = await db
-    .select()
-    .from(teamMembers)
-    .where(and(eq(teamMembers.userId, user.id)))
-    .limit(1);
+  const teamMembership = await resolveDirectTeamMembership(
+    user.id,
+    user.defaultTeamId,
+    ["owner", "admin"]
+  );
 
   if (!teamMembership?.teamId) {
     const error: any = new Error("Access denied: No team membership");
@@ -454,7 +575,11 @@ export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: numb
     throw error;
   }
 
-  return { userId: user.id, teamId: teamMembership.teamId };
+  return activateTenantContext({
+    userId: user.id,
+    teamId: teamMembership.teamId,
+    role: teamMembership.role,
+  });
 }
 
 /**
@@ -492,17 +617,26 @@ export async function requireAuth(req: NextRequest): Promise<{ userId: number; t
     throw error;
   }
 
-  // Get team membership if exists
-  const [teamMembership] = await db
-    .select()
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, user.id))
-    .limit(1);
+  const teamMembership = await resolveDirectTeamMembership(
+    user.id,
+    authResult.teamContextId ?? user.defaultTeamId
+  );
+  if (teamMembership) {
+    activateTenantContext({
+      userId: user.id,
+      teamId: teamMembership.teamId,
+      role: teamMembership.role,
+    });
+  } else {
+    enterBlockedDatabaseContext(
+      `authenticated user ${user.id} has no validated tenant context`
+    );
+  }
   
   return {
     userId: user.id,
-    teamId: teamMembership?.teamId || null,
-    role: authResult.role,
+    teamId: teamMembership?.teamId ?? null,
+    role: teamMembership?.role ?? authResult.role,
   };
 }
 
@@ -544,7 +678,7 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
   if (!user) { const e: any = new Error("User not found"); e.statusCode = 404; throw e; }
   if (user.accountStatus !== "active") { const e: any = new Error("Account is not active"); e.statusCode = 401; throw e; }
 
-  const ALLOWED = ["admin", "member", "client_viewer"];
+  const ALLOWED = ["owner", "admin", "member", "client_viewer"];
 
   if (authResult.teamContextId) {
     // Validate membership against the session's explicit team context
@@ -555,7 +689,11 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
       .limit(1);
 
     if (directMembership && ALLOWED.includes(directMembership.role)) {
-      return { userId: user.id, teamId: authResult.teamContextId, role: directMembership.role };
+      return activateTenantContext({
+        userId: user.id,
+        teamId: authResult.teamContextId,
+        role: directMembership.role,
+      });
     }
 
     // Agency-admin inheritance: user is admin of the client team's parent
@@ -569,11 +707,23 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
       const [agencyMembership] = await db
         .select({ role: teamMembers.role })
         .from(teamMembers)
+        .innerJoin(
+          teams,
+          and(
+            eq(teams.id, teamMembers.teamId),
+            isNull(teams.deletedAt),
+            eq(teams.clientStatus, "active")
+          )
+        )
         .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, targetTeam.parentTeamId)))
         .limit(1);
 
-      if (agencyMembership?.role === "admin") {
-        return { userId: user.id, teamId: authResult.teamContextId, role: "admin" };
+      if (agencyMembership && ["owner", "admin"].includes(agencyMembership.role)) {
+        return activateTenantContext({
+          userId: user.id,
+          teamId: authResult.teamContextId,
+          role: "admin",
+        });
       }
     }
 
@@ -583,8 +733,11 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
     throw e;
   }
 
-  // No explicit context — fall back to first membership, but only if role is allowed
-  const [membership] = await db.select().from(teamMembers).where(eq(teamMembers.userId, user.id)).limit(1);
+  const membership = await resolveDirectTeamMembership(
+    user.id,
+    user.defaultTeamId,
+    ALLOWED
+  );
   if (!membership) { const e: any = new Error("Not a team member"); e.statusCode = 403; throw e; }
 
   if (!ALLOWED.includes(membership.role)) {
@@ -593,7 +746,11 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
     throw e;
   }
 
-  return { userId: user.id, teamId: membership.teamId, role: membership.role };
+  return activateTenantContext({
+    userId: user.id,
+    teamId: membership.teamId,
+    role: membership.role,
+  });
 }
 
 /**

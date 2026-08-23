@@ -16,6 +16,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import type { SocialPostJobData } from "./queue";
 import { addVideoGenerationJob, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
+import { assertEntityTeam, currentTenantTeamId } from "./pipeline-worker";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
@@ -139,7 +140,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     // job.id insert on retry simply no-ops instead of crashing the worker.
     await db.insert(socialPostJobs).values({
       socialPostId,
-      jobId: job.id,
+      jobId: String(job.id ?? ""),
       jobType: "GENERATION",
       status: "ACTIVE",
       startedAt: new Date(),
@@ -154,6 +155,15 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       .select()
       .from(socialPosts)
       .where(eq(socialPosts.id, socialPostId));
+
+    // Authoritative entity/team cross-check: the social post's owner must match
+    // the tenant this job runs as before any generation/billing happens.
+    assertEntityTeam({
+      entity: "socialPost",
+      entityId: socialPostId,
+      jobTeamId: currentTenantTeamId(),
+      entityTeamId: postDetails?.teamId,
+    });
     
     const location = postDetails?.location || "";
     const topic = postDetails?.topic || "";
@@ -363,7 +373,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
         // Log error via centralized logger (Slack + DB)
         await logError({
-          errorType: "SOCIAL_VARIANT",
+          errorType: "SOCIAL",
           errorMessage: `${platform} variant generation failed: ${errorMessage}`,
           stackTrace: error instanceof Error ? error.stack : undefined,
           severity: "error",
@@ -472,7 +482,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         console.log(`🎬 Queueing video generation for social post ${socialPostId}`);
         
         const videoJobId = await addVideoGenerationJob(
-          { socialPostId, platform: "tiktok" },
+          { socialPostId, platform: "tiktok", teamId: currentTenantTeamId() },
         );
 
         if (videoJobId) {
@@ -546,7 +556,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     await db
       .update(socialPostJobs)
       .set({ status: "COMPLETED", completedAt: new Date() })
-      .where(eq(socialPostJobs.jobId, job.id));
+      .where(eq(socialPostJobs.jobId, String(job.id ?? "")));
 
     // Log final completion with accurate variant counts
     await db.insert(socialPostLogs).values({
@@ -568,7 +578,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     void createNotification({
       teamId: job.data.teamId ?? postDetails?.teamId,
       type: "success",
-      category: "content",
+      category: "social_post",
       title: "Social Post Ready",
       message: `Your social post has been generated successfully across ${successfulPlatforms.length} platform(s).`,
       entityId: socialPostId,
@@ -645,7 +655,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         errorMessage: errorMessage.slice(0, 500),
         completedAt: new Date() 
       })
-      .where(eq(socialPostJobs.jobId, job.id));
+      .where(eq(socialPostJobs.jobId, String(job.id ?? "")));
 
     // Log to error_logs table via centralized logger (Slack + DB)
     await logError({
@@ -671,7 +681,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     void createNotification({
       teamId: job.data.teamId,
       type: "error",
-      category: "content",
+      category: "social_post",
       title: "Social Post Failed",
       message: `Social post generation failed: ${errorMessage.slice(0, 200)}`,
       entityId: socialPostId,

@@ -4,7 +4,7 @@ import {
   addArticleJob,
   type ArticleJobData,
 } from "../lib/queue";
-import { neonHttpDb } from "../lib/db";
+import { systemDb } from "../lib/db";
 import { createNotification } from "../lib/notification-service";
 import { articles, articleRuns, jobBatches } from "../shared/schema";
 import {
@@ -12,6 +12,7 @@ import {
   reconcilePendingArticleBilling,
 } from "../lib/article-run-state";
 import { and, eq, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
+import { runWithSystemContext } from "../lib/tenant-context";
 
 /**
  * Job Monitor - Automatic Stuck Job Detection & Recovery
@@ -38,11 +39,17 @@ export async function startJobMonitor() {
   memoryInterval.unref();
 
   // Run immediately on start
-  await checkStuckJobs();
+  await runWithSystemContext(
+    "job monitor initial cross-tenant reconciliation",
+    () => checkStuckJobs()
+  );
 
   // Then run every 5 minutes
   monitorInterval = setInterval(async () => {
-    await checkStuckJobs();
+    await runWithSystemContext(
+      "job monitor periodic cross-tenant reconciliation",
+      () => checkStuckJobs()
+    );
   }, 5 * 60 * 1000);
 }
 
@@ -92,7 +99,7 @@ export async function reconcileMissingArticleEnqueues(
   now = new Date()
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - ARTICLE_ENQUEUE_GRACE_MS);
-  const candidates = await neonHttpDb
+  const candidates = await systemDb
     .select({
       articleId: articleRuns.articleId,
       runId: articleRuns.runId,
@@ -159,9 +166,10 @@ export async function reconcileExpiredArticleRuns(
   onlyRunIds?: string[],
   queueOverride?: Pick<ReturnType<typeof getQueue>, "getJob">
 ): Promise<number> {
-  const candidates = await neonHttpDb
+  const candidates = await systemDb
     .select({
       articleId: articleRuns.articleId,
+      teamId: articles.teamId,
       runId: articleRuns.runId,
       jobDataJson: articleRuns.jobDataJson,
     })
@@ -210,10 +218,18 @@ export async function reconcileExpiredArticleRuns(
         );
         continue;
       }
+      if (!candidate.teamId) {
+        console.error(
+          `❌ Cannot recover article ${candidate.articleId} run ${candidate.runId.slice(0, 8)}: ` +
+          `tenant owner is missing`
+        );
+        continue;
+      }
 
       await addArticleJob({
         ...candidate.jobDataJson,
         articleId: candidate.articleId,
+        teamId: candidate.teamId,
         runId: candidate.runId,
       });
       resumed += 1;
@@ -287,7 +303,7 @@ async function recoverStalledArticles() {
   const now = Date.now();
 
   try {
-    const candidates = await neonHttpDb
+    const candidates = await systemDb
       .select({
         id: articles.id,
         batchId: articles.batchId,
@@ -309,7 +325,7 @@ async function recoverStalledArticles() {
       .where(inArray(articles.articleStatus, watchedStatuses));
 
     const durableRunArticleIds = candidates.length > 0
-      ? await neonHttpDb
+      ? await systemDb
           .select({ articleId: articleRuns.articleId })
           .from(articleRuns)
           .where(inArray(
@@ -342,7 +358,7 @@ async function recoverStalledArticles() {
 
       const currentStatus = article.articleStatus!;
       const nextStallCount = (article.stallCount ?? 0) + 1;
-      const updated = await neonHttpDb
+      const updated = await systemDb
         .update(articles)
         .set({
           articleStatus: nextStallCount >= 2 ? "DEAD" : "FAILED",
@@ -382,6 +398,10 @@ async function recoverStalledArticles() {
       }
 
       const params = (article.generationParams ?? {}) as Record<string, unknown>;
+      if (!article.teamId) {
+        console.error(`❌ Cannot requeue stalled article ${article.id}: tenant owner is missing`);
+        continue;
+      }
       try {
         await addArticleJob({
           articleId: article.id,
@@ -399,7 +419,7 @@ async function recoverStalledArticles() {
           competitorUrls: params.competitorUrls as string[] | undefined,
           semanticClusterId: params.semanticClusterId as number | undefined,
           serpFeatureTarget: params.serpFeatureTarget as string | undefined,
-          teamId: article.teamId ?? undefined,
+          teamId: article.teamId,
           personaId: article.personaId ?? undefined,
         });
         console.warn(`🔄 Requeued stalled article ${article.id} from ${currentStatus} (auto-recovery 1/1)`);
@@ -452,13 +472,13 @@ async function reconcileStuckBatches() {
     const { jobBatches, articles } = await import("@/shared/schema");
     const { eq, inArray } = await import("drizzle-orm");
 
-    const incompleteBatches = await neonHttpDb
+    const incompleteBatches = await systemDb
       .select()
       .from(jobBatches)
       .where(inArray(jobBatches.status, ["RUNNING", "PARTIAL_COMPLETE", "PENDING"]));
 
     for (const batch of incompleteBatches) {
-      const batchArticles = await neonHttpDb
+      const batchArticles = await systemDb
         .select()
         .from(articles)
         .where(eq(articles.batchId, batch.id));
@@ -477,7 +497,7 @@ async function reconcileStuckBatches() {
       if (finalStatus) {
 
         if (batch.status !== finalStatus) {
-          await neonHttpDb
+          await systemDb
             .update(jobBatches)
             .set({ status: finalStatus })
             .where(eq(jobBatches.id, batch.id));

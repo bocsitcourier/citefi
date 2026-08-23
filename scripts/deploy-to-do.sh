@@ -179,6 +179,14 @@ echo "Applying schema changes (db:push)..."
 npm run db:push -- --force 2>&1 | tail -20
 echo "Schema up to date."
 
+# ── Tenant RLS migration (Task #150) ───────────────────────────────────────
+# Install / refresh the citefi_tenant role, citefi_rls helpers and RLS policies
+# AFTER db:push so every policied table already exists. Idempotent, so it runs
+# safely on every deploy. DATABASE_URL is read from .env.local (verified above).
+echo "Applying tenant RLS migration (apply-tenant-rls)..."
+node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts 2>&1 | tail -20
+echo "Tenant RLS up to date."
+
 # ── PM2 reload ────────────────────────────────────────────────────────────
 echo "Reloading PM2..."
 # Capture restart counts BEFORE reload so we can detect crash-loops after

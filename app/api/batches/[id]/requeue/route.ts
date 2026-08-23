@@ -75,6 +75,7 @@ export async function POST(
         await addArticleJob({
           articleId: article.id,
           batchId: article.batchId,
+          teamId,
           runId,
           title: article.chosenTitle,
           targetUrl: batch.targetUrl,

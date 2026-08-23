@@ -1,4 +1,4 @@
-import { db } from "../lib/db";
+import { systemDb as db } from "../lib/db";
 import { articles } from "../shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { applyKeywordHyperlinks } from "../lib/keyword-hyperlink-pipeline";

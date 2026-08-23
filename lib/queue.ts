@@ -46,7 +46,7 @@ export interface ArticleJobData {
   semanticClusterId?: number;
   serpFeatureTarget?: string;
   customInstructions?: string;
-  teamId?: number;
+  teamId: number;
   personaId?: number;
   journeyContext?: string | null;
   journeyName?: string | null;
@@ -67,7 +67,7 @@ export interface PodcastJobData {
 export interface SocialPostJobData {
   socialPostId: number;
   userId: number;
-  teamId?: number;
+  teamId: number;
   creditRunId?: string;
   prompt: string;
   platforms: string[];
@@ -83,6 +83,7 @@ export interface SocialPostJobData {
 export interface ImageGenerationJobData {
   articleId: number;
   batchId: number;
+  teamId: number;
   runId?: string;
   imagePrompts: string[];
   businessName?: string;
@@ -90,6 +91,7 @@ export interface ImageGenerationJobData {
 
 export interface ReformatJobData {
   articleId: number;
+  teamId: number;
 }
 
 export interface SocialVideoJobData {
@@ -97,7 +99,8 @@ export interface SocialVideoJobData {
   socialPostId: number;
   platform?: string;
   videoType?: string;
-  teamId?: number;
+  teamId: number;
+  journeyStepId?: number;
 }
 
 export interface CleanupJobData {

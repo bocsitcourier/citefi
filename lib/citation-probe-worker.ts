@@ -74,10 +74,25 @@ export async function processCitationProbe(job: CitationProbeJob): Promise<void>
   const { articleId, teamId, targetQuery } = job;
 
   const [article] = await db
-    .select({ finalHtmlContent: articles.finalHtmlContent, chosenTitle: articles.chosenTitle })
+    .select({
+      finalHtmlContent: articles.finalHtmlContent,
+      chosenTitle: articles.chosenTitle,
+      teamId: articles.teamId,
+    })
     .from(articles)
     .where(eq(articles.id, articleId))
     .limit(1);
+
+  // Authoritative entity/team cross-check: the probed article must belong to
+  // the tenant this job claims. A mismatch is fatal (never proceed / never
+  // write another tenant's citation rows).
+  const { assertEntityTeam } = await import("./pipeline-worker");
+  assertEntityTeam({
+    entity: "article(citation-probe)",
+    entityId: articleId,
+    jobTeamId: teamId,
+    entityTeamId: article?.teamId,
+  });
 
   if (!article?.finalHtmlContent) {
     console.warn(`[CitationProbe] Article ${articleId} has no content — skipping`);
@@ -94,6 +109,9 @@ export async function processCitationProbe(job: CitationProbeJob): Promise<void>
       probeStatus: "RUNNING",
     })
     .returning({ id: citationProbes.id });
+  if (!probe) {
+    throw new Error(`Citation probe insert returned no row for article ${articleId}`);
+  }
 
   try {
     const response = await genAI.models.generateContent({

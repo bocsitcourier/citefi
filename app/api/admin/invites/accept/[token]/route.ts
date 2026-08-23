@@ -6,11 +6,13 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { BILLING_PLANS } from '@/lib/billing/plans';
+import { enterSystemContext } from '@/lib/tenant-context';
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  enterSystemContext("public team invitation acceptance");
   try {
     const ip = getClientIp(req);
     const rl = rateLimit(`invite-accept:${ip}`, 10, 60 * 60 * 1000);
@@ -126,8 +128,9 @@ export async function POST(
         })
         .returning();
 
-      newUser = insertedUsers[0];
-      if (!newUser) throw new Error('Failed to create user account');
+      const insertedUser = insertedUsers[0];
+      if (!insertedUser) throw new Error('Failed to create user account');
+      newUser = insertedUser;
 
       if (teamId) {
         await tx

@@ -23,7 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, sessions, activityLogs, usedApprovalTokens, revokedApprovalTokens } from "@/shared/schema";
 import { verifyApprovalToken, decodeApprovalTokenIgnoreExpiry } from "@/lib/approval-token";
 import { and, eq, gt, gte, lt, sql } from "drizzle-orm";

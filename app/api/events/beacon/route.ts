@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { contentEvents, articles, socialPosts } from "@/shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import { createHash } from "crypto";

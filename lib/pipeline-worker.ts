@@ -41,6 +41,11 @@ import {
 } from "./errors";
 import type { ContentType } from "./cost-ceilings";
 import * as queue from "./queue";
+import {
+  runWithTenantContext,
+  runWithSystemContext,
+  getDatabaseExecutionContext,
+} from "./tenant-context";
 
 // Indirection keeps the queue import tree-shakeable for handler-only unit tests.
 function queueModule() {
@@ -58,9 +63,194 @@ export interface PipelineBilling {
   reason?: string;
 }
 
+/**
+ * Explicit database-execution contract for a worker.
+ *
+ * Every worker must declare whether its jobs run inside a single tenant's
+ * database context or as a system/cross-tenant maintenance task:
+ *
+ *  - `{ scope: "tenant", getTeamId }` — resolves a positive teamId from the job
+ *    and runs the processor inside runWithTenantContext, so every DB query the
+ *    processor issues is scoped (SET LOCAL ROLE citefi_tenant + team_id) to that
+ *    single tenant. A missing/invalid teamId is a fatal, unrecoverable error:
+ *    the wrapper never guesses a tenant and never lets one tenant's job touch
+ *    another tenant's rows.
+ *
+ *  - `{ scope: "system", reason }` — runs the processor inside
+ *    runWithSystemContext(reason). Reserved for cross-tenant maintenance and
+ *    scheduler sweeps that legitimately read/write many teams' rows. `reason`
+ *    must be a non-empty audit string.
+ *
+ * getTeamId may be async (some tenant jobs must resolve the owning team from a
+ * durable row rather than the payload) and may return null/undefined; a
+ * non-positive result is treated as an unresolved tenant and fails the job
+ * fatally.
+ */
+export type PipelineExecution<T> =
+  | {
+      scope: "tenant";
+      /**
+       * Resolve the owning teamId for the job. Return a positive integer for a
+       * resolved tenant; null/undefined/non-positive means "tenant unresolved"
+       * and the job fails fatally (never runs in another tenant's context).
+       */
+      getTeamId: (job: Job<T>) => number | null | undefined | Promise<number | null | undefined>;
+      /**
+       * Optional audited system scope used only while resolving a legacy
+       * payload's owner from its durable row. Processing and failure cleanup
+       * still run in the resolved tenant context.
+       */
+      systemTeamResolutionReason?: string;
+      /** Optional actor role recorded in the DB session (defaults to "system_worker"). */
+      role?: string;
+      /** Optional userId to attribute the tenant session to (defaults to null). */
+      getUserId?: (job: Job<T>) => number | null | undefined;
+    }
+  | {
+      scope: "system";
+      /** Non-empty audit reason for the cross-tenant/system execution. */
+      reason: string;
+    };
+
+/**
+ * Raised when a tenant worker cannot resolve a positive teamId for its job.
+ * Fatal: the wrapper converts it to UnrecoverableError and never releases or
+ * debits a reservation (there is no trustworthy tenant to bill).
+ */
+export class TenantContextRequiredError extends Error {
+  readonly code = "TENANT_CONTEXT_REQUIRED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TenantContextRequiredError";
+  }
+}
+
+export function isTenantContextRequiredError(
+  error: unknown
+): error is TenantContextRequiredError {
+  return (
+    error instanceof TenantContextRequiredError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "TENANT_CONTEXT_REQUIRED")
+  );
+}
+
+/**
+ * Raised when an ID-driven processor discovers that the entity it is about to
+ * act on belongs to a different team than the job claims. Fatal by design: the
+ * job must never release/debit against the wrong tenant, so this error is
+ * excluded from the generic release path (like DEBIT_FAILED / lease conflicts).
+ */
+export class TenantMismatchError extends Error {
+  readonly code = "TENANT_MISMATCH";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TenantMismatchError";
+  }
+}
+
+export function isTenantMismatchError(
+  error: unknown
+): error is TenantMismatchError {
+  return (
+    error instanceof TenantMismatchError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "TENANT_MISMATCH")
+  );
+}
+
+/**
+ * Authoritative entity/team cross-check for ID-driven processors.
+ *
+ * Call at processor entry once the owning team has been read from the durable
+ * row: `assertEntityTeam({ entity, entityId, jobTeamId, entityTeamId })`.
+ *
+ *  - A null/undefined entityTeamId means the entity row was not found for the
+ *    claimed team; that is a mismatch (never proceed on an ambiguous owner).
+ *  - A mismatch throws TenantMismatchError (fatal, never releases another
+ *    tenant's credits).
+ *
+ * `jobTeamId` must be a positive integer (the tenant the job runs as).
+ */
+export function assertEntityTeam(args: {
+  entity: string;
+  entityId: number | string;
+  jobTeamId: number;
+  entityTeamId: number | null | undefined;
+}): void {
+  const { entity, entityId, jobTeamId, entityTeamId } = args;
+  if (!Number.isInteger(jobTeamId) || jobTeamId <= 0) {
+    throw new TenantContextRequiredError(
+      `${entity} ${entityId}: job team context is not a positive teamId (got ${String(jobTeamId)})`
+    );
+  }
+  if (entityTeamId == null) {
+    throw new TenantMismatchError(
+      `${entity} ${entityId}: no row found for team ${jobTeamId} (owner unknown) — refusing to proceed`
+    );
+  }
+  if (entityTeamId !== jobTeamId) {
+    throw new TenantMismatchError(
+      `${entity} ${entityId}: belongs to team ${entityTeamId} but job runs as team ${jobTeamId} — refusing to proceed`
+    );
+  }
+}
+
+/**
+ * Read the positive teamId of the current tenant execution context. Intended
+ * for use inside a tenant-scoped processor to feed assertEntityTeam without
+ * re-threading the teamId through function arguments. Throws
+ * TenantContextRequiredError when called outside a tenant context.
+ */
+export function currentTenantTeamId(): number {
+  const ctx = getDatabaseExecutionContext();
+  if (!ctx || ctx.scope !== "tenant" || !Number.isInteger(ctx.teamId) || ctx.teamId <= 0) {
+    throw new TenantContextRequiredError(
+      "currentTenantTeamId() called outside a positive tenant execution context"
+    );
+  }
+  return ctx.teamId;
+}
+
+/**
+ * Resolve the job's owning teamId for an entity/team cross-check.
+ *
+ * Prefers the active tenant execution context (the team the handler entered),
+ * falling back to a caller-supplied value (job payload teamId) when the
+ * processor is invoked outside a handler context — e.g. direct unit tests, or
+ * transitional call sites. Throws TenantContextRequiredError when neither
+ * yields a positive teamId, so an ID-driven processor can never proceed
+ * without a trustworthy tenant identity.
+ */
+export function resolveJobTeamId(
+  fallback?: number | null | undefined
+): number {
+  const ctx = getDatabaseExecutionContext();
+  if (ctx?.scope === "tenant" && Number.isInteger(ctx.teamId) && ctx.teamId > 0) {
+    return ctx.teamId;
+  }
+  if (Number.isInteger(fallback as number) && (fallback as number) > 0) {
+    return fallback as number;
+  }
+  throw new TenantContextRequiredError(
+    "resolveJobTeamId(): no positive tenant context and no positive fallback teamId"
+  );
+}
+
 export interface PipelineWorkerOptions<T> {
   /** classifyError stage: "text_gen" | "image_gen" | "video_gen" | "upload" | "publish" | "enqueue" | "scheduler" | ... */
   stage: string;
+  /**
+   * Database-execution contract (tenant vs system). Required so every worker
+   * declares its tenant scope explicitly. See PipelineExecution.
+   */
+  execution: PipelineExecution<T>;
   /** BullMQ concurrency (default 1) */
   concurrency?: number;
   /**
@@ -190,15 +380,74 @@ export function createPipelineHandler<T>(
   processor: PipelineProcessor<T>,
   opts: PipelineWorkerOptions<T>
 ) {
+  const execution = opts.execution;
   return async (job: Job<T>): Promise<unknown> => {
+    let tenantFailureContext:
+      | {
+          actorType: "worker";
+          userId: number | null;
+          teamId: number;
+          role: string;
+        }
+      | undefined;
+    let systemFailureReason: string | undefined;
     try {
       const runId = opts.budget?.getRunId(job);
       if (runId) {
         const { enterRunContext } = await import("./run-context");
         enterRunContext(runId);
       }
-      return await processor(job);
+
+      // Resolve and enter the declared execution context BEFORE the processor
+      // runs so every DB query it issues is scoped to the right tenant (or the
+      // audited system context). Tenant resolution failures are fatal and must
+      // never fall through into another tenant's context.
+      //
+      // execution is required for all production registrations; when absent
+      // (handler-only unit tests that exercise pure error/billing policy) the
+      // processor runs without a context wrapper.
+      if (!execution) {
+        return await processor(job);
+      }
+      if (execution.scope === "tenant") {
+        let resolvedTeamId: number | null | undefined;
+        try {
+          resolvedTeamId = execution.systemTeamResolutionReason
+            ? await runWithSystemContext(
+                execution.systemTeamResolutionReason,
+                () => execution.getTeamId(job)
+              )
+            : await execution.getTeamId(job);
+        } catch (cause) {
+          throw new TenantContextRequiredError(
+            `[${queueName}:${String(job.id)}] tenant owner resolution failed; ` +
+              `refusing to run without a validated team (${cause instanceof Error ? cause.message : String(cause)})`
+          );
+        }
+        if (!Number.isInteger(resolvedTeamId as number) || (resolvedTeamId as number) <= 0) {
+          throw new TenantContextRequiredError(
+            `[${queueName}:${String(job.id)}] tenant worker could not resolve a positive teamId ` +
+              `(got ${String(resolvedTeamId)}); refusing to run without a tenant context`
+          );
+        }
+        const teamId = resolvedTeamId as number;
+        const userId = execution.getUserId?.(job) ?? null;
+        tenantFailureContext = {
+          actorType: "worker",
+          userId: Number.isInteger(userId as number) && (userId as number) > 0 ? (userId as number) : null,
+          teamId,
+          role: execution.role ?? "system_worker",
+        };
+        return await runWithTenantContext(
+          tenantFailureContext,
+          () => processor(job)
+        );
+      }
+
+      systemFailureReason = execution.reason;
+      return await runWithSystemContext(execution.reason, () => processor(job));
     } catch (err) {
+      const handleFailure = async (): Promise<never> => {
       // The processor already moved this active job to BullMQ's delayed set.
       // Treating it as a normal failure would consume attempts and could release
       // the reservation even though the same durable run is still in progress.
@@ -234,8 +483,13 @@ export function createPipelineHandler<T>(
       // debit needs retrying — releasing would refund a delivered product.
       const isDebitFailure = isBillingSettlementError(err);
       const isLeaseConflict = isArticleRunLeaseConflictError(err);
+      // A tenant-context/mismatch failure must NEVER release or debit: the
+      // reservation (if any) belongs to a tenant we could not trust for this
+      // job, so touching billing could refund/charge the wrong team.
+      const isTenantFault =
+        isTenantContextRequiredError(err) || isTenantMismatchError(err);
 
-      if (isFinal && !isDebitFailure && !isLeaseConflict && opts.getBilling) {
+      if (isFinal && !isDebitFailure && !isLeaseConflict && !isTenantFault && opts.getBilling) {
         try {
           const billing = await opts.getBilling(job);
           if (billing?.teamId && billing?.runId) {
@@ -261,10 +515,34 @@ export function createPipelineHandler<T>(
         }
       }
 
+      // Tenant faults are always unrecoverable — retrying cannot make an
+      // entity belong to the claimed team, and each retry risks touching
+      // another tenant's data.
+      if (isTenantFault) {
+        throw new UnrecoverableError(
+          `[${(err as { code?: string }).code ?? pe.code}] ${
+            err instanceof Error ? err.message : pe.message
+          }`
+        );
+      }
+
       if (isFinal && (!canRetry || pe.disposition === "fatal")) {
         throw new UnrecoverableError(`[${pe.code}] ${pe.message}`);
       }
-      throw err;
+        throw err;
+      };
+
+      // AsyncLocalStorage restores the caller's context when the processor's
+      // scoped callback rejects. Re-enter the already validated context so
+      // final-failure billing lookup/release cannot fall through to unscoped
+      // access (and can never touch a different tenant).
+      if (tenantFailureContext) {
+        return await runWithTenantContext(tenantFailureContext, handleFailure);
+      }
+      if (systemFailureReason) {
+        return await runWithSystemContext(systemFailureReason, handleFailure);
+      }
+      return await handleFailure();
     }
   };
 }

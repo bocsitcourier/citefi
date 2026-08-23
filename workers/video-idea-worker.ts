@@ -1,7 +1,9 @@
 import { type Job } from "bullmq";
 import {
   BillingSettlementError,
+  assertEntityTeam,
   createPipelineWorker,
+  resolveJobTeamId,
   isBillingSettlementError,
   isFinalPipelineAttempt,
 } from "@/lib/pipeline-worker";
@@ -51,6 +53,15 @@ export async function processVideoIdeaGenerationJob(
         if (!idea) {
           throw new Error(`Video idea ${videoIdeaId} not found`);
         }
+
+        // Authoritative entity/team cross-check: the video idea must belong to
+        // the tenant this job runs as before any generation/billing happens.
+        assertEntityTeam({
+          entity: "videoIdea",
+          entityId: videoIdeaId,
+          jobTeamId: resolveJobTeamId(job.data.teamId ?? idea.teamId),
+          entityTeamId: idea.teamId,
+        });
 
         const workerJobId =
           job.id === undefined || job.id === null ? null : String(job.id);
@@ -294,6 +305,23 @@ export async function registerVideoIdeaWorker(): Promise<void> {
     {
       stage: "video_gen",
       concurrency,
+      execution: {
+        scope: "tenant",
+        getTeamId: async (j) => {
+          if (j.data.teamId) return j.data.teamId;
+          // Resolve the owning team from the durable video idea row when the
+          // payload predates teamId (legacy jobs).
+          const [row] = await db
+            .select({ teamId: videoIdeas.teamId })
+            .from(videoIdeas)
+            .where(eq(videoIdeas.id, j.data.videoIdeaId))
+            .limit(1);
+          return row?.teamId ?? null;
+        },
+        systemTeamResolutionReason:
+          "legacy video idea job: resolve durable video owner",
+        getUserId: (j) => j.data.userId ?? null,
+      },
       budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
       getBilling: getVideoIdeaGenerationBilling,
       retryDispositions: VIDEO_IDEA_RETRY_DISPOSITIONS,

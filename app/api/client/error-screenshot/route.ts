@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { errorLogs } from "@/shared/schema";
 import { objectStorageClient } from "@/lib/storage";
 import { requireAuth } from "@/lib/api/auth";
@@ -9,11 +9,11 @@ const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 // Per-user rate limiter: max 5 error screenshots per user per 10 minutes
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const rateLimitMap = new Map<number, { count: number; resetAt: number }>();
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_MAX = 5;
 
-function checkRateLimit(userId: string): boolean {
+function checkRateLimit(userId: number): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(userId);
   if (!entry || now > entry.resetAt) {
@@ -60,19 +60,27 @@ export async function POST(req: NextRequest) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const timestamp = Date.now();
-      const objectName = `.private/error-screenshots/${timestamp}-${userId.slice(0, 8)}.png`;
+      const objectName = `.private/error-screenshots/${timestamp}-${String(userId).slice(0, 8)}.png`;
 
       const bucket = objectStorageClient.bucket(BUCKET_ID);
       const storageFile = bucket.file(objectName);
-      await storageFile.save(buffer, {
-        contentType: file.type,
-        metadata: { cacheControl: "private, no-store" },
-      });
-
-      screenshotUrl = `[private]error-screenshots/${timestamp}-${userId.slice(0, 8)}.png`;
+      try {
+        await storageFile.save(buffer, {
+          contentType: file.type,
+          metadata: { cacheControl: "private, no-store" },
+        });
+        screenshotUrl = `[private]error-screenshots/${timestamp}-${String(userId).slice(0, 8)}.png`;
+      } catch (storageError) {
+        // A client crash report is still valuable when object storage is
+        // unavailable. Persist the system error row without the attachment.
+        console.warn(
+          "[ERROR_SCREENSHOT] Screenshot upload failed; recording report without attachment:",
+          storageError instanceof Error ? storageError.message : storageError
+        );
+      }
     }
 
-    const [inserted] = await db.insert(errorLogs).values({
+    const [inserted] = await systemDb.insert(errorLogs).values({
       errorType: "SYSTEM",
       errorMessage: `[CLIENT ERROR] ${errorMessage}${pageUrl ? ` — Page: ${pageUrl}` : ""}`,
       stackTrace: errorStack || undefined,

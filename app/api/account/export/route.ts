@@ -13,11 +13,15 @@ import {
 import { eq, desc } from "drizzle-orm";
 import { requireAuth } from "@/lib/api/auth";
 import { rateLimitDb } from "@/lib/db-rate-limit";
+import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
     const { userId, teamId } = await requireAuth(req);
+    if (!teamId) {
+      enterSystemContext(`account export for teamless user ${userId}`);
+    }
 
     const rlResult = await rateLimitDb(`export:${userId}`, 3, 60 * 60 * 1000);
     if (!rlResult.allowed) {

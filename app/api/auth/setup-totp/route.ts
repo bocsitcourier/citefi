@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { users, totpSecrets, activityLogs } from "@/shared/schema";
 import { generateTOTPSecret, verifyTOTPToken, generateBackupCodes, hashBackupCodes } from "@/lib/auth";
 import { verifyToken } from "@/lib/api/auth";
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const { action, verificationCode } = body;
 
     if (action === "generate") {
-      const [user] = await db
+      const [user] = await systemDb
         .select()
         .from(users)
         .where(eq(users.id, authResult.userId))
@@ -73,14 +73,14 @@ export async function POST(req: NextRequest) {
       const backupCodes = await generateBackupCodes(10);
       const hashedBackupCodes = await hashBackupCodes(backupCodes);
 
-      const [existingTotp] = await db
+      const [existingTotp] = await systemDb
         .select()
         .from(totpSecrets)
         .where(eq(totpSecrets.userId, authResult.userId))
         .limit(1);
 
       if (existingTotp) {
-        await db
+        await systemDb
           .update(totpSecrets)
           .set({
             secret,
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
           })
           .where(eq(totpSecrets.userId, authResult.userId));
       } else {
-        await db
+        await systemDb
           .insert(totpSecrets)
           .values({
             userId: authResult.userId,
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
           });
       }
 
-      await db
+      await systemDb
         .update(users)
         .set({
           twoFactorEnabled: 1,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
         })
         .where(eq(users.id, authResult.userId));
 
-      await db.insert(activityLogs).values({
+      await systemDb.insert(activityLogs).values({
         userId: authResult.userId,
         action: "totp_setup",
         resource: "users",

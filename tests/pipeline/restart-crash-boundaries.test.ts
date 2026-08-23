@@ -444,6 +444,7 @@ test("a pre-stage claim crash is retried and completed under the same run ID", {
       },
       {
         stage: "text_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         _deps: { recordProviderFailure: async () => {} },
         _workerOptions: { connection: firstConnection },
       }
@@ -517,6 +518,7 @@ test("a pre-stage claim crash is retried and completed under the same run ID", {
       },
       {
         stage: "text_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         _deps: { recordProviderFailure: async () => {} },
         _workerOptions: { connection: secondConnection },
       }
@@ -688,6 +690,7 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
       },
       {
         stage: "text_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         _deps: {
           recordProviderFailure: async () => {},
         },
@@ -742,6 +745,7 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
       },
       {
         stage: "text_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? 1 },
         _deps: {
           recordProviderFailure: async () => {},
         },

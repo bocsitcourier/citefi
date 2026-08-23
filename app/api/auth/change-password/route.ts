@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, getTxDb } from "@/lib/db";
+import { systemDb, getTxDb } from "@/lib/db";
+import { runWithSystemContext } from "@/lib/tenant-context";
 import { users, sessions, activityLogs } from "@/shared/schema";
 import { hashPassword, verifyPassword, validatePassword } from "@/lib/auth";
 import { verifyToken } from "@/lib/api/auth";
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const [user] = await db
+    const [user] = await systemDb
       .select({ id: users.id, email: users.email, passwordHash: users.passwordHash })
       .from(users)
       .where(eq(users.id, authResult.userId))
@@ -69,30 +70,35 @@ export async function POST(req: NextRequest) {
     // Atomic: update password AND revoke other sessions in a single transaction.
     // If either step fails, neither is committed — no partial security state.
     let revokedCount = 0;
-    const txDb = getTxDb();
-    await txDb.transaction(async (tx) => {
-      await tx
-        .update(users)
-        .set({ passwordHash: hashedPassword })
-        .where(eq(users.id, user.id));
+    await runWithSystemContext(
+      "auth change-password: update identity and revoke sessions atomically",
+      async () => {
+        const txDb = getTxDb();
+        await txDb.transaction(async (tx) => {
+          await tx
+            .update(users)
+            .set({ passwordHash: hashedPassword })
+            .where(eq(users.id, user.id));
 
-      // Revoke all OTHER active sessions — stolen tokens become invalid immediately.
-      // Current session (authResult.sessionId) stays alive so the user isn't logged out.
-      const revoked = await tx
-        .update(sessions)
-        .set({ isActive: 0, forceLogoutAt: new Date() })
-        .where(
-          and(
-            eq(sessions.userId, user.id),
-            ne(sessions.id, authResult.sessionId),
-            isNull(sessions.forceLogoutAt)
-          )
-        )
-        .returning({ id: sessions.id });
-      revokedCount = revoked.length;
-    });
+          // Revoke all OTHER active sessions — stolen tokens become invalid immediately.
+          // Current session (authResult.sessionId) stays alive so the user isn't logged out.
+          const revoked = await tx
+            .update(sessions)
+            .set({ isActive: 0, forceLogoutAt: new Date() })
+            .where(
+              and(
+                eq(sessions.userId, user.id),
+                ne(sessions.id, authResult.sessionId),
+                isNull(sessions.forceLogoutAt)
+              )
+            )
+            .returning({ id: sessions.id });
+          revokedCount = revoked.length;
+        });
+      }
+    );
 
-    await db.insert(activityLogs).values({
+    await systemDb.insert(activityLogs).values({
       userId: user.id,
       action: "password_changed",
       resource: "users",

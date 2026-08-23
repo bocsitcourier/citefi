@@ -6,8 +6,10 @@ import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calcul
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq } from "drizzle-orm";
+import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: Request) {
+  enterSystemContext("public login and session creation");
   try {
     // Rate limit by IP: 10 login attempts per 15 minutes
     const ip = getClientIp(req);
@@ -189,6 +191,7 @@ export async function POST(req: Request) {
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
         isActive: 1,
+        teamContextId: user.defaultTeamId,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       })
       .returning();

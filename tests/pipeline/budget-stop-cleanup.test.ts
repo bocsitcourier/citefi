@@ -15,22 +15,38 @@
  * Video: temp files cleaned, videoStatus → FAILED, error logged, reservation
  * released exactly once, UnrecoverableError.
  *
- * Run (local Redis must be up; --test-force-exit because the app's import
- * chain holds background handles beyond the closed DB/Redis singletons):
- *   WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm --test --test-force-exit tests/pipeline/budget-stop-cleanup.test.ts
+ * Run in-process (local Redis must be up). Avoid `node --test` isolation here:
+ * Node 20 can corrupt test-runner IPC for tsx suites with real service clients.
+ *   WORKER_PROCESS=true REDIS_URL=redis://127.0.0.1:6379 node --env-file=.env.local --import tsx/esm tests/pipeline/budget-stop-cleanup.test.ts
  */
-import { test, after } from "node:test";
+import { test as nodeTest, after, type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { UnrecoverableError } from "bullmq";
 import { createPipelineHandler } from "../../lib/pipeline-worker";
 import { processArticleGenerationJob, processSocialVideoJob } from "../../lib/worker";
 import { db, closeDb } from "../../lib/db";
+import { runWithSystemContext } from "../../lib/tenant-context";
+import { assertRunBudget } from "../../lib/cost-ceilings";
+import { logCostTelemetry } from "../../lib/cost-telemetry";
 import {
   users, teams, jobBatches, articles, socialPosts, costTelemetry, errorLogs, notifications, jobEvents,
 } from "../../shared/schema";
 import { eq, like } from "drizzle-orm";
 
 type AnyJob = any;
+
+function test(
+  name: string,
+  fn: (context: TestContext) => void | Promise<void>
+) {
+  return nodeTest(name, (context) =>
+    runWithSystemContext(
+      "budget stop integration fixture setup",
+      () => fn(context)
+    )
+  );
+}
 
 after(async () => {
   // Close the Redis singleton (opened by the video-slot cleanup path) and the
@@ -45,8 +61,9 @@ function deps() {
   return { calls, _deps: { releaseReservation: async (args: any) => { calls.push(args); } } };
 }
 
-async function insertOverCeilingTelemetry(runId: string) {
+async function insertOverCeilingTelemetry(runId: string, teamId: number) {
   await db.insert(costTelemetry).values({
+    teamId,
     jobId: runId,
     operationType: "article_generation",
     provider: "gemini",
@@ -58,17 +75,20 @@ async function insertOverCeilingTelemetry(runId: string) {
 
 void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, no retry", async (t) => {
   const marker = `budget-stop-test-${Date.now()}`;
-  const runId = `${marker}-run`;
+  const runId = randomUUID();
+  const articleRunId = randomUUID();
 
   // Real rows: user → batch (RUNNING) → single PENDING article.
   const [user] = await db.insert(users).values({
     email: `${marker}@example.test`,
     role: "team_member",
   }).returning();
+  assert.ok(user, "article fixture user must be created");
   const [team] = await db.insert(teams).values({
     name: marker,
     createdBy: user.id,
   }).returning();
+  assert.ok(team, "article fixture team must be created");
   const [batch] = await db.insert(jobBatches).values({
     userId: user.id,
     teamId: team.id,
@@ -77,19 +97,25 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
     status: "RUNNING",
     numArticlesRequested: 1,
   }).returning();
+  assert.ok(batch, "article fixture batch must be created");
   const [article] = await db.insert(articles).values({
     batchId: batch.id,
     teamId: team.id,
     chosenTitle: marker,
     articleStatus: "PENDING",
   }).returning();
-  await insertOverCeilingTelemetry(runId);
+  assert.ok(article, "article fixture row must be created");
+  await insertOverCeilingTelemetry(runId, team.id);
 
   try {
     const d = deps();
     // Same wrapper options shape as the production registration in lib/worker.ts.
     const handler = createPipelineHandler("article-generation", processArticleGenerationJob as any, {
       stage: "text_gen",
+      execution: {
+        scope: "tenant",
+        getTeamId: (j: AnyJob) => j.data.teamId ?? null,
+      },
       budget: { contentType: "article", getRunId: (j: AnyJob) => j.data.creditRunId },
       getBilling: async (j: AnyJob) => ({
         teamId: j.data.teamId,
@@ -106,7 +132,7 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
       data: {
         articleId: article.id,
         batchId: batch.id,
-        runId: `${marker}-telemetry`,
+        runId: articleRunId,
         title: marker,
         targetUrl: "https://example.test",
         teamId: team.id,
@@ -126,12 +152,14 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
 
     // 2) Article marked FAILED (not left PENDING forever).
     const [a] = await db.select().from(articles).where(eq(articles.id, article.id));
+    assert.ok(a, "article row must remain available for status verification");
     assert.equal(a.articleStatus, "FAILED", "article must be marked FAILED");
     assert.match(a.errorMessage ?? "", /budget reached|BUDGET_EXCEEDED|cost ceiling/i);
 
     // 3) Batch completion logic ran: with its only article FAILED, the batch
     //    must be terminal (FAILED), not stuck RUNNING.
     const [b] = await db.select().from(jobBatches).where(eq(jobBatches.id, batch.id));
+    assert.ok(b, "batch row must remain available for status verification");
     assert.equal(b.status, "FAILED", "batch must not be left RUNNING");
     assert.ok(b.completedAt, "batch completedAt must be set");
 
@@ -156,16 +184,18 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
 
 void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one release, no retry", async () => {
   const marker = `budget-stop-video-${Date.now()}`;
-  const runId = `${marker}-run`;
+  const runId = randomUUID();
 
   const [user] = await db.insert(users).values({
     email: `${marker}@example.test`,
     role: "team_member",
   }).returning();
+  assert.ok(user, "video fixture user must be created");
   const [team] = await db.insert(teams).values({
     name: marker,
     createdBy: user.id,
   }).returning();
+  assert.ok(team, "video fixture team must be created");
   const [post] = await db.insert(socialPosts).values({
     userId: user.id,
     teamId: team.id,
@@ -175,7 +205,8 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     platformsJson: ["x"],
     videoStatus: "GENERATING",
   } as any).returning();
-  await insertOverCeilingTelemetry(runId);
+  assert.ok(post, "video fixture social post must be created");
+  await insertOverCeilingTelemetry(runId, team.id);
 
   // Temp dir the compositor cleanup must remove on failure.
   const fs = await import("fs/promises");
@@ -188,6 +219,20 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     // Same wrapper options shape as the production registration in lib/worker.ts.
     const handler = createPipelineHandler("social-video-generation", processSocialVideoJob as any, {
       stage: "video_gen",
+      execution: {
+        scope: "tenant",
+        getTeamId: async (j: AnyJob) => {
+          if (j.data.teamId) return j.data.teamId;
+          const [row] = await db
+            .select({ teamId: socialPosts.teamId })
+            .from(socialPosts)
+            .where(eq(socialPosts.id, j.data.socialPostId))
+            .limit(1);
+          return row?.teamId ?? null;
+        },
+        systemTeamResolutionReason:
+          "budget stop test: resolve legacy social video owner",
+      },
       budget: { contentType: "video", getRunId: (j: AnyJob) => j.data.creditRunId },
       getBilling: async (j: AnyJob) => {
         const [videoPost] = await db.select({ teamId: socialPosts.teamId })
@@ -216,6 +261,7 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
 
     // 3) videoStatus FAILED (UI not stuck at GENERATING).
     const [p] = await db.select().from(socialPosts).where(eq(socialPosts.id, post.id));
+    assert.ok(p, "social post must remain available for status verification");
     assert.equal(p.videoStatus, "FAILED");
     // Accept both the legacy raw cost-ceiling message and the new user-friendly
     // budget-stop copy stored by the worker ("Generation budget reached…").
@@ -237,5 +283,97 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     await db.delete(teams).where(eq(teams.id, team.id));
     await db.delete(users).where(eq(users.id, user.id));
     await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+void test("provider telemetry inherits the worker tenant and trips its run budget", async () => {
+  const marker = `tenant-telemetry-${Date.now()}`;
+  const runId = randomUUID();
+
+  const [user] = await db.insert(users).values({
+    email: `${marker}@example.test`,
+    role: "team_member",
+  }).returning();
+  assert.ok(user, "telemetry fixture user must be created");
+  const [team] = await db.insert(teams).values({
+    name: marker,
+    createdBy: user.id,
+  }).returning();
+  assert.ok(team, "telemetry fixture team must be created");
+
+  try {
+    const handler = createPipelineHandler(
+      "tenant-telemetry",
+      async () => {
+        await logCostTelemetry(
+          {
+            operationType: "veo_clip",
+            provider: "gemini",
+            model: "veo-3.1-fast-generate-preview",
+            // Deliberately omit teamId and jobId, like deep provider helpers.
+          },
+          { videoSeconds: 20 },
+          25,
+          true
+        );
+
+        const [row] = await db
+          .select({
+            teamId: costTelemetry.teamId,
+            jobId: costTelemetry.jobId,
+          })
+          .from(costTelemetry)
+          .where(eq(costTelemetry.jobId, runId))
+          .limit(1);
+        assert.ok(row, "provider telemetry must persist under RLS");
+        assert.equal(row.teamId, team.id);
+        assert.equal(row.jobId, runId);
+
+        await assert.rejects(
+          () => assertRunBudget(runId, "video", "video_gen"),
+          /BUDGET_EXCEEDED|exceeded cost ceiling/
+        );
+        await assert.rejects(
+          () =>
+            logCostTelemetry(
+              {
+                operationType: "veo_clip",
+                provider: "gemini",
+                model: "veo-3.1-fast-generate-preview",
+                teamId: team.id + 1,
+              },
+              { videoSeconds: 1 },
+              1,
+              true
+            ),
+          /does not match the validated tenant/
+        );
+      },
+      {
+        stage: "video_gen",
+        execution: {
+          scope: "tenant",
+          getTeamId: () => team.id,
+        },
+        budget: {
+          contentType: "video",
+          getRunId: () => runId,
+        },
+        _deps: {
+          recordProviderFailure: async () => {},
+        },
+      }
+    );
+
+    await handler({
+      id: `telemetry:${runId}`,
+      data: {},
+      opts: { attempts: 1 },
+      attemptsMade: 0,
+    } as AnyJob);
+  } finally {
+    await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    await db.delete(teams).where(eq(teams.id, team.id));
+    await db.delete(users).where(eq(users.id, user.id));
   }
 });

@@ -3,6 +3,7 @@ import { CREDIT_MENU } from "@/lib/credit-menu";
 
 import { db } from "./db";
 import { costTelemetry } from "@/shared/schema";
+import { getDatabaseExecutionContext } from "./tenant-context";
 
 // ============================================================================
 // PRICING MAP — cost per million tokens (or per unit) in USD
@@ -80,6 +81,29 @@ export interface TelemetryContext {
   batchId?: number | null;
   articleId?: number | null;
   jobId?: string | null;
+}
+
+export function resolveTelemetryTeamId(
+  requestedTeamId?: number | null
+): number | null {
+  const execution = getDatabaseExecutionContext();
+  if (execution?.scope === "tenant") {
+    if (
+      requestedTeamId != null &&
+      requestedTeamId !== execution.teamId
+    ) {
+      throw new Error(
+        `Cost telemetry teamId ${requestedTeamId} does not match the validated tenant ${execution.teamId}`
+      );
+    }
+    return execution.teamId;
+  }
+
+  if (requestedTeamId == null) return null;
+  if (!Number.isInteger(requestedTeamId) || requestedTeamId <= 0) {
+    throw new Error("Cost telemetry teamId must be a positive integer");
+  }
+  return requestedTeamId;
 }
 
 export interface TokenUsage {
@@ -279,6 +303,10 @@ export async function logCostTelemetry(
   success = true,
   errorMessage?: string
 ): Promise<void> {
+  // Provider helpers deep in the call graph often omit teamId. The validated
+  // database execution context is authoritative: inherit it for tenant work
+  // and reject any caller-supplied cross-tenant mismatch before the insert.
+  const effectiveTeamId = resolveTelemetryTeamId(ctx.teamId);
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
   let totalTokens: number | undefined;
@@ -312,7 +340,7 @@ export async function logCostTelemetry(
   }
 
   await db.insert(costTelemetry).values({
-    teamId: ctx.teamId ?? null,
+    teamId: effectiveTeamId,
     userId: ctx.userId ?? null,
     batchId: ctx.batchId ?? null,
     articleId: ctx.articleId ?? null,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, getTxDb } from "@/lib/db";
+import { db, withTenantTransaction } from "@/lib/db";
 import { 
   articles, 
   articleAssets, 
@@ -56,8 +56,7 @@ export async function DELETE(
 
     // Execute cascading delete atomically — if any step fails, the whole
     // delete rolls back so the article is never left partially deleted.
-    const txDb = getTxDb();
-    await txDb.transaction(async (tx) => {
+    await withTenantTransaction(async (tx) => {
       // Get social posts before deleting
       const socialPostsToDelete = await tx
         .select({ id: socialPosts.id })
