@@ -9,6 +9,9 @@ import {
   aiLearningLedger,
   variantArms,
   ContentType,
+  articles,
+  socialPosts,
+  videoIdeas,
 } from "../shared/schema";
 import {
   GEMINI_ARTICLE_MODEL,
@@ -245,6 +248,7 @@ export class LearningService {
       priorityDimension?: Dimension;
       terminalKpi?: string;  // 'conversion' | 'engagement' | 'awareness' — overrides metric weights
       stableId?: string;     // stable seed for deterministic holdout/treatment assignment
+      campaignId?: number | null;
     }
   ): Promise<OptimizationContext | null> {
     const agent = await this.getAgentForContentType(teamId, contentType);
@@ -268,6 +272,7 @@ export class LearningService {
       priorityDimension?: Dimension;
       terminalKpi?: string;
       stableId?: string;
+      campaignId?: number | null;
     }
   ): Promise<OptimizationContext> {
     // Fetch ALL non-archived patterns for this agent.
@@ -467,7 +472,7 @@ export class LearningService {
     // Collect negative constraints + brand intelligence context in parallel
     const [negativeConstraints, brandContext] = await Promise.all([
       this.collectNegativeConstraints(agent.teamId!, agent.contentType),
-      getClientBrandContext(agent.teamId!),
+      getClientBrandContext(agent.teamId!, options?.campaignId ?? null),
     ]);
 
     const promptEnhancements = this.buildPromptEnhancements(learnedPatterns);
@@ -600,10 +605,38 @@ export class LearningService {
     qualityScore: number,
     opts?: { variantId?: string; armId?: number; variantArmId?: number }
   ): Promise<number> {
+    // Task #151 — carry the canonical owning campaign onto the performance metric
+    // when the content root has one. Derived from the team-scoped root row only
+    // (never guessed); null for legacy / standalone content.
+    let resolvedCampaignId: number | null = null;
+    if (contentType === ContentType.ARTICLE || contentType === ContentType.PODCAST) {
+      const [row] = await db
+        .select({ campaignId: articles.campaignId })
+        .from(articles)
+        .where(and(eq(articles.id, contentId), eq(articles.teamId, teamId)))
+        .limit(1);
+      resolvedCampaignId = row?.campaignId ?? null;
+    } else if (contentType === ContentType.SOCIAL) {
+      const [row] = await db
+        .select({ campaignId: socialPosts.campaignId })
+        .from(socialPosts)
+        .where(and(eq(socialPosts.id, contentId), eq(socialPosts.teamId, teamId)))
+        .limit(1);
+      resolvedCampaignId = row?.campaignId ?? null;
+    } else if (contentType === ContentType.VIDEO) {
+      const [row] = await db
+        .select({ campaignId: videoIdeas.campaignId })
+        .from(videoIdeas)
+        .where(and(eq(videoIdeas.id, contentId), eq(videoIdeas.teamId, teamId)))
+        .limit(1);
+      resolvedCampaignId = row?.campaignId ?? null;
+    }
+
     const [metricRow] = await db
       .insert(contentPerformanceMetrics)
       .values({
         teamId,
+        campaignId: resolvedCampaignId,
         contentType,
         articleId: (contentType === ContentType.ARTICLE || contentType === ContentType.PODCAST) ? contentId : null,
         socialPostId: contentType === ContentType.SOCIAL ? contentId : null,
@@ -1184,6 +1217,7 @@ export class LearningService {
       patternTypes?: string[];
       stableId?: string;
       terminalKpi?: string;
+      campaignId?: number | null;
     }
   ): Promise<OptimizationContext & { humanizationGuidelines: string[] }> {
     const baseContext = await this.getOptimizationContext(teamId, contentType, options);

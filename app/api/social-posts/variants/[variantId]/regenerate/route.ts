@@ -100,7 +100,11 @@ export async function POST(
 
     // Critic loop: wire orchestrator for quality scoring + repairs (mirrors social-worker.ts)
     // Fetch learned patterns so Wilson/EMA attribution fires on regenerated content.
-    const socialEnhancement = await getPromptEnhancement(post.teamId, ContentType.SOCIAL)
+    const socialEnhancement = await getPromptEnhancement(
+      post.teamId,
+      ContentType.SOCIAL,
+      { campaignId: post.campaignId ?? null }
+    )
       .catch(() => ({ patternsUsed: [] as number[] }));
     const patternsForRegen = socialEnhancement.patternsUsed;
 
@@ -108,6 +112,7 @@ export async function POST(
     try {
       const orchResult = await runGenerationOrchestrator({
         teamId: post.teamId,
+        campaignId: post.campaignId ?? null,
         contentType: ContentType.SOCIAL,
         contentId: post.id,
         content: gptResult.caption,

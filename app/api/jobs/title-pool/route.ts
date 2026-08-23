@@ -29,11 +29,53 @@ export async function POST(request: NextRequest) {
       // Advanced features
       competitorUrls = [],
       semanticClusterId,
-      serpFeatureTarget
+      serpFeatureTarget,
+      // Optional campaign association (validated against team below)
+      campaignId
     } = body;
 
     // SECURITY: Use authenticated user's ID instead of body userId
     const effectiveUserId = authenticatedUserId;
+
+    // Validate the optional campaignId against the authenticated team. Campaign
+    // workspaces pass the public UUID; internal callers may pass the numeric ID.
+    // A supplied but inaccessible campaign fails instead of silently creating an
+    // unlinked batch.
+    let canonicalCampaignId: number | null = null;
+    if (campaignId != null) {
+      const { campaigns } = await import("@/shared/schema");
+      const { and, isNull } = await import("drizzle-orm");
+      const campaignIdentity =
+        typeof campaignId === "number" && Number.isInteger(campaignId)
+          ? eq(campaigns.id, campaignId)
+          : typeof campaignId === "string" && campaignId.trim().length > 0
+            ? eq(campaigns.publicId, campaignId.trim())
+            : null;
+      if (!campaignIdentity) {
+        return NextResponse.json(
+          { error: "Invalid campaign ID" },
+          { status: 400 }
+        );
+      }
+      const [campaignRow] = await db
+        .select({ id: campaigns.id })
+        .from(campaigns)
+        .where(
+          and(
+            campaignIdentity,
+            eq(campaigns.teamId, teamId),
+            isNull(campaigns.deletedAt)
+          )
+        )
+        .limit(1);
+      if (!campaignRow) {
+        return NextResponse.json(
+          { error: "Campaign not found" },
+          { status: 404 }
+        );
+      }
+      canonicalCampaignId = campaignRow.id;
+    }
 
     if (!coreTopic || !targetUrl) {
       console.error(`❌ Title pool validation failed: Missing coreTopic or targetUrl`, { coreTopic, targetUrl });
@@ -193,6 +235,7 @@ export async function POST(request: NextRequest) {
       .values({
         userId: effectiveUserId,
         teamId, // CRITICAL FIX: Add teamId for team isolation
+        campaignId: canonicalCampaignId, // Optional campaign association (null for legacy)
         coreTopic,
         targetUrl,
         status: "PENDING",

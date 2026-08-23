@@ -82,8 +82,10 @@ setInterval(() => {
   }
 }, 120_000);
 
-// Ownership cache to avoid repeated DB lookups for the same contentId
-const ownershipCache = new Map<string, { teamId: number; expiresAt: number }>();
+// Ownership cache to avoid repeated DB lookups for the same contentId.
+// Task #151 — also caches the content root's canonical campaignId so beacon
+// events can be attributed to a campaign without an extra lookup.
+const ownershipCache = new Map<string, { teamId: number; campaignId: number | null; expiresAt: number }>();
 
 async function verifyOwnership(
   contentType: "article" | "social_post",
@@ -97,21 +99,21 @@ async function verifyOwnership(
   }
   if (contentType === "article") {
     const [row] = await db
-      .select({ teamId: articles.teamId })
+      .select({ teamId: articles.teamId, campaignId: articles.campaignId })
       .from(articles)
       .where(eq(articles.id, contentId))
       .limit(1);
-    if (!row) return false;
-    ownershipCache.set(cacheKey, { teamId: row.teamId, expiresAt: Date.now() + 5 * 60_000 });
+    if (!row || row.teamId == null) return false;
+    ownershipCache.set(cacheKey, { teamId: row.teamId, campaignId: row.campaignId ?? null, expiresAt: Date.now() + 5 * 60_000 });
     return row.teamId === declaredTeamId;
   } else {
     const [row] = await db
-      .select({ teamId: socialPosts.teamId })
+      .select({ teamId: socialPosts.teamId, campaignId: socialPosts.campaignId })
       .from(socialPosts)
       .where(eq(socialPosts.id, contentId))
       .limit(1);
-    if (!row) return false;
-    ownershipCache.set(cacheKey, { teamId: row.teamId, expiresAt: Date.now() + 5 * 60_000 });
+    if (!row || row.teamId == null) return false;
+    ownershipCache.set(cacheKey, { teamId: row.teamId, campaignId: row.campaignId ?? null, expiresAt: Date.now() + 5 * 60_000 });
     return row.teamId === declaredTeamId;
   }
 }
@@ -170,20 +172,20 @@ export async function POST(req: NextRequest) {
     const cacheExpiry = Date.now() + 5 * 60_000;
     const [articleRows, socialRows] = await Promise.all([
       uncachedArticleIds.length > 0
-        ? db.select({ id: articles.id, teamId: articles.teamId }).from(articles)
+        ? db.select({ id: articles.id, teamId: articles.teamId, campaignId: articles.campaignId }).from(articles)
             .where(inArray(articles.id, uncachedArticleIds))
-        : Promise.resolve([] as { id: number; teamId: number | null }[]),
+        : Promise.resolve([] as { id: number; teamId: number | null; campaignId: number | null }[]),
       uncachedSocialIds.length > 0
-        ? db.select({ id: socialPosts.id, teamId: socialPosts.teamId }).from(socialPosts)
+        ? db.select({ id: socialPosts.id, teamId: socialPosts.teamId, campaignId: socialPosts.campaignId }).from(socialPosts)
             .where(inArray(socialPosts.id, uncachedSocialIds))
-        : Promise.resolve([] as { id: number; teamId: number | null }[]),
+        : Promise.resolve([] as { id: number; teamId: number | null; campaignId: number | null }[]),
     ]);
 
     for (const row of articleRows) {
-      if (row.teamId != null) ownershipCache.set(`article:${row.id}`, { teamId: row.teamId, expiresAt: cacheExpiry });
+      if (row.teamId != null) ownershipCache.set(`article:${row.id}`, { teamId: row.teamId, campaignId: row.campaignId ?? null, expiresAt: cacheExpiry });
     }
     for (const row of socialRows) {
-      if (row.teamId != null) ownershipCache.set(`social_post:${row.id}`, { teamId: row.teamId, expiresAt: cacheExpiry });
+      if (row.teamId != null) ownershipCache.set(`social_post:${row.id}`, { teamId: row.teamId, campaignId: row.campaignId ?? null, expiresAt: cacheExpiry });
     }
 
     // Filter to only owned events — always return 204 (no diagnostic leakage)
@@ -202,6 +204,9 @@ export async function POST(req: NextRequest) {
     await db.insert(contentEvents).values(
       validEvents.map((evt) => ({
         teamId: evt.teamId,
+        // Task #151 — attribute the event to the content root's canonical
+        // campaign (from the ownership-verified cache), never from the payload.
+        campaignId: ownershipCache.get(`${evt.contentType}:${evt.contentId}`)?.campaignId ?? null,
         contentType: evt.contentType,
         articleId: evt.contentType === "article" ? evt.contentId : null,
         socialPostId: evt.contentType === "social_post" ? evt.contentId : null,

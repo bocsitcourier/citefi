@@ -81,6 +81,12 @@ export interface TelemetryContext {
   batchId?: number | null;
   articleId?: number | null;
   jobId?: string | null;
+  /**
+   * Optional campaign association. When omitted it is derived from the batch or
+   * article row (scoped to the resolved tenant) so telemetry rolls up per
+   * campaign without weakening tenant attribution.
+   */
+  campaignId?: number | null;
 }
 
 export function resolveTelemetryTeamId(
@@ -307,6 +313,67 @@ export async function logCostTelemetry(
   // database execution context is authoritative: inherit it for tenant work
   // and reject any caller-supplied cross-tenant mismatch before the insert.
   const effectiveTeamId = resolveTelemetryTeamId(ctx.teamId);
+
+  // Resolve the campaign association. Explicit attribution must have a tenant
+  // context and must name a campaign owned by that tenant; inferred attribution
+  // remains best-effort for legacy callers.
+  let effectiveCampaignId: number | null = ctx.campaignId ?? null;
+  if (effectiveCampaignId != null) {
+    if (effectiveTeamId == null) {
+      throw new Error(
+        "Cost telemetry campaignId requires an attributable tenant context"
+      );
+    }
+    const { campaigns } = await import("@/shared/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const [ownedCampaign] = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(
+        and(
+          eq(campaigns.id, effectiveCampaignId),
+          eq(campaigns.teamId, effectiveTeamId)
+        )
+      )
+      .limit(1);
+    if (!ownedCampaign) {
+      throw new Error(
+        `Cost telemetry campaign ${effectiveCampaignId} does not belong to team ${effectiveTeamId}`
+      );
+    }
+  }
+  if (effectiveCampaignId == null && (ctx.batchId != null || ctx.articleId != null)) {
+    try {
+      const { eq, and } = await import("drizzle-orm");
+      if (ctx.batchId != null) {
+        const { jobBatches } = await import("@/shared/schema");
+        const conds = [eq(jobBatches.id, ctx.batchId)];
+        if (effectiveTeamId != null) conds.push(eq(jobBatches.teamId, effectiveTeamId));
+        const [row] = await db
+          .select({ campaignId: jobBatches.campaignId })
+          .from(jobBatches)
+          .where(conds.length === 1 ? conds[0] : and(...conds))
+          .limit(1);
+        effectiveCampaignId = row?.campaignId ?? null;
+      }
+      if (effectiveCampaignId == null && ctx.articleId != null) {
+        const { articles } = await import("@/shared/schema");
+        const conds = [eq(articles.id, ctx.articleId)];
+        if (effectiveTeamId != null) conds.push(eq(articles.teamId, effectiveTeamId));
+        const [row] = await db
+          .select({ campaignId: articles.campaignId })
+          .from(articles)
+          .where(conds.length === 1 ? conds[0] : and(...conds))
+          .limit(1);
+        effectiveCampaignId = row?.campaignId ?? null;
+      }
+    } catch (err) {
+      // Derivation failure is non-fatal — persist telemetry with null campaign.
+      console.warn("[CostTelemetry] campaignId derivation failed:", (err as Error)?.message ?? err);
+      effectiveCampaignId = ctx.campaignId ?? null;
+    }
+  }
+
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
   let totalTokens: number | undefined;
@@ -341,6 +408,7 @@ export async function logCostTelemetry(
 
   await db.insert(costTelemetry).values({
     teamId: effectiveTeamId,
+    campaignId: effectiveCampaignId,
     userId: ctx.userId ?? null,
     batchId: ctx.batchId ?? null,
     articleId: ctx.articleId ?? null,

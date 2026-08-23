@@ -23,6 +23,7 @@ import {
   Sparkles,
   GitBranch,
   ClipboardCheck,
+  Megaphone,
 } from "lucide-react";
 
 export interface NavItem {
@@ -43,6 +44,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Workspace",
     items: [
       { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { title: "Campaigns", href: "/campaigns", icon: Megaphone },
       { title: "Content Library", href: "/content", icon: Library },
       { title: "Monitoring", href: "/monitoring", icon: Activity },
     ],
@@ -114,6 +116,7 @@ export const PUBLIC_ROUTES = [
 
 export const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
+  campaigns: "Campaigns",
   content: "Content Library",
   batches: "Batches",
   select: "Select Titles",
@@ -141,7 +144,6 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   review: "Content Review",
   onboarding: "Getting Started",
   usage: "Usage",
-  billing: "Billing",
   team: "Team",
   admin: "Admin",
   users: "Users",

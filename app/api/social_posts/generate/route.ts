@@ -1,14 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { socialPosts, articles, jobBatches } from "@/shared/schema";
+import { socialPosts, articles, jobBatches, campaigns } from "@/shared/schema";
 import { addSocialPostJob } from "@/lib/queue";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Task #151 — resolve an optional caller-supplied campaign reference (public UUID
+ * or numeric ID) to a canonical numeric campaign id, strictly scoped to the
+ * authenticated team. Returns null when no reference was supplied. Throws a
+ * 404-tagged error when the reference is inaccessible / cross-team so the caller
+ * fails loud rather than silently dropping the linkage.
+ */
+async function resolveTeamCampaignId(
+  teamId: number,
+  ref: string | undefined | null
+): Promise<number | null> {
+  if (ref == null || ref === "") return null;
+  const where = UUID_RE.test(ref)
+    ? and(eq(campaigns.publicId, ref), eq(campaigns.teamId, teamId), isNull(campaigns.deletedAt))
+    : /^\d+$/.test(ref)
+      ? and(eq(campaigns.id, parseInt(ref, 10)), eq(campaigns.teamId, teamId), isNull(campaigns.deletedAt))
+      : null;
+  if (!where) {
+    const err: any = new Error("Campaign not found or access denied");
+    err.statusCode = 404;
+    throw err;
+  }
+  const [campaign] = await db
+    .select({ id: campaigns.id })
+    .from(campaigns)
+    .where(where)
+    .limit(1);
+  if (!campaign) {
+    const err: any = new Error("Campaign not found or access denied");
+    err.statusCode = 404;
+    throw err;
+  }
+  return campaign.id;
+}
+
 const generateSocialPostSchema = z.object({
+  campaignId: z.string().optional(),
   articleId: z.string().optional(),
   standaloneTitle: z.string().optional(),
   topic: z.string().optional(),
@@ -51,6 +90,14 @@ export async function POST(request: NextRequest) {
     let resolvedCompanyName = validatedData.companyName || "";
     let resolvedCompanyLogoUrl = validatedData.companyLogoUrl || "";
 
+    // Task #151 — canonical owning campaign for the new post. Resolved below from
+    // the parent article (inheritance) and/or an explicit caller reference.
+    // Null for legacy / standalone posts created outside the campaign flow.
+    let resolvedCampaignId: number | null = null;
+    // Resolve an explicit caller-supplied campaign reference up-front (404 on
+    // inaccessible/cross-team). This runs under the authenticated team only.
+    const explicitCampaignId = await resolveTeamCampaignId(teamId, validatedData.campaignId);
+
     // If article ID provided, fetch article details
     if (validatedData.articleId) {
       // Verify article belongs to this team — strict ownership, no NULL-team fallback
@@ -78,6 +125,23 @@ export async function POST(request: NextRequest) {
       // DON'T overwrite user's location input!
       location = validatedData.location || location || "";
 
+      // Task #151 — the new post canonically inherits its parent article's
+      // campaign. Both article + campaign are validated against the same team.
+      resolvedCampaignId = article.campaignId ?? null;
+      if (explicitCampaignId != null && resolvedCampaignId != null && explicitCampaignId !== resolvedCampaignId) {
+        // Explicit reference contradicts the canonical parent linkage — reject
+        // rather than silently overriding the article's own campaign.
+        return NextResponse.json(
+          { error: "Supplied campaignId does not match the parent article's campaign" },
+          { status: 409 }
+        );
+      }
+      // Article without a campaign but an explicit (team-owned) reference given:
+      // honour the caller's explicit link.
+      if (resolvedCampaignId == null && explicitCampaignId != null) {
+        resolvedCampaignId = explicitCampaignId;
+      }
+
       // Auto-populate companyName / logo from the article's batch when the caller
       // didn't provide them. This is the most common case — the user creates a
       // social post from an article and expects the business name to carry over.
@@ -99,6 +163,9 @@ export async function POST(request: NextRequest) {
       topic = validatedData.topic || validatedData.standaloneTitle || "";
       prompt = `Create engaging social media content about: ${title}`;
       location = validatedData.location || location || "";
+      // Task #151 — standalone posts have no parent article to inherit from, so
+      // only an explicit team-owned campaign reference links them.
+      resolvedCampaignId = explicitCampaignId;
     }
 
     // Truncate fields to fit database column limits
@@ -248,7 +315,7 @@ export async function POST(request: NextRequest) {
     // Spending cap gate — blocks if team's monthly dollar limit would be exceeded.
     // Placed after early idempotent-return paths so retries never create duplicate reservations.
     try {
-      capReservationId = await checkUsageCap(teamId, 5); // social post ≈ 5 credits / 5¢ estimated
+      capReservationId = await checkUsageCap(teamId, 5, resolvedCampaignId); // social post ≈ 5 credits / 5¢ estimated; Task #151 carries campaign root
     } catch (capErr: any) {
       if (capErr.code !== "SPENDING_CAP_EXCEEDED") throw capErr;
       return NextResponse.json(
@@ -293,6 +360,7 @@ export async function POST(request: NextRequest) {
       const [socialPostRow] = await db.insert(socialPosts).values({
         userId,
         teamId,
+        campaignId: resolvedCampaignId,
         articleId: validatedData.articleId ? parseInt(validatedData.articleId) : null,
         topic: safeTopic,
         title: safeTitle,
@@ -411,6 +479,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid request data", details: error.errors },
         { status: 400 }
+      );
+    }
+
+    // Surface explicit client-error status codes (e.g. 404 for an inaccessible
+    // campaign reference) with their own message instead of a generic 500.
+    if (error?.statusCode && error.statusCode < 500) {
+      return NextResponse.json(
+        { error: error.message || "Request rejected" },
+        { status: error.statusCode }
       );
     }
 

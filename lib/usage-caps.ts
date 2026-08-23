@@ -105,7 +105,14 @@ export async function getCapStatus(teamId: number): Promise<CapStatus> {
  * Throws 402 with SPENDING_CAP_EXCEEDED if hardStop is set and cap would be exceeded.
  * Call cancelCapReservation(id) on job failure to release the hold.
  */
-export async function checkUsageCap(teamId: number, estimatedCents: number = 0): Promise<number | null> {
+export async function checkUsageCap(
+  teamId: number,
+  estimatedCents: number = 0,
+  // Task #151 — optional canonical owning campaign for the reservation row. Only
+  // supply when a team-owned batch/article/social/campaign root actually exists;
+  // never guess. Null/omitted keeps legacy behaviour for standalone work.
+  campaignId: number | null = null,
+): Promise<number | null> {
   const [cap] = await db
     .select()
     .from(spendingCaps)
@@ -127,6 +134,7 @@ export async function checkUsageCap(teamId: number, estimatedCents: number = 0):
     .insert(usageEvents)
     .values({
       teamId,
+      campaignId,
       action: "cap_reservation",
       units: 0,
       costEstimateCents: estimatedCents,
@@ -204,10 +212,14 @@ export async function recordUsageEvent(opts: {
   units?: number;
   costEstimateCents: number;
   jobId?: string;
+  // Task #151 — optional canonical owning campaign. Only pass when a team-owned
+  // root exists; never guess. Omitted keeps legacy behaviour.
+  campaignId?: number | null;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
   await db.insert(usageEvents).values({
     teamId: opts.teamId,
+    campaignId: opts.campaignId ?? null,
     action: opts.action,
     units: opts.units ?? 1,
     costEstimateCents: opts.costEstimateCents,

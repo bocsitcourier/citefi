@@ -158,6 +158,7 @@ export async function POST(
           try {
             const orchResult = await runGenerationOrchestrator({
               teamId,
+              campaignId: batch.campaignId ?? null,
               contentType: ContentType.IMAGE,
               contentId: article.id,
               content: imagePrompts.join('\n\n---\n\n'),

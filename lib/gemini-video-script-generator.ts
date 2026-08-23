@@ -196,6 +196,7 @@ interface GenerateVideoScriptRequest {
   landingPageUrl?: string;
   enableFactValidation?: boolean;
   teamId?: number;
+  campaignId?: number | null;
   videoId?: number;
   dialogueMode?: VideoDialogueMode;
   isManualScript?: boolean;
@@ -236,7 +237,10 @@ export async function generateVideoScript(
   let brandIntelligenceContext = "";
   if (request.teamId) {
     try {
-      brandIntelligenceContext = await getClientBrandContext(request.teamId);
+      brandIntelligenceContext = await getClientBrandContext(
+        request.teamId,
+        request.campaignId ?? null
+      );
     } catch {
       // non-fatal
     }

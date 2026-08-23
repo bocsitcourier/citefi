@@ -270,13 +270,45 @@ export async function createPublishingJob(
       jobData.articleId = contentId;
       break;
   }
-  
+
+  // Canonically derive the campaign association from the content row, scoped to
+  // the team so a derived campaignId can never cross tenant boundaries. Never
+  // trusts a caller-supplied value. Best-effort — null when unknown/legacy.
+  try {
+    const { articles, socialPosts, videoIdeas } = await import('@/shared/schema');
+    const { and } = await import('drizzle-orm');
+    if (contentType === 'article' || contentType === 'podcast') {
+      const [row] = await db
+        .select({ campaignId: articles.campaignId })
+        .from(articles)
+        .where(and(eq(articles.id, contentId), eq(articles.teamId, teamId)))
+        .limit(1);
+      jobData.campaignId = row?.campaignId ?? null;
+    } else if (contentType === 'social_post') {
+      const [row] = await db
+        .select({ campaignId: socialPosts.campaignId })
+        .from(socialPosts)
+        .where(and(eq(socialPosts.id, contentId), eq(socialPosts.teamId, teamId)))
+        .limit(1);
+      jobData.campaignId = row?.campaignId ?? null;
+    } else if (contentType === 'video') {
+      const [row] = await db
+        .select({ campaignId: videoIdeas.campaignId })
+        .from(videoIdeas)
+        .where(and(eq(videoIdeas.id, contentId), eq(videoIdeas.teamId, teamId)))
+        .limit(1);
+      jobData.campaignId = row?.campaignId ?? null;
+    }
+  } catch (err) {
+    console.warn('[publishing] campaignId derivation failed:', (err as Error)?.message ?? err);
+  }
+
   const [jobRow] = await db.insert(publishingJobs).values(jobData).returning();
   const job = jobRow!;
 
   // Enqueue in BullMQ so the publishing worker picks it up
   try {
-    const pgBossId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });
+    const pgBossId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId, campaignId: (job as any).campaignId ?? null });
     if (pgBossId) {
       await db.update(publishingJobs)
         .set({ pgBossJobId: pgBossId, status: 'queued', updatedAt: new Date() })

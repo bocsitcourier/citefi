@@ -188,7 +188,10 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     // attribute patterns that didn't actually influence the generation run.
     const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
     const socialEnhancement = (!disableCriticLoop && postDetails?.teamId)
-      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL, { stableId: String(socialPostId) })
+      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL, {
+          stableId: String(socialPostId),
+          campaignId: postDetails.campaignId ?? null,
+        })
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }))
       : { patternsUsed: [] as number[], variantArmId: undefined };
     const capturedPatternIds = socialEnhancement.patternsUsed;
@@ -281,6 +284,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           try {
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: postDetails.teamId,
+              campaignId: postDetails.campaignId ?? null,
               contentType: ContentType.SOCIAL,
               contentId: socialPostId,
               content: geminiResult.caption,
@@ -605,6 +609,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       const { recordUsageEvent } = await import("@/lib/usage-caps");
       await recordUsageEvent({
         teamId: teamIdForBilling,
+        campaignId: postDetails?.campaignId ?? null,
         action: "social_post",
         units: 1,
         costEstimateCents: 5,

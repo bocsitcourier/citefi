@@ -27,6 +27,8 @@ export interface BatchJobData {
   creditRunId?: string;
   creditCostPerUnit?: number;
   capReservationId?: number | null;
+  /** Optional campaign association. Never trusted over the canonical batch/team. */
+  campaignId?: number | null;
 }
 
 export interface ArticleJobData {
@@ -52,6 +54,8 @@ export interface ArticleJobData {
   journeyName?: string | null;
   creditRunId?: string;
   creditCostPerUnit?: number;
+  /** Optional campaign association. Never trusted over the canonical batch/team. */
+  campaignId?: number | null;
 }
 
 export interface PodcastJobData {
@@ -114,11 +118,20 @@ export interface IntelligenceResearchJobData {
   teamId: number;
   websiteUrl: string;
   companyName: string;
+  /**
+   * Optional campaign that triggered this research. When present, the queue uses
+   * a deterministic per-campaign job id so retries of the same campaign's
+   * research collapse to one job. Legacy callers (no campaignId) keep the old
+   * non-deterministic enqueue.
+   */
+  campaignId?: number | null;
 }
 
 export interface PublishingJobData {
   dbJobId: number;
   teamId: number;
+  /** Optional campaign association, canonically derived from the content row. */
+  campaignId?: number | null;
 }
 
 export interface SiteCrawlJobData {
@@ -584,14 +597,30 @@ export async function addPublishingJob(data: PublishingJobData) {
 export async function addIntelligenceResearchJob(
   data: IntelligenceResearchJobData
 ) {
-  const job = await getQueue(INTELLIGENCE_RESEARCH_QUEUE).add(
-    "intelligence",
-    data,
-    {
-      attempts: 2,
-      backoff: { type: "exponential", delay: 30000 },
+  const queue = getQueue(INTELLIGENCE_RESEARCH_QUEUE);
+  // Deterministic per-campaign identity so a retried campaign research request
+  // dedupes to the same job. Legacy callers without a campaignId keep the old
+  // non-deterministic behaviour (BullMQ assigns an auto id).
+  const jobId =
+    data.campaignId != null ? `intelligence:campaign:${data.campaignId}` : undefined;
+  let job: Job;
+  try {
+    job = await queue.add(
+      "intelligence",
+      data,
+      {
+        ...(jobId ? { jobId } : {}),
+        attempts: 2,
+        backoff: { type: "exponential", delay: 30000 },
+      }
+    );
+  } catch (error) {
+    if (jobId) {
+      const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+      if (accepted) return accepted.id ?? jobId;
     }
-  );
+    throw error;
+  }
 
   console.log(
     `🧠 Intelligence research job queued: ${job.id} for team ${data.teamId} (${data.companyName})`

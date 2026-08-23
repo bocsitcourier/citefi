@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -208,6 +208,12 @@ export const jobBatches = pgTable("job_batches", {
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   userId: integer("user_id").notNull().references(() => users.id),
   teamId: integer("team_id").references(() => teams.id),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Nullable for
+  // legacy rows and standalone batches created outside the campaign flow.
+  // Ownership enforced by the same-team composite FK (team_id, campaign_id) ->
+  // campaigns(team_id, id) declared in migrations/0015_campaigns.sql (kept out of
+  // Drizzle to avoid a forward-reference to the later-defined campaigns table).
+  campaignId: integer("campaign_id"),
   localeId: integer("locale_id").references(() => locales.id), // Geographic location reference
   coreTopic: text("core_topic").notNull(), // Changed from varchar(255) to text to support longer topics
   targetUrl: text("target_url").notNull(),
@@ -245,6 +251,7 @@ export const jobBatches = pgTable("job_batches", {
   publicIdIdx: index("job_batches_public_id_idx").on(table.publicId),
   teamIdStatusIdx: index("job_batches_team_id_status_idx").on(table.teamId, table.status),
   userIdIdx: index("job_batches_user_id_idx").on(table.userId),
+  campaignIdIdx: index("job_batches_campaign_id_idx").on(table.campaignId),
 }));
 
 // Articles table - stores final content with all SEO metadata
@@ -253,6 +260,11 @@ export const articles = pgTable("articles", {
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   batchId: integer("batch_id").notNull().references(() => jobBatches.id),
   teamId: integer("team_id").references(() => teams.id),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   localeId: integer("locale_id").references(() => locales.id), // Geographic location reference
   articleStatus: varchar("article_status", { length: 50 }).notNull().default("PENDING"), // PENDING, IN_PROGRESS, GEMINI_COMPLETE, CHATGPT_REVIEWED, GPT4_ENHANCED, COMPLETE, FAILED
   chosenTitle: varchar("chosen_title", { length: 255 }).notNull(),
@@ -323,6 +335,7 @@ export const articles = pgTable("articles", {
   batchIdStatusIdx: index("articles_batch_id_status_idx").on(table.batchId, table.articleStatus),
   slugIdx: index("articles_slug_idx").on(table.slug),
   teamApprovalIdx: index("articles_team_approval_idx").on(table.teamId, table.approvalStatus),
+  campaignIdIdx: index("articles_campaign_id_idx").on(table.campaignId),
 }));
 
 // Article Assets table - stores image/audio/video metadata
@@ -513,6 +526,11 @@ export const socialPosts = pgTable("social_posts", {
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   userId: integer("user_id").notNull().references(() => users.id),
   teamId: integer("team_id").references(() => teams.id),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   articleId: integer("article_id").references(() => articles.id), // Optional linking to articles
   
   // Business-Focused User Input
@@ -581,6 +599,7 @@ export const socialPosts = pgTable("social_posts", {
   userIdIdx: index("social_posts_user_id_idx").on(table.userId),
   statusIdx: index("social_posts_status_idx").on(table.status),
   scheduleAtIdx: index("social_posts_schedule_at_idx").on(table.scheduleAt),
+  campaignIdIdx: index("social_posts_campaign_id_idx").on(table.campaignId),
   teamRequestKeyIdx: uniqueIndex("social_posts_team_request_key_idx").on(table.teamId, table.requestKey),
 }));
 
@@ -1048,6 +1067,11 @@ export const videoIdeas = pgTable("video_ideas", {
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   userId: integer("user_id").notNull().references(() => users.id),
   teamId: integer("team_id").references(() => teams.id),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   socialPostId: integer("social_post_id").references(() => socialPosts.id), // Optional link to social post
   
   // User Input - Brief Idea
@@ -1105,6 +1129,7 @@ export const videoIdeas = pgTable("video_ideas", {
   userIdIdx: index("video_ideas_user_id_idx").on(table.userId),
   styleIdx: index("video_ideas_style_idx").on(table.style),
   statusIdx: index("video_ideas_status_idx").on(table.status),
+  campaignIdIdx: index("video_ideas_campaign_id_idx").on(table.campaignId),
 }));
 
 // ============================================================================
@@ -1223,6 +1248,11 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   id: serial("id").primaryKey(),
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   teamId: integer("team_id").references(() => teams.id),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   
   // Content Reference (polymorphic - one of these will be set)
   contentType: varchar("content_type", { length: 50 }).notNull(), // article, video, social, podcast, image
@@ -1282,6 +1312,7 @@ export const contentPerformanceMetrics = pgTable("content_performance_metrics", 
   isSuccessIdx: index("content_performance_is_success_idx").on(table.isSuccess),
   variantIdIdx: index("content_performance_variant_id_idx").on(table.variantId),
   armIdIdx: index("content_performance_arm_id_idx").on(table.armId),
+  campaignIdIdx: index("content_performance_campaign_id_idx").on(table.campaignId),
 }));
 
 // Agent Optimization Log - Tracks when agents are optimized
@@ -1824,6 +1855,10 @@ export const jobBatchesRelations = relations(jobBatches, ({ one, many }) => ({
     fields: [jobBatches.userId],
     references: [users.id],
   }),
+  campaign: one(campaigns, {
+    fields: [jobBatches.campaignId],
+    references: [campaigns.id],
+  }),
   locale: one(locales, {
     fields: [jobBatches.localeId],
     references: [locales.id],
@@ -1846,6 +1881,10 @@ export const articlesRelations = relations(articles, ({ one, many }) => ({
   batch: one(jobBatches, {
     fields: [articles.batchId],
     references: [jobBatches.id],
+  }),
+  campaign: one(campaigns, {
+    fields: [articles.campaignId],
+    references: [campaigns.id],
   }),
   locale: one(locales, {
     fields: [articles.localeId],
@@ -1880,6 +1919,10 @@ export const socialPostsRelations = relations(socialPosts, ({ one, many }) => ({
   user: one(users, {
     fields: [socialPosts.userId],
     references: [users.id],
+  }),
+  campaign: one(campaigns, {
+    fields: [socialPosts.campaignId],
+    references: [campaigns.id],
   }),
   article: one(articles, {
     fields: [socialPosts.articleId],
@@ -2269,6 +2312,11 @@ export const publishingJobs = pgTable("publishing_jobs", {
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: 'cascade' }),
   connectionId: integer("connection_id").notNull().references(() => publishingConnections.id, { onDelete: 'cascade' }),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   
   // Content Reference (one of these will be set)
   articleId: integer("article_id").references(() => articles.id, { onDelete: 'cascade' }),
@@ -2305,6 +2353,7 @@ export const publishingJobs = pgTable("publishing_jobs", {
   connectionIdIdx: index("publishing_jobs_connection_id_idx").on(table.connectionId),
   articleIdIdx: index("publishing_jobs_article_id_idx").on(table.articleId),
   statusIdx: index("publishing_jobs_status_idx").on(table.status),
+  campaignIdIdx: index("publishing_jobs_campaign_id_idx").on(table.campaignId),
 }));
 
 // Publishing Callbacks - delivery confirmation logs from receivers
@@ -2782,6 +2831,11 @@ export const costTelemetry = pgTable("cost_telemetry", {
   userId: integer("user_id"),
   batchId: integer("batch_id"),
   articleId: integer("article_id"),
+  // Task #151 — optional owning campaign (nullable; team-scoped aggregate).
+  // Ownership enforced by the same-team composite FK (team_id, campaign_id) ->
+  // campaigns(team_id, id) declared in migrations/0015_campaigns.sql (kept out of
+  // Drizzle to avoid a forward-reference to the later-defined campaigns table).
+  campaignId: integer("campaign_id"),
   jobId: varchar("job_id", { length: 100 }),
   operationType: varchar("operation_type", { length: 50 }).notNull(),
   provider: varchar("provider", { length: 20 }).notNull(),
@@ -2802,6 +2856,7 @@ export const costTelemetry = pgTable("cost_telemetry", {
   providerModelIdx: index("cost_telemetry_provider_model_idx").on(t.provider, t.model),
   batchIdx: index("cost_telemetry_batch_idx").on(t.batchId),
   articleIdx: index("cost_telemetry_article_idx").on(t.articleId),
+  campaignIdx: index("cost_telemetry_campaign_idx").on(t.campaignId),
 }));
 
 export const insertCostTelemetrySchema = createInsertSchema(costTelemetry).omit({ id: true, createdAt: true });
@@ -3010,6 +3065,11 @@ export type InsertJudgeRecalibration = z.infer<typeof insertJudgeRecalibrationSc
 export const contentEvents = pgTable("content_events", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   contentType: varchar("content_type", { length: 20 }).notNull(), // "article" | "social_post"
   articleId: integer("article_id").references(() => articles.id, { onDelete: "cascade" }),
   socialPostId: integer("social_post_id").references(() => socialPosts.id, { onDelete: "cascade" }),
@@ -3053,6 +3113,7 @@ export const contentEvents = pgTable("content_events", {
   createdAtIdx: index("content_events_created_at_idx").on(table.createdAt),
   visitorIdIdx: index("content_events_visitor_id_idx").on(table.visitorId),
   armIdIdx: index("content_events_arm_id_idx").on(table.armId),
+  campaignIdIdx: index("content_events_campaign_id_idx").on(table.campaignId),
 }));
 
 export const insertContentEventSchema = createInsertSchema(contentEvents).omit({
@@ -3476,6 +3537,11 @@ export type InsertSpendingCap = z.infer<typeof insertSpendingCapSchema>;
 export const usageEvents = pgTable("usage_events", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  // Task #151 — optional owning campaign (team-scoped aggregate). Ownership
+  // enforced by the same-team composite FK (team_id, campaign_id) -> campaigns(team_id, id)
+  // declared in migrations/0015_campaigns.sql (kept out of Drizzle to avoid a
+  // forward-reference to campaigns, which is defined later in this file).
+  campaignId: integer("campaign_id"),
   /** Unique identifier for the job that produced this event (pg-boss jobId) */
   jobId: varchar("job_id", { length: 255 }),
   /** article_generation | social_post | podcast | video | title_pool */
@@ -3491,6 +3557,7 @@ export const usageEvents = pgTable("usage_events", {
   teamMonthIdx: index("usage_events_team_month_idx").on(table.teamId, table.createdAt),
   teamIdIdx: index("usage_events_team_id_idx").on(table.teamId),
   statusIdx: index("usage_events_status_idx").on(table.status, table.createdAt),
+  campaignIdIdx: index("usage_events_campaign_id_idx").on(table.campaignId),
 }));
 
 export const insertUsageEventSchema = createInsertSchema(usageEvents).omit({ id: true, createdAt: true });
@@ -3696,3 +3763,168 @@ export const insertSignupCompetitorIntakeSchema = createInsertSchema(signupCompe
 });
 export type SignupCompetitorIntake = typeof signupCompetitorIntake.$inferSelect;
 export type InsertSignupCompetitorIntake = z.infer<typeof insertSignupCompetitorIntakeSchema>;
+
+// ============================================================================
+// CAMPAIGNS — Task #151
+// ----------------------------------------------------------------------------
+// A campaign is a team-scoped aggregate that groups the roots of a coordinated
+// content effort (job batches, articles, social posts, video ideas, publishing
+// jobs, cost/usage telemetry, performance metrics, content events) under one
+// business intent (a URL / company). Campaigns own the brand research snapshot,
+// goals, target locations, an asset bundle recommendation vs the confirmed
+// bundle, and a credit estimate.
+//
+// Compatibility: while legacy code paths still create bare batches, a campaign
+// operates in `compatibilityMode = 'dual_write'` until `compatibilityEndsAt`
+// (default +90 days). `legacyBatchId` links a backfilled campaign to the single
+// pre-existing batch it was reconstructed from (nullable, unique).
+//
+// Composite uniques `(team_id, id)` and `(team_id, idempotency_key)` support
+// same-team composite foreign keys and per-team idempotent creation.
+// ============================================================================
+export const campaigns = pgTable("campaigns", {
+  id: serial("id").primaryKey(),
+  publicId: uuid("public_id").notNull().unique().defaultRandom(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+
+  // Business identity
+  name: varchar("name", { length: 255 }).notNull(),
+  businessUrl: text("business_url"),
+  companyName: varchar("company_name", { length: 255 }),
+
+  // Lifecycle
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | researching | planning | ready | active | completed | failed | archived
+
+  // Brand research
+  brandStatus: varchar("brand_status", { length: 30 }), // pending | researching | ready | confirmed | failed
+  brandProfileSnapshot: jsonb("brand_profile_snapshot"), // frozen brand intelligence at plan time
+  brandConfirmedAt: timestamp("brand_confirmed_at"),
+
+  // Planning inputs / outputs
+  goals: jsonb("goals"), // array of goal descriptors
+  locations: jsonb("locations"), // array of target location descriptors
+  recommendedAssetBundle: jsonb("recommended_asset_bundle"), // AI-recommended mix
+  assetBundle: jsonb("asset_bundle"), // confirmed mix the team committed to
+  creditEstimate: jsonb("credit_estimate"), // estimated credit cost breakdown
+
+  // Idempotency for per-team campaign creation
+  idempotencyKey: varchar("idempotency_key", { length: 255 }),
+
+  // Compatibility window (dual-write with legacy batch flow)
+  compatibilityMode: varchar("compatibility_mode", { length: 20 }).notNull().default("dual_write"), // dual_write | campaign_only
+  compatibilityEndsAt: timestamp("compatibility_ends_at").notNull().default(sql`now() + interval '90 days'`),
+
+  // Legacy backfill linkage — the single batch a backfilled campaign came from
+  legacyBatchId: integer("legacy_batch_id").references((): AnyPgColumn => jobBatches.id),
+
+  // Soft delete + timestamps
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  publicIdIdx: index("campaigns_public_id_idx").on(table.publicId),
+  teamIdStatusIdx: index("campaigns_team_id_status_idx").on(table.teamId, table.status),
+  createdByIdx: index("campaigns_created_by_idx").on(table.createdBy),
+  // Composite unique on (team_id, id) so child tables can attach same-team
+  // composite foreign keys that pin ownership to the campaign's team.
+  teamIdCompositeUnique: uniqueIndex("campaigns_team_id_id_unique").on(table.teamId, table.id),
+  // Per-team idempotent creation.
+  teamIdempotencyUnique: uniqueIndex("campaigns_team_idempotency_unique").on(table.teamId, table.idempotencyKey),
+  // A given legacy batch maps to at most one campaign.
+  legacyBatchUnique: uniqueIndex("campaigns_legacy_batch_id_unique").on(table.legacyBatchId),
+}));
+
+export const insertCampaignSchema = createInsertSchema(campaigns).omit({
+  id: true,
+  publicId: true,
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+});
+export type Campaign = typeof campaigns.$inferSelect;
+export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
+
+/**
+ * campaign_exports — per-campaign export requests (e.g. CSV/JSON bundles).
+ * `(team_id, request_key)` is unique so a retried export request is idempotent
+ * within a team.
+ */
+export const campaignExports = pgTable("campaign_exports", {
+  id: serial("id").primaryKey(),
+  publicId: uuid("public_id").notNull().unique().defaultRandom(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  // Ownership is enforced by the SAME-TEAM composite FK below, not a single-column
+  // campaign FK — that guarantees an export can never point at another team's
+  // campaign, and it cascades when the owning campaign is deleted.
+  campaignId: integer("campaign_id").notNull(),
+  requestedBy: integer("requested_by").notNull().references(() => users.id),
+
+  // Idempotency + descriptor
+  requestKey: varchar("request_key", { length: 255 }).notNull(),
+  kind: varchar("kind", { length: 50 }).notNull(), // e.g. csv | json | pdf | zip
+  status: varchar("status", { length: 30 }).notNull().default("pending"), // pending | processing | ready | failed
+  filters: jsonb("filters"),
+  objectUrl: text("object_url"),
+  error: text("error"),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  publicIdIdx: index("campaign_exports_public_id_idx").on(table.publicId),
+  campaignIdIdx: index("campaign_exports_campaign_id_idx").on(table.campaignId),
+  teamIdStatusIdx: index("campaign_exports_team_id_status_idx").on(table.teamId, table.status),
+  requestedByIdx: index("campaign_exports_requested_by_idx").on(table.requestedBy),
+  teamRequestKeyUnique: uniqueIndex("campaign_exports_team_request_key_unique").on(table.teamId, table.requestKey),
+  // Same-team composite FK -> campaigns(team_id, id), cascade on campaign delete.
+  campaignTeamFk: foreignKey({
+    columns: [table.teamId, table.campaignId],
+    foreignColumns: [campaigns.teamId, campaigns.id],
+    name: "campaign_exports_campaign_team_fk",
+  }).onDelete("cascade"),
+}));
+
+export const insertCampaignExportSchema = createInsertSchema(campaignExports).omit({
+  id: true,
+  publicId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type CampaignExport = typeof campaignExports.$inferSelect;
+export type InsertCampaignExport = z.infer<typeof insertCampaignExportSchema>;
+
+export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
+  team: one(teams, {
+    fields: [campaigns.teamId],
+    references: [teams.id],
+  }),
+  creator: one(users, {
+    fields: [campaigns.createdBy],
+    references: [users.id],
+  }),
+  legacyBatch: one(jobBatches, {
+    fields: [campaigns.legacyBatchId],
+    references: [jobBatches.id],
+  }),
+  jobBatches: many(jobBatches),
+  articles: many(articles),
+  socialPosts: many(socialPosts),
+  videoIdeas: many(videoIdeas),
+  publishingJobs: many(publishingJobs),
+  exports: many(campaignExports),
+}));
+
+export const campaignExportsRelations = relations(campaignExports, ({ one }) => ({
+  campaign: one(campaigns, {
+    fields: [campaignExports.campaignId],
+    references: [campaigns.id],
+  }),
+  team: one(teams, {
+    fields: [campaignExports.teamId],
+    references: [teams.id],
+  }),
+  requester: one(users, {
+    fields: [campaignExports.requestedBy],
+    references: [users.id],
+  }),
+}));

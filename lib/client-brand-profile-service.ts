@@ -23,8 +23,8 @@
  */
 
 import { db } from "./db";
-import { clientBrandProfiles } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { campaigns, clientBrandProfiles } from "@/shared/schema";
+import { and, eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 
@@ -772,17 +772,25 @@ export async function runIntelligenceResearch(
   teamId: number,
   websiteUrl: string,
   companyName: string
-): Promise<void> {
+): Promise<ClientBrandProfileJson> {
+  // The table remains one-row-per-team for compatibility, so every write is
+  // compare-and-set against the business URL that launched this run. A newer
+  // campaign may repoint the team profile while this job is in flight; stale
+  // jobs must never overwrite that newer client's mutable row.
+  const profilePredicate = and(
+    eq(clientBrandProfiles.teamId, teamId),
+    eq(clientBrandProfiles.websiteUrl, websiteUrl)
+  );
   const setProgress = async (step: string) => {
     await db.update(clientBrandProfiles)
       .set({ progressStep: step, updatedAt: new Date() })
-      .where(eq(clientBrandProfiles.teamId, teamId));
+      .where(profilePredicate);
   };
 
   try {
     await db.update(clientBrandProfiles)
       .set({ status: "running", progressStep: "website", errorMessage: null, updatedAt: new Date() })
-      .where(eq(clientBrandProfiles.teamId, teamId));
+      .where(profilePredicate);
 
     // ── Step 1: Website brand extraction ──────────────────────────────────
     console.log(`🧠 [team:${teamId}] Step 1/5 — Analyzing ${websiteUrl}`);
@@ -840,7 +848,7 @@ export async function runIntelligenceResearch(
         prevProfile: clientBrandProfiles.profileJson,
       })
       .from(clientBrandProfiles)
-      .where(eq(clientBrandProfiles.teamId, teamId))
+      .where(profilePredicate)
       .limit(1);
 
     const overrideExemplars =
@@ -886,16 +894,17 @@ export async function runIntelligenceResearch(
         errorMessage: null,
         updatedAt: new Date(),
       })
-      .where(eq(clientBrandProfiles.teamId, teamId));
+      .where(profilePredicate);
 
     console.log(`✅ [team:${teamId}] Intelligence research complete for "${companyName}"`);
+    return profileJson;
 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`❌ [team:${teamId}] Intelligence research failed:`, message);
     await db.update(clientBrandProfiles)
       .set({ status: "failed", progressStep: null, errorMessage: message, updatedAt: new Date() })
-      .where(eq(clientBrandProfiles.teamId, teamId));
+      .where(profilePredicate);
     throw error;
   }
 }
@@ -906,19 +915,39 @@ export async function runIntelligenceResearch(
 // Returns a compact, structured prompt segment; empty string when no profile.
 // ============================================================================
 
-export async function getClientBrandContext(teamId: number): Promise<string> {
+export async function getClientBrandContext(
+  teamId: number,
+  campaignId: number | null = null
+): Promise<string> {
   try {
-    const [row] = await db
-      .select()
-      .from(clientBrandProfiles)
-      .where(eq(clientBrandProfiles.teamId, teamId))
-      .limit(1);
-
-    if (!row || row.status !== "complete" || !row.profileJson) return "";
+    let profileJson: unknown = null;
+    let overrides: unknown = null;
+    if (campaignId != null) {
+      const [campaign] = await db
+        .select({ snapshot: campaigns.brandProfileSnapshot })
+        .from(campaigns)
+        .where(
+          and(eq(campaigns.id, campaignId), eq(campaigns.teamId, teamId))
+        )
+        .limit(1);
+      // Campaign-associated generation never falls back to the mutable team
+      // profile: absence of a snapshot must fail closed to no brand context.
+      profileJson = campaign?.snapshot ?? null;
+    } else {
+      const [row] = await db
+        .select()
+        .from(clientBrandProfiles)
+        .where(eq(clientBrandProfiles.teamId, teamId))
+        .limit(1);
+      if (!row || row.status !== "complete") return "";
+      profileJson = row.profileJson;
+      overrides = row.manualOverridesJson;
+    }
+    if (!profileJson) return "";
 
     const profile = mergeProfileWithOverrides(
-      row.profileJson as ClientBrandProfileJson,
-      row.manualOverridesJson as Partial<ClientBrandProfileJson> | null
+      profileJson as ClientBrandProfileJson,
+      overrides as Partial<ClientBrandProfileJson> | null
     );
 
     const { brandVoice: v, positioning: p, targetAudience: a, competitiveGaps: g,

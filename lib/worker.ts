@@ -804,7 +804,11 @@ export const processArticleGenerationJob = async (
             const articleEnhancement = await getPromptEnhancement(
               currentArticle.teamId,
               ContentType.ARTICLE,
-              { stableId: String(articleId), terminalKpi: batchTerminalKpi }
+              {
+                stableId: String(articleId),
+                terminalKpi: batchTerminalKpi,
+                campaignId: currentArticle.campaignId ?? null,
+              }
             ).catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
             // Store on the article object — read by recordContentGenerated below.
             (currentArticle as any)._patternsUsed = articleEnhancement.patternsUsed;
@@ -813,6 +817,7 @@ export const processArticleGenerationJob = async (
             await enterProviderStage("generation critic");
             const orchestratorResult = await runGenerationOrchestrator({
               teamId: currentArticle.teamId,
+              campaignId: currentArticle.campaignId ?? null,
               contentType: ContentType.ARTICLE,
               contentId: articleId,
               content: geminiResult.rawContent,
@@ -1602,6 +1607,7 @@ export const processArticleGenerationJob = async (
           const { recordUsageEvent } = await import("@/lib/usage-caps");
           await recordUsageEvent({
             teamId: articleTeamId,
+            campaignId: job.data.campaignId ?? null,
             action: "article_generation",
             units: 1,
             costEstimateCents: articleCreditCost,
@@ -2017,7 +2023,14 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
 
             // Two-bucket billing: DEBIT reservation on success
             if (videoCreditRunId) {
-              const [videoPost] = await db.select({ teamId: socialPosts.teamId }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+              const [videoPost] = await db
+                .select({
+                  teamId: socialPosts.teamId,
+                  campaignId: socialPosts.campaignId,
+                })
+                .from(socialPosts)
+                .where(eq(socialPosts.id, socialPostId))
+                .limit(1);
               if (videoPost?.teamId) {
                 const { debitReservation } = await import("@/lib/billing");
                 const debitResult = await debitReservation({
@@ -2035,6 +2048,7 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                 const { recordUsageEvent } = await import("@/lib/usage-caps");
                 await recordUsageEvent({
                   teamId: videoPost.teamId,
+                  campaignId: videoPost.campaignId ?? null,
                   action: "video",
                   units: 1,
                   costEstimateCents: 15,
@@ -2137,9 +2151,12 @@ export async function registerWorkers() {
         // Authoritative entity/team cross-check: the batch row's owner must
         // match the tenant (payload teamId) this job runs as before we spawn
         // per-article jobs that carry that teamId.
+        // Canonical campaign association derived from the batch row (never from
+        // the job payload). Threaded into per-article inserts + article jobs.
+        let canonicalCampaignId: number | null = null;
         {
           const [batchOwner] = await db
-            .select({ teamId: jobBatches.teamId })
+            .select({ teamId: jobBatches.teamId, campaignId: jobBatches.campaignId })
             .from(jobBatches)
             .where(eq(jobBatches.id, batchId))
             .limit(1);
@@ -2149,6 +2166,15 @@ export async function registerWorkers() {
             jobTeamId: currentTenantTeamId(),
             entityTeamId: batchOwner?.teamId,
           });
+          canonicalCampaignId = batchOwner?.campaignId ?? null;
+        }
+
+        // Advance the linked campaign to 'generating' as batch work begins.
+        if (canonicalCampaignId != null) {
+          const { advanceCampaignStatus } = await import("./campaign-service");
+          await advanceCampaignStatus(teamId, canonicalCampaignId, "active").catch(
+            (e) => console.warn("[batch-worker] campaign status advance failed:", e)
+          );
         }
 
         await db
@@ -2237,6 +2263,7 @@ export async function registerWorkers() {
               semanticClusterId,
               serpFeatureTarget,
               teamId,
+              campaignId: canonicalCampaignId,
               personaId,
               journeyContext,
               journeyName,
@@ -2253,6 +2280,7 @@ export async function registerWorkers() {
             .values({
               batchId,
               teamId,
+              campaignId: canonicalCampaignId, // Optional campaign association (null for legacy)
               chosenTitle: title,
               articleStatus: "PENDING",
             })
@@ -2280,6 +2308,7 @@ export async function registerWorkers() {
             semanticClusterId,
             serpFeatureTarget,
             teamId,
+            campaignId: canonicalCampaignId,
             personaId,
             journeyContext,
             journeyName,
@@ -2498,13 +2527,14 @@ export async function registerWorkers() {
                   // (same article always maps to same arm — no holdout contamination).
                   // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
                   const imageTerminalKpi = (batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
-                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE, { stableId: String(articleId), terminalKpi: imageTerminalKpi })
+                  const imageEnhancement = await getPromptEnhancement(batch.teamId, ContentType.IMAGE, { stableId: String(articleId), terminalKpi: imageTerminalKpi, campaignId: batch.campaignId ?? null })
                     .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
                   const capturedImagePatternIds = imageEnhancement.patternsUsed;
                   const imageVariantArmId = imageEnhancement.variantArmId;
 
                   const orchResult = await runGenerationOrchestrator({
                     teamId: batch.teamId,
+                    campaignId: batch.campaignId ?? null,
                     contentType: ContentType.IMAGE,
                     contentId: articleId,
                     content: imagePrompts.join('\n\n---\n\n'),
@@ -4633,12 +4663,30 @@ export async function registerWorkers() {
   try {
     createPipelineWorker<IntelligenceResearchJobData>(INTELLIGENCE_RESEARCH_QUEUE, async (job) => {
           console.log(`🧠 Processing intelligence research job ${job.id}: team ${job.data.teamId} (${job.data.companyName})`);
+          const { teamId: intelTeamId, campaignId: intelCampaignId } = job.data;
           try {
             const { runIntelligenceResearch } = await import("./client-brand-profile-service");
-            await runIntelligenceResearch(job.data.teamId, job.data.websiteUrl, job.data.companyName);
-            console.log(`✅ Intelligence research job ${job.id} completed for team ${job.data.teamId}`);
+            const snapshot = await runIntelligenceResearch(
+              intelTeamId,
+              job.data.websiteUrl,
+              job.data.companyName
+            );
+            console.log(`✅ Intelligence research job ${job.id} completed for team ${intelTeamId}`);
+            // Sync research completion onto linked campaign(s). When a specific
+            // campaign triggered this run, scope to it; otherwise refresh all of
+            // the team's campaigns waiting on research.
+            const { syncCampaignResearchCompletion } = await import("./campaign-service");
+            await syncCampaignResearchCompletion(intelTeamId, "complete", {
+              campaignId: intelCampaignId ?? null,
+              websiteUrl: job.data.websiteUrl,
+              snapshot,
+            }).catch((e) => console.warn("[intel-worker] campaign complete sync failed:", e));
           } catch (error) {
             console.error(`❌ Intelligence research job ${job.id} failed:`, error);
+            const { syncCampaignResearchCompletion } = await import("./campaign-service");
+            await syncCampaignResearchCompletion(intelTeamId, "failed", {
+              campaignId: intelCampaignId ?? null,
+            }).catch((e) => console.warn("[intel-worker] campaign failed sync failed:", e));
             throw error;
           }
     }, {

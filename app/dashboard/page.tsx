@@ -280,6 +280,13 @@ function CreditPreviewBanner({ units, onCanAffordChange }: {
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const [campaignPublicId, setCampaignPublicId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCampaignPublicId(
+      new URLSearchParams(window.location.search).get("campaignId")
+    );
+  }, []);
 
   // Wizard step
   const [step, setStep] = useState(1);
@@ -337,6 +344,32 @@ export default function Dashboard() {
     queryFn: () => apiRequest("/api/intelligence"),
   });
 
+  const { data: campaignContext } = useQuery({
+    queryKey: ["/api/campaigns", campaignPublicId],
+    queryFn: async () => {
+      const response = await apiRequest(`/api/campaigns/${campaignPublicId}`) as {
+        campaign: Record<string, any>;
+      };
+      return response.campaign;
+    },
+    enabled: Boolean(campaignPublicId),
+  });
+
+  useEffect(() => {
+    // This query intentionally uses the same cache key/shape as useCampaign().
+    // Navigating here from a campaign workspace can therefore reuse the cached
+    // CampaignDetail directly without an envelope mismatch.
+    const campaign = campaignContext as any;
+    if (!campaign) return;
+    if (campaign.companyName)
+      setBusinessName((current) => current || campaign.companyName);
+    if (campaign.businessUrl)
+      setTargetUrl((current) => current || campaign.businessUrl);
+    const primaryLocation = campaign.locations?.[0]?.label;
+    if (primaryLocation)
+      setGeographicFocus((current) => current || primaryLocation);
+  }, [campaignContext]);
+
   useEffect(() => {
     const profile = (brandProfileData as any)?.profile;
     if (!profile) return;
@@ -354,7 +387,13 @@ export default function Dashboard() {
   const abandonedBatchId = useRef<number | null>(null);
 
   useEffect(() => {
-    if (resumeAttempted.current || !recentBatches?.length || step !== 1 || currentBatch) return;
+    if (
+      campaignPublicId ||
+      resumeAttempted.current ||
+      !recentBatches?.length ||
+      step !== 1 ||
+      currentBatch
+    ) return;
     resumeAttempted.current = true;
 
     const latest = (recentBatches as any[])[0];
@@ -399,6 +438,7 @@ export default function Dashboard() {
       geographicFocus?: string;
       audience?: string;
       businessName?: string;
+      campaignId?: string;
     }) => apiRequest("/api/jobs/title-pool", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: async (data) => {
       try {
@@ -545,8 +585,9 @@ export default function Dashboard() {
       geographicFocus: geographicFocus.trim() || undefined,
       audience: audience.trim() || undefined,
       businessName: name.trim() || undefined,
+      campaignId: campaignPublicId || undefined,
     });
-  }, [coreTopic, targetUrl, numTitles, tone, competitorUrls, serpFeatureTarget, semanticClusterId, geographicFocus, audience, businessName]);
+  }, [coreTopic, targetUrl, numTitles, tone, competitorUrls, serpFeatureTarget, semanticClusterId, geographicFocus, audience, businessName, campaignPublicId]);
 
   const handleGenerateTitles = () => {
     if (!coreTopic.trim()) {

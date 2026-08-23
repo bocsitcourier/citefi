@@ -98,7 +98,11 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       try {
         // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
         const podcastTerminalKpi = (article.batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
-        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, { stableId: String(articleId), terminalKpi: podcastTerminalKpi })
+        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, {
+          stableId: String(articleId),
+          terminalKpi: podcastTerminalKpi,
+          campaignId: article.campaignId ?? null,
+        })
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedPodcastPatternIds = podcastEnhancement.patternsUsed;
         podcastVariantArmId = podcastEnhancement.variantArmId;
@@ -106,6 +110,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         const scriptText = script.segments.map(s => s.text).join(' ');
         const orchResult = await runGenerationOrchestrator({
           teamId,
+          campaignId: article.campaignId ?? null,
           contentType: ContentType.PODCAST,
           contentId: articleId,
           content: scriptText,

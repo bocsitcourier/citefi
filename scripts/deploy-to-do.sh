@@ -187,6 +187,18 @@ echo "Applying tenant RLS migration (apply-tenant-rls)..."
 node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts 2>&1 | tail -20
 echo "Tenant RLS up to date."
 
+# ── Campaigns aggregate migration (Task #151) ──────────────────────────────
+# Install / refresh the campaigns + campaign_exports tables, the campaign_id
+# columns + same-team composite FKs on the content roots, their RLS policies/
+# grants, and the idempotent campaign backfill. Runs immediately AFTER the tenant
+# RLS migration so the citefi_rls helpers + citefi_tenant role already exist (the
+# migration FAILS CLOSED and aborts if they do not), and BEFORE the PM2 reload so
+# production receives the campaign schema/backfill/RLS before the new code starts.
+# Idempotent, so it runs safely on every deploy.
+echo "Applying campaigns migration (migrate-t151-campaigns)..."
+node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts 2>&1 | tail -20
+echo "Campaigns schema up to date."
+
 # ── PM2 reload ────────────────────────────────────────────────────────────
 echo "Reloading PM2..."
 # Capture restart counts BEFORE reload so we can detect crash-loops after

@@ -38,6 +38,7 @@ export async function getPromptEnhancement(
     stableId?: string;
     /** Override metric weights for this generation: 'conversion' | 'engagement' | 'awareness' */
     terminalKpi?: string;
+    campaignId?: number | null;
   }
 ): Promise<PromptEnhancement> {
   try {

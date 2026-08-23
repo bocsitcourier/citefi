@@ -110,6 +110,8 @@ export async function generateSocialVideo(
       companyName: post.companyName,
       articleContent,
       landingPageUrl: post.landingPageUrl || undefined,
+      teamId: post.teamId ?? undefined,
+      campaignId: post.campaignId ?? null,
     });
     markTime("script_complete");
     console.log(`  ✅ Script generated: ${script.scenes.length} scenes`);
@@ -121,13 +123,17 @@ export async function generateSocialVideo(
     try {
       // Fetch learned patterns for attribution so Wilson/EMA updates fire on the
       // right patterns. Must be done before the orchestrator call.
-      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO, { stableId: String(socialPostId) })
+      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO, {
+        stableId: String(socialPostId),
+        campaignId: post.campaignId ?? null,
+      })
         .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
       const capturedVideoPatternIds = videoEnhancement.patternsUsed;
       const videoVariantArmId = videoEnhancement.variantArmId;
 
       const orchResult = await runGenerationOrchestrator({
         teamId: post.teamId,
+        campaignId: post.campaignId ?? null,
         contentType: ContentType.VIDEO,
         contentId: socialPostId,
         content: JSON.stringify(script, null, 0),

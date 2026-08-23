@@ -81,18 +81,26 @@ export async function orchestrateVideoIdeaGeneration(
     // Fetch teamId + patterns EARLY — before script generation — so the critic loop
     // can inject the right brand context and record Wilson attribution accurately.
     let videoTeamId: number | null = null;
+    let videoCampaignId: number | null = null;
     let capturedVideoPatternIds: number[] = [];
     let capturedVideoQualityScore = 80;
     let capturedVideoArmId: number | undefined;
     let capturedVideoVariantArmId: number | undefined;
     try {
-      const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
+      const [ideaRow] = await db.select({
+        teamId: videoIdeas.teamId,
+        campaignId: videoIdeas.campaignId,
+      })
         .from(videoIdeas)
         .where(eq(videoIdeas.id, videoIdeaId))
         .limit(1);
       videoTeamId = ideaRow?.teamId ?? null;
+      videoCampaignId = ideaRow?.campaignId ?? null;
       if (videoTeamId) {
-        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO, { stableId: String(videoIdeaId) })
+        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO, {
+          stableId: String(videoIdeaId),
+          campaignId: videoCampaignId,
+        })
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedVideoPatternIds = enhancement.patternsUsed;
         capturedVideoVariantArmId = enhancement.variantArmId;
@@ -165,6 +173,7 @@ export async function orchestrateVideoIdeaGeneration(
         if (scriptNarration.length > 50) {
           const orchResult = await runGenerationOrchestrator({
             teamId: videoTeamId,
+            campaignId: videoCampaignId,
             contentType: ContentType.VIDEO,
             contentId: videoIdeaId,
             content: scriptNarration,

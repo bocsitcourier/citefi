@@ -218,32 +218,39 @@ export async function POST(req: NextRequest) {
         );
       }
 
-  // Step 5: Verify resolved content belongs to the resolved team (anti-spoofing)
+  // Step 5: Verify resolved content belongs to the resolved team (anti-spoofing).
+      // Task #151 — derive campaignId from the canonically team-owned content root
+      // (never from the unauthenticated payload), preserving the two-stage
+      // signed-webhook security model.
       const finalContentType = resolvedContentType ?? effectiveContentType;
+      let resolvedCampaignId: number | null = null;
       if (finalContentType === "article") {
         const [article] = await db
-      .select({ teamId: articles.teamId })
+      .select({ teamId: articles.teamId, campaignId: articles.campaignId })
       .from(articles)
       .where(eq(articles.id, resolvedContentId))
       .limit(1);
         if (!article || article.teamId !== resolvedTeamId) {
           return new NextResponse(null, { status: 204 });
         }
+        resolvedCampaignId = article.campaignId ?? null;
       } else {
         const [post] = await db
-      .select({ teamId: socialPosts.teamId })
+      .select({ teamId: socialPosts.teamId, campaignId: socialPosts.campaignId })
       .from(socialPosts)
       .where(eq(socialPosts.id, resolvedContentId))
       .limit(1);
         if (!post || post.teamId !== resolvedTeamId) {
           return new NextResponse(null, { status: 204 });
         }
+        resolvedCampaignId = post.campaignId ?? null;
       }
 
       const [row] = await db
         .insert(contentEvents)
         .values({
           teamId: resolvedTeamId,
+          campaignId: resolvedCampaignId,
           contentType: finalContentType,
           articleId: finalContentType === "article" ? resolvedContentId : null,
           socialPostId: finalContentType === "social_post" ? resolvedContentId : null,

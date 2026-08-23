@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { jobBatches, articles, clientBrandProfiles } from "@/shared/schema";
+import { jobBatches, articles, campaigns, clientBrandProfiles } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { addBatchGenerationJob } from "@/lib/queue";
 import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
@@ -131,14 +131,35 @@ export async function POST(request: NextRequest) {
       const isFirstBatch = !articleCountRow || (articleCountRow.count ?? 0) === 0;
 
       if (isFirstBatch) {
-        const [intelRow] = await db
-          .select({ status: clientBrandProfiles.status })
-          .from(clientBrandProfiles)
-          .where(eq(clientBrandProfiles.teamId, teamId))
-          .limit(1);
+        const [intelRow] = batch.campaignId
+          ? await db
+              .select({
+                status: campaigns.brandStatus,
+                snapshot: campaigns.brandProfileSnapshot,
+              })
+              .from(campaigns)
+              .where(
+                and(
+                  eq(campaigns.id, batch.campaignId),
+                  eq(campaigns.teamId, teamId)
+                )
+              )
+              .limit(1)
+          : await db
+              .select({
+                status: clientBrandProfiles.status,
+                snapshot: clientBrandProfiles.profileJson,
+              })
+              .from(clientBrandProfiles)
+              .where(eq(clientBrandProfiles.teamId, teamId))
+              .limit(1);
 
-        // Block if no profile exists OR profile exists but hasn't reached "complete"
-        const intelComplete = intelRow?.status === "complete";
+        const intelComplete = batch.campaignId
+          ? Boolean(
+              intelRow?.snapshot &&
+              ["ready", "confirmed"].includes(intelRow.status ?? "")
+            )
+          : intelRow?.status === "complete";
         if (!intelComplete) {
           await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
           const intelStatus = intelRow?.status ?? "not_started";
@@ -169,7 +190,11 @@ export async function POST(request: NextRequest) {
     // checkUsageCap now inserts a PENDING reservation so concurrent submissions see it.
     // The reservation is cancelled on all failure paths to release the held capacity.
     try {
-      capReservationId = await checkUsageCap(teamId, creditCostPerUnit * selectedTitles.length);
+      capReservationId = await checkUsageCap(
+        teamId,
+        creditCostPerUnit * selectedTitles.length,
+        batch.campaignId ?? null
+      );
     } catch (capErr: any) {
       // Only swallow typed cap-exceeded errors — rethrow infra crashes to the outer catch
       // so they are logged and don't masquerade as "spending cap exceeded" to the user.
@@ -242,6 +267,9 @@ export async function POST(request: NextRequest) {
         batchId,
         userId: batch.userId,
         teamId,
+        // Canonical campaign association comes from the claimed batch row, never
+        // from the request payload — prevents cross-campaign spoofing.
+        campaignId: batch.campaignId ?? null,
         selectedTitles,
         targetUrl,
         tone,

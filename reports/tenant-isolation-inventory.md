@@ -115,8 +115,21 @@ names it.
 
 ## 4. Count reconciliation
 
-`shared/schema.ts` declares **89** `pgTable` definitions. **87** receive
-data-plane RLS policies. The **2** excluded from data-plane tenant policies are
+> **Task #151 addendum.** Migration `migrations/0015_campaigns.sql` adds two new
+> tenant-direct tables — `campaigns` (rows 90) and `campaign_exports` (row 91) —
+> plus a nullable `campaign_id` column on the nine independently-queried content
+> roots (`job_batches`, `articles`, `social_posts`, `video_ideas`,
+> `publishing_jobs`, `cost_telemetry`, `usage_events`,
+> `content_performance_metrics`, `content_events`). Those roots already carry
+> their own tenant policies from migration 0014; the added `campaign_id` is a
+> nullable same-team composite FK `(team_id, campaign_id) → campaigns(team_id, id)`
+> (MATCH SIMPLE, so it only fires when both are non-null) and is not itself a
+> tenant boundary. The two new tables receive standard `tenant_can_access(team_id)`
+> policies reusing the existing `citefi_rls` helpers. The counts below describe
+> the migration-0014 baseline.
+
+`shared/schema.ts` declares **89** `pgTable` definitions (excluding the two
+Task #151 tables above). **87** receive data-plane RLS policies. The **2** excluded from data-plane tenant policies are
 `users` and `team_members`, which form the *identity/membership boundary* the
 helper functions read via `SECURITY DEFINER`; they get `ENABLE + FORCE RLS` with
 a **self/own-team read** policy and **system-only write** rather than a
@@ -220,6 +233,8 @@ Legend for **Access matrix** columns (R=read, W=write):
 | 87 | `daily_briefs` | tenant-direct | `team_id` | ✓/✓ | ✓/✓ | ✗/✗ | ✓/✓ | ✓/✓ | Standard tenant. |
 | 88 | `daily_brief_deliveries` | tenant-indirect | `brief_id`→`daily_briefs` | ✓/✓ | ✓/✓ | ✗/✗ | ✓/✓ | ✓/✓ | EXISTS parent. |
 | 89 | `signup_competitor_intake` | global-system | `resolved_team_id` (nullable) | ✗/✗ | ✗/✗ | ✗/✗ | ✗/✗ | ✓/✓ | Written pre-tenant (no authenticated team at signup) → system only. |
+| 90 | `campaigns` | tenant-direct | `team_id` | ✓/✓ | ✓/✓ | ✗/✗ | ✓/✓ | ✓/✓ | Task #151 team-scoped aggregate. Standard tenant policy (`tenant_can_access(team_id)`); RLS installed by migration 0015 reusing the 0014 `citefi_rls` helpers. |
+| 91 | `campaign_exports` | tenant-direct | `team_id` | ✓/✓ | ✓/✓ | ✗/✗ | ✓/✓ | ✓/✓ | Task #151 per-campaign export requests. Standard tenant policy; RLS installed by migration 0015. |
 
 ## 6. Sensitive (margin / billing / secret) tables — `client_viewer` explicitly denied
 

@@ -43,6 +43,7 @@ export type ContentKind = "article" | "social" | "podcast" | "script";
 
 export interface OrchestratorInput {
   teamId: number;
+  campaignId?: number | null;
   /** Drizzle content-type token ("ARTICLE", "SOCIAL", "PODCAST", "VIDEO", etc.) */
   contentType: string;
   /**
@@ -258,7 +259,10 @@ export async function runGenerationOrchestrator(
   // Fetch brand policy context — non-blocking, missing context degrades gracefully
   let brandContext: string | undefined;
   try {
-    const ctx = await getClientBrandContext(input.teamId);
+    const ctx = await getClientBrandContext(
+      input.teamId,
+      input.campaignId ?? null
+    );
     if (ctx) brandContext = ctx;
   } catch {
     // Non-fatal
