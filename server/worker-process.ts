@@ -3,7 +3,8 @@ import { sql } from 'drizzle-orm';
 import { registerWorkers } from "../lib/worker";
 import { validateAndResolveModels } from "../lib/model-resolver";
 import { validateApprovalTokenSecret } from "../lib/approval-token";
-import { closeQueues } from "../lib/queue";
+import { closeQueues, getRedisConnection } from "../lib/queue";
+import { startWorkerHeartbeat, stopWorkerHeartbeat } from "../lib/ops/worker-heartbeat";
 import { closePipelineWorkers } from "../lib/pipeline-worker";
 import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
@@ -120,6 +121,10 @@ async function startWorkers() {
     
     // Register all BullMQ workers
     await registerWorkers();
+
+    // Shared liveness signal consumed by /api/health. TTL guarantees a killed
+    // process cannot leave a permanently healthy heartbeat behind.
+    await startWorkerHeartbeat(getRedisConnection());
     
     // Start job monitoring for stuck job detection
     await startJobMonitor();
@@ -157,6 +162,7 @@ async function shutdown(signal: NodeJS.Signals) {
   let exitCode = 0;
   try {
     if (keepAliveTimer) clearInterval(keepAliveTimer);
+    await stopWorkerHeartbeat(getRedisConnection());
     await stopJobMonitor();
     const [
       { stopProviderCircuitScheduler },

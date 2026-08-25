@@ -22,10 +22,33 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-ENV_FILE="/var/www/citefi/.env.local"
-BACKUP_DIR="/var/backups/citefi-db"
-SPACES_PREFIX="db-backups"
+ENV_FILE="${BACKUP_ENV_FILE:-/var/www/citefi/.env.local}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/citefi-db}"
+SPACES_PREFIX="${BACKUP_SPACES_PREFIX:-db-backups}"
 LOG_PREFIX="[$(date -u +%FT%TZ)]"
+STATUS_FILE="${BACKUP_STATUS_FILE:-${BACKUP_DIR}/status.json}"
+
+# Atomic status updates let the health endpoint read this file while cron is
+# writing it, without ever observing partial JSON. Do not include credentials
+# or raw command output in this operational signal.
+write_status() {
+  local state="$1"
+  local message="$2"
+  local tmp="${STATUS_FILE}.tmp.$$"
+  mkdir -p "$(dirname "$STATUS_FILE")"
+  printf '{"state":"%s","timestamp":"%s","message":"%s"}\n' \
+    "$state" "$(date -u +%FT%TZ)" "$message" > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$STATUS_FILE"
+}
+
+backup_failed() {
+  local exit_code=$?
+  trap - ERR
+  write_status "failed" "Backup command failed"
+  exit "$exit_code"
+}
+trap backup_failed ERR
 
 # ── Load credentials from the app's .env.local ───────────────────────────────
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -65,6 +88,7 @@ FILENAME="citefi_${TIMESTAMP}.sql.gz"
 LOCAL_PATH="${BACKUP_DIR}/${FILENAME}"
 
 mkdir -p "$BACKUP_DIR"
+write_status "running" "Backup in progress"
 
 echo "${LOG_PREFIX} Starting pg_dump (target: ${DATABASE_URL%%@*}@...)..."
 
@@ -104,6 +128,7 @@ ALL_BACKUPS="$(aws s3 ls "s3://${DO_SPACES_BUCKET}/${SPACES_PREFIX}/" \
 if [[ -z "$ALL_BACKUPS" ]]; then
   echo "  No backups found to prune (unexpected — just uploaded one)."
   echo "${LOG_PREFIX} Backup complete: ${FILENAME}"
+  write_status "success" "Backup uploaded successfully"
   exit 0
 fi
 
@@ -182,3 +207,4 @@ done < <(echo "$ALL_BACKUPS")
 
 echo "  Retention: kept ${#KEEP[@]} (${DAILY_KEPT} daily + ${#EXTRA_WEEKS[@]} extra weekly), pruned ${DELETED}."
 echo "${LOG_PREFIX} Backup complete: ${FILENAME}"
+write_status "success" "Backup uploaded successfully"

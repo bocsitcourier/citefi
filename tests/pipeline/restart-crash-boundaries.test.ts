@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { after, test } from "node:test";
+import {
+  after,
+  test as nodeTest,
+  type TestContext,
+} from "node:test";
 import { randomUUID } from "node:crypto";
 import { Queue, type Worker } from "bullmq";
 import { and, eq } from "drizzle-orm";
@@ -20,6 +24,7 @@ import {
 } from "../../lib/queue";
 import { reconcileExpiredArticleRuns } from "../../server/job-monitor";
 import { createPipelineWorker } from "../../lib/pipeline-worker";
+import { runWithSystemContext } from "../../lib/tenant-context";
 import { processArticleGenerationJob } from "../../lib/worker";
 import {
   articleAssets,
@@ -33,6 +38,31 @@ import {
   teams,
   users,
 } from "../../shared/schema";
+
+type TestBody = (context: TestContext) => void | Promise<void>;
+type LocalTestOptions = {
+  concurrency?: boolean | number;
+  only?: boolean;
+  signal?: AbortSignal;
+  skip?: boolean | string;
+  timeout?: number;
+  todo?: boolean | string;
+};
+
+function test(name: string, body: TestBody): ReturnType<typeof nodeTest>;
+function test(name: string, options: LocalTestOptions, body: TestBody): ReturnType<typeof nodeTest>;
+function test(
+  name: string,
+  optionsOrBody: LocalTestOptions | TestBody,
+  maybeBody?: TestBody,
+): ReturnType<typeof nodeTest> {
+  const body = typeof optionsOrBody === "function" ? optionsOrBody : maybeBody!;
+  const wrapped = (context: TestContext) =>
+    runWithSystemContext(`restart crash-boundary test: ${name}`, () => body(context));
+  return typeof optionsOrBody === "function"
+    ? nodeTest(name, wrapped)
+    : nodeTest(name, optionsOrBody, wrapped);
+}
 
 after(async () => {
   const [{ closeGeminiRateLimiter }, { closeOpenAIClient }] = await Promise.all([

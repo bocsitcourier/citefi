@@ -1,287 +1,39 @@
 #!/usr/bin/env bash
-# Deploy latest code to a DigitalOcean droplet via SSH.
-#
-# The server must already have:
-#   - Node.js, npm, PM2 installed
-#   - The repo cloned at DO_APP_DIR with GitHub HTTPS access
-#   - .env.local present at DO_APP_DIR/.env.local (NEVER in git)
-#   - ecosystem.config.cjs present (tracked in git)
-#
-# Required env vars : DO_SSH_PRIVATE_KEY (Replit secret), DO_HOST
-# Optional env vars : DO_USER (default: citefi), DO_PORT (default: 22),
-#                     DO_APP_DIR (default: /var/www/citefi),
-#                     DO_BRANCH (default: main),
-#                     DO_PM2_CONFIG (default: ecosystem.config.cjs),
-#                     DO_HEALTHCHECK_URL (default: http://127.0.0.1:5000/api/health)
+# SSH transport for the shared host release runner.
 set -euo pipefail
-
-: "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing — add it in Replit Secrets}"
-: "${DO_HOST:?DO_HOST env var is missing — add it in Replit}"
+: "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing}"
+: "${DO_HOST:?DO_HOST env var is missing}"
 
 DO_USER="${DO_USER:-root}"
 DO_PORT="${DO_PORT:-22}"
-DO_APP_DIR="${DO_APP_DIR:-/var/www/citefi}"
-DO_BRANCH="${DO_BRANCH:-main}"
-DO_PM2_CONFIG="${DO_PM2_CONFIG:-ecosystem.config.cjs}"
-DO_HEALTHCHECK_URL="${DO_HEALTHCHECK_URL:-http://127.0.0.1:5000/api/health}"
-
-# ── SSH key setup ─────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
 KEY="$HOME/.ssh/id_do_deploy"
-# Replit stores multi-line secrets with spaces instead of newlines — reconstruct proper PEM.
-python3 - <<'PYEOF' > "$KEY"
+python3 - <<'PY' > "$KEY"
 import os, re, sys
-raw = os.environ["DO_SSH_PRIVATE_KEY"]
-if "\n" in raw:
-    sys.stdout.write(raw if raw.endswith("\n") else raw + "\n")
-else:
-    raw = re.sub(r"-----BEGIN ([^-]+)-----\s*", r"-----BEGIN \1-----\n", raw)
-    raw = re.sub(r"\s*-----END ([^-]+)-----", r"\n-----END \1-----\n", raw)
-    lines = raw.split("\n")
-    out = []
-    for line in lines:
-        if "-----" in line:
-            out.append(line)
-        else:
-            out.extend(line.split())
-    sys.stdout.write("\n".join(out) + "\n")
-PYEOF
+raw=os.environ["DO_SSH_PRIVATE_KEY"]
+raw=re.sub(r"-----BEGIN ([^-]+)-----\s*",r"-----BEGIN \1-----\n",raw)
+raw=re.sub(r"\s*-----END ([^-]+)-----",r"\n-----END \1-----\n",raw)
+lines=raw.splitlines(); out=[]
+for line in lines:
+    out.append(line) if "-----" in line else out.extend(line.split())
+sys.stdout.write("\n".join(out)+"\n")
+PY
 chmod 600 "$KEY"
-
 ssh-keyscan -p "$DO_PORT" -H "$DO_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
 
-SSH_OPTS=(
-  -i "$KEY"
-  -p "$DO_PORT"
-  -o BatchMode=yes
-  -o IdentitiesOnly=yes
-  -o StrictHostKeyChecking=yes
-  -o ConnectTimeout=15
+remote_env=(
+  DO_APP_DIR DO_BRANCH DO_PM2_CONFIG DO_HEALTHCHECK_URL DO_VALIDATION_COMMAND
+  DO_WEB_PROCESS DO_WORKER_PROCESS DO_RELEASE_STATE_DIR DEPLOY_ENVIRONMENT
+  STAGING_DATABASE_NAME STAGING_REDIS_DB STAGING_STORAGE_PREFIX
+  STAGING_PORT STAGING_LOG_DIR SYNTHETIC_DATA_ACKNOWLEDGEMENT
 )
-
-echo "Deploying to ${DO_USER}@${DO_HOST}:${DO_APP_DIR} (branch: ${DO_BRANCH})"
-echo ""
-
-# ── Remote deploy ─────────────────────────────────────────────────────────────
-ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" \
-  "DO_APP_DIR='${DO_APP_DIR}' DO_BRANCH='${DO_BRANCH}' DO_PM2_CONFIG='${DO_PM2_CONFIG}' DO_HEALTHCHECK_URL='${DO_HEALTHCHECK_URL}' bash -s" <<'REMOTE'
-set -euo pipefail
-
-# Allow root to operate on a repo owned by another user
-git config --global --add safe.directory "$DO_APP_DIR" 2>/dev/null || true
-
-cd "$DO_APP_DIR"
-test -d .git || { echo "ERROR: $DO_APP_DIR is not a git repo"; exit 1; }
-
-# ── Preflight: require .env.local ──────────────────────────────────────────
-if [[ ! -f .env.local ]]; then
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════╗"
-  echo "║  DEPLOY BLOCKED: .env.local is missing from the server      ║"
-  echo "║                                                              ║"
-  echo "║  Create it at: ${DO_APP_DIR}/.env.local                     ║"
-  echo "║  It must contain DATABASE_URL, NEXTAUTH_SECRET, and all     ║"
-  echo "║  other secrets the app needs to start.                      ║"
-  echo "╚══════════════════════════════════════════════════════════════╝"
-  echo ""
-  exit 1
-fi
-
-# ── Required env-var smoke-test ───────────────────────────────────────────
-REQUIRED_VARS=(DATABASE_URL JWT_SECRET)
-MISSING=()
-for var in "${REQUIRED_VARS[@]}"; do
-  grep -q "^${var}=" .env.local 2>/dev/null || MISSING+=("$var")
+remote_command="env"
+for name in "${remote_env[@]}"; do
+  if [[ -n "${!name-}" ]]; then printf -v quoted '%q' "${!name}"; remote_command+=" ${name}=${quoted}"; fi
 done
-if [[ ${#MISSING[@]} -gt 0 ]]; then
-  echo "ERROR: .env.local is missing required keys: ${MISSING[*]}"
-  exit 1
-fi
-echo "✓ .env.local present and keys verified"
+remote_command+=" bash -s"
 
-# ── Git update ────────────────────────────────────────────────────────────
-OLD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
-echo "  Current: ${OLD_SHA}"
-
-git fetch origin "${DO_BRANCH}"
-# Reset tracked files to match remote exactly — does NOT touch untracked files
-git reset --hard "origin/${DO_BRANCH}"
-
-NEW_SHA="$(git rev-parse --short HEAD)"
-echo "  Updated: ${OLD_SHA} -> ${NEW_SHA}"
-echo ""
-
-# ── Build ─────────────────────────────────────────────────────────────────
-# Always build if .next is missing, even if SHA didn't change (e.g. after server wipe)
-NEEDS_BUILD=false
-if [[ "$OLD_SHA" != "$NEW_SHA" ]]; then
-  echo "Code changed — running full install + build."
-  NEEDS_BUILD=true
-elif [[ ! -d .next ]] || [[ ! -f .next/BUILD_ID ]]; then
-  echo ".next missing or incomplete (no BUILD_ID) — forcing build despite no code change."
-  NEEDS_BUILD=true
-elif [[ ! -d node_modules ]]; then
-  echo "node_modules missing — running install + build."
-  NEEDS_BUILD=true
-fi
-
-if [[ "$NEEDS_BUILD" == "true" ]]; then
-  # Stop PM2 BEFORE npm ci to free RAM on the 2 GB droplet.
-  # PM2 holds ~200 MB while running; npm ci OOMs without this headroom,
-  # leaving node_modules partially written (styled-jsx and other packages
-  # silently absent, causing "Cannot find module" crashes at startup).
-  echo "Stopping PM2 to free RAM before install..."
-  pm2 stop all 2>/dev/null || true
-
-  # Ensure extra swap exists so the Next.js build never OOMs on a 2 GB droplet.
-  # next build peaks at ~1.7 GB RSS; without extra swap the OOM killer silently
-  # kills the build mid-way, leaving .next without BUILD_ID.
-  if [[ ! -f /swapfile2 ]]; then
-    echo "Creating 2 GB swap file to cover build peak..."
-    fallocate -l 2G /swapfile2
-    chmod 600 /swapfile2
-    mkswap /swapfile2 >/dev/null
-    swapon /swapfile2
-    echo "  ✓ /swapfile2 active"
-  elif ! swapon --show | grep -q /swapfile2; then
-    swapon /swapfile2
-    echo "  ✓ /swapfile2 re-activated"
-  fi
-
-  echo "Installing dependencies..."
-  # package-lock.json may contain Replit's internal proxy URLs — patch them before npm ci
-  if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
-    echo "  Patching package-lock.json Replit proxy URLs -> public registry..."
-    sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
-  fi
-  npm ci --registry https://registry.npmjs.org || {
-    echo "  npm ci failed (likely stale node_modules) — wiping and retrying..."
-    rm -rf node_modules
-    npm ci --registry https://registry.npmjs.org
-  }
-  # Restore lock file so git doesn't see a dirty tree
-  git checkout -- package-lock.json 2>/dev/null || true
-
-  echo "Building..."
-  NODE_OPTIONS="--max-old-space-size=1700" npm run build
-  echo "Build complete."
-else
-  echo "Build artifacts present and code unchanged — skipping build."
-fi
-
-# ── Schema migration ──────────────────────────────────────────────────────
-# Apply any schema changes declared in shared/schema.ts before reloading the
-# app process.  Running db:push here ensures new columns / indexes are present
-# before the new code starts, preventing startup failures on first deploy of
-# a schema-changing release.  The command is idempotent (Drizzle skips
-# already-present columns/indexes) so it is safe to run on every deploy.
-echo "Applying schema changes (db:push)..."
-npm run db:push -- --force 2>&1 | tail -20
-echo "Schema up to date."
-
-# ── Tenant RLS migration (Task #150) ───────────────────────────────────────
-# Install / refresh the citefi_tenant role, citefi_rls helpers and RLS policies
-# AFTER db:push so every policied table already exists. Idempotent, so it runs
-# safely on every deploy. DATABASE_URL is read from .env.local (verified above).
-echo "Applying tenant RLS migration (apply-tenant-rls)..."
-node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts 2>&1 | tail -20
-echo "Tenant RLS up to date."
-
-# ── Campaigns aggregate migration (Task #151) ──────────────────────────────
-# Install / refresh the campaigns + campaign_exports tables, the campaign_id
-# columns + same-team composite FKs on the content roots, their RLS policies/
-# grants, and the idempotent campaign backfill. Runs immediately AFTER the tenant
-# RLS migration so the citefi_rls helpers + citefi_tenant role already exist (the
-# migration FAILS CLOSED and aborts if they do not), and BEFORE the PM2 reload so
-# production receives the campaign schema/backfill/RLS before the new code starts.
-# Idempotent, so it runs safely on every deploy.
-echo "Applying campaigns migration (migrate-t151-campaigns)..."
-node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts 2>&1 | tail -20
-echo "Campaigns schema up to date."
-
-# ── Agency client reports migration (Task #154) ────────────────────────────
-# Install / refresh report tables, client-safe vs financial separation, grants,
-# RLS policies, immutable snapshot triggers, and append-only delivery history.
-# This must run after tenant RLS so the citefi_rls helpers and tenant role exist.
-echo "Applying agency reports migration (migrate-t154-agency-reports)..."
-node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts 2>&1 | tail -20
-echo "Agency reports schema up to date."
-
-# ── PM2 reload ────────────────────────────────────────────────────────────
-echo "Reloading PM2..."
-# Capture restart counts BEFORE reload so we can detect crash-loops after
-WEB_RESTARTS_BEFORE=$(pm2 jlist 2>/dev/null | python3 -c "
-import json,sys
-procs = json.load(sys.stdin)
-for p in procs:
-    if p.get('name') == 'citefi-web':
-        print(p.get('pm2_env',{}).get('restart_time',0))
-" 2>/dev/null || echo "0")
-
-pm2 startOrReload "$DO_PM2_CONFIG" --update-env 2>/dev/null \
-  || pm2 restart all --update-env
-
-# ── Health check (verifies DB connectivity, not just HTTP 200) ────────────
-echo ""
-echo "Health check (waiting up to 45s)..."
-PASSED=false
-for i in $(seq 1 15); do
-  sleep 3
-  HEALTH=$(curl -fsS --max-time 5 "$DO_HEALTHCHECK_URL" 2>/dev/null || echo "")
-  if [[ -n "$HEALTH" ]]; then
-    DB_OK=$(echo "$HEALTH" | python3 -c "
-import json,sys
-r=json.load(sys.stdin)
-print(r.get('services',{}).get('database',{}).get('ok',False))
-" 2>/dev/null || echo "False")
-    if [[ "$DB_OK" == "True" ]]; then
-      echo "✓ Health check passed (attempt ${i}) — app up, DB connected."
-      PASSED=true
-      break
-    else
-      DB_ERR=$(echo "$HEALTH" | python3 -c "
-import json,sys
-r=json.load(sys.stdin)
-print(r.get('services',{}).get('database',{}).get('error','no error field'))
-" 2>/dev/null || echo "parse error")
-      echo "  App responded but database.ok=false: $DB_ERR"
-    fi
-  fi
-  if [[ $i -eq 15 ]]; then
-    echo ""
-    echo "ERROR: Health check failed after 45s at $DO_HEALTHCHECK_URL"
-    echo ""
-    echo "── PM2 process list ──────────────────────────────────────────"
-    pm2 list
-    echo ""
-    echo "── citefi-web logs (last 40 lines) ──────────────────────────"
-    pm2 logs citefi-web --lines 40 --nostream 2>/dev/null || true
-    echo ""
-    echo "── Port 5000 listener check ──────────────────────────────────"
-    ss -ltnp sport = :5000 2>/dev/null || netstat -tlnp 2>/dev/null | grep ':5000' || echo "(nothing on port 5000)"
-    exit 1
-  fi
-  # Crash-loop early warning after 3 attempts
-  if [[ $i -eq 3 ]]; then
-    WEB_RESTARTS_NOW=$(pm2 jlist 2>/dev/null | python3 -c "
-import json,sys
-procs = json.load(sys.stdin)
-for p in procs:
-    if p.get('name') == 'citefi-web':
-        print(p.get('pm2_env',{}).get('restart_time',0))
-" 2>/dev/null || echo "0")
-    if [[ "$WEB_RESTARTS_NOW" -gt "$WEB_RESTARTS_BEFORE" ]]; then
-      echo "  ⚠ citefi-web is crash-looping (restarts: ${WEB_RESTARTS_BEFORE} → ${WEB_RESTARTS_NOW})"
-      echo "  ── citefi-web error log (last 20 lines) ──"
-      pm2 logs citefi-web --lines 20 --nostream 2>/dev/null || true
-    fi
-  fi
-  echo "  Waiting... (attempt ${i})"
-done
-
-echo ""
-echo "✓ Deployed ${NEW_SHA} successfully."
-REMOTE
-
-echo ""
-echo "Done. Live at: http://${DO_HOST}"
+ssh -i "$KEY" -p "$DO_PORT" -o BatchMode=yes -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+  "${DO_USER}@${DO_HOST}" "$remote_command" < "$SCRIPT_DIR/host-release.sh"

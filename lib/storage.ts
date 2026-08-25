@@ -14,6 +14,15 @@ const DO_SPACES_KEY      = process.env.DO_SPACES_KEY      || "";
 const DO_SPACES_SECRET   = process.env.DO_SPACES_SECRET   || "";
 const DO_SPACES_ENDPOINT = process.env.DO_SPACES_ENDPOINT || "";
 const DO_SPACES_BUCKET   = process.env.DO_SPACES_BUCKET   || "";
+const STORAGE_PREFIX = (process.env.STORAGE_PREFIX || "")
+  .trim()
+  .replace(/^\/+|\/+$/g, "");
+
+function storageKey(key: string): string {
+  const clean = key.replace(/^\/+/, "");
+  if (!STORAGE_PREFIX || clean.startsWith(`${STORAGE_PREFIX}/`)) return clean;
+  return `${STORAGE_PREFIX}/${clean}`;
+}
 
 const s3Client = new S3Client({
   region: "us-east-1",            // placeholder — DO Spaces ignores this
@@ -136,7 +145,7 @@ class S3BucketShim {
   constructor(private client: S3Client) {}
 
   file(key: string): S3FileShim {
-    return new S3FileShim(this.client, DO_SPACES_BUCKET, key);
+    return new S3FileShim(this.client, DO_SPACES_BUCKET, storageKey(key));
   }
 }
 

@@ -1,124 +1,170 @@
 /**
- * /api/health — production preflight health check
- *
- * Checks: DB connectivity, Redis PING, model resolver status.
- * Returns 200 when all critical services are up, 503 otherwise.
- * Suitable as a target for external uptime monitors (UptimeRobot, etc.).
- *
- * Use /api/health?full=1 for the detailed breakdown (slower — does live
- * model-list validation); omit for the fast cache-based check.
+ * /api/health — production preflight and operational health controls.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import { sql, and, eq, gte } from "drizzle-orm";
+import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { systemDb as db } from "@/lib/db";
-import { sql } from "drizzle-orm";
+import { errorLogs } from "@/shared/schema";
 import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";
 import { evaluateCanaryHealth, getLastCanaryResult } from "@/lib/canary-worker";
-import { getRedisClientConfig } from "@/lib/queue";
+import { ALL_QUEUE_NAMES, getQueue, getRedisClientConfig, getRedisConnection } from "@/lib/queue";
+import {
+  collectHealth,
+  healthThresholdsFromEnv,
+  safeMessage,
+  type StatusFile,
+} from "@/lib/ops/health";
+import { WORKER_HEARTBEAT_KEY } from "@/lib/ops/worker-heartbeat";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-async function checkDatabase(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
-  const t = Date.now();
-  try {
-    await db.execute(sql`SELECT 1`);
-    return { ok: true, latencyMs: Date.now() - t };
-  } catch (err) {
-    return { ok: false, latencyMs: Date.now() - t, error: (err as Error).message.slice(0, 120) };
-  }
-}
-
-async function checkRedis(): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
-  const t = Date.now();
-  let client: InstanceType<typeof import("ioredis").default> | null = null;
-  try {
-    const Redis = (await import("ioredis")).default;
-    const { url, options } = getRedisClientConfig(undefined, {
-      lazyConnect: true,
-      connectTimeout: 3000,
-      commandTimeout: 3000,
-      maxRetriesPerRequest: 0,
-    });
-    client = new Redis(url, options);
-    client.on("error", () => {});
-    await client.connect();
-    await client.ping();
-    return { ok: true, latencyMs: Date.now() - t };
-  } catch (err) {
-    return { ok: false, latencyMs: Date.now() - t, error: (err as Error).message.slice(0, 120) };
-  } finally {
-    client?.disconnect();
-  }
-}
-
-function checkModels(): { ok: boolean; ready: boolean; models: Record<string, string>; warnings: string[] } {
+function checkModels() {
   const ready = isResolverReady();
   const models = getAllModels();
   const warnings: string[] = [];
-  if (!ready) warnings.push("Model resolver has not run — showing ai-config defaults, not live-validated values");
-  const knownShutdowns: Record<string, string> = {
-    "gemini-2.5-pro": "2026-10-16",
-  };
-  for (const [tier, id] of Object.entries(models)) {
-    if (knownShutdowns[id]) warnings.push(`${tier} (${id}) shuts down ${knownShutdowns[id]}`);
-  }
+  if (!ready) warnings.push("Model resolver has not run — showing configured defaults");
   const gemini = getGeminiValidationStatus();
   if (!gemini.checked) warnings.push("Gemini model validation has not run yet");
-  else if (!gemini.available) warnings.push(`Gemini model validation unavailable: ${gemini.error ?? "unknown error"}`);
-  else if (gemini.unrecognizedModels.length > 0) {
-    warnings.push(`Unrecognized Gemini model IDs: ${gemini.unrecognizedModels.join(", ")}`);
-  }
+  else if (!gemini.available) warnings.push("Gemini model validation is unavailable");
+  else if (gemini.unrecognizedModels.length) warnings.push("One or more Gemini model IDs are unrecognized");
   return { ok: gemini.available && gemini.unrecognizedModels.length === 0, ready, models, warnings };
 }
 
-export async function GET(request: NextRequest) {
-  const full = request.nextUrl.searchParams.get("full") === "1";
+async function transientRedisPing(): Promise<void> {
+  const Redis = (await import("ioredis")).default;
+  const { url, options } = getRedisClientConfig(undefined, {
+    lazyConnect: true,
+    connectTimeout: 3_000,
+    commandTimeout: 3_000,
+    maxRetriesPerRequest: 0,
+  });
+  const client = new Redis(url, options);
+  client.on("error", () => {});
+  try {
+    await client.connect();
+    await client.ping();
+  } finally {
+    client.disconnect();
+  }
+}
 
-  const [dbResult, redisResult, providerCircuits, canaryResult] = await Promise.all([
-    checkDatabase(),
-    full ? checkRedis() : Promise.resolve({ ok: true, latencyMs: 0, note: "skipped (use ?full=1)" }),
-    getProviderCircuitStatus().catch((err) => ({ error: (err as Error).message })),
-    getLastCanaryResult().catch(() => ({
-      status: "never_run" as const,
-      lastRunAt: null,
-      error: null,
-      stage: null,
-      provider: null,
-      durationMs: null,
-    })),
-  ]);
-  const modelResult = checkModels();
-  const canaryHealth = evaluateCanaryHealth(canaryResult);
+async function readStatusFile(path: string | undefined): Promise<StatusFile | null> {
+  if (!path) return null;
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as StatusFile;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new Error("Configured status file is missing");
+    if (error instanceof SyntaxError) throw new Error("Configured status file is invalid");
+    throw new Error(safeMessage(error));
+  }
+}
 
-  const allOk = dbResult.ok && redisResult.ok && canaryHealth.ok;
-  const status = allOk ? 200 : 503;
-
-  return NextResponse.json(
-    {
-      status: allOk ? "healthy" : "degraded",
-      timestamp: new Date().toISOString(),
-      services: {
-        database: dbResult,
-        redis: redisResult,
-        models: modelResult,
-        storage: {
-          replitObjectStorage: !!process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID,
-          doSpaces: !!process.env.DO_SPACES_BUCKET,
-        },
-        providerCircuits,
-        canary: {
-          last_canary_run: canaryResult.lastRunAt,
-          last_canary_status: canaryResult.status,
-          last_canary_error: canaryResult.error,
-          last_canary_stage: canaryResult.stage,
-          last_canary_provider: canaryResult.provider,
-          last_canary_duration_ms: canaryResult.durationMs,
-          ok: canaryHealth.ok,
-          stale: canaryHealth.stale,
-          health_reason: canaryHealth.reason,
-        },
-      },
-    },
-    { status }
+async function checkStorage(): Promise<{ configured: boolean; providers: Record<string, boolean> }> {
+  const configured = Boolean(
+    process.env.DO_SPACES_KEY &&
+    process.env.DO_SPACES_SECRET &&
+    process.env.DO_SPACES_ENDPOINT &&
+    process.env.DO_SPACES_BUCKET
   );
+  const providers = {
+    replitObjectStorage: Boolean(process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID),
+    doSpaces: configured,
+  };
+  if (!configured) return { configured: false, providers };
+  const client = new S3Client({
+    region: "us-east-1",
+    endpoint: process.env.DO_SPACES_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.DO_SPACES_KEY!,
+      secretAccessKey: process.env.DO_SPACES_SECRET!,
+    },
+  });
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: process.env.DO_SPACES_BUCKET! }));
+  } finally {
+    client.destroy();
+  }
+  return { configured: true, providers };
+}
+
+export async function GET(_request: NextRequest) {
+  const queueNames = (process.env.HEALTH_QUEUE_NAMES ?? ALL_QUEUE_NAMES.join(","))
+    .split(",").map((name) => name.trim()).filter(Boolean);
+
+  const report = await collectHealth({
+    database: async () => { await db.execute(sql`SELECT 1`); },
+    redis: transientRedisPing,
+    workerHeartbeat: () => getRedisConnection().get(WORKER_HEARTBEAT_KEY),
+    queues: async () => Object.fromEntries(await Promise.all(queueNames.map(async (name) => {
+      const queue = getQueue(name);
+      const [waiting, active, failed] = await Promise.all([
+        queue.getWaitingCount(), queue.getActiveCount(), queue.getFailedCount(),
+      ]);
+      return [name, { waiting, active, failed }] as const;
+    }))),
+    providerCircuits: getProviderCircuitStatus,
+    canary: async () => {
+      const result = await getLastCanaryResult();
+      return { result: { ...result }, health: evaluateCanaryHealth(result) };
+    },
+    storage: checkStorage,
+    backupStatus: () => readStatusFile(
+      process.env.BACKUP_STATUS_FILE ??
+      (process.env.NODE_ENV === "production" ? "/var/backups/citefi-db/status.json" : undefined)
+    ),
+    deploymentStatus: () => readStatusFile(
+      process.env.DEPLOYMENT_STATUS_FILE ??
+      (process.env.NODE_ENV === "production" ? `${process.cwd()}/.deploy/release-status.json` : undefined)
+    ),
+    recentCriticalErrors: async (since) => {
+      const [row] = await db.select({ count: sql<number>`count(*)::int` })
+        .from(errorLogs)
+        .where(and(eq(errorLogs.severity, "critical"), gte(errorLogs.createdAt, since)));
+      return Number(row?.count ?? 0);
+    },
+  }, healthThresholdsFromEnv());
+
+  const canary = report.services.canary as Record<string, unknown>;
+  report.services.canary = {
+    last_canary_run: canary.lastRunAt ?? null,
+    last_canary_status: canary.canaryStatus ?? "never_run",
+    last_canary_error: canary.error ?? canary.message ?? null,
+    last_canary_stage: canary.stage ?? null,
+    last_canary_provider: canary.provider ?? null,
+    last_canary_duration_ms: canary.durationMs ?? null,
+    ok: canary.ok,
+    stale: canary.stale,
+    health_reason: canary.health_reason,
+    checkStatus: canary.status,
+  };
+  const storage = report.services.storage as Record<string, unknown>;
+  report.services.storage = {
+    ...((storage.providers as Record<string, boolean> | undefined) ?? {}),
+    ok: storage.ok,
+    status: storage.status,
+    configured: storage.configured,
+    latencyMs: storage.latencyMs,
+    ...(storage.message ? { message: storage.message } : {}),
+  };
+  const providerCircuits = report.services.providerCircuits as Record<string, unknown>;
+  report.services.providerCircuits = {
+    ...((providerCircuits.details as Record<string, unknown> | undefined) ?? {}),
+    ok: providerCircuits.ok,
+    checkStatus: providerCircuits.status,
+    ...(providerCircuits.message ? { message: providerCircuits.message } : {}),
+  };
+  report.services.models = checkModels();
+
+  // Keep the established top-level healthy/degraded contract while exposing
+  // the more precise operational state separately.
+  return NextResponse.json({
+    ...report,
+    status: report.status === "healthy" ? "healthy" : "degraded",
+    operationalStatus: report.status,
+  }, { status: report.ok ? 200 : 503 });
 }

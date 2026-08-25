@@ -1,0 +1,337 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "production-readiness-drill-evidence",
+  "mode": "local-only",
+  "certificationStatus": "PASS",
+  "startedAt": "2026-08-25T23:39:56.432Z",
+  "finishedAt": "2026-08-25T23:40:16.371Z",
+  "durationMs": 19939,
+  "gitSha": "ad6f3e2d957d7e9ab71b74cdf2e4776d3b079600",
+  "host": "redacted",
+  "drills": [
+    {
+      "id": "redis-queue-backlog-drain",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:56.432Z",
+      "finishedAt": "2026-08-25T23:39:56.501Z",
+      "durationMs": 69,
+      "command": "controlled BullMQ queue backlog detection and drain (Redis DB 13)",
+      "summary": "Detected five queued jobs and drained all five",
+      "rto": {
+        "targetSeconds": 30,
+        "observedSeconds": 0.069,
+        "met": true
+      },
+      "rpo": {
+        "target": "zero queued jobs lost",
+        "observed": "5/5 completed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "f41e87f544996b617b7067b9399ad3afa6b50b9683200747d1d8bdb786bedcac"
+    },
+    {
+      "id": "database-interruption-health",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:56.506Z",
+      "finishedAt": "2026-08-25T23:39:56.506Z",
+      "durationMs": 0,
+      "command": "in-process database health harness with injected dependency failure and recovery",
+      "summary": "Injected failure degraded health and successful dependency recovery restored it",
+      "rto": {
+        "targetSeconds": 10,
+        "observedSeconds": 0,
+        "met": true
+      },
+      "rpo": {
+        "target": "no writes performed",
+        "observed": "read-only injection",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "46805df52676315ec2aff5ab3650147d1daaca81d8785b7c5b03a5853a9802b8"
+    },
+    {
+      "id": "worker-graceful-shutdown",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:56.507Z",
+      "finishedAt": "2026-08-25T23:39:56.520Z",
+      "durationMs": 13,
+      "command": "drainWorkers controlled graceful and deadline shutdown harness",
+      "summary": "Graceful close drained; deadline path force-closed local resources",
+      "rto": {
+        "targetSeconds": 30,
+        "observedSeconds": 0.013,
+        "met": true
+      },
+      "rpo": {
+        "target": "active jobs either drain or remain Redis-recoverable",
+        "observed": "drain contract assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "8683fb60ddc8df51a8eb4f29b2c40d505f6322eda2d43d1ce770f0184e0ba52c"
+    },
+    {
+      "id": "provider-outage-circuit",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:56.520Z",
+      "finishedAt": "2026-08-25T23:39:57.576Z",
+      "durationMs": 1056,
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/pipeline/provider-circuit-breaker.test.ts",
+      "summary": "Existing production-path tests passed",
+      "rto": {
+        "targetSeconds": 120,
+        "observedSeconds": 1.056,
+        "met": true
+      },
+      "rpo": {
+        "target": "queued work remains paused, not lost",
+        "observed": "Assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "82eaa9a4a2388221fd1e6b6ad18d1f09d9b0745c75cc3a04434a0ebbc55b125d"
+    },
+    {
+      "id": "restart-safety",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:57.576Z",
+      "finishedAt": "2026-08-25T23:39:58.560Z",
+      "durationMs": 984,
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/pipeline/restart-safety.test.ts",
+      "summary": "Existing production-path tests passed",
+      "rto": {
+        "targetSeconds": 120,
+        "observedSeconds": 0.984,
+        "met": true
+      },
+      "rpo": {
+        "target": "durable checkpoints prevent duplicate settlement",
+        "observed": "Assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "11231134deaa0ae09114471f4757cd3d87f155169f943e425fc58c51cd2fb051"
+    },
+    {
+      "id": "restart-crash-boundaries",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:39:58.561Z",
+      "finishedAt": "2026-08-25T23:40:14.233Z",
+      "durationMs": 15672,
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/pipeline/restart-crash-boundaries.test.ts",
+      "summary": "Existing production-path tests passed",
+      "rto": {
+        "targetSeconds": 120,
+        "observedSeconds": 15.672,
+        "met": true
+      },
+      "rpo": {
+        "target": "same durable run resumes without duplicate provider work",
+        "observed": "Assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "369a2f18592f9c81cf51f320aca3b844f24745ec8926722c93404119c66b4dd4"
+    },
+    {
+      "id": "model-canary",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:40:14.234Z",
+      "finishedAt": "2026-08-25T23:40:14.860Z",
+      "durationMs": 626,
+      "command": "npm run test:canary",
+      "summary": "Existing production-path tests passed",
+      "rto": {
+        "targetSeconds": 300,
+        "observedSeconds": 0.626,
+        "met": true
+      },
+      "rpo": {
+        "target": "not applicable",
+        "observed": "Assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "78a9d0cb6a5b232988857b071c190b26b82b24bad66ded6e2d372f5afc5afdeb"
+    },
+    {
+      "id": "billing-state-machine",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:40:14.861Z",
+      "finishedAt": "2026-08-25T23:40:16.342Z",
+      "durationMs": 1481,
+      "command": "npm run test:state-machine",
+      "summary": "Existing production-path tests passed",
+      "rto": {
+        "targetSeconds": 300,
+        "observedSeconds": 1.481,
+        "met": true
+      },
+      "rpo": {
+        "target": "exactly-once reservation terminal transition",
+        "observed": "Assertions passed",
+        "met": true
+      },
+      "blockers": [],
+      "checksumSha256": "f3eafc65a4ad3273dcfd3deeb82b6bcac611d6770263772aa9a4b52174893341"
+    },
+    {
+      "id": "release-rollback-source",
+      "scope": "local",
+      "status": "PASS",
+      "startedAt": "2026-08-25T23:40:16.342Z",
+      "finishedAt": "2026-08-25T23:40:16.346Z",
+      "durationMs": 4,
+      "command": "source-only release and rollback harness verification (no deployment or migration executed)",
+      "summary": "Verified release health gate and 5 forward/rollback source pairs; no rollback was executed",
+      "rto": {
+        "targetSeconds": 900,
+        "observedSeconds": null,
+        "met": null
+      },
+      "rpo": {
+        "target": "rollback sources present; execution not claimed",
+        "observed": "source/harness only",
+        "met": null
+      },
+      "blockers": [],
+      "checksumSha256": "aaa742aabb52f45c8cc504434c9b51f61d4178e3a87d15cedd503c9cfa5c0d3d"
+    },
+    {
+      "id": "staging-release-rollback",
+      "scope": "external",
+      "status": "BLOCKED",
+      "startedAt": "2026-08-25T23:40:16.346Z",
+      "finishedAt": "2026-08-25T23:40:16.346Z",
+      "durationMs": 0,
+      "command": "operator-executed staging deploy and prior-SHA rollback",
+      "summary": "Not run; no staging outcome is claimed",
+      "rto": {
+        "targetSeconds": 900,
+        "observedSeconds": null,
+        "met": null
+      },
+      "rpo": {
+        "target": "no committed writes after rollback point",
+        "observed": null,
+        "met": null
+      },
+      "blockers": [
+        "STAGING_HOST reachable by the operator",
+        "STAGING_SSH_PRIVATE_KEY with deploy permission",
+        "A documented known-good prior git SHA",
+        "Approved maintenance window and incident commander"
+      ],
+      "checksumSha256": "b5d8aab36e90ad50170860ef07b1ace0d3fa5ea4c51bb5ec6a429008bb88cbb2"
+    },
+    {
+      "id": "staging-migration-rollback",
+      "scope": "external",
+      "status": "BLOCKED",
+      "startedAt": "2026-08-25T23:40:16.346Z",
+      "finishedAt": "2026-08-25T23:40:16.346Z",
+      "durationMs": 0,
+      "command": "operator-executed migration forward/rollback on disposable staging clone",
+      "summary": "Not run; migration rollback outcome is not fabricated",
+      "rto": {
+        "targetSeconds": 1800,
+        "observedSeconds": null,
+        "met": null
+      },
+      "rpo": {
+        "target": "zero rows outside approved migration scope",
+        "observed": null,
+        "met": null
+      },
+      "blockers": [
+        "Disposable production-like staging database URL",
+        "Database owner approval and verified pre-drill snapshot",
+        "Migration-specific forward and rollback change ticket"
+      ],
+      "checksumSha256": "65596b7b7f02d932cb9d706f1be0fec3602bce492bbd47a1c9c0b3466db952e3"
+    },
+    {
+      "id": "backup-restore",
+      "scope": "external",
+      "status": "BLOCKED",
+      "startedAt": "2026-08-25T23:40:16.346Z",
+      "finishedAt": "2026-08-25T23:40:16.346Z",
+      "durationMs": 0,
+      "command": "docs/db-backup-runbook.md restore procedure against isolated restore database",
+      "summary": "Not run; see docs/db-backup-runbook.md for existing procedure/evidence locations",
+      "rto": {
+        "targetSeconds": 3600,
+        "observedSeconds": null,
+        "met": null
+      },
+      "rpo": {
+        "target": "latest successful nightly snapshot (target <=24h)",
+        "observed": null,
+        "met": null
+      },
+      "blockers": [
+        "DO_HOST and DO_SSH_PRIVATE_KEY",
+        "DO Spaces read credentials and bucket access",
+        "Isolated restore database with destructive-test approval",
+        "Selected backup object key and expected integrity baseline"
+      ],
+      "checksumSha256": "ebfdfbb019e57832034f3144e333fd89ea5042277a9c6f7449abfc07be0a60ac"
+    },
+    {
+      "id": "external-monitor-alert",
+      "scope": "external",
+      "status": "BLOCKED",
+      "startedAt": "2026-08-25T23:40:16.346Z",
+      "finishedAt": "2026-08-25T23:40:16.346Z",
+      "durationMs": 0,
+      "command": "operator-triggered synthetic health failure and alert acknowledgement",
+      "summary": "Not run; external alert delivery is not claimed",
+      "rto": {
+        "targetSeconds": 300,
+        "observedSeconds": null,
+        "met": null
+      },
+      "rpo": {
+        "target": "not applicable",
+        "observed": null,
+        "met": null
+      },
+      "blockers": [
+        "Configured uptime monitor URL",
+        "Paging integration and escalation destination",
+        "Authorized test alert window and on-call acknowledgement"
+      ],
+      "checksumSha256": "18dfd61c1b88a38eee89635fb7290b934e7ddb0559ff8665a8b8d542c8aa6a70"
+    }
+  ],
+  "blockers": [
+    "staging-release-rollback: STAGING_HOST reachable by the operator",
+    "staging-release-rollback: STAGING_SSH_PRIVATE_KEY with deploy permission",
+    "staging-release-rollback: A documented known-good prior git SHA",
+    "staging-release-rollback: Approved maintenance window and incident commander",
+    "staging-migration-rollback: Disposable production-like staging database URL",
+    "staging-migration-rollback: Database owner approval and verified pre-drill snapshot",
+    "staging-migration-rollback: Migration-specific forward and rollback change ticket",
+    "backup-restore: DO_HOST and DO_SSH_PRIVATE_KEY",
+    "backup-restore: DO Spaces read credentials and bucket access",
+    "backup-restore: Isolated restore database with destructive-test approval",
+    "backup-restore: Selected backup object key and expected integrity baseline",
+    "external-monitor-alert: Configured uptime monitor URL",
+    "external-monitor-alert: Paging integration and escalation destination",
+    "external-monitor-alert: Authorized test alert window and on-call acknowledgement"
+  ],
+  "checksums": {
+    "algorithm": "sha256",
+    "drillCount": 13
+  }
+}

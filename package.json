@@ -11,7 +11,10 @@
     "db:push": "drizzle-kit push",
     "test:canary": "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm tests/pipeline/canary-worker.test.ts",
     "test:state-machine": "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm tests/billing/reservation-state-machine.test.ts",
-    "test:agency-reports": "node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts && node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts && node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts && node --env-file=.env.local --import tsx/esm tests/agency-reports.integration.test.ts"
+    "test:agency-reports": "node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts && node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts && node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts && node --env-file=.env.local --import tsx/esm tests/agency-reports.integration.test.ts",
+    "test:deploy-contract": "bash tests/deployment/deploy-contract.test.sh",
+    "test:ops": "node --import tsx/esm --test tests/ops/health.test.ts tests/production-readiness-drills.test.ts",
+    "validate:release": "bash scripts/validate-release.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.919.0",

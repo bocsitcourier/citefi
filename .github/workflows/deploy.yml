@@ -5,225 +5,42 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Only one deploy at a time — never cancel a running deploy
 concurrency:
   group: deploy
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Patch lockfile registry
+        run: sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+      - run: npm ci --registry https://registry.npmjs.org
+      - run: npm run validate:release
+      - run: npm run build
+
   deploy:
     name: SSH deploy to droplet
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Deploy via SSH
+      - uses: actions/checkout@v4
+      - name: Deploy with shared release runner
         env:
-          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
           DO_HOST: ${{ secrets.DO_HOST }}
-        run: |
-          # ── Validate required secrets ───────────────────────────────────────
-          if [[ -z "$DO_SSH_KEY" ]]; then
-            echo "ERROR: DO_SSH_KEY secret is not set in GitHub repository secrets."
-            echo "Add the private SSH key for the droplet under:"
-            echo "  Settings → Secrets and variables → Actions → New repository secret"
-            echo "  Name: DO_SSH_KEY"
-            exit 1
-          fi
-          if [[ -z "$DO_HOST" ]]; then
-            echo "ERROR: DO_HOST secret is not set in GitHub repository secrets."
-            echo "Add the droplet IP or hostname under:"
-            echo "  Settings → Secrets and variables → Actions → New repository secret"
-            echo "  Name: DO_HOST"
-            exit 1
-          fi
-
-          # ── SSH key setup ───────────────────────────────────────────────────
-          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
-          KEY="$HOME/.ssh/id_do_deploy"
-
-          # Reconstruct proper PEM in case the secret has literal \n or spaces
-          python3 - <<'PYEOF' > "$KEY"
-          import os, re, sys
-          raw = os.environ["DO_SSH_KEY"]
-          if "\n" in raw:
-              sys.stdout.write(raw if raw.endswith("\n") else raw + "\n")
-          else:
-              raw = re.sub(r"-----BEGIN ([^-]+)-----\s*", r"-----BEGIN \1-----\n", raw)
-              raw = re.sub(r"\s*-----END ([^-]+)-----", r"\n-----END \1-----\n", raw)
-              lines = raw.split("\n")
-              out = []
-              for line in lines:
-                  if "-----" in line:
-                      out.append(line)
-                  else:
-                      out.extend(line.split())
-              sys.stdout.write("\n".join(out) + "\n")
-          PYEOF
-          chmod 600 "$KEY"
-
-          ssh-keyscan -H "$DO_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
-
-          SSH_OPTS=(
-            -i "$KEY"
-            -o BatchMode=yes
-            -o IdentitiesOnly=yes
-            -o StrictHostKeyChecking=yes
-            -o ConnectTimeout=15
-          )
-
-          echo "Deploying to root@${DO_HOST}:/var/www/citefi (branch: main)"
-
-          # ── Remote deploy ───────────────────────────────────────────────────
-          ssh "${SSH_OPTS[@]}" "root@${DO_HOST}" bash -s <<'REMOTE'
-          set -euo pipefail
-
-          DO_APP_DIR="/var/www/citefi"
-          DO_BRANCH="main"
-          DO_PM2_CONFIG="ecosystem.config.cjs"
-          DO_HEALTHCHECK_URL="http://127.0.0.1:5000/api/health"
-
-          # Allow root to operate on a repo owned by another user
-          git config --global --add safe.directory "$DO_APP_DIR" 2>/dev/null || true
-
-          cd "$DO_APP_DIR"
-          test -d .git || { echo "ERROR: $DO_APP_DIR is not a git repo"; exit 1; }
-
-          # ── Preflight checks ──────────────────────────────────────────────
-          if [[ ! -f .env.local ]]; then
-            echo "ERROR: .env.local is missing — deploy blocked."
-            exit 1
-          fi
-          for var in DATABASE_URL JWT_SECRET; do
-            grep -q "^${var}=" .env.local 2>/dev/null || { echo "ERROR: .env.local missing key: $var"; exit 1; }
-          done
-          echo "✓ .env.local present and keys verified"
-
-          # ── Git update ────────────────────────────────────────────────────
-          OLD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
-          echo "  Current: ${OLD_SHA}"
-          git fetch origin "${DO_BRANCH}"
-          git reset --hard "origin/${DO_BRANCH}"
-          NEW_SHA="$(git rev-parse --short HEAD)"
-          echo "  Updated: ${OLD_SHA} -> ${NEW_SHA}"
-
-          # ── Build ─────────────────────────────────────────────────────────
-          NEEDS_BUILD=false
-          if [[ "$OLD_SHA" != "$NEW_SHA" ]]; then
-            echo "Code changed — running full install + build."
-            NEEDS_BUILD=true
-          elif [[ ! -d .next ]] || [[ ! -f .next/BUILD_ID ]]; then
-            echo ".next missing or incomplete — forcing build."
-            NEEDS_BUILD=true
-          elif [[ ! -d node_modules ]]; then
-            echo "node_modules missing — running install + build."
-            NEEDS_BUILD=true
-          fi
-
-          if [[ "$NEEDS_BUILD" == "true" ]]; then
-            # Stop PM2 BEFORE npm ci to free RAM on the 2 GB droplet.
-            # PM2 holds ~200 MB while running; npm ci OOMs without this headroom,
-            # leaving node_modules partially written (styled-jsx and other packages
-            # silently absent, causing "Cannot find module" crashes at startup).
-            echo "Stopping PM2 to free RAM before install..."
-            pm2 stop all 2>/dev/null || true
-
-            # Ensure extra swap exists so next build never OOMs on a 2 GB droplet.
-            # The build peaks at ~1.7 GB RSS; without extra headroom the OOM killer
-            # silently kills the process mid-way, leaving .next without BUILD_ID.
-            if [[ ! -f /swapfile2 ]]; then
-              echo "Creating 2 GB swap file to cover build peak..."
-              fallocate -l 2G /swapfile2
-              chmod 600 /swapfile2
-              mkswap /swapfile2 >/dev/null
-              swapon /swapfile2
-              echo "  ✓ /swapfile2 active"
-            elif ! swapon --show | grep -q /swapfile2; then
-              swapon /swapfile2
-              echo "  ✓ /swapfile2 re-activated"
-            fi
-
-            # Patch any Replit-internal registry URLs before npm ci
-            if grep -q "package-firewall.replit.local" package-lock.json 2>/dev/null; then
-              echo "  Patching Replit proxy URLs in package-lock.json..."
-              sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
-            fi
-            npm ci --registry https://registry.npmjs.org || {
-              echo "  npm ci failed — wiping node_modules and retrying..."
-              rm -rf node_modules
-              npm ci --registry https://registry.npmjs.org
-            }
-            git checkout -- package-lock.json 2>/dev/null || true
-
-            echo "Building..."
-            NODE_OPTIONS="--max-old-space-size=1700" npm run build
-            echo "Build complete."
-          else
-            echo "Build artifacts present and code unchanged — skipping build."
-          fi
-
-          # ── PM2 reload ────────────────────────────────────────────────────
-          echo "Reloading PM2..."
-          WEB_RESTARTS_BEFORE=$(pm2 jlist 2>/dev/null | python3 -c "
-          import json,sys
-          procs = json.load(sys.stdin)
-          for p in procs:
-              if p.get('name') == 'citefi-web':
-                  print(p.get('pm2_env',{}).get('restart_time',0))
-          " 2>/dev/null || echo "0")
-
-          pm2 startOrReload "$DO_PM2_CONFIG" --update-env 2>/dev/null \
-            || pm2 restart all --update-env
-
-          # ── Health check (verifies DB connectivity, not just HTTP 200) ──────
-          echo ""
-          echo "Health check (waiting up to 45s)..."
-          PASSED=false
-          for i in $(seq 1 15); do
-            sleep 3
-            HEALTH=$(curl -fsS --max-time 5 "$DO_HEALTHCHECK_URL" 2>/dev/null || echo "")
-            if [[ -n "$HEALTH" ]]; then
-              DB_OK=$(echo "$HEALTH" | python3 -c "
-          import json,sys
-          r=json.load(sys.stdin)
-          print(r.get('services',{}).get('database',{}).get('ok',False))
-          " 2>/dev/null || echo "False")
-              if [[ "$DB_OK" == "True" ]]; then
-                echo "✓ Health check passed (attempt ${i}) — app up, DB connected."
-                PASSED=true
-                break
-              else
-                DB_ERR=$(echo "$HEALTH" | python3 -c "
-          import json,sys
-          r=json.load(sys.stdin)
-          print(r.get('services',{}).get('database',{}).get('error','no error field'))
-          " 2>/dev/null || echo "parse error")
-                echo "  App responded but database.ok=false: $DB_ERR"
-              fi
-            fi
-            if [[ $i -eq 3 ]]; then
-              WEB_RESTARTS_NOW=$(pm2 jlist 2>/dev/null | python3 -c "
-          import json,sys
-          procs = json.load(sys.stdin)
-          for p in procs:
-              if p.get('name') == 'citefi-web':
-                  print(p.get('pm2_env',{}).get('restart_time',0))
-          " 2>/dev/null || echo "0")
-              if [[ "$WEB_RESTARTS_NOW" -gt "$WEB_RESTARTS_BEFORE" ]]; then
-                echo "  ⚠ citefi-web is crash-looping (restarts: ${WEB_RESTARTS_BEFORE} → ${WEB_RESTARTS_NOW})"
-                pm2 logs citefi-web --lines 20 --nostream 2>/dev/null || true
-              fi
-            fi
-            if [[ $i -eq 15 ]]; then
-              echo "ERROR: Health check failed after 45s"
-              pm2 list
-              pm2 logs citefi-web --lines 40 --nostream 2>/dev/null || true
-              exit 1
-            fi
-            echo "  Waiting... (attempt ${i})"
-          done
-
-          pm2 list
-          echo ""
-          echo "✓ Deployed ${NEW_SHA} successfully."
-          REMOTE
+          DO_USER: root
+          DO_APP_DIR: /var/www/citefi
+          DO_BRANCH: main
+          DO_PM2_CONFIG: ecosystem.config.cjs
+          DO_HEALTHCHECK_URL: http://127.0.0.1:5000/api/health?full=1
+          DO_VALIDATION_COMMAND: npm run validate:release
+        run: scripts/deploy-to-do.sh

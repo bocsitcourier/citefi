@@ -26,6 +26,7 @@ import {
   creditLedger,
 } from "../../shared/schema.js";
 import { eq, sql, and, inArray } from "drizzle-orm";
+import { runWithSystemContext } from "../../lib/tenant-context.js";
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ const failures: string[] = [];
 
 async function check(name: string, fn: () => Promise<void>) {
   try {
-    await fn();
+    await runWithSystemContext(`reservation state-machine test: ${name}`, fn);
     console.log(`✓ ${name}`);
     passed++;
   } catch (err) {
@@ -56,11 +57,13 @@ async function seedTeam(suffix: string, credits = 100): Promise<{ teamId: number
     .insert(users)
     .values({ email: `t118_${suffix}_${RUN_TAG}@test.invalid`, passwordHash: "x", role: "member", accountStatus: "active" })
     .returning({ id: users.id });
+  assert.ok(userRow, "test user insert must return a row");
 
   const [teamRow] = await db
     .insert(teams)
     .values({ name: `T118 ${suffix} ${RUN_TAG}`, createdBy: userRow.id })
     .returning({ id: teams.id });
+  assert.ok(teamRow, "test team insert must return a row");
 
   await db.insert(teamMembers).values({ teamId: teamRow.id, userId: userRow.id, role: "owner" });
 
@@ -376,10 +379,12 @@ try {
     // Use inArray() rather than raw ANY() — the Neon HTTP driver requires
     // array parameters to be wrapped as a typed SQL array, but inArray()
     // emits a plain IN (...) list that works reliably with both drivers.
-    await db.delete(creditLedger).where(inArray(creditLedger.teamId, createdTeamIds));
-    await db.delete(creditBalances).where(inArray(creditBalances.teamId, createdTeamIds));
-    await db.delete(teamMembers).where(inArray(teamMembers.teamId, createdTeamIds));
-    await db.delete(teams).where(inArray(teams.id, createdTeamIds));
+    await runWithSystemContext("reservation state-machine fixture cleanup", async () => {
+      await db.delete(creditLedger).where(inArray(creditLedger.teamId, createdTeamIds));
+      await db.delete(creditBalances).where(inArray(creditBalances.teamId, createdTeamIds));
+      await db.delete(teamMembers).where(inArray(teamMembers.teamId, createdTeamIds));
+      await db.delete(teams).where(inArray(teams.id, createdTeamIds));
+    });
   }
 } catch (err) {
   console.warn("Cleanup error (non-fatal):", err instanceof Error ? err.message : err);
