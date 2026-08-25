@@ -1,0 +1,12 @@
+BEGIN;
+DROP TABLE IF EXISTS provider_invoice_reconciliations;
+DROP TRIGGER IF EXISTS provider_usage_ledger_append_only ON provider_usage_ledger;
+DROP TABLE IF EXISTS provider_usage_ledger;
+DROP TRIGGER IF EXISTS provider_rates_immutable ON provider_rates;
+DROP TABLE IF EXISTS provider_rates;
+DROP TRIGGER IF EXISTS provider_rate_versions_immutable ON provider_rate_versions;
+DROP TABLE IF EXISTS provider_rate_versions;
+DROP FUNCTION IF EXISTS citefi_rls.guard_provider_usage_ledger();
+DROP FUNCTION IF EXISTS citefi_rls.guard_provider_rate_immutability();
+DROP FUNCTION IF EXISTS citefi_rls.provider_ledger_select_allowed(integer);
+COMMIT;

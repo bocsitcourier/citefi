@@ -1,6 +1,7 @@
 import { callOpenAI } from "../openai-client";
 import { isHighQualityAnchor, isBareGeoAnchor } from "../seo-policy";
 import { GLOBAL_SEO_LAWS } from "../seo-ai-laws";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 /**
  * GPT-4 Intelligent Hyperlinking System for GEO Optimization
@@ -168,6 +169,7 @@ ${articleHtml}
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ GPT-4 article body hyperlink generation error:", error);
     throw new Error("Failed to generate article body hyperlinks with GPT-4");
   }
@@ -288,6 +290,7 @@ ${faqHtml}
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ GPT-4 FAQ hyperlink generation error:", error);
     throw new Error("Failed to generate FAQ hyperlinks with GPT-4");
   }

@@ -1,6 +1,6 @@
 import { openaiClient, callOpenAI } from "../openai-client";
-import { safeLogCostTelemetry, extractOpenAIUsage } from "../cost-telemetry";
 import { isHighQualityAnchor } from "../seo-policy";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface HyperlinkResult {
   keywords: Array<{
@@ -99,14 +99,6 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
       `Hyperlinker: ${coreTopic.substring(0, 50)}`
     );
 
-    if (completion.usage) {
-      safeLogCostTelemetry(
-        { operationType: "article_hyperlink", provider: "openai", model: "gpt-4.1-mini" },
-        extractOpenAIUsage(completion),
-        0, true
-      );
-    }
-
     const responseText = completion.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(responseText);
     
@@ -151,6 +143,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Hyperlink generation error:", error);
     throw new Error("Failed to generate hyperlinks");
   }

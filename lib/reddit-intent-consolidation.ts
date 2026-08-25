@@ -8,6 +8,8 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -39,6 +41,7 @@ export interface RedditOutline {
  * Analyzes raw Reddit data and produces structured outline
  */
 export async function consolidateRedditIntents(params: {
+  teamId: number;
   coreTopic: string;
   location: string;
   redditQuestions: Array<{
@@ -54,7 +57,10 @@ export async function consolidateRedditIntents(params: {
     subreddit: string;
   }>;
 }): Promise<RedditOutline> {
-  const { coreTopic, location, redditQuestions, redditDiscussions = [] } = params;
+  const { teamId, coreTopic, location, redditQuestions, redditDiscussions = [] } = params;
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Reddit intent consolidation requires a validated teamId");
+  }
   
   console.log(`[Intent Consolidation] Analyzing ${redditQuestions.length} questions for "${coreTopic}" in "${location}"...`);
   
@@ -152,14 +158,23 @@ Return a valid JSON object with this structure:
 
 Generate the JSON outline now:`;
 
-    const result = await genAI.models.generateContent({
-      model: GEMINI_FLASH_MODEL,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-      },
-    });
+    const startedAt = Date.now();
+    const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+    let result;
+    try {
+      result = await genAI.models.generateContent({
+        model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { temperature: 0.3, responseMimeType: "application/json" },
+      });
+      await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+        providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+      extractGeminiUsage(result), Date.now() - startedAt);
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt({ operationType: "topic_research", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+        { totalTokens: 0 }, Date.now() - startedAt, error);
+      throw error;
+    }
     const responseText = result.text || "";
     
     // Parse JSON response
@@ -177,6 +192,7 @@ Generate the JSON outline now:`;
     return outline;
     
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error('[Intent Consolidation] ❌ Error during analysis:', error);
     
     // SAFETY: Return minimal outline on error

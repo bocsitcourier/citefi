@@ -8,6 +8,7 @@ import {
   TONE_DESCRIPTIONS 
 } from "./veo-idea-expander";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const VEO_BLOCKED_PATTERNS = [
   /\b(google|facebook|meta|apple|microsoft|amazon|twitter|instagram|tiktok|youtube|netflix|disney|marvel|dc comics|star wars|pokemon|nike|adidas|coca-cola|pepsi|mcdonald'?s|burger king|starbucks|walmart|uber|lyft|airbnb|spotify|openai|chatgpt)\b/gi,
@@ -148,6 +149,7 @@ const CLIP_BEAT_MAPPING: Record<number, "hook" | "problem" | "solution" | "benef
 };
 
 export interface IdeaScriptRequest {
+  teamId: number;
   ideaTitle: string;
   companyName: string;
   expandedConcept: ExpandedVideoConcept;
@@ -160,7 +162,11 @@ export interface IdeaScriptRequest {
 }
 
 export async function generateIdeaVideoScript(request: IdeaScriptRequest): Promise<IdeaVideoScript> {
+  if (!Number.isInteger(request.teamId) || request.teamId <= 0) {
+    throw new Error("Video idea script generation requires a validated teamId");
+  }
   const {
+    teamId,
     ideaTitle,
     companyName,
     expandedConcept,
@@ -271,14 +277,36 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
 
   try {
     const genAI = getGeminiClient();
-    const response = await genAI.models.generateContent({
-      model: GEMINI_FLASH_MODEL,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        temperature: 0.7,
-        maxOutputTokens: 4000,
+    const startedAt = Date.now();
+    let response;
+    try {
+      response = await genAI.models.generateContent({
+        model: GEMINI_FLASH_MODEL,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 4000,
+        },
+      });
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt(
+        {
+          operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+          teamId, attempt: 1,
+        },
+        { totalTokens: 0 }, Date.now() - startedAt, error
+      );
+      throw error;
+    }
+    await logCostTelemetry(
+      {
+        operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        teamId,
+        providerRequestId: (response as any).responseId ?? null, attempt: 1,
       },
-    });
+      extractGeminiUsage(response), Date.now() - startedAt, true
+    );
 
     const text = (response.text || "").trim();
     
@@ -403,6 +431,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     
     return script;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Error generating idea video script:", error);
     throw new Error(`Failed to generate idea video script: ${error}`);
   }

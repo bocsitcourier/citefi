@@ -51,7 +51,10 @@ export async function POST(request: NextRequest) {
           Math.min(numArticles * 2, 50),
           tone,
           location,
-          seoToolOutput.trending_topics?.map((t: any) => t.topic).join(", ")
+          seoToolOutput.trending_topics?.map((t: any) => t.topic).join(", "),
+          undefined,
+          undefined,
+          teamId
         );
         break;
       }
@@ -71,7 +74,10 @@ export async function POST(request: NextRequest) {
           Math.min(numArticles * 2, 50),
           tone,
           locationForTitles,
-          seoToolOutput.keyword_opportunities?.join(", ")
+          seoToolOutput.keyword_opportunities?.join(", "),
+          undefined,
+          undefined,
+          teamId
         );
         break;
       }
@@ -90,7 +96,11 @@ export async function POST(request: NextRequest) {
           targetUrl,
           Math.min(numArticles * 2, 50),
           tone,
-          structureLocation
+          structureLocation,
+          undefined,
+          undefined,
+          undefined,
+          teamId
         );
         break;
       }
@@ -113,7 +123,10 @@ export async function POST(request: NextRequest) {
           Math.min(numArticles * 2, 50),
           tone,
           pillarLocation,
-          pillarKeywords
+          pillarKeywords,
+          undefined,
+          undefined,
+          teamId
         );
         break;
       }

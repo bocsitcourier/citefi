@@ -78,7 +78,7 @@ function injectLinksTopUp(
     if (injected >= needed) return false; // stop once we have enough
 
     const paragraphText = $(el).text().replace(/\s+/g, " ").trim();
-    if (paragraphText.length < 40) return;
+    if (paragraphText.length < 40) return undefined;
 
     // Find best 4-7 word phrase (longest first) containing a hint word
     const words = paragraphText.split(" ").filter((w) => w.length > 0);
@@ -110,7 +110,7 @@ function injectLinksTopUp(
       }
     }
 
-    if (!chosenPhrase) return;
+    if (!chosenPhrase) return undefined;
 
     const innerHtml = $(el).html() || "";
     // Build regex that tolerates whitespace variation between words (including
@@ -122,7 +122,7 @@ function injectLinksTopUp(
     const rx = new RegExp(`(?<![a-zA-Z])(${pattern})(?![a-zA-Z])`, "i");
 
     const match = rx.exec(innerHtml);
-    if (!match) return;
+    if (!match) return undefined;
 
     const newHtml = innerHtml.replace(
       rx,
@@ -135,6 +135,7 @@ function injectLinksTopUp(
       usedPhrases.add(chosenPhrase.toLowerCase());
       injected++;
     }
+    return undefined;
   });
 
   return { html: $.html(), injected };
@@ -228,6 +229,7 @@ export async function POST(
       const anchorsBefore = (healedHtml.match(/<a /gi) || []).length;
 
       const injection = await injectLinksWithIntent(
+        teamId,
         healedHtml,
         entries,
         pages,

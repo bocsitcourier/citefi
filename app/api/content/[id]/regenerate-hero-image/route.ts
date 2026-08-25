@@ -52,6 +52,10 @@ export async function POST(
         { status: 404 }
       );
     }
+    const articleTeamId = article.teamId;
+    if (articleTeamId == null || !Number.isInteger(articleTeamId) || articleTeamId <= 0) {
+      throw new Error(`Article ${articleId} is missing a validated teamId`);
+    }
 
     // DEFENSIVE: Get batch filtered by team_id
     const [batch] = await db
@@ -104,7 +108,12 @@ export async function POST(
     // Generate new image using Gemini 2.5 Flash Image with image-specific brand lock
     console.log(`🎨 Regenerating hero image for article ${articleId}${businessName ? ` with image brand lock: "${businessName}"` : ''}...`);
     console.log(`   Prompt: ${prompt.slice(0, 100)}...`);
-    const dataUrl = await generateSingleImage(enhancedPrompt);
+    const dataUrl = await generateSingleImage(enhancedPrompt, {
+      teamId: articleTeamId,
+      articleId,
+      resourceType: "article",
+      resourceId: articleId,
+    });
 
     if (!dataUrl) {
       return NextResponse.json(

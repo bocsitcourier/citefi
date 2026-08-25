@@ -15,6 +15,8 @@ import { getModel } from "./model-resolver";
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { 
   parseArticleSections, 
   validatePromotionalContent, 
@@ -135,7 +137,8 @@ async function performReflexiveRewrite(
   violations: PromotionalViolation[],
   cliches: { cliche: string; inCTA: boolean; count: number }[],
   companyName: string,
-  geminiApiKey: string
+  geminiApiKey: string,
+  teamId: number
 ): Promise<string> {
   const genAI = new GoogleGenAI({ apiKey: geminiApiKey });
   
@@ -143,14 +146,25 @@ async function performReflexiveRewrite(
   
   console.log(`🔄 Performing reflexive rewrite to fix ${violations.length} violations and ${cliches.length} clichés...`);
   
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: { 
-      temperature: 0.2,
-      maxOutputTokens: 8192
-    }
-  });
+  const model = getModel("geminiFlash");
+  const startedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  let result;
+  try {
+    result = await genAI.models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: { temperature: 0.2, maxOutputTokens: 8192 }
+    });
+    await logCostTelemetry({ operationType: "article_review", provider: "gemini", model, teamId,
+      providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+    extractGeminiUsage(result), Date.now() - startedAt);
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "article_review", provider: "gemini", model, teamId, providerMetadata },
+      { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
   
   const rewrittenContent = result.text || '';
   
@@ -171,8 +185,12 @@ async function performReflexiveRewrite(
 export async function generateArticleReflexive(
   generatedContent: string,
   companyName: string,
+  teamId: number,
   options: ReflexiveGenerationOptions = {}
 ): Promise<ReflexiveGenerationResult> {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Reflexive article generation requires a validated teamId");
+  }
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const geminiApiKey = process.env.GEMINI_API_KEY;
   
@@ -216,7 +234,8 @@ export async function generateArticleReflexive(
         initialValidation.promoValidation.violations,
         initialValidation.clicheResults,
         companyName,
-        geminiApiKey
+        geminiApiKey,
+        teamId
       );
       wasRewritten = true;
       
@@ -225,6 +244,7 @@ export async function generateArticleReflexive(
         .map(c => c.cliche);
       
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.warn('⚠️ Reflexive rewrite failed, using original content:', (error as Error).message);
     }
   }

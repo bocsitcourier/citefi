@@ -14,14 +14,32 @@ import {
 } from "../shared/schema";
 import { factStore, FactPack } from "./fact-store";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-async function callGeminiForValidation(prompt: string): Promise<string> {
-  const result = await genAI.models.generateContent({
-    model: GEMINI_FLASH_MODEL,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+async function callGeminiForValidation(prompt: string, teamId: number): Promise<string> {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Claim validation requires a validated teamId");
+  }
+  const startedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  let result;
+  try {
+    result = await genAI.models.generateContent({
+      model: GEMINI_FLASH_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+      { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
+  await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+    providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+  extractGeminiUsage(result), Date.now() - startedAt);
   return result.text || "";
 }
 
@@ -246,6 +264,7 @@ CRITICAL RULES:
       }
 
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.error("[AntiHallucination] Parse error:", error);
       return {
         isValid: false,
@@ -398,7 +417,7 @@ CRITICAL RULES:
     console.log(`[AntiHallucination] Created audit trail for ${contentType}:${contentId}, safety: ${validationResult.safetyScore}%`);
   }
 
-  async classifyClaims(text: string, factPack: FactPack): Promise<StructuredOutput> {
+  async classifyClaims(text: string, factPack: FactPack, teamId: number): Promise<StructuredOutput> {
     const prompt = `You are a claim classifier. Analyze the following text and classify each sentence.
 
 AVAILABLE FACTS:
@@ -422,12 +441,13 @@ Return JSON:
 }`;
 
     try {
-      const result = await callGeminiForValidation(prompt);
+      const result = await callGeminiForValidation(prompt, teamId);
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         return JSON.parse(jsonMatch[0]);
       }
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.error("[AntiHallucination] Classification error:", error);
     }
 

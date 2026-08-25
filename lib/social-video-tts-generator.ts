@@ -4,6 +4,7 @@ import { objectStorageClient } from "./storage";
 import { TTS_MODEL, TTS_VOICE } from "./ai-config";
 import { VoiceHumanizer } from "./voice-humanizer";
 import type { Emotion } from "@/types/video-schema";
+import { isProviderAccountingError } from "./cost-telemetry";
 import { 
   getVoiceProfile, 
   getEmotionInstruction, 
@@ -49,6 +50,7 @@ export interface TTSResult {
 }
 
 interface GenerateTTSRequest {
+  teamId: number;
   socialPostId: number;
   scenes: VideoScene[];
   tone: string;
@@ -94,7 +96,8 @@ const TONE_TO_EMOTION: Record<string, Emotion> = {
 export async function generateVideoTTS(
   request: GenerateTTSRequest
 ): Promise<TTSResult> {
-  const { socialPostId, scenes, tone, companyName } = request;
+  const { teamId, socialPostId, scenes, tone, companyName } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Video TTS requires a validated teamId");
 
   console.log(`🎙️ Generating 60-second voiceover with OpenAI TTS + Voice Humanization`);
 
@@ -137,7 +140,6 @@ export async function generateVideoTTS(
     // Use gpt-4o-mini-tts for emotional steering
     const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
     
-    const _socialTtsStart = Date.now();
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
         model: TTS_MODEL,
@@ -146,18 +148,20 @@ export async function generateVideoTTS(
         speed: 1.0, // Natural speaking pace
         ...(useEmotionalTTS ? { instructions: emotionInstructions } : {}),
       } as any),
-      `Video TTS: ${voice} for post ${socialPostId}`
+      `Video TTS: ${voice} for post ${socialPostId}`,
+      undefined,
+      {
+        operationType: "video_tts",
+        model: TTS_MODEL,
+        teamId,
+        resourceType: "social_post",
+        resourceId: socialPostId,
+        usage: { characters: fullNarration.length },
+      }
     );
 
     // Convert response to buffer
     const buffer = Buffer.from(await mp3.arrayBuffer());
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
-      safeLogCostTelemetry(
-        { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
-        { characters: fullNarration.length },
-        Date.now() - _socialTtsStart, true
-      );
-    }).catch(() => {});
 
     console.log(`  ✅ Audio generated, uploading to storage...`);
 
@@ -201,12 +205,14 @@ export async function generateVideoTTS(
       voice: voice as string,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Failed to generate TTS:", error);
     throw new Error(`TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 interface MultiVoiceTTSRequest {
+  teamId: number;
   socialPostId: number;
   scenes: VideoScene[];
   tone: string;
@@ -225,13 +231,14 @@ interface AudioSegment {
 export async function generateMultiVoiceTTS(
   request: MultiVoiceTTSRequest
 ): Promise<TTSResult> {
-  const { socialPostId, scenes, tone, companyName, enableMultiVoice = true } = request;
+  const { teamId, socialPostId, scenes, tone, companyName, enableMultiVoice = true } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Multi-voice TTS requires a validated teamId");
 
   const hasDifferentSpeakers = scenes.some(s => s.speaker && s.speaker !== "Narrator");
   
   if (!enableMultiVoice || !hasDifferentSpeakers) {
     console.log(`🎙️ Single-voice mode (no speaker variety detected)`);
-    return generateVideoTTS({ socialPostId, scenes, tone, companyName });
+    return generateVideoTTS({ teamId, socialPostId, scenes, tone, companyName });
   }
 
   console.log(`🎭 Multi-voice mode: generating character dialogue`);
@@ -282,7 +289,6 @@ export async function generateMultiVoiceTTS(
     console.log(`     Scenes: ${sceneNumbers.join(", ")}, Words: ${combinedText.split(/\s+/).length}`);
 
     try {
-      const _multiTtsStart = Date.now();
       const mp3 = await callOpenAI(
         (client) => client.audio.speech.create({
           model: TTS_MODEL,
@@ -291,17 +297,20 @@ export async function generateMultiVoiceTTS(
           speed: 1.0,
           ...(useEmotionalTTS ? { instructions: emotionalInstruction } : {}),
         } as any),
-        `Multi-voice TTS: ${speaker} (${voiceProfile.voice}) for post ${socialPostId}`
+        `Multi-voice TTS: ${speaker} (${voiceProfile.voice}) for post ${socialPostId}`,
+        undefined,
+        {
+          operationType: "video_tts",
+          model: TTS_MODEL,
+          teamId,
+          resourceType: "social_post",
+          resourceId: socialPostId,
+          providerMetadata: { segmentIndex: i },
+          usage: { characters: combinedText.length },
+        }
       );
 
       const buffer = Buffer.from(await mp3.arrayBuffer());
-      void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
-        safeLogCostTelemetry(
-          { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
-          { characters: combinedText.length },
-          Date.now() - _multiTtsStart, true
-        );
-      }).catch(() => {});
       const wordCount = combinedText.split(/\s+/).length;
       const estimatedDuration = Math.ceil((wordCount / 150) * 60);
 
@@ -314,6 +323,7 @@ export async function generateMultiVoiceTTS(
       });
 
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.error(`  ❌ Failed to generate TTS for ${speaker}:`, error);
       throw new Error(`TTS generation failed for ${speaker}: ${error instanceof Error ? error.message : String(error)}`);
     }

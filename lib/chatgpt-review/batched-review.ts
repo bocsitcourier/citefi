@@ -1,7 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
-import { safeLogCostTelemetry, extractOpenAIUsage } from "../cost-telemetry";
 import { validateContent, type ContentValidationResult } from "./content-validator";
 import { isHighQualityAnchor } from "../seo-policy";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface BatchedReviewResult {
   hyperlinks: {
@@ -299,14 +299,6 @@ ${content}
     chatgptReviewTimeout // Pass timeout to callOpenAI wrapper (controls request timeout)
   );
 
-  if (completion.usage) {
-    safeLogCostTelemetry(
-      { operationType: "article_review", provider: "openai", model: "gpt-4.1-mini" },
-      extractOpenAIUsage(completion),
-      0, true
-    );
-  }
-
   const responseText = completion.choices[0]?.message?.content || "{}";
   const parsed = JSON.parse(responseText);
 
@@ -314,29 +306,23 @@ ${content}
   // Validation is purely informational (logging) - it doesn't gate the pipeline
   let contentValidation: ContentValidationResult | undefined;
   if (enableValidation) {
-    const validationPromise = (async () => {
-      try {
-        console.log(`\n🔍 Running advanced content validation (Task 5)...`);
-        const result = await validateContent({
-          content,
-          title,
-          seoTitle,
-          metaDescription,
-          faq,
-          geographicFocus,
-          wordCount: wordCount || content.split(/\s+/).length,
-        });
-        console.log(`✅ Content validation complete - Overall Score: ${result.overallScore}/100`);
-        return result;
-      } catch (error) {
-        console.error(`❌ Content validation failed:`, error);
-        return undefined;
-      }
-    })();
-    // Fire-and-forget: Don't await - let it run in background while pipeline continues
-    validationPromise.then(result => {
-      if (result) contentValidation = result;
-    }).catch(() => {});
+    try {
+      console.log(`\n🔍 Running advanced content validation (Task 5)...`);
+      contentValidation = await validateContent({
+        content,
+        title,
+        seoTitle,
+        metaDescription,
+        faq,
+        geographicFocus,
+        wordCount: wordCount || content.split(/\s+/).length,
+      });
+      console.log(`✅ Content validation complete - Overall Score: ${contentValidation.overallScore}/100`);
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      console.error(`❌ Content validation failed:`, error);
+      contentValidation = undefined;
+    }
   }
 
   // PLATINUM: Post-parse quality gate — reject any anchor that violates SEO policy.

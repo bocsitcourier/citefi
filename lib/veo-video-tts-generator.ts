@@ -2,6 +2,7 @@ import { openaiClient, callOpenAI } from "./openai-client";
 import type { VeoClipPrompt } from "./veo-video-generator";
 import { objectStorageClient } from "./storage";
 import { TTS_MODEL, TTS_VOICE } from "./ai-config";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 // Voice selection based on content tone
 const TONE_VOICE_MAP: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable" | "nova" | "onyx" | "sage" | "shimmer"> = {
@@ -95,6 +96,7 @@ export interface VeoTTSResult {
 }
 
 interface GenerateVeoTTSRequest {
+  teamId: number;
   socialPostId: number;
   clips: VeoClipPrompt[];
   tone: string;
@@ -105,7 +107,8 @@ interface GenerateVeoTTSRequest {
 export async function generateVeoTTS(
   request: GenerateVeoTTSRequest
 ): Promise<VeoTTSResult> {
-  const { socialPostId, clips, tone, companyName, website } = request;
+  const { teamId, socialPostId, clips, tone, companyName, website } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Veo TTS requires a validated teamId");
 
   console.log(`🎙️ Generating natural voiceover for ${clips.length} Veo clips`);
 
@@ -127,7 +130,6 @@ export async function generateVeoTTS(
     // Use gpt-4o-mini-tts for emotional steering
     const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
     
-    const _veoTtsStart = Date.now();
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
         model: TTS_MODEL,
@@ -136,17 +138,19 @@ export async function generateVeoTTS(
         speed: 0.95,
         ...(useEmotionalTTS ? { instructions: emotionInstructions } : {}),
       } as any),
-      `Veo Video TTS: ${voice} for post ${socialPostId}`
+      `Veo Video TTS: ${voice} for post ${socialPostId}`,
+      undefined,
+      {
+        operationType: "video_tts",
+        model: TTS_MODEL,
+        teamId,
+        resourceType: "social_post",
+        resourceId: socialPostId,
+        usage: { characters: ttsNarration.length },
+      }
     );
 
     const buffer = Buffer.from(await mp3.arrayBuffer());
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
-      safeLogCostTelemetry(
-        { operationType: "video_tts", provider: "openai", model: TTS_MODEL },
-        { characters: ttsNarration.length },
-        Date.now() - _veoTtsStart, true
-      );
-    }).catch(() => {});
 
     console.log(`  ✅ Audio generated, uploading to storage...`);
 
@@ -197,6 +201,7 @@ export async function generateVeoTTS(
       voice,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Failed to generate Veo TTS:", error);
     throw new Error(`Veo TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }

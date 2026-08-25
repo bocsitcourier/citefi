@@ -1,8 +1,31 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { openaiClient, callOpenAI } from "./openai-client";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+async function generateSeoIntelligence(prompt: string, teamId: number) {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("SEO intelligence requires a validated teamId");
+  }
+  const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  try {
+    const result = await genAI.models.generateContent({
+      model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { temperature: 0.7, responseMimeType: "application/json" },
+    });
+    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+      providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+    extractGeminiUsage(result), Date.now() - startedAt);
+    return result;
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+      { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
+}
 
 export interface LocalSEOResearch {
   location: string;
@@ -114,6 +137,7 @@ export interface PillarClusterStrategy {
 }
 
 export async function researchLocalSEO(params: {
+  teamId: number;
   location: string;
   business_type: string;
   core_topic?: string;
@@ -202,19 +226,7 @@ Return ONLY valid JSON matching this structure:
   }]
 }`;
 
-  const result = await genAI.models.generateContent({
-    model: GEMINI_FLASH_MODEL,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
-      },
-    ],
-    config: {
-      temperature: 0.7,
-      responseMimeType: "application/json",
-    },
-  });
+  const result = await generateSeoIntelligence(prompt, params.teamId);
 
   const text = result.text || "";
   
@@ -391,6 +403,7 @@ export async function generateSchemaMarkup(params: {
 }
 
 export async function optimizeContentStructure(params: {
+  teamId: number;
   topic: string;
   target_audience: string;
   word_count_target: number;
@@ -441,19 +454,7 @@ Return ONLY valid JSON:
   }]
 }`;
 
-  const result = await genAI.models.generateContent({
-    model: GEMINI_FLASH_MODEL,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }],
-      },
-    ],
-    config: {
-      temperature: 0.8,
-      responseMimeType: "application/json",
-    },
-  });
+  const result = await generateSeoIntelligence(prompt, params.teamId);
 
   const text = result.text || "";
   

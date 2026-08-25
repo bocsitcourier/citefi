@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface EnhancedImagePrompt {
   original: string;
@@ -123,6 +124,7 @@ Return ONLY this JSON structure:
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Image prompt enhancement error:", error);
     throw new Error("Failed to enhance image prompts");
   }

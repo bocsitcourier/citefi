@@ -18,6 +18,7 @@ import { humanizeSocialPost } from "./deterministic-humanizer";
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { cleanGeneratedText } from "./content-cleaner";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Gemini social post generation");
@@ -42,7 +43,7 @@ interface GeminiSocialPostRequest {
   eatSignals?: EEATSignals;
   useAdvancedPrompts?: boolean; // Flag to enable Task 7 enhancements
   // Psychographic targeting
-  teamId?: number;
+  teamId: number;
   personaId?: number;
   // Anti-Hallucination Framework
   enableFactValidation?: boolean;
@@ -70,6 +71,9 @@ interface GeminiSocialPostResult {
 export async function generateSocialPostWithGemini(
   request: GeminiSocialPostRequest
 ): Promise<GeminiSocialPostResult> {
+  if (!Number.isInteger(request.teamId) || request.teamId <= 0) {
+    throw new Error("Gemini social generation requires a validated teamId");
+  }
   const { 
     prompt, 
     platform, 
@@ -215,24 +219,26 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
 
   // Generate content with Gemini (shared by both prompt systems)
   const _socialStart = Date.now();
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: systemPrompt }],
-      },
-    ],
-  });
-
-  if (result?.usageMetadata) {
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
-      safeLogCostTelemetry(
-        { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash") },
-        extractGeminiUsage(result),
-        Date.now() - _socialStart, true
-      );
-    }).catch(() => {});
+  let result;
+  try {
+    result = await genAI.models.generateContent({
+      model: getModel("geminiFlash"),
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+    });
+    await logCostTelemetry(
+      { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash"),
+        teamId: request.teamId, resourceType: "social_post", resourceId: request.socialPostId,
+        providerRequestId: (result as any).responseId ?? null },
+      extractGeminiUsage(result), Date.now() - _socialStart, true
+    );
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt(
+      { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash"),
+        teamId: request.teamId, resourceType: "social_post", resourceId: request.socialPostId },
+      { totalTokens: 0 }, Date.now() - _socialStart, error
+    );
+    throw error;
   }
   
   // Strip any AI-generated trailing dots before checking length
@@ -285,6 +291,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
 
       console.log(`✅ [Anti-Hallucination] Social post validated. Safety: ${validationResult.validationResult?.safetyScore}%`);
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.warn('⚠️ Fact validation skipped for social post:', (error as Error).message);
       factValidation = { enabled: false, factCount: 0 };
     }

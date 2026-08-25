@@ -89,6 +89,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       researchData = await smartResearch.researchTopic(
         schedule.coreTopic, 
         schedule.geographicFocus || 'United States',
+        schedule.teamId,
         { maxSearches: 8, includeCompetitors: true }
       );
       console.log(`✅ Smart research complete: ${researchData.localEntities.length} entities, ${researchData.competitorTitles.length} competitor titles`);
@@ -106,7 +107,8 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       schedule.geographicFocus || undefined,
       schedule.audience || undefined,
       undefined, // redditQuestions - can be added later
-      researchData
+      researchData,
+      schedule.teamId
     );
     
     if (!titlePoolResult.titles || titlePoolResult.titles.length === 0) {

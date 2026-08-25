@@ -49,7 +49,7 @@ export async function POST(
     const articleTitle = article.chosenTitle || article.seoTitle || undefined;
 
     // Regenerate keywords — pass the article title so the AI focuses on the primary city
-    const newKeywords = await regenerateKeywords(currentKeywords, articleContent, articleTitle);
+    const newKeywords = await regenerateKeywords(currentKeywords, articleContent, articleTitle, teamId);
 
     // CRITICAL: Update database with team filter
     await db

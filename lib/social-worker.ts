@@ -21,6 +21,7 @@ import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator, sampleArmForType } from "./generation-orchestrator";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 // Platform character limits
 const CHAR_LIMITS = {
@@ -164,6 +165,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       jobTeamId: currentTenantTeamId(),
       entityTeamId: postDetails?.teamId,
     });
+    const validatedPostTeamId = postDetails?.teamId;
+    if (!Number.isInteger(validatedPostTeamId) || (validatedPostTeamId ?? 0) <= 0) {
+      throw new Error(`Social post ${socialPostId} has no validated team`);
+    }
+    const teamId = validatedPostTeamId!;
     
     const location = postDetails?.location || "";
     const topic = postDetails?.topic || "";
@@ -187,10 +193,10 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     // Fetch learned patterns once — only when critic loop is active so we never
     // attribute patterns that didn't actually influence the generation run.
     const disableCriticLoop = process.env.DISABLE_CRITIC_LOOP === "true";
-    const socialEnhancement = (!disableCriticLoop && postDetails?.teamId)
-      ? await getPromptEnhancement(postDetails.teamId, ContentType.SOCIAL, {
+    const socialEnhancement = !disableCriticLoop
+      ? await getPromptEnhancement(teamId, ContentType.SOCIAL, {
           stableId: String(socialPostId),
-          campaignId: postDetails.campaignId ?? null,
+          campaignId: postDetails?.campaignId ?? null,
         })
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }))
       : { patternsUsed: [] as number[], variantArmId: undefined };
@@ -203,8 +209,8 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     // each platform a different random Thompson draw, and the ?= capture would
     // record whichever platform resolved first — non-deterministic and wrong.
     let capturedSocialArmId: number | undefined;
-    if (!disableCriticLoop && postDetails?.teamId) {
-      capturedSocialArmId = await sampleArmForType(postDetails.teamId, ContentType.SOCIAL)
+    if (!disableCriticLoop) {
+      capturedSocialArmId = await sampleArmForType(teamId, ContentType.SOCIAL)
         .catch(() => undefined);
     }
 
@@ -222,6 +228,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           try {
             return await fn();
           } catch (error) {
+            if (isProviderAccountingError(error)) throw error;
             lastError = error as Error;
             console.error(`❌ Attempt ${attempt}/${maxRetries} failed for ${platform}:`, error);
             if (attempt < maxRetries) {
@@ -264,6 +271,8 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             topic: topic || undefined,
             title: title || undefined,
             companyName: companyName || undefined,
+            teamId,
+            socialPostId,
           }),
           3,
           platform
@@ -280,11 +289,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         // contentId=socialPostId so content_review_service.socialPostId field is set correctly.
         // armIdOverride: pass the pre-sampled shared arm so each platform variant does NOT
         // fire an extra sampleArm() DB query (one arm per post, not one per platform).
-        if (postDetails?.teamId) {
+        if (teamId) {
           try {
             const orchestratorResult = await runGenerationOrchestrator({
-              teamId: postDetails.teamId,
-              campaignId: postDetails.campaignId ?? null,
+              teamId,
+              campaignId: postDetails?.campaignId ?? null,
               contentType: ContentType.SOCIAL,
               contentId: socialPostId,
               content: geminiResult.caption,
@@ -307,6 +316,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
               platformQualityScore = orchestratorResult.qualityScore;
             }
           } catch (criticError) {
+            if (isProviderAccountingError(criticError)) throw criticError;
             console.warn(`⚠️ Social orchestrator failed, continuing:`, (criticError as Error).message);
           }
         }
@@ -363,6 +373,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
         return { platform, success: true, variantId: variant.id, qualityScore: platformQualityScore };
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.error(`❌ Failed to generate ${platform} post after all retries:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -461,6 +472,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
         const imageResults = await generateSocialImages({
           socialPostId,
+          teamId,
           prompt,
           platforms,
           industry: industry || "general",
@@ -486,7 +498,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         console.log(`🎬 Queueing video generation for social post ${socialPostId}`);
         
         const videoJobId = await addVideoGenerationJob(
-          { socialPostId, platform: "tiktok", teamId: currentTenantTeamId() },
+          { socialPostId, platform: "tiktok", teamId },
         );
 
         if (videoJobId) {
@@ -635,6 +647,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       console.warn(`⚠️ Failed to record learning metrics:`, learningError);
     }
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`❌ Social post generation failed for ${socialPostId}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 

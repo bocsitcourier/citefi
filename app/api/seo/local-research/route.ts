@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     const research = await researchLocalSEO({
+      teamId,
       location,
       business_type,
       core_topic,

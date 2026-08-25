@@ -21,6 +21,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
@@ -49,6 +50,15 @@ interface ClientTeam {
 interface AgencyData {
   clients: ClientTeam[];
   agencyTeam: { id: number; name: string };
+}
+interface ClientProfitability {
+  id: number;
+  name: string;
+  providerCogsUsd: number;
+  creditsConsumed: number;
+  revenueConfigured: boolean;
+  approvedRebilling: { markupPct?: number; revenueUsd?: number } | null;
+  margin: number | null;
 }
 
 interface IntelligenceStatus {
@@ -142,6 +152,16 @@ export default function AgencyPage() {
       return res.json();
     },
     enabled: !isLoading && !error && (data?.clients?.length ?? 0) > 0,
+  });
+  const { data: profitability } = useQuery<{ periodDays: number; clients: ClientProfitability[] }>({
+    queryKey: ["/api/agency/profitability"],
+    queryFn: async () => {
+      const res = await fetch("/api/agency/profitability?days=30", { credentials: "include" });
+      if (!res.ok) throw new Error("Client cost summary is unavailable");
+      return res.json();
+    },
+    enabled: !isLoading && !error,
+    retry: false,
   });
 
   const intelStatuses = intelData?.statuses ?? {};
@@ -269,6 +289,7 @@ export default function AgencyPage() {
   const intelActiveCount = activeClients.filter((c) => intelStatuses[c.id]?.status === "complete").length;
 
   return (
+    <TooltipProvider>
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -316,6 +337,40 @@ export default function AgencyPage() {
           </Card>
         )}
       </div>
+
+      <Card data-testid="card-client-cost-summary">
+        <CardHeader>
+          <CardTitle>Client cost summary</CardTitle>
+          <CardDescription>
+            Direct client workspaces only · provider COGS and credits used in the last 30 days.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!profitability ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading client cost summary…</div>
+          ) : profitability.clients.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Add a direct client workspace to see its usage here.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b text-left text-muted-foreground">
+                  <tr><th className="pb-2 pr-4 font-medium">Client</th><th className="pb-2 pr-4 text-right font-medium">Provider COGS</th><th className="pb-2 pr-4 text-right font-medium">Credits consumed</th><th className="pb-2 font-medium">Margin</th></tr>
+                </thead>
+                <tbody>
+                  {profitability.clients.map((client) => (
+                    <tr key={client.id} className="border-b last:border-0">
+                      <td className="py-3 pr-4 font-medium">{client.name}</td>
+                      <td className="py-3 pr-4 text-right">${client.providerCogsUsd.toFixed(4)}</td>
+                      <td className="py-3 pr-4 text-right">{client.creditsConsumed.toLocaleString()}</td>
+                      <td className="py-3 text-muted-foreground">{client.revenueConfigured && client.margin != null ? `${client.margin.toFixed(1)}%` : "Not shown — no approved rebilling configuration"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Active clients */}
       {activeClients.length === 0 ? (
@@ -497,5 +552,6 @@ export default function AgencyPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }

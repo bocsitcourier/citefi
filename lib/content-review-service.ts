@@ -14,6 +14,7 @@ import {
 import { analyzeContentQuality } from "./deterministic-humanizer";
 import { factStore } from "./fact-store";
 import { callOpenAI } from "./openai-client";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export type Dimension = "completeness" | "factuality" | "structure" | "humanness" | "engagement";
 const ALL_DIMS: Dimension[] = ["completeness", "factuality", "structure", "humanness", "engagement"];
@@ -102,6 +103,7 @@ export class ContentReviewService {
         judgeScores = j.scores;
         defects.push(...j.defects);
       } catch (e) {
+        if (isProviderAccountingError(e)) throw e;
         console.warn("⚠️ Judge failed, using deterministic only:", e);
       }
     }
@@ -386,7 +388,7 @@ ${content.slice(0, 8000)}`;
         const brief: Brief = {
           targetWords: 2000,
           keyword: (row as any).keyword ?? undefined,
-          questions: ((row.metadata as any)?.research?.redditQuestions || [])
+          questions: (((row as any).metadata as any)?.research?.redditQuestions || [])
             .slice(0, 10)
             .map((q: any) => q.title),
         };

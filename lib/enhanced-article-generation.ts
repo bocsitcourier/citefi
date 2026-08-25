@@ -3,8 +3,10 @@ import { finalizeContent } from "./openai";
 import { researchLocalSEO, optimizeContentStructure, generateSchemaMarkup } from "./seo-intelligence";
 
 export interface EnhancedArticleParams {
+  teamId: number;
   title: string;
   targetUrl: string;
+  businessName: string;
   wordCountMin?: number;
   wordCountMax?: number;
   tone?: string;
@@ -31,8 +33,10 @@ export async function generateEnhancedArticle(
   imageUrls: string[] = []
 ): Promise<EnhancedArticleResult> {
   const {
+    teamId,
     title,
     targetUrl,
+    businessName,
     wordCountMin = 800,
     wordCountMax = 2000,
     tone,
@@ -53,6 +57,7 @@ export async function generateEnhancedArticle(
     console.log(`📍 Researching local SEO for: ${geographicFocus}`);
     try {
       localSEOInsights = await researchLocalSEO({
+        teamId,
         location: geographicFocus,
         business_type: extractBusinessType(title),
         core_topic: extractCoreTopic(title),
@@ -75,7 +80,12 @@ export async function generateEnhancedArticle(
     wordCountMax,
     tone,
     geographicFocus,
-    audience
+    audience,
+    businessName,
+    undefined,
+    undefined,
+    undefined,
+    teamId
   );
 
   // Step 3: Optimize content structure (if enabled)
@@ -84,6 +94,7 @@ export async function generateEnhancedArticle(
     console.log(`⚙️ Optimizing content structure...`);
     try {
       contentStructure = await optimizeContentStructure({
+        teamId,
         topic: title,
         target_audience: audience || "general audience",
         word_count_target: wordCountMax,

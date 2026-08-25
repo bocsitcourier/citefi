@@ -8,6 +8,8 @@ import { performRedditResearch, type RedditResearchResult } from "./reddit-resea
 import { consolidateRedditIntents, type RedditOutline } from "./reddit-intent-consolidation";
 import { RedditResearch } from "./reddit-research";
 import { ExpertDiscovery } from "./expert-discovery";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -168,6 +170,11 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
   const cachedRedditResearch = params?.redditResearchCache;
   
   // Generate batch-level SEO context using Gemini + Reddit research
+  const batchTeamId = batchData.teamId;
+  if (!Number.isInteger(batchTeamId) || (batchTeamId ?? 0) <= 0) {
+    throw new Error(`Batch ${batchId} has no validated team`);
+  }
+
   const context = await generateBatchSeoContext({
     coreTopic: batchData.coreTopic,
     geographicFocus,
@@ -175,7 +182,7 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
     businessName: batchData.businessName || "",
     competitorUrls: (batchData.competitorUrlsJson as string[]) || [],
     cachedRedditResearch, // Reuse if available
-  }, batchId);
+  }, batchId, batchTeamId as number);
 
   if (!context) {
     console.error(`❌ [Batch ${batchId}] Failed to generate SEO context`);
@@ -243,7 +250,7 @@ async function generateBatchSeoContext(params: {
   businessName: string;
   competitorUrls: string[];
   cachedRedditResearch?: any;
-}, batchId: number): Promise<BatchSeoContext | null> {
+}, batchId: number, teamId: number): Promise<BatchSeoContext | null> {
   const { coreTopic, geographicFocus, targetUrl, businessName, competitorUrls, cachedRedditResearch } = params;
   
   // STEP 1A: Enhanced Reddit Research (JSON API - faster, more reliable)
@@ -267,7 +274,7 @@ async function generateBatchSeoContext(params: {
     // STEP 1B: Expert Discovery for E-E-A-T signals
     console.log(`🔍 [Batch ${batchId}] Discovering experts for E-E-A-T signals...`);
     const expertClient = new ExpertDiscovery({ useWebSearch: true });
-    const expertResults = await expertClient.findExperts(coreTopic, businessName || 'General', {
+    const expertResults = await expertClient.findExperts(coreTopic, businessName || 'General', teamId, {
       limit: 10
     });
     
@@ -292,6 +299,7 @@ async function generateBatchSeoContext(params: {
   
   if (redditResearch.questions.length > 0) {
     consolidatedOutline = await consolidateRedditIntents({
+      teamId,
       coreTopic,
       location: geographicFocus,
       redditQuestions: redditResearch.questions,
@@ -421,7 +429,11 @@ Return ONLY valid JSON in this exact structure:
   }
 }`;
 
+  let providerResponseReceived = false;
+  const providerStartedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
+    const startedAt = Date.now();
     const response = await throttledGeminiRequest(() =>
       genAI.models.generateContent({
         model: GEMINI_FLASH_MODEL,
@@ -438,6 +450,10 @@ Return ONLY valid JSON in this exact structure:
         },
       })
     );
+    providerResponseReceived = true;
+    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+      batchId, providerRequestId: (response as any).responseId ?? (response as any).id ?? null, providerMetadata },
+    extractGeminiUsage(response), Date.now() - startedAt);
 
     const text = (response.text || "").trim();
     
@@ -463,6 +479,11 @@ Return ONLY valid JSON in this exact structure:
       redditResearch: enhancedRedditResearch
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    if (!providerResponseReceived) {
+      await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, batchId, providerMetadata },
+        { totalTokens: 0 }, Date.now() - providerStartedAt, error);
+    }
     console.error("❌ Failed to generate batch SEO context:", error);
     return null;
   }

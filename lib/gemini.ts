@@ -8,6 +8,7 @@ import type { ArticleShadowRunPlan } from "./article-shadow-run";
 import { buildShadowRunPromptPreamble } from "./article-shadow-run";
 import { validateContentWithFacts, FactValidationOptions } from "./fact-validated-generators";
 import { humanizeArticle } from "./deterministic-humanizer";
+import { isProviderAccountingError, throwIfProviderAccountingFailed } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY environment variable is required");
@@ -233,23 +234,26 @@ export async function trackedGeminiRequest<T extends { usageMetadata?: { promptT
   fn: () => Promise<T>,
   ctx: import("./cost-telemetry").TelemetryContext
 ): Promise<T> {
-  const { safeLogCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+  const { logCostTelemetry, logFailedProviderAttempt, extractGeminiUsage, isProviderAccountingError, resolveTelemetryTeamId } = await import("./cost-telemetry");
+  const teamId = resolveTelemetryTeamId(ctx.teamId);
+  if (teamId == null) throw new Error("Tracked Gemini request requires a validated teamId");
+  const attributedContext = { ...ctx, teamId };
   const startTime = Date.now();
   try {
     const result = await throttledGeminiRequest(fn);
     const latencyMs = Date.now() - startTime;
     if (result?.usageMetadata) {
-      safeLogCostTelemetry(ctx, extractGeminiUsage(result), latencyMs, true);
+      await logCostTelemetry(attributedContext, extractGeminiUsage(result), latencyMs, true);
     }
     return result;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     const latencyMs = Date.now() - startTime;
-    safeLogCostTelemetry(
-      ctx,
+    await logFailedProviderAttempt(
+      attributedContext,
       { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
       latencyMs,
-      false,
-      error instanceof Error ? error.message : String(error)
+      error
     );
     throw error;
   }
@@ -311,8 +315,12 @@ export async function generateTitlePool(
   geographicFocus?: string,
   audience?: string,
   redditQuestions?: Array<{question: string, upvotes: number, subreddit: string}>,
-  researchData?: SmartResearchResult
+  researchData?: SmartResearchResult,
+  teamId?: number
 ): Promise<TitlePoolResult> {
+  if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
+    throw new Error("Title generation requires a validated teamId");
+  }
   // Require geographic focus for local SEO
   if (!geographicFocus) {
     throw new Error("Geographic focus is required for location-optimized SEO titles");
@@ -584,13 +592,12 @@ Return ONLY valid JSON with enhanced coverage mapping:
   console.log(`✅ Gemini API returned response`);
 
   if (result?.usageMetadata) {
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
-      safeLogCostTelemetry(
-        { operationType: "article_title_pool", provider: "gemini", model: getModel("geminiFlash") },
-        extractGeminiUsage(result),
-        0, true
-      );
-    }).catch(() => {});
+    const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+    await logCostTelemetry(
+      { operationType: "article_title_pool", provider: "gemini", model: getModel("geminiFlash"),
+        teamId, providerRequestId: (result as any).responseId ?? null },
+      extractGeminiUsage(result), 0, true
+    );
   }
 
   let responseText = result.text || "";
@@ -707,7 +714,8 @@ Return ONLY valid JSON with enhanced coverage mapping:
       const critiqueResult = await smartResearch.critiqueAndRefineTitles(
         parsed.titles,
         researchData,
-        industry
+        industry,
+        teamId!
       );
       
       // Update titles with critique results
@@ -734,6 +742,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
       console.log(`🧠 Critique complete: ${critiqueResult.removedCount} removed, ${critiqueResult.refinedCount} refined`);
       
     } catch (critiqueError) {
+      if (isProviderAccountingError(critiqueError)) throw critiqueError;
       console.warn('⚠️ Critique failed, using scores only:', (critiqueError as Error).message);
       
       // Fallback: Calculate uniqueness scores without critique
@@ -778,8 +787,12 @@ export async function generateTitlePoolForMultipleCities(
   tone?: string,
   geographicFocus?: string,
   audience?: string,
-  researchData?: SmartResearchResult
+  researchData?: SmartResearchResult,
+  teamId?: number
 ): Promise<MultiCityTitlePoolResult> {
+  if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
+    throw new Error("Multi-city title generation requires a validated teamId");
+  }
   if (!geographicFocus) {
     throw new Error("Geographic focus is required for location-optimized SEO titles");
   }
@@ -813,7 +826,8 @@ export async function generateTitlePoolForMultipleCities(
         city, // Each city gets its own title pool
         audience,
         undefined, // redditQuestions
-        researchData // Pass smart research data to each city
+        researchData, // Pass smart research data to each city
+        teamId
       );
       
       console.log(`  ✅ Generated ${result.titles.length} titles for ${city}`);
@@ -919,6 +933,9 @@ export async function generateArticleContent(
   serpFeatureTarget?: string, // SERP feature optimization: Featured Snippet | PAA | List | Q&A
   shadowRunPlan?: ArticleShadowRunPlan // Pre-flight failure pattern awareness
 ): Promise<ArticleGenerationResult> {
+  if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
+    throw new Error("Article generation requires a validated teamId");
+  }
   // Dynamic year for freshness signals
   const currentYear = new Date().getFullYear();
   const previousYear = currentYear - 1;
@@ -1140,6 +1157,7 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
       // NEURAL LOOP: Top recurring Guardian failures from ai_learning_ledger
       import("./learning-integration").then(m => m.getGuardianFailureWarnings(teamId, "article")),
     ]);
+    throwIfProviderAccountingFailed([psychoResult, guardianResult]);
 
     if (psychoResult.status === "fulfilled") {
       optimizationContext = psychoResult.value;
@@ -1670,13 +1688,13 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   }));
 
   if (result?.usageMetadata) {
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
-      safeLogCostTelemetry(
-        { operationType: "article_generation", provider: "gemini", model },
-        extractGeminiUsage(result),
-        0, true
-      );
-    }).catch(() => {});
+    const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+    await logCostTelemetry(
+      { operationType: "article_generation", provider: "gemini", model,
+        teamId, batchId, articleId, resourceType: "article", resourceId: articleId,
+        providerRequestId: (result as any).responseId ?? null },
+      extractGeminiUsage(result), 0, true
+    );
   }
 
   let responseText = result.text || "";
@@ -1737,6 +1755,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
           topic,
           geographicFocus || 'United States',
           businessName || 'the company',
+          teamId!,
           wordCountMax
         ),
         critiqueTimeoutPromise,
@@ -1763,6 +1782,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       console.log(`✅ Article critique complete: Quality score ${critiqueResult.qualityScore}/100`);
       
     } catch (critiqueError) {
+      if (isProviderAccountingError(critiqueError)) throw critiqueError;
       console.warn('⚠️ Article critique skipped:', (critiqueError as Error).message);
     }
   }
@@ -1800,6 +1820,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
         console.warn(`⚠️ [Anti-Hallucination] Insufficient facts: ${factValidationResult.gapReport.missing.join(', ')}`);
       }
     } catch (factValidationError) {
+      if (isProviderAccountingError(factValidationError)) throw factValidationError;
       console.warn('⚠️ Fact validation skipped:', (factValidationError as Error).message);
       parsed.factValidation = {
         enabled: false,

@@ -9,6 +9,7 @@ import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
+import { throwIfProviderAccountingFailed } from "@/lib/cost-telemetry";
 
 export interface ChatGPTReviewRequest {
   articleId: number;
@@ -115,6 +116,16 @@ export async function POST(request: NextRequest) {
       imagePrompts.length > 0
         ? enhanceImagePrompts(imagePrompts, coreTopic, keywords, geographicFocus)
         : Promise.resolve(null),
+    ]);
+
+    // Optional enrichment failures may use empty fallbacks, but a provider
+    // response whose immutable usage write failed must fail the whole request.
+    throwIfProviderAccountingFailed([
+      hyperlinkSettled,
+      seoSettled,
+      hashtagSettled,
+      socialSettled,
+      imageSettled,
     ]);
 
     // Extract values with safe fallbacks for any failed sub-modules

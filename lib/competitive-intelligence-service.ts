@@ -15,6 +15,8 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { PATTERN_DIMENSION } from "./pattern-dimension-map";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -161,14 +163,38 @@ function extractSignals(result: {
 // Brave Search helper
 // ============================================================================
 
-async function braveSearch(query: string, apiKey: string): Promise<any[]> {
+function validateTeamId(teamId: number): void {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Competitive intelligence requires a validated teamId");
+  }
+}
+
+async function braveSearch(query: string, apiKey: string, teamId: number): Promise<any[]> {
+  const startedAt = Date.now();
+  const queryHash = createHash("sha256").update(query).digest("hex");
   const params = new URLSearchParams({ q: query, count: "10", safesearch: "moderate" });
-  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-    headers: { Accept: "application/json", "X-Subscription-Token": apiKey },
-  });
-  if (!response.ok) throw new Error(`Brave API error: ${response.status}`);
-  const data = await response.json() as any;
-  return data.web?.results || [];
+  try {
+    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+      headers: { Accept: "application/json", "X-Subscription-Token": apiKey },
+    });
+    if (!response.ok) throw new Error(`Brave API error: ${response.status}`);
+    const data = await response.json() as any;
+    const results = data.web?.results || [];
+    await logCostTelemetry(
+      { operationType: "competitive_intelligence", provider: "brave", model: "web-search", teamId,
+        attempt: 1, providerMetadata: { queryHash, resultCount: results.length } },
+      { requestCount: 1 }, Date.now() - startedAt, true
+    );
+    return results;
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt(
+      { operationType: "competitive_intelligence", provider: "brave", model: "web-search", teamId,
+        attempt: 1, providerMetadata: { queryHash } },
+      { requestCount: 1 }, Date.now() - startedAt, error
+    );
+    throw error;
+  }
 }
 
 // ============================================================================
@@ -190,8 +216,10 @@ export class CompetitiveIntelligenceService {
     topic: string,
     industry: string,
     location: string | undefined,
-    contentType: ContentTypeCI
+    contentType: ContentTypeCI,
+    teamId: number
   ): Promise<NicheResearchResult> {
+    validateTeamId(teamId);
     const result: NicheResearchResult = {
       topic,
       industry,
@@ -212,7 +240,7 @@ export class CompetitiveIntelligenceService {
 
     for (const query of queries.slice(0, 4)) {
       try {
-        const raw = await braveSearch(query, this.apiKey);
+        const raw = await braveSearch(query, this.apiKey, teamId);
         result.searchesPerformed++;
 
         for (const r of raw.slice(0, 6)) {
@@ -229,6 +257,7 @@ export class CompetitiveIntelligenceService {
           });
         }
       } catch (err) {
+        if (isProviderAccountingError(err)) throw err;
         console.warn(`[CompetitiveIntel] Search failed for "${query}":`, (err as Error).message);
       }
     }
@@ -252,8 +281,10 @@ export class CompetitiveIntelligenceService {
    */
   async extractTransferablePatterns(
     results: NicheResearchResult,
-    contentType: ContentTypeCI
+    contentType: ContentTypeCI,
+    teamId: number
   ): Promise<ExternalPattern[]> {
+    validateTeamId(teamId);
     const { topic, industry, topPerformers } = results;
 
     if (topPerformers.length === 0) return this.getFallbackPatterns(contentType);
@@ -300,12 +331,18 @@ Format:
 
 Return ONLY valid JSON array, no markdown, no explanations.`;
 
+    const startedAt = Date.now();
     try {
       const response = await genAI.models.generateContent({
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.3, maxOutputTokens: 2048 },
       });
+      await logCostTelemetry(
+        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+          attempt: 1, providerRequestId: (response as any).responseId ?? null },
+        extractGeminiUsage(response), Date.now() - startedAt, true
+      );
 
       const text = (response.text || "").trim();
       const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -330,6 +367,11 @@ Return ONLY valid JSON array, no markdown, no explanations.`;
       console.log(`[CompetitiveIntel] Extracted ${patterns.length} transferable patterns`);
       return patterns;
     } catch (err) {
+      if (isProviderAccountingError(err)) throw err;
+      await logFailedProviderAttempt(
+        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1 },
+        { totalTokens: 0 }, Date.now() - startedAt, err
+      );
       console.warn("[CompetitiveIntel] Pattern extraction failed:", (err as Error).message);
       return this.getFallbackPatterns(contentType);
     }
@@ -341,8 +383,10 @@ Return ONLY valid JSON array, no markdown, no explanations.`;
   async performGapAnalysis(
     results: NicheResearchResult,
     topic: string,
-    industry: string
+    industry: string,
+    teamId: number
   ): Promise<GapOpportunity[]> {
+    validateTeamId(teamId);
     const { topPerformers } = results;
 
     if (topPerformers.length === 0) return this.getFallbackGaps(topic, industry);
@@ -377,12 +421,18 @@ Return JSON array only:
 
 Return ONLY valid JSON, no markdown.`;
 
+    const startedAt = Date.now();
     try {
       const response = await genAI.models.generateContent({
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.5, maxOutputTokens: 1536 },
       });
+      await logCostTelemetry(
+        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+          attempt: 1, providerRequestId: (response as any).responseId ?? null },
+        extractGeminiUsage(response), Date.now() - startedAt, true
+      );
 
       const text = (response.text || "").trim();
       const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -402,6 +452,11 @@ Return ONLY valid JSON, no markdown.`;
       console.log(`[CompetitiveIntel] Gap analysis found ${gaps.length} opportunities`);
       return gaps;
     } catch (err) {
+      if (isProviderAccountingError(err)) throw err;
+      await logFailedProviderAttempt(
+        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1 },
+        { totalTokens: 0 }, Date.now() - startedAt, err
+      );
       console.warn("[CompetitiveIntel] Gap analysis failed:", (err as Error).message);
       return this.getFallbackGaps(topic, industry);
     }

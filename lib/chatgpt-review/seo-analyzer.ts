@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface SEOAnalysis {
   seoScore: number; // 0-100
@@ -99,6 +100,7 @@ Return ONLY this JSON structure:
       },
     } as SEOAnalysis;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("SEO analysis error:", error);
     throw new Error("Failed to analyze SEO");
   }

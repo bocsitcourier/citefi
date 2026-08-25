@@ -49,7 +49,7 @@ export async function POST(
     const currentFaq = (article.metaEnrichment as any)?.faq || [];
 
     // Regenerate FAQ
-    const newFaq = await regenerateFAQ(currentFaq, articleContent);
+    const newFaq = await regenerateFAQ(currentFaq, articleContent, teamId);
 
     // Update metaEnrichment with new FAQ
     const updatedMetaEnrichment = {

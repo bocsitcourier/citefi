@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "./seo-policy";
 import { GPT_HYPERLINK_EXTRACT_MODEL, GPT_HYPERLINK_CORRECTION_MODEL } from "./ai-config";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 // ---------------------------------------------------------------------------
 // CHEERIO-BASED HYPERLINK INJECTOR
@@ -281,6 +282,7 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Article keyword extraction error:", error);
     throw new Error("Failed to extract keywords from article");
   }
@@ -378,6 +380,7 @@ CRITICAL RULES:
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Keyword extraction error:", error);
     throw new Error("Failed to extract long-phrase keywords");
   }
@@ -677,6 +680,7 @@ Output JSON:
       corrections: Array.isArray(parsed.corrections) ? parsed.corrections : [],
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ GPT-4 validation pass error:", error);
     // Fall back to programmatic result
     return {

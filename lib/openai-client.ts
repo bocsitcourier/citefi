@@ -1,5 +1,22 @@
 import OpenAI from 'openai';
 import Bottleneck from 'bottleneck';
+import { randomUUID } from "node:crypto";
+import {
+  extractOpenAIUsage,
+  isProviderAccountingError,
+  logFailedProviderAttempt,
+  logCostTelemetry,
+  resolveTelemetryTeamId,
+} from "./cost-telemetry";
+import type {
+  CharacterUsage,
+  ImageUsage,
+  OperationType,
+  RequestUsage,
+  TelemetryContext,
+  TokenUsage,
+  VideoUsage,
+} from "./cost-telemetry";
 
 const OPENAI_CONCURRENCY = parseInt(process.env.OPENAI_CONCURRENCY || "15");
 const MAX_RETRIES = 3;
@@ -50,11 +67,40 @@ export function getOpenAIStats() {
   };
 }
 
+/**
+ * Accounting data for an OpenAI invocation.  Supplying this is optional for
+ * legacy callers, but all requests are accounted for by callOpenAI itself so
+ * callers must not additionally log a completion.
+ */
+export type OpenAICallTelemetry = Omit<
+  TelemetryContext,
+  "operationType" | "provider" | "model" | "providerRequestId" | "attempt"
+> & {
+  operationType?: OperationType;
+  model?: string;
+  usage?: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage;
+};
+
+type OpenAIResponseWithUsage = {
+  id?: string;
+  model?: string;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  } | null;
+};
+
 export async function callOpenAI<T>(
   operation: (client: OpenAI) => Promise<T>,
   context: string,
-  timeoutMs?: number // Optional per-operation timeout override
+  timeoutMs?: number, // Optional per-operation timeout override
+  telemetry: OpenAICallTelemetry = {}
 ): Promise<T> {
+  const effectiveTeamId = resolveTelemetryTeamId(telemetry.teamId);
+  if (effectiveTeamId == null) {
+    throw new Error("OpenAI request requires a validated teamId");
+  }
   // Seam 3 guard: model calls belong in the worker process only.
   if (process.env.WORKER_PROCESS !== "true") {
     console.warn(
@@ -62,6 +108,12 @@ export async function callOpenAI<T>(
       `This should go through the BullMQ job queue.`
     );
   }
+  // This is deliberately created before scheduling, rather than per retry:
+  // failures use this stable invocation key plus their attempt number, while a
+  // successful OpenAI response uses its provider request id when available.
+  const invocationId = `openai-call:${randomUUID()}`;
+  const { usage: providedUsage, ...rawTelemetryContext } = telemetry;
+  const telemetryContext = { ...rawTelemetryContext, teamId: effectiveTeamId };
   return openaiLimiter.schedule(async () => {
     totalCalls++;
     const startTime = Date.now();
@@ -83,8 +135,28 @@ export async function callOpenAI<T>(
     }
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const attemptStartedAt = Date.now();
       try {
         const result = await operation(client);
+        const response = result as OpenAIResponseWithUsage;
+        await logCostTelemetry(
+            {
+              ...telemetryContext,
+              operationType: telemetryContext.operationType ?? "other",
+              provider: "openai",
+              model: response.model ?? telemetryContext.model ?? "unknown",
+              providerRequestId: response.id ?? `${invocationId}:attempt:${attempt}`,
+              providerMetadata: {
+                ...(telemetryContext.providerMetadata ?? {}),
+                context,
+                invocationId,
+              },
+              attempt,
+            },
+            providedUsage ?? extractOpenAIUsage(response),
+            Date.now() - attemptStartedAt,
+            true
+        );
         const duration = Date.now() - startTime;
         
         if (attempt > 1) {
@@ -96,7 +168,39 @@ export async function callOpenAI<T>(
         
         return result;
       } catch (error: any) {
+        if (isProviderAccountingError(error)) throw error;
         lastError = error;
+        // An API failure can still be billable.  Keep a separate stable source
+        // id for every physical attempt so retry accounting never collapses.
+        // Do not treat telemetry failures as provider failures: only wrap the
+        // operation above in the retry path.
+        await logFailedProviderAttempt(
+            {
+              ...telemetryContext,
+              operationType: telemetryContext.operationType ?? "other",
+              provider: "openai",
+              model: telemetryContext.model ?? "unknown",
+              providerRequestId: `${invocationId}:attempt:${attempt}`,
+              providerMetadata: {
+                ...(telemetryContext.providerMetadata ?? {}),
+                context,
+                invocationId,
+                errorCode: error?.code ?? null,
+              },
+              attempt,
+            },
+            providedUsage && "characters" in providedUsage
+              ? { characters: 0 }
+              : providedUsage && "imageCount" in providedUsage
+                ? { imageCount: 0 }
+                : providedUsage && "videoSeconds" in providedUsage
+                  ? { videoSeconds: 0 }
+                  : providedUsage && "requestCount" in providedUsage
+                    ? { requestCount: 0 }
+                    : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            Date.now() - attemptStartedAt,
+            error
+          );
         const isRateLimit = error?.status === 429 || error?.code === 'rate_limit_exceeded';
         const isTimeout = error?.code === 'ETIMEDOUT' || error?.message?.includes('timeout');
         

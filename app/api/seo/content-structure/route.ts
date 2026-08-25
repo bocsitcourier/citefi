@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     const structure = await optimizeContentStructure({
+      teamId,
       topic,
       target_audience,
       word_count_target,

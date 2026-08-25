@@ -36,7 +36,7 @@ export async function POST(
     const title = article.seoTitle || article.chosenTitle;
 
     // Regenerate slug
-    const newSlug = await regenerateSlug(currentSlug, title);
+    const newSlug = await regenerateSlug(currentSlug, title, teamId);
 
     // CRITICAL: Update database with team filter
     await db

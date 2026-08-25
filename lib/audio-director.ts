@@ -2,6 +2,7 @@ import { getModel } from "./model-resolver";
 import type { Scene, Emotion, SSMLSegment } from '@/types/video-schema';
 import { GoogleGenAI } from '@google/genai';
 import { throttledGeminiRequest } from './gemini';
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -20,8 +21,13 @@ const EMOTION_TO_PROSODY: Record<Emotion, { rate: string; pitch: string; volume:
 
 export class AudioDirector {
   private useGeminiForSSML: boolean;
+  private teamId: number;
 
-  constructor(options: { useGeminiForSSML?: boolean } = {}) {
+  constructor(teamId: number, options: { useGeminiForSSML?: boolean } = {}) {
+    if (!Number.isInteger(teamId) || teamId <= 0) {
+      throw new Error("Audio direction requires a validated teamId");
+    }
+    this.teamId = teamId;
     this.useGeminiForSSML = options.useGeminiForSSML ?? true;
   }
 
@@ -72,16 +78,38 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
     const userPrompt = audio.dialogue;
 
     try {
-      const result = await throttledGeminiRequest(() => 
-        genAI.models.generateContent({
-          model: getModel("geminiFlash"),
-          contents: userPrompt,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.3,
-            maxOutputTokens: 1000,
+      const startedAt = Date.now();
+      let result;
+      try {
+        result = await throttledGeminiRequest(() =>
+          genAI.models.generateContent({
+            model: getModel("geminiFlash"),
+            contents: userPrompt,
+            config: {
+              systemInstruction: systemPrompt,
+              temperature: 0.3,
+              maxOutputTokens: 1000,
+            },
+          })
+        );
+      } catch (error) {
+        await logFailedProviderAttempt(
+          {
+            operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+            teamId: this.teamId, resourceType: "video_scene", resourceId: scene.id, attempt: 1,
           },
-        })
+          { totalTokens: 0 }, Date.now() - startedAt, error
+        );
+        throw error;
+      }
+      await logCostTelemetry(
+        {
+          operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+          teamId: this.teamId,
+          resourceType: "video_scene", resourceId: scene.id,
+          providerRequestId: (result as any).responseId ?? null, attempt: 1,
+        },
+        extractGeminiUsage(result), Date.now() - startedAt, true
       );
 
       const ssmlResponse = result.text || '';
@@ -103,6 +131,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
         emotion: audio.emotion,
       };
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.warn(`⚠️ Gemini SSML generation failed for scene ${scene.id}, using deterministic fallback:`, error);
       return this.generateSSMLDeterministic(scene);
     }
@@ -238,12 +267,12 @@ ${content}
   }
 }
 
-export async function generateVideoSSML(scenes: Scene[]): Promise<{
+export async function generateVideoSSML(scenes: Scene[], teamId: number): Promise<{
   combinedSSML: string;
   segments: SSMLSegment[];
   totalEstimatedDuration: number;
 }> {
-  const director = new AudioDirector({ useGeminiForSSML: true });
+  const director = new AudioDirector(teamId, { useGeminiForSSML: true });
   
   const segments = await director.generateSSMLForScript(scenes);
   const combinedSSML = director.combineSSMLSegments(segments);

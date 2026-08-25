@@ -854,7 +854,8 @@ test("an uploaded image is reused after a crash and committed with its checkpoin
       ["this provider call must be skipped"],
       "Crash Boundary Test",
       "https://example.test",
-      runId
+      runId,
+      seed.team.id
     );
     assert.equal(recovered[0]?.url, durableUrl);
     assert.equal(recovered[0]?.assetId, asset.id);

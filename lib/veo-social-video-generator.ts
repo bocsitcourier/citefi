@@ -7,6 +7,7 @@ import { generateVeoTTS } from "./veo-video-tts-generator";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
 import { generateVideoImages } from "./social-video-image-generator";
 import { composeVideo, cleanupTempFiles as cleanupSlideshowTempFiles } from "./social-video-compositor";
+import { isProviderAccountingError, throwIfProviderAccountingFailed } from "./cost-telemetry";
 
 const VEO_STYLE_CONSTANTS = {
   quality: "hyper-realistic, photorealistic, 8K ultra HD, cinematic, shallow depth of field, lifelike textures, film grain",
@@ -100,6 +101,10 @@ export async function generateVeoSocialVideo(
     if (!post) {
       throw new Error(`Social post ${socialPostId} not found`);
     }
+    if (!Number.isInteger(post.teamId) || (post.teamId ?? 0) <= 0) {
+      throw new Error(`Social post ${socialPostId} has no validated team`);
+    }
+    const teamId = post.teamId!;
 
     if (!post.companyName) {
       await db
@@ -142,6 +147,7 @@ export async function generateVeoSocialVideo(
       mood: post.mood || "Informative",
       industry: post.industry || "Business",
       companyName: post.companyName,
+      teamId,
       articleContent,
     });
 
@@ -158,6 +164,7 @@ export async function generateVeoSocialVideo(
 
     console.log(`\n🎙️ Step 3/6: Generating voiceover with OpenAI TTS HD...`);
     const audio = await generateVeoTTS({
+      teamId,
       socialPostId,
       clips: script.clips,
       tone: post.tone || "Professional",
@@ -222,6 +229,7 @@ export async function generateVeoSocialVideo(
           }
           const promptToUse = preparePromptForRetry(optimizedBasePrompt, retry, sceneType);
           const generated = await generateVeoClip({
+            teamId,
             socialPostId,
             sceneNumber: clip.sceneNumber,
             prompt: promptToUse,
@@ -237,6 +245,7 @@ export async function generateVeoSocialVideo(
           console.log(`  ✅ Clip ${index + 1} done (${completedCount.value}/${script.clips.length} complete)`);
           return generated;
         } catch (clipError) {
+          if (isProviderAccountingError(clipError)) throw clipError;
           lastError = clipError as Error;
           console.log(`  ❌ Clip ${index + 1} attempt ${retry + 1} failed: ${lastError.message}`);
         }
@@ -247,6 +256,7 @@ export async function generateVeoSocialVideo(
     const clipResults = await Promise.allSettled(
       script.clips.map((clip, i) => generateClipWithRetry(clip, i))
     );
+    throwIfProviderAccountingFailed(clipResults);
 
     const failures = clipResults.filter(r => r.status === 'rejected');
     if (failures.length > 0) {
@@ -286,7 +296,7 @@ export async function generateVeoSocialVideo(
         const bucket = objectStorageClient.bucket(BUCKET_ID);
         const objectPath = post.companyLogoUrl.replace("/api/public-objects/", "public/");
         const file = bucket.file(objectPath);
-        const [buffer] = await file.download();
+        const [buffer] = await (file as any).download();
         await fs.writeFile(logoPath, buffer);
       } catch (logoError) {
         console.warn("⚠️ Could not load company logo:", logoError);
@@ -386,6 +396,7 @@ export async function generateVeoSocialVideo(
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Veo video generation failed for Social Post ${socialPostId}:`, error);
 
     await db
@@ -404,6 +415,7 @@ export async function generateVeoSocialVideo(
 
 // Standalone video generation for Idea to Video (no social post required)
 export interface GenerateVideoFromScriptRequest {
+  teamId: number;
   videoIdeaId: number;
   title: string;
   companyName: string;
@@ -428,7 +440,8 @@ export interface GenerateVideoFromScriptRequest {
 export async function generateVideoFromScript(
   request: GenerateVideoFromScriptRequest
 ): Promise<{ videoUrl: string; audioUrl?: string }> {
-  const { videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
+  const { teamId, videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Standalone Veo generation requires a validated teamId");
   const aspectRatio = "16:9";
 
   console.log(`\n🎬 Starting standalone Veo AI video generation for Video Idea ${videoIdeaId}`);
@@ -442,6 +455,7 @@ export async function generateVideoFromScript(
     }
 
     const audio = await generateVeoTTS({
+      teamId,
       socialPostId: videoIdeaId, // Use videoIdeaId for temp file naming
       clips: script.clips.map(clip => ({
         sceneNumber: clip.sceneNumber,
@@ -487,6 +501,7 @@ export async function generateVideoFromScript(
             await new Promise(resolve => setTimeout(resolve, 5000));
           }
           const generated = await generateVeoClip({
+            teamId,
             socialPostId: videoIdeaId,
             sceneNumber: clip.sceneNumber,
             prompt: optimizedPrompt,
@@ -505,6 +520,7 @@ export async function generateVideoFromScript(
           console.log(`  ✅ Clip ${index + 1} done (${ideaCompletedCount.value}/${script.clips.length} complete)`);
           return generated;
         } catch (clipError) {
+          if (isProviderAccountingError(clipError)) throw clipError;
           lastError = clipError as Error;
           console.log(`  ❌ Clip ${index + 1} attempt ${retry + 1} failed: ${lastError.message}`);
         }
@@ -515,6 +531,7 @@ export async function generateVideoFromScript(
     const ideaClipResults = await Promise.allSettled(
       script.clips.map((clip, i) => generateIdeaClipWithRetry(clip, i))
     );
+    throwIfProviderAccountingFailed(ideaClipResults);
 
     const ideaFailures = ideaClipResults.filter(r => r.status === 'rejected');
     const generatedClips: VeoClip[] = ideaClipResults
@@ -560,7 +577,7 @@ export async function generateVideoFromScript(
         const bucket = objectStorageClient.bucket(BUCKET_ID);
         const objectPath = companyLogoUrl.replace("/api/public-objects/", "public/");
         const file = bucket.file(objectPath);
-        const [buffer] = await file.download();
+        const [buffer] = await (file as any).download();
         await fs.writeFile(logoPath, buffer);
         console.log(`  ✅ Logo loaded for overlay`);
       } catch (logoError) {
@@ -602,6 +619,7 @@ export async function generateVideoFromScript(
     return { videoUrl, audioUrl: audio.localPath };
 
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Standalone video generation failed for Video Idea ${videoIdeaId}:`, error);
     await cleanupVeoTempFiles(videoIdeaId);
     throw error;
@@ -615,7 +633,8 @@ export async function generateVideoFromScript(
 export async function generateIdeaVideoSlideshow(
   request: GenerateVideoFromScriptRequest
 ): Promise<{ videoUrl: string }> {
-  const { videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
+  const { teamId, videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Standalone Veo slideshow requires a validated teamId");
 
   console.log(`\n🖼️ Starting image-based slideshow fallback for Video Idea ${videoIdeaId} (Veo quota exceeded)`);
 
@@ -624,6 +643,7 @@ export async function generateIdeaVideoSlideshow(
     if (onProgress) await onProgress({ stage: "tts", progress: 5, message: "Generating voiceover..." });
 
     const audio = await generateVeoTTS({
+      teamId,
       socialPostId: videoIdeaId,
       clips: script.clips.map(clip => ({
         sceneNumber: clip.sceneNumber,
@@ -660,6 +680,7 @@ export async function generateIdeaVideoSlideshow(
     if (onProgress) await onProgress({ stage: "clips", progress: 25, message: "Generating scene images..." });
 
     const images = await generateVideoImages({
+      teamId,
       socialPostId: videoIdeaId,
       scenes,
       industry: "business",
@@ -684,7 +705,7 @@ export async function generateIdeaVideoSlideshow(
         await fs.mkdir(logoDir, { recursive: true });
         companyLogoPath = path.join(logoDir, `logo-idea-${videoIdeaId}.png`);
         const file = bucket.file(objectPath);
-        const [buffer] = await file.download();
+        const [buffer] = await (file as any).download();
         await fs.writeFile(companyLogoPath, buffer);
         console.log(`  ✅ Logo loaded for overlay`);
       } catch (logoError) {
@@ -716,6 +737,7 @@ export async function generateIdeaVideoSlideshow(
     return { videoUrl: composed.videoUrl };
 
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Idea slideshow fallback failed for Video Idea ${videoIdeaId}:`, error);
     await cleanupSlideshowTempFiles(videoIdeaId).catch(() => {});
     await cleanupVeoTempFiles(videoIdeaId).catch(() => {});

@@ -137,7 +137,7 @@ export async function POST(
               geminiKeywords: [],
             });
             const { entries, pages } = await buildSlugMap(teamId, targetUrl, fallbackTerms);
-            const injection = await injectLinksWithIntent(finalHtml, entries, pages, targetUrl, article.chosenTitle || `article ${article.id}`, fallbackTerms);
+            const injection = await injectLinksWithIntent(teamId, finalHtml, entries, pages, targetUrl, article.chosenTitle || `article ${article.id}`, fallbackTerms);
             if (injection.linksInjected > 0) {
               finalHtml = injection.html;
               modified = true;

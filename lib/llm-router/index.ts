@@ -17,6 +17,7 @@
  *   import { llmRouter } from "@/lib/llm-router";
  *   const result = await llmRouter.complete({ prompt, containsClientData: true });
  */
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export type PrivacyTier = "safe" | "training_enabled";
 
@@ -150,6 +151,7 @@ export async function routedComplete(
 
       return { text, providerUsed: provider.id, tokensUsed: estimatedTokens };
     } catch (err: any) {
+      if (isProviderAccountingError(err)) throw err;
       const status = err?.status ?? err?.response?.status;
       const isRetryable = status === 429 || (status >= 500 && status < 600);
       lastError = err instanceof Error ? err : new Error(String(err));

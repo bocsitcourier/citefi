@@ -12,7 +12,8 @@
  * not a replacement, but a completion gate that enforces hard minimums.
  */
 
-import { openaiClient } from "./openai-client";
+import { callOpenAI } from "./openai-client";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface GuardianAuditReport {
   passed: boolean;
@@ -89,7 +90,7 @@ async function checkToneWithAI(
 ): Promise<{ passed: boolean; reason: string }> {
   try {
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
-    const response = await openaiClient.chat.completions.create({
+    const response = await callOpenAI((client) => client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         {
@@ -111,11 +112,15 @@ Return ONLY this JSON (no markdown, no code fences):
       response_format: { type: "json_object" },
       temperature: 0.1,
       max_tokens: 100,
+    }), "Guardian tone audit", undefined, {
+      operationType: "article_review",
+      model: "gpt-4.1-mini",
     });
 
     const raw = response.choices[0]?.message?.content || '{"passed":true,"reason":"tone check skipped"}';
     return JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     return { passed: true, reason: "tone check skipped (AI unavailable)" };
   }
 }

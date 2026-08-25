@@ -83,6 +83,7 @@ import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
 import { classifyError } from "./errors";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export async function getArticleGenerationBilling(
   job: Pick<Job<ArticleJobData>, "data">
@@ -376,6 +377,9 @@ export const processArticleGenerationJob = async (
           .select()
           .from(articles)
           .where(eq(articles.id, articleId));
+        if (!currentArticle || typeof currentArticle.teamId !== "number" || !Number.isInteger(currentArticle.teamId) || currentArticle.teamId <= 0) {
+          throw new Error(`Article ${articleId} does not have a validated owning team`);
+        }
         const resumePlan = getArticleResumePlan({
           run: existingRun,
           article: currentArticle,
@@ -762,6 +766,7 @@ export const processArticleGenerationJob = async (
               const reflexiveResult = await generateArticleReflexive(
                 geminiResult.rawContent,
                 businessName,
+                currentArticle.teamId,
                 { maxPasses: 2, strictMode: true }
               );
               
@@ -784,6 +789,7 @@ export const processArticleGenerationJob = async (
               console.log(`✅ Quick validation passed - no promotional issues detected`);
             }
           } catch (reflexiveError) {
+            if (isProviderAccountingError(reflexiveError)) throw reflexiveError;
             if (isArticleRunLeaseConflictError(reflexiveError)) throw reflexiveError;
             console.warn(`⚠️ Reflexive validation failed, continuing with original content:`, (reflexiveError as Error).message);
           }
@@ -851,6 +857,7 @@ export const processArticleGenerationJob = async (
               (currentArticle as any)._armId = orchestratorResult.armId;
             }
           } catch (criticError) {
+            if (isProviderAccountingError(criticError)) throw criticError;
             if (isArticleRunLeaseConflictError(criticError)) throw criticError;
             console.warn(
               `⚠️ Stage 1.6 orchestrator failed, continuing with current content:`,
@@ -931,6 +938,7 @@ export const processArticleGenerationJob = async (
               lastError = null;
               break;
             } catch (retryError) {
+              if (isProviderAccountingError(retryError)) throw retryError;
               if (isArticleRunLeaseConflictError(retryError)) throw retryError;
               lastError = retryError as Error;
               console.error(`❌ Batched ChatGPT review attempt ${attempt}/3 failed:`, retryError);
@@ -1122,6 +1130,9 @@ export const processArticleGenerationJob = async (
               // Fetch teamId from batch record (needed for sitePages query)
               const batchRecord = await db.select().from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
               const batchTeamId = batchRecord[0]?.teamId ?? 0;
+              if (!Number.isInteger(batchTeamId) || batchTeamId <= 0) {
+                throw new Error(`Batch ${batchId} has no validated team`);
+              }
               const batchCoreTopic = batchRecord[0]?.coreTopic;
               if (batchCoreTopic) fallbackTerms.unshift(batchCoreTopic);
 
@@ -1130,13 +1141,14 @@ export const processArticleGenerationJob = async (
               // Use intent-driven injection: AI finds semantically relevant anchor phrases
               // from the actual article text — not just literal keyword matches.
               await enterProviderStage("intent hyperlink generation");
-              const injection = await injectLinksWithIntent(gptResult.finalHtml, entries, pages, targetUrl, title, fallbackTerms);
+              const injection = await injectLinksWithIntent(batchTeamId, gptResult.finalHtml, entries, pages, targetUrl, title, fallbackTerms);
               if (injection.linksInjected > 0) {
                 finalHtmlWithLinks = injection.html;
               } else {
                 console.warn(`⚠️ Hyperlink injection found no matches for article ${articleId} (mode: ${injection.mode})`);
               }
             } catch (hlError) {
+              if (isProviderAccountingError(hlError)) throw hlError;
               if (isArticleRunLeaseConflictError(hlError)) throw hlError;
               console.warn(`⚠️ Slug map injection failed for article ${articleId}:`, hlError instanceof Error ? hlError.message : hlError);
               // Keep gptResult.finalHtml unchanged — never block article save on link failure
@@ -1966,6 +1978,7 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                   `Veo video generation for post ${socialPostId}`
                 );
               } catch (veoError) {
+                if (isProviderAccountingError(veoError)) throw veoError;
                 const veoMsg = veoError instanceof Error ? veoError.message : String(veoError);
                 const isQuotaError = veoMsg.includes("RESOURCE_EXHAUSTED") || veoMsg.includes("429") || veoMsg.includes("quota");
                 // Treat model-not-found / API-version errors as non-retryable infrastructure errors
@@ -2066,6 +2079,7 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
             await releaseVideoSlotForPost(socialPostId);
 
           } catch (error) {
+            if (isProviderAccountingError(error)) throw error;
             console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
 
             // Release the per-user concurrency slot claimed at enqueue
@@ -2503,6 +2517,10 @@ export async function registerWorkers() {
                 jobTeamId: currentTenantTeamId(),
                 entityTeamId: batch?.teamId,
               });
+              const imageTeamId = batch?.teamId;
+              if (imageTeamId == null || !Number.isInteger(imageTeamId) || imageTeamId <= 0) {
+                throw new Error(`Image batch ${batchId} requires a validated teamId`);
+              }
               
               if (!businessName || businessName.trim().length === 0) {
                 businessName = batch?.businessName ?? undefined;
@@ -2564,6 +2582,7 @@ export async function registerWorkers() {
                     }
                   ).catch(() => { /* non-fatal */ });
                 } catch (orchErr) {
+                  if (isProviderAccountingError(orchErr)) throw orchErr;
                   console.warn(`[Image Worker] Orchestrator failed, continuing:`, (orchErr as Error).message);
                 }
               }
@@ -2574,7 +2593,8 @@ export async function registerWorkers() {
                 finalImagePrompts,
                 businessName,
                 targetUrl,
-                imageRunId
+                imageRunId,
+                imageTeamId
               );
               if (imageRunId && imageLeaseToken) {
                 const completed = await completeArticleImageStage({
@@ -2779,10 +2799,15 @@ export async function registerWorkers() {
                   businessName,
                   geminiKeywords: Array.isArray(article.keywordsJson) ? (article.keywordsJson as string[]) : [],
                 });
-                const { entries, pages } = await buildSlugMap(batch?.teamId ?? 0, targetUrl, fallbackTerms);
-                const injection = await injectLinksWithIntent(finalReformatHtml, entries, pages, targetUrl, article.chosenTitle || `article ${articleId}`, fallbackTerms);
+                const batchTeamId = batch?.teamId ?? 0;
+                if (!Number.isInteger(batchTeamId) || batchTeamId <= 0) {
+                  throw new Error(`Batch for article ${articleId} has no validated team`);
+                }
+                const { entries, pages } = await buildSlugMap(batchTeamId, targetUrl, fallbackTerms);
+                const injection = await injectLinksWithIntent(batchTeamId, finalReformatHtml, entries, pages, targetUrl, article.chosenTitle || `article ${articleId}`, fallbackTerms);
                 if (injection.linksInjected > 0) finalReformatHtml = injection.html;
               } catch (hlError) {
+                if (isProviderAccountingError(hlError)) throw hlError;
                 console.warn(`⚠️ Slug map hyperlink step failed for reformat ${articleId}:`, hlError instanceof Error ? hlError.message : hlError);
               }
             }
@@ -4682,6 +4707,7 @@ export async function registerWorkers() {
               snapshot,
             }).catch((e) => console.warn("[intel-worker] campaign complete sync failed:", e));
           } catch (error) {
+            if (isProviderAccountingError(error)) throw error;
             console.error(`❌ Intelligence research job ${job.id} failed:`, error);
             const { syncCampaignResearchCompletion } = await import("./campaign-service");
             await syncCampaignResearchCompletion(intelTeamId, "failed", {
@@ -4740,6 +4766,7 @@ export async function registerWorkers() {
             }
             console.log(`✅ Podcast job ${job.id} completed for article ${articleId}`);
           } catch (error) {
+            if (isProviderAccountingError(error)) throw error;
             console.error(`❌ Podcast job ${job.id} failed for article ${articleId}:`, error);
             if (journeyStepId) {
               const { journeySteps: jStepsTable } = await import("@/shared/schema");
@@ -4866,6 +4893,7 @@ export async function registerWorkers() {
 
         console.log(`✅ Daily brief job ${job.id} completed for user ${userId}`);
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.error(`❌ Daily brief job ${job.id} failed for user ${userId}:`, error);
         throw error;
       }
@@ -5036,9 +5064,13 @@ export async function registerWorkers() {
   try {
     const {
       runCanary,
+      requireCanaryAccountingTeamId,
       CANARY_SCHEDULE_PATTERN,
       CANARY_JOB_OPTIONS,
     } = await import("./canary-worker");
+    // Validate the explicit accounting owner before registering anything that
+    // can submit a provider-backed canary. Never synthesize a system customer.
+    const canaryAccountingTeamId = requireCanaryAccountingTeamId();
     const canaryQueue = getQueue(CANARY_QUEUE);
     await canaryQueue.upsertJobScheduler(
       `${CANARY_QUEUE}-daily`,
@@ -5050,7 +5082,11 @@ export async function registerWorkers() {
       }
     );
     createPipelineWorker(CANARY_QUEUE, async (job) => {
-      await runCanary({ reportFailure: job.attemptsMade === 0 });
+      await runCanary({
+        reportFailure: job.attemptsMade === 0,
+        accountingTeamId: canaryAccountingTeamId,
+        attemptId: `canary:${String(job.id)}:attempt:${job.attemptsMade + 1}`,
+      });
     }, {
       stage: "text_gen",
       concurrency: 1,

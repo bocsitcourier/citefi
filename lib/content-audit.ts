@@ -3,11 +3,12 @@
  * Analyzes existing articles for E-E-A-T signals, entity salience, direct answers, and internal linking opportunities
  */
 
-import { openaiClient } from "./openai-client";
+import { callOpenAI } from "./openai-client";
 import type { Article } from "@/shared/schema";
 import { db } from "./db";
 import { articles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface AuditCriterion {
   criterion: string;
@@ -155,7 +156,7 @@ ${articleHtml}
 **IMPORTANT:** Return ONLY valid JSON. Be specific in rationales and suggested edits.`;
 
   try {
-    const response = await openaiClient.chat.completions.create({
+    const response = await callOpenAI((client) => client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         {
@@ -170,6 +171,9 @@ ${articleHtml}
       temperature: 0.3,
       max_tokens: 2000,
       response_format: { type: "json_object" }
+    }), "Content quality audit", undefined, {
+      operationType: "article_review",
+      model: "gpt-4.1-mini",
     });
 
     const content = response.choices[0]?.message?.content;
@@ -198,6 +202,7 @@ ${articleHtml}
       complianceIssues: auditData.complianceIssues || [],
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Quality audit failed:", error);
     throw new Error(`Quality audit failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
@@ -270,7 +275,7 @@ ${targets.slice(0, 20).map((t, i) => `${i + 1}. "${t.title}" (ID: ${t.id})`).joi
 
 Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highest first).`;
 
-    const response = await openaiClient.chat.completions.create({
+    const response = await callOpenAI((client) => client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         {
@@ -285,6 +290,11 @@ Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highes
       temperature: 0.3,
       max_tokens: 1500,
       response_format: { type: "json_object" }
+    }), `Internal link discovery: article ${articleId}`, undefined, {
+      operationType: "article_hyperlink",
+      model: "gpt-4.1-mini",
+      teamId,
+      articleId,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -297,6 +307,7 @@ Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highes
 
     return linkData.opportunities || [];
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Internal link discovery failed:", error);
     return [];
   }

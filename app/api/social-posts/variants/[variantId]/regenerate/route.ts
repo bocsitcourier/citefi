@@ -49,6 +49,9 @@ export async function POST(
     if (!post) {
       return NextResponse.json({ error: "Parent social post not found" }, { status: 404 });
     }
+    if (post.teamId !== auth.teamId) {
+      return NextResponse.json({ error: "Parent social post not found" }, { status: 404 });
+    }
 
     if (post.teamId !== auth.teamId) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
@@ -80,6 +83,8 @@ export async function POST(
       topic: post.topic || undefined,
       title: post.title || undefined,
       companyName: post.companyName || undefined,
+      teamId: auth.teamId,
+      socialPostId: post.id,
     });
 
     console.log(`✅ Gemini regenerated ${platform} post (${geminiResult.caption.length} chars)`);

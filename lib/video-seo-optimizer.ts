@@ -1,6 +1,5 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { callOpenAI } from "./openai-client";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface VideoSEOMetadataRequest {
   topic: string;
@@ -112,11 +111,14 @@ Return valid JSON only:
 Return ONLY valid JSON. No markdown, no explanations.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await callOpenAI((client) => client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       max_tokens: 1500,
+    }), "Video SEO metadata", undefined, {
+      operationType: "seo_analysis",
+      model: "gpt-4.1-mini",
     });
 
     const text = response.choices[0]?.message?.content?.trim() || "";
@@ -205,6 +207,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
       videoHashtags,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Video SEO metadata generation failed:", error);
     
     // Fallback to basic metadata (using dashes without spaces, location always included)

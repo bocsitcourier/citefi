@@ -5,7 +5,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { uploadMedia } from "./storage";
 import { logError } from "./error-logger";
 import { throttledGeminiRequest } from "./gemini";
-import { safeLogCostTelemetry, extractGeminiUsage } from "./cost-telemetry";
+import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
 import { getModel } from "./model-resolver";
@@ -18,6 +18,13 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Fallback placeholder image (data URI - simple gradient)
 const FALLBACK_HERO_IMAGE = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3R5bGU9InN0b3AtY29sb3I6cmdiKDEzMywgNzcsIDI1MCk7c3RvcC1vcGFjaXR5OjEiIC8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjpyZ2IoMTk5LCAxNTAsIDI1NSk7c3RvcC1vcGFjaXR5OjEiIC8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNnKSIgLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjQ4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIFBlbmRpbmc8L3RleHQ+PC9zdmc+";
+
+function requireImageGenerationTeamId(teamId: number, operation: string): number {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error(`${operation} requires a validated teamId`);
+  }
+  return teamId;
+}
 
 export interface ImageGenerationResult {
   url: string;
@@ -50,10 +57,13 @@ async function withTimeout<T>(promise: Promise<T>, ms: number = 60000): Promise<
 export async function generateImagesForArticle(
   articleId: number,
   imagePrompts: string[],
-  businessName?: string,
-  targetUrl?: string,
-  generationRunId?: string
+  businessName: string | undefined,
+  targetUrl: string | undefined,
+  generationRunId: string | undefined,
+  teamId: number
 ): Promise<ImageGenerationResult[]> {
+  const accountingTeamId = requireImageGenerationTeamId(teamId, "Article image generation");
+
   if (!imagePrompts || imagePrompts.length === 0) {
     console.warn(`⚠️ No image prompts provided for article ${articleId} — skipping image generation`);
     return [];
@@ -152,10 +162,10 @@ export async function generateImagesForArticle(
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const startedAt = Date.now();
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
-      const _imgStart = Date.now();
       const response = await throttledGeminiRequest(() =>
         withTimeout(
           genAI.models.generateContent({
@@ -182,11 +192,16 @@ export async function generateImagesForArticle(
         throw new Error("No image data returned from Gemini API");
       }
 
-      // Log flat-rate image cost only after confirmed successful image delivery
-      safeLogCostTelemetry(
-        { operationType: "image_generation", provider: "gemini", model: getModel("geminiImage") },
+      // This is an actual provider attempt (not the SVG/reuse fallback).  Keep
+      // the attempt in the idempotency material so a retry is never collapsed.
+      await logCostTelemetry(
+        {
+          operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+          teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
+          attempt, providerRequestId: (response as any).responseId ?? `${generationRunId ?? articleId}:hero:${attempt}`,
+        },
         { imageCount: 1 },
-        Date.now() - _imgStart, true
+        Date.now() - startedAt, true
       );
 
       const imageBuffer = Buffer.from(imageData, "base64");
@@ -228,6 +243,17 @@ export async function generateImagesForArticle(
 
       return [{ url: permanentUrl, prompt: heroPromptRaw, format: "png", assetId: asset?.id }];
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      // A rejected request can still have reached Gemini. Record the provider
+      // attempt, but never record the local SVG fallback below as spend.
+      await logFailedProviderAttempt(
+        {
+          operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+          teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
+          attempt, providerRequestId: `${generationRunId ?? articleId}:hero:${attempt}`,
+        },
+        { imageCount: 0 }, Date.now() - startedAt, error
+      );
       lastError = error as Error;
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`  ⚠️ Attempt ${attempt}/${MAX_RETRIES} failed:`, errorMsg);
@@ -273,7 +299,12 @@ export async function generateImagesForArticle(
     : [];
 }
 
-export async function generateSingleImage(prompt: string): Promise<string | null> {
+export async function generateSingleImage(
+  prompt: string,
+  telemetry: { teamId: number; articleId?: number; resourceType?: string; resourceId?: string | number }
+): Promise<string | null> {
+  const accountingTeamId = requireImageGenerationTeamId(telemetry.teamId, "Single image generation");
+  const startedAt = Date.now();
   try {
     const response = await genAI.models.generateContent({
       model: "gemini-2.5-flash-image",
@@ -281,6 +312,13 @@ export async function generateSingleImage(prompt: string): Promise<string | null
       config: { responseModalities: ["Image"] },
     });
 
+    await logCostTelemetry(
+      {
+        operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+        ...telemetry, teamId: accountingTeamId, attempt: 1, providerRequestId: (response as any).responseId ?? null,
+      },
+      { imageCount: 1 }, Date.now() - startedAt, true
+    );
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData?.data) {
@@ -291,6 +329,14 @@ export async function generateSingleImage(prompt: string): Promise<string | null
 
     return null;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt(
+      {
+        operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+        ...telemetry, teamId: accountingTeamId, attempt: 1,
+      },
+      { imageCount: 0 }, Date.now() - startedAt, error
+    );
     console.error("Gemini image generation error:", error);
     return null;
   }
@@ -301,8 +347,10 @@ export async function generateAndStoreHeroImage(
   prompt: string,
   articleId: number,
   batchId: number,
+  teamId: number,
   businessName?: string
 ): Promise<string> {
+  const accountingTeamId = requireImageGenerationTeamId(teamId, "Stored hero image generation");
   console.log(`🖼️ Generating hero image with Gemini for article ${articleId}...`);
 
   const enhancedPrompt = businessName
@@ -317,6 +365,7 @@ export async function generateAndStoreHeroImage(
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const startedAt = Date.now();
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
@@ -342,6 +391,14 @@ export async function generateAndStoreHeroImage(
       if (!imageData) {
         throw new Error("No image data returned from Gemini API");
       }
+      await logCostTelemetry(
+        {
+          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
+          providerRequestId: (response as any).responseId ?? `${articleId}:stored-hero:${attempt}`,
+        },
+        { imageCount: 1 }, Date.now() - startedAt, true
+      );
 
       const imageBuffer = Buffer.from(imageData, "base64");
       console.log(`  ✅ Image generated (${(imageBuffer.length / 1024).toFixed(2)} KB) — uploading...`);
@@ -364,6 +421,15 @@ export async function generateAndStoreHeroImage(
       console.log(`  ☁️ Uploaded: ${permanentUrl}`);
       return permanentUrl;
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt(
+        {
+          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
+          providerRequestId: `${articleId}:stored-hero:${attempt}`,
+        },
+        { imageCount: 0 }, Date.now() - startedAt, error
+      );
       lastError = error as Error;
       console.error(`  ❌ Attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
 

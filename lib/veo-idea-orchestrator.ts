@@ -7,6 +7,7 @@ import { generateVideoFromScript } from "./veo-social-video-generator";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator } from "./generation-orchestrator";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface VideoIdeaOrchestrationRequest {
   videoIdeaId: number;
@@ -80,23 +81,25 @@ export async function orchestrateVideoIdeaGeneration(
 
     // Fetch teamId + patterns EARLY — before script generation — so the critic loop
     // can inject the right brand context and record Wilson attribution accurately.
-    let videoTeamId: number | null = null;
+    let videoTeamId: number;
     let videoCampaignId: number | null = null;
     let capturedVideoPatternIds: number[] = [];
     let capturedVideoQualityScore = 80;
     let capturedVideoArmId: number | undefined;
     let capturedVideoVariantArmId: number | undefined;
+    const [ideaRow] = await db.select({
+      teamId: videoIdeas.teamId,
+      campaignId: videoIdeas.campaignId,
+    })
+      .from(videoIdeas)
+      .where(eq(videoIdeas.id, videoIdeaId))
+      .limit(1);
+    if (!ideaRow || typeof ideaRow.teamId !== "number" || !Number.isInteger(ideaRow.teamId) || ideaRow.teamId <= 0) {
+      throw new Error(`Video idea ${videoIdeaId} does not have a validated owning team`);
+    }
+    videoTeamId = ideaRow.teamId;
+    videoCampaignId = ideaRow.campaignId ?? null;
     try {
-      const [ideaRow] = await db.select({
-        teamId: videoIdeas.teamId,
-        campaignId: videoIdeas.campaignId,
-      })
-        .from(videoIdeas)
-        .where(eq(videoIdeas.id, videoIdeaId))
-        .limit(1);
-      videoTeamId = ideaRow?.teamId ?? null;
-      videoCampaignId = ideaRow?.campaignId ?? null;
-      if (videoTeamId) {
         const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO, {
           stableId: String(videoIdeaId),
           campaignId: videoCampaignId,
@@ -104,9 +107,8 @@ export async function orchestrateVideoIdeaGeneration(
           .catch(() => ({ patternsUsed: [] as number[], variantArmId: undefined }));
         capturedVideoPatternIds = enhancement.patternsUsed;
         capturedVideoVariantArmId = enhancement.variantArmId;
-      }
     } catch (earlyFetchErr) {
-      console.warn('[VideoOrchestrator] Could not pre-fetch team/patterns:', (earlyFetchErr as Error).message);
+      console.warn('[VideoOrchestrator] Could not pre-fetch patterns:', (earlyFetchErr as Error).message);
     }
 
     await updateVideoIdeaProgress(videoIdeaId, "EXPANDING", 5, "expand_idea");
@@ -115,6 +117,7 @@ export async function orchestrateVideoIdeaGeneration(
     }
 
     const ideaInput: VideoIdeaInput = {
+      teamId: videoTeamId,
       ideaTitle: request.ideaTitle,
       shortIdea: request.shortIdea,
       companyName: request.companyName,
@@ -143,6 +146,7 @@ export async function orchestrateVideoIdeaGeneration(
     }
 
     const script = await generateIdeaVideoScript({
+      teamId: videoTeamId,
       ideaTitle: request.ideaTitle,
       companyName: request.companyName,
       expandedConcept,
@@ -217,6 +221,7 @@ export async function orchestrateVideoIdeaGeneration(
           }
         }
       } catch (orchErr) {
+        if (isProviderAccountingError(orchErr)) throw orchErr;
         console.warn('[VideoOrchestrator] Critic loop failed, continuing:', (orchErr as Error).message);
       }
     }
@@ -240,6 +245,7 @@ export async function orchestrateVideoIdeaGeneration(
     };
 
     const scriptPayload = {
+      teamId: videoTeamId,
       videoIdeaId,
       title: request.ideaTitle,
       companyName: request.companyName,

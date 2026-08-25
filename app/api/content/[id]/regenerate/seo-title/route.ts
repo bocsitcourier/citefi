@@ -48,7 +48,7 @@ export async function POST(
     const currentTitle = article.seoTitle || article.chosenTitle;
 
     // Regenerate SEO title
-    const newSeoTitle = await regenerateSeoTitle(currentTitle, articleContent);
+    const newSeoTitle = await regenerateSeoTitle(currentTitle, articleContent, teamId);
 
     // CRITICAL: Update database with team filter
     await db

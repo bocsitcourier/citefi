@@ -24,6 +24,8 @@ import { throttledGeminiRequest } from "./gemini";
 import type { SitePage } from "../shared/schema";
 import type { SlugMapEntry } from "./slug-map-injector";
 import { isHighQualityAnchor, getFullArticleContext } from "./seo-policy";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -72,8 +74,12 @@ function stripHtml(html: string): string {
 export async function buildIntentDrivenAnchors(
   articleHtml: string,
   pages: SitePage[],
-  targetUrl: string
+  targetUrl: string,
+  teamId: number
 ): Promise<SlugMapEntry[]> {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Intent-driven anchors require a validated teamId");
+  }
   if (!articleHtml || pages.length === 0) return [];
 
   // PLATINUM FIX: Use head+tail approach so FAQ sections at the END of long articles
@@ -140,7 +146,11 @@ BAD anchor text examples (will be rejected):
 
 Return a JSON array. Only include pages where you found a genuine 4–7 word match.`;
 
+  let providerResponseReceived = false;
+  const providerStartedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
+    const startedAt = Date.now();
     const result = await throttledGeminiRequest(() =>
       genAI.models.generateContent({
         model: GEMINI_FLASH_MODEL,
@@ -172,6 +182,10 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
         },
       })
     );
+    providerResponseReceived = true;
+    await logCostTelemetry({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+      providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+    extractGeminiUsage(result), Date.now() - startedAt);
 
     const raw = result.text;
     if (!raw) {
@@ -235,6 +249,14 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
 
     return validated;
   } catch (err) {
+    if (isProviderAccountingError(err)) throw err;
+    // Parsing failures occur after a successful provider attempt and must not
+    // create a duplicate zero-usage provider event.
+    // (Provider-call failures are logged by the request path before fallback.)
+    if (!providerResponseReceived) {
+      await logFailedProviderAttempt({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+        { totalTokens: 0 }, Date.now() - providerStartedAt, err);
+    }
     console.error("[IntentEngine] Gemini call failed — falling back to literal matching:", err);
     return [];
   }

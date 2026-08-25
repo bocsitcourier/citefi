@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
     let researchData;
     try {
       console.log(`🔬 Performing smart web research for "${coreTopic}" in "${geographicFocus}"...`);
-      researchData = await smartResearch.researchTopic(coreTopic, geographicFocus, {
+      researchData = await smartResearch.researchTopic(coreTopic, geographicFocus, teamId, {
         maxSearches: 10,
         includeCompetitors: true
       });
@@ -175,7 +175,8 @@ export async function POST(request: NextRequest) {
         tone,
         geographicFocus,
         audience,
-        researchData
+        researchData,
+        teamId
       );
 
       // Store multi-city structure with critique data
@@ -205,7 +206,8 @@ export async function POST(request: NextRequest) {
         geographicFocus,
         audience,
         redditQuestions,
-        researchData
+        researchData,
+        teamId
       );
 
       titlePoolJson = {

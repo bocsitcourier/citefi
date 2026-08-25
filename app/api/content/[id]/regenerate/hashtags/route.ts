@@ -41,7 +41,7 @@ export async function POST(
     const currentHashtags = (article.hashtagsJson as string[] | null) || [];
 
     // Regenerate hashtags
-    const newHashtags = await regenerateHashtags(currentHashtags, articleContent);
+    const newHashtags = await regenerateHashtags(currentHashtags, articleContent, undefined, teamId);
 
     // Update database — enforce team ownership on write
     await db

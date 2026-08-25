@@ -8,6 +8,7 @@ import { composeVideo, cleanupTempFiles } from "./social-video-compositor";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
 import { runGenerationOrchestrator } from "./generation-orchestrator";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface GenerateSocialVideoRequest {
   socialPostId: number;
@@ -58,6 +59,10 @@ export async function generateSocialVideo(
     if (!post) {
       throw new Error(`Social post ${socialPostId} not found`);
     }
+    if (!Number.isInteger(post.teamId) || (post.teamId ?? 0) <= 0) {
+      throw new Error(`Social post ${socialPostId} has no validated team`);
+    }
+    const teamId = post.teamId!;
 
     if (!post.companyName) {
       await safeQuery(() =>
@@ -110,7 +115,7 @@ export async function generateSocialVideo(
       companyName: post.companyName,
       articleContent,
       landingPageUrl: post.landingPageUrl || undefined,
-      teamId: post.teamId ?? undefined,
+      teamId,
       campaignId: post.campaignId ?? null,
     });
     markTime("script_complete");
@@ -123,7 +128,7 @@ export async function generateSocialVideo(
     try {
       // Fetch learned patterns for attribution so Wilson/EMA updates fire on the
       // right patterns. Must be done before the orchestrator call.
-      const videoEnhancement = await getPromptEnhancement(post.teamId, ContentType.VIDEO, {
+      const videoEnhancement = await getPromptEnhancement(teamId, ContentType.VIDEO, {
         stableId: String(socialPostId),
         campaignId: post.campaignId ?? null,
       })
@@ -132,7 +137,7 @@ export async function generateSocialVideo(
       const videoVariantArmId = videoEnhancement.variantArmId;
 
       const orchResult = await runGenerationOrchestrator({
-        teamId: post.teamId,
+        teamId,
         campaignId: post.campaignId ?? null,
         contentType: ContentType.VIDEO,
         contentId: socialPostId,
@@ -158,7 +163,7 @@ export async function generateSocialVideo(
       // under ContentType.SOCIAL so the learning service maps the ID to
       // socialPostId (not videoIdeaId) — preventing a silent FK mismatch.
       recordContentGenerated(
-        post.teamId,
+        teamId,
         ContentType.SOCIAL,
         socialPostId,
         capturedVideoPatternIds,
@@ -166,6 +171,7 @@ export async function generateSocialVideo(
         { armId: orchResult.armId, variantArmId: videoVariantArmId }
       ).catch(() => { /* non-fatal */ });
     } catch (orchErr) {
+      if (isProviderAccountingError(orchErr)) throw orchErr;
       console.warn(`[Video Orchestrator] Failed, continuing with original script:`, (orchErr as Error).message);
     }
 
@@ -185,6 +191,7 @@ export async function generateSocialVideo(
       (async () => {
         console.log(`🖼️ [Parallel] Generating 5 cinematic images...`);
         const result = await generateVideoImages({
+          teamId,
           socialPostId,
           scenes: reviewedScript.scenes,
           industry: post.industry || "Business",
@@ -198,6 +205,7 @@ export async function generateSocialVideo(
       (async () => {
         console.log(`🎙️ [Parallel] Generating voiceover with OpenAI TTS...`);
         const result = await generateVideoTTS({
+          teamId,
           socialPostId,
           scenes: reviewedScript.scenes,
           tone: post.tone || "Professional",
@@ -259,7 +267,7 @@ export async function generateSocialVideo(
           const bucket = objectStorageClient.bucket(BUCKET_ID);
           const objectPath = post.companyLogoUrl.replace("/api/public-objects/", "public/");
           const file = bucket.file(objectPath);
-          const [buffer] = await file.download();
+          const [buffer] = await (file as any).download();
           await fs.writeFile(logoPath, buffer);
           companyLogoPath = logoPath;
         }
@@ -386,6 +394,7 @@ export async function generateSocialVideo(
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Video generation failed for Social Post ${socialPostId}:`, error);
 
     await safeQuery(() =>

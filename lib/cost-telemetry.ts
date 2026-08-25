@@ -4,6 +4,7 @@ import { CREDIT_MENU } from "@/lib/credit-menu";
 import { db } from "./db";
 import { costTelemetry } from "@/shared/schema";
 import { getDatabaseExecutionContext } from "./tenant-context";
+import { recordProviderUsage } from "./provider-usage-ledger";
 
 // ============================================================================
 // PRICING MAP — cost per million tokens (or per unit) in USD
@@ -70,11 +71,15 @@ export type OperationType =
   | "image_generation"
   | "topic_research"
   | "seo_analysis"
+  | "competitive_intelligence"
+  | "brand_intelligence"
+  | "expert_discovery"
+  | "campaign_ads"
   | "other";
 
 export interface TelemetryContext {
   operationType: OperationType;
-  provider: "gemini" | "openai";
+  provider: "gemini" | "openai" | "brave";
   model: string;
   teamId?: number | null;
   userId?: number | null;
@@ -87,6 +92,13 @@ export interface TelemetryContext {
    * campaign without weakening tenant attribution.
    */
   campaignId?: number | null;
+  /** Provider request identifier, used as the durable ledger idempotency anchor. */
+  providerRequestId?: string | null;
+  providerMetadata?: Record<string, unknown> | null;
+  runId?: string | null;
+  resourceType?: string | null;
+  resourceId?: string | number | null;
+  attempt?: number | null;
 }
 
 export function resolveTelemetryTeamId(
@@ -128,6 +140,43 @@ export interface ImageUsage {
 
 export interface VideoUsage {
   videoSeconds: number;
+}
+
+export interface RequestUsage {
+  requestCount: number;
+}
+
+/**
+ * Accounting is part of the provider boundary, not observability.  This error
+ * is deliberately distinguishable from a provider error so retry loops never
+ * submit a second physical request when the immutable ledger is unavailable.
+ */
+export class ProviderAccountingError extends Error {
+  readonly accountingError: unknown;
+
+  constructor(message: string, accountingError: unknown, providerError?: unknown) {
+    super(message, providerError === undefined ? { cause: accountingError } : { cause: providerError });
+    this.name = "ProviderAccountingError";
+    this.accountingError = accountingError;
+  }
+}
+
+export function isProviderAccountingError(error: unknown): error is ProviderAccountingError {
+  return error instanceof ProviderAccountingError;
+}
+
+/**
+ * Optional provider work may fall back for ordinary content/provider failures,
+ * but immutable-accounting failures are never optional.
+ */
+export function throwIfProviderAccountingFailed(
+  results: readonly PromiseSettledResult<unknown>[]
+): void {
+  for (const result of results) {
+    if (result.status === "rejected" && isProviderAccountingError(result.reason)) {
+      throw result.reason;
+    }
+  }
 }
 
 const FIXED_PRICE_OPERATIONS = new Set<OperationType>([
@@ -304,7 +353,7 @@ export function validateCreditAnchor(
 
 export async function logCostTelemetry(
   ctx: TelemetryContext,
-  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage,
+  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage,
   latencyMs: number,
   success = true,
   errorMessage?: string
@@ -381,7 +430,12 @@ export async function logCostTelemetry(
   let unitCount: number | undefined;
   let costMicrousd = 0;
 
-  if ("inputTokens" in usage || "outputTokens" in usage || "totalTokens" in usage) {
+  if ("requestCount" in usage) {
+    const u = usage as RequestUsage;
+    unitType = "requests";
+    unitCount = u.requestCount;
+    costMicrousd = u.requestCount * 5_000;
+  } else if ("inputTokens" in usage || "outputTokens" in usage || "totalTokens" in usage) {
     const u = usage as TokenUsage;
     inputTokens = u.inputTokens ?? 0;
     outputTokens = u.outputTokens ?? 0;
@@ -406,7 +460,41 @@ export async function logCostTelemetry(
     costMicrousd = calculateVideoCostMicrousd(ctx.model, u.videoSeconds);
   }
 
-  await db.insert(costTelemetry).values({
+  const effectiveRunId = ctx.runId ?? (await import("./run-context")).currentRunId() ?? null;
+
+  // The immutable ledger is the COGS source of truth. cost_telemetry remains a
+  // best-effort operational observability stream and must never be used to
+  // mutate credit balances.
+  try {
+    await recordProviderUsage({
+      teamId: effectiveTeamId,
+      campaignId: effectiveCampaignId,
+      runId: effectiveRunId,
+      jobId: ctx.jobId ?? null,
+      contentId: ctx.articleId ?? null,
+      resourceType: ctx.resourceType ?? (ctx.articleId != null ? "article" : ctx.batchId != null ? "batch" : null),
+      resourceId: ctx.resourceId ?? ctx.articleId ?? ctx.batchId ?? null,
+      operationType: ctx.operationType,
+      provider: ctx.provider,
+      model: ctx.model,
+      unitType,
+      inputUnits: inputTokens ?? null,
+      outputUnits: outputTokens ?? null,
+      unitCount: unitCount ?? 0,
+      costMicrousd,
+      providerRequestId: ctx.providerRequestId ?? null,
+      providerMetadata: ctx.providerMetadata ?? null,
+      attempt: ctx.attempt ?? null,
+    });
+  } catch (error) {
+    throw new ProviderAccountingError(
+      `Immutable provider accounting failed for ${ctx.provider}/${ctx.model}`,
+      error
+    );
+  }
+
+  try {
+    await db.insert(costTelemetry).values({
     teamId: effectiveTeamId,
     campaignId: effectiveCampaignId,
     userId: ctx.userId ?? null,
@@ -414,7 +502,7 @@ export async function logCostTelemetry(
     articleId: ctx.articleId ?? null,
     // Fall back to the ambient run context so worker-side telemetry is
     // attributable per run without threading runId through every signature.
-    jobId: ctx.jobId ?? (await import("./run-context")).currentRunId() ?? null,
+    jobId: ctx.jobId ?? effectiveRunId,
     operationType: ctx.operationType,
     provider: ctx.provider,
     model: ctx.model,
@@ -427,20 +515,40 @@ export async function logCostTelemetry(
     success: success ? 1 : 0,
     latencyMs,
     errorMessage: errorMessage ?? null,
-  });
+    });
+  } catch (err) {
+    // The usage ledger write above already succeeded. Operational telemetry is
+    // intentionally non-authoritative and should not turn a provider success
+    // into a failed content operation.
+    console.warn("[CostTelemetry] operational telemetry insert failed:", (err as Error)?.message ?? err);
+  }
 }
 
-/** Non-blocking fire-and-forget wrapper — never throws, so it can't break content generation. */
-export function safeLogCostTelemetry(
+/**
+ * Record a failed physical provider attempt. If immutable accounting fails,
+ * surface that failure while retaining the original provider error as cause.
+ */
+export async function logFailedProviderAttempt(
   ctx: TelemetryContext,
-  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage,
+  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage,
   latencyMs: number,
-  success = true,
-  errorMessage?: string
-): void {
-  logCostTelemetry(ctx, usage, latencyMs, success, errorMessage).catch((err) => {
-    console.warn("[CostTelemetry] Failed to log cost event:", err?.message ?? err);
-  });
+  providerError: unknown
+): Promise<void> {
+  try {
+    await logCostTelemetry(
+      ctx,
+      usage,
+      latencyMs,
+      false,
+      providerError instanceof Error ? providerError.message : String(providerError)
+    );
+  } catch (accountingError) {
+    throw new ProviderAccountingError(
+      `Immutable provider accounting failed after ${ctx.provider}/${ctx.model} request failed`,
+      accountingError,
+      providerError
+    );
+  }
 }
 
 /** Extract token usage from a Gemini generateContent response. */

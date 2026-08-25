@@ -48,7 +48,7 @@ export async function POST(
     const currentMeta = article.metaDescription || "";
 
     // Regenerate meta description
-    const newMetaDescription = await regenerateMetaDescription(currentMeta, articleContent);
+    const newMetaDescription = await regenerateMetaDescription(currentMeta, articleContent, teamId);
 
     // CRITICAL: Update database with team filter
     await db

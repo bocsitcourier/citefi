@@ -7,6 +7,7 @@ import ffmpegStatic from "ffmpeg-static";
 import ffprobePath from "@ffprobe-installer/ffprobe";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { validateExternalUrl } from "./url-validation";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for video style analysis");
@@ -346,7 +347,8 @@ function classifyPacing(duration: number, sceneCount: number): "slow" | "medium"
 
 async function analyzeStyleWithGemini(
   framePaths: string[],
-  metadata: { duration: number; fps: number; sceneCount: number; pacing: string; hasAudio: boolean }
+  metadata: { duration: number; fps: number; sceneCount: number; pacing: string; hasAudio: boolean },
+  teamId: number
 ): Promise<{
   styleDescription: string;
   stylePrompt: string;
@@ -388,18 +390,41 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
   "stylePrompt": "A concise Veo-ready video generation prompt (max 200 words) that would recreate this visual style. Focus on visual elements only: lighting, color grading, camera movement, composition, mood. Format as a direct instruction for an AI video generator. Do NOT include any brand names, specific people, or copyrighted content."
 }`;
 
-  const result = await genAI.models.generateContent({
-    model: GEMINI_FLASH_MODEL,
-    contents: [
+  const startedAt = Date.now();
+  let result;
+  try {
+    result = await genAI.models.generateContent({
+      model: GEMINI_FLASH_MODEL,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            ...frameContents,
+            { text: prompt },
+          ],
+        },
+      ],
+    });
+  } catch (error) {
+    await logFailedProviderAttempt(
       {
-        role: "user",
-        parts: [
-          ...frameContents,
-          { text: prompt },
-        ],
+        operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        teamId, attempt: 1,
+        providerMetadata: { frameCount: frameContents.length, videoDurationSeconds: metadata.duration },
       },
-    ],
-  });
+      { totalTokens: 0 }, Date.now() - startedAt, error
+    );
+    throw error;
+  }
+  await logCostTelemetry(
+    {
+      operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      teamId,
+      providerRequestId: (result as any).responseId ?? null, attempt: 1,
+      providerMetadata: { frameCount: frameContents.length, videoDurationSeconds: metadata.duration },
+    },
+    extractGeminiUsage(result), Date.now() - startedAt, true
+  );
 
   const responseText = result.text || "";
 
@@ -416,6 +441,7 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
       editingStyle: parsed.editingStyle || "Standard cuts",
     };
   } catch (parseError) {
+      if (isProviderAccountingError(parseError)) throw parseError;
     console.warn("⚠️ Failed to parse Gemini response, using fallback extraction");
 
     return {
@@ -431,8 +457,12 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
 
 export async function analyzeVideoStyle(
   videoPathOrUrl: string,
+  teamId: number,
   isUrl: boolean = true
 ): Promise<VideoAnalysisResult> {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Video style analysis requires a validated teamId");
+  }
   const workDir = `/tmp/video-analysis/${Date.now()}`;
   await fs.mkdir(workDir, { recursive: true });
 
@@ -458,7 +488,7 @@ export async function analyzeVideoStyle(
         sceneCount,
         pacing,
         hasAudio: true,
-      });
+      }, teamId);
 
       const result: VideoAnalysisResult = {
         duration: estimatedDuration,
@@ -492,7 +522,7 @@ export async function analyzeVideoStyle(
         sceneCount,
         pacing,
         hasAudio: true,
-      });
+      }, teamId);
 
       const result: VideoAnalysisResult = {
         duration: estimatedDuration,
@@ -555,7 +585,7 @@ export async function analyzeVideoStyle(
     sceneCount,
     pacing,
     hasAudio: metadata.hasAudio,
-  });
+  }, teamId);
 
   const result: VideoAnalysisResult = {
     duration: metadata.duration,

@@ -8,15 +8,27 @@ import {
   ClaimWithBinding,
 } from "./anti-hallucination";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-async function callGeminiWithRetry(prompt: string, options?: { model?: string; responseFormat?: string }): Promise<string> {
-  const result = await genAI.models.generateContent({
-    model: options?.model || GEMINI_FLASH_MODEL,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-  return result.text || "";
+async function callGeminiWithRetry(prompt: string, options?: { model?: string; responseFormat?: string; teamId?: number; contentId?: number }): Promise<string> {
+  const model = options?.model || GEMINI_FLASH_MODEL;
+  const startedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  try {
+    const result = await genAI.models.generateContent({ model, contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    await logCostTelemetry({ operationType: "article_generation", provider: "gemini", model, teamId: options?.teamId,
+      articleId: options?.contentId, providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+    extractGeminiUsage(result), Date.now() - startedAt);
+    return result.text || "";
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "article_generation", provider: "gemini", model, teamId: options?.teamId,
+      articleId: options?.contentId, providerMetadata }, { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
 }
 
 export interface VerifiedGenerationOptions {
@@ -117,7 +129,7 @@ export async function generateVerifiedContent(
     }
 
     console.log(`[VerifiedGenerator] Calling Gemini for ${contentType} generation...`);
-    const rawOutput = await callGeminiWithRetry(enhancedPrompt, { model: GEMINI_FLASH_MODEL });
+    const rawOutput = await callGeminiWithRetry(enhancedPrompt, { model: GEMINI_FLASH_MODEL, teamId, contentId });
 
     if (skipVerification) {
       console.log(`[VerifiedGenerator] Verification skipped, returning raw output`);
@@ -222,7 +234,7 @@ export async function validateExistingContent(
     minConfidence: options.minConfidence ?? 70,
   });
 
-  const classified = await antiHallucination.classifyClaims(content, factPack);
+  const classified = await antiHallucination.classifyClaims(content, factPack, options.teamId);
 
   const contract: AgentContract = {
     teamId: options.teamId,

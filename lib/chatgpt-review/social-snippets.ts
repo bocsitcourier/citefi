@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface SocialSnippets {
   openGraph: {
@@ -114,6 +115,7 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
       },
     } as SocialSnippets;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Social snippet generation error:", error);
     throw new Error("Failed to generate social snippets");
   }

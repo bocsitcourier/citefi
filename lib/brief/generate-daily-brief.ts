@@ -1,11 +1,13 @@
 import { db } from "@/lib/db";
-import { dailyBriefs } from "@shared/schema";
+import { dailyBriefs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { GEMINI_ARTICLE_MODEL } from "@/lib/ai-config";
 import { assembleBriefContext, scoreActions } from "./assembler";
 import { throttledGeminiRequest } from "@/lib/gemini";
 import { z } from "zod";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "@/lib/cost-telemetry";
 
 // Strict runtime validation — catches hallucinated or truncated Gemini output before we persist it
 const GeneratedBriefSchema = z.object({
@@ -161,14 +163,25 @@ JSON schema:
 
 Respond with ONLY the JSON object.`;
 
-    const result = await throttledGeminiRequest(() =>
-      getGenAI().getGenerativeModel({ model: GEMINI_ARTICLE_MODEL }).generateContent({
+    const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+    let result: any;
+    try {
+      result = await throttledGeminiRequest(() => getGenAI().models.generateContent({
+        model: GEMINI_ARTICLE_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    );
+        config: { responseMimeType: "application/json" },
+      }));
+      await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId,
+        providerRequestId: result.responseId ?? null, providerMetadata },
+      extractGeminiUsage(result), Date.now() - startedAt);
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId, providerMetadata },
+        { totalTokens: 0 }, Date.now() - startedAt, error);
+      throw error;
+    }
 
-    const rawJson = JSON.parse(result.response.text());
+    const rawJson = JSON.parse(result.text ?? "");
     const parsed = GeneratedBriefSchema.safeParse(rawJson);
     if (!parsed.success) {
       throw new Error(`Gemini returned invalid brief shape: ${parsed.error.message}`);
@@ -198,6 +211,7 @@ Respond with ONLY the JSON object.`;
 
     return briefData;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`Failed to generate daily brief for user ${userId}:`, error);
     await db.update(dailyBriefs)
       .set({ status: 'failed' })

@@ -13,6 +13,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { UnrecoverableError, type Job } from "bullmq";
 import Redis from "ioredis";
 import {
@@ -23,6 +24,7 @@ import {
   MIN_IMAGE_BYTES,
   evaluateCanaryHealth,
   getLastCanaryResult,
+  requireCanaryAccountingTeamId,
   runCanary,
   writeCanaryResult,
   type CanaryDeps,
@@ -110,6 +112,85 @@ async function main(): Promise<void> {
       if (saved === undefined) delete process.env.REDIS_URL;
       else process.env.REDIS_URL = saved;
     }
+  });
+
+  await check("real canary accounting owner must be an explicit positive team id", () => {
+    assert.equal(requireCanaryAccountingTeamId(42, undefined), 42);
+    assert.equal(requireCanaryAccountingTeamId(undefined, "17"), 17);
+    assert.throws(
+      () => requireCanaryAccountingTeamId(undefined, ""),
+      /CANARY_ACCOUNTING_TEAM_ID/
+    );
+    assert.throws(() => requireCanaryAccountingTeamId(undefined, "0"), /positive integer/);
+    assert.throws(() => requireCanaryAccountingTeamId(undefined, "1.5"), /positive integer/);
+  });
+
+  await check("injected generators need no accounting owner or database", async () => {
+    const saved = process.env.CANARY_ACCOUNTING_TEAM_ID;
+    delete process.env.CANARY_ACCOUNTING_TEAM_ID;
+    try {
+      await runCanary(makeTestDeps({
+        textGen: async () => "x".repeat(MIN_ARTICLE_CHARS + 1),
+        imageGen: async () => MIN_IMAGE_BYTES,
+      }));
+      assert.equal((await readResult()).status, "pass");
+    } finally {
+      if (saved === undefined) delete process.env.CANARY_ACCOUNTING_TEAM_ID;
+      else process.env.CANARY_ACCOUNTING_TEAM_ID = saved;
+    }
+  });
+
+  await check("provider-backed stage rejects missing owner before submission", async () => {
+    const saved = process.env.CANARY_ACCOUNTING_TEAM_ID;
+    delete process.env.CANARY_ACCOUNTING_TEAM_ID;
+    try {
+      await assert.rejects(
+        runCanary(makeTestDeps({
+          // Text remains provider-backed; image cannot be reached.
+          imageGen: async () => MIN_IMAGE_BYTES,
+        })),
+        /CANARY_ACCOUNTING_TEAM_ID/
+      );
+      const result = await readResult();
+      assert.equal(result.stage, "text_generation");
+    } finally {
+      if (saved === undefined) delete process.env.CANARY_ACCOUNTING_TEAM_ID;
+      else process.env.CANARY_ACCOUNTING_TEAM_ID = saved;
+    }
+  });
+
+  await check("canary source accounts both physical Gemini submission boundaries", () => {
+    const source = readFileSync("lib/canary-worker.ts", "utf8");
+    const submissions = [...source.matchAll(/genAI\.models\.generateContent\s*\(/g)];
+    assert.equal(submissions.length, 2);
+    assert.equal((source.match(/await logCostTelemetry\s*\(/g) ?? []).length, 2);
+    assert.equal((source.match(/await logFailedProviderAttempt\s*\(/g) ?? []).length, 2);
+    assert.equal(
+      (source.match(/if \(isProviderAccountingError\(error\)\) throw error;/g) ?? []).length,
+      2
+    );
+    for (const submission of submissions) {
+      const precedingBoundary = source.slice(
+        Math.max(0, submission.index - 4_000),
+        submission.index
+      );
+      assert.match(precedingBoundary, /requireCanaryAccountingTeamId/);
+      assert.match(precedingBoundary, /const attemptId =/);
+    }
+  });
+
+  await check("worker registration threads owner and stable delivery attempt identity", () => {
+    const source = readFileSync("lib/worker.ts", "utf8");
+    const registration = source.slice(
+      source.indexOf("// Daily model health canary"),
+      source.indexOf("// ── Stale reservation sweeper")
+    );
+    assert.match(registration, /requireCanaryAccountingTeamId\(\)/);
+    assert.match(registration, /accountingTeamId: canaryAccountingTeamId/);
+    assert.match(
+      registration,
+      /attemptId: `canary:\$\{String\(job\.id\)\}:attempt:\$\{job\.attemptsMade \+ 1\}`/
+    );
   });
 
   await check("missing persisted result reads as never_run", async () => {

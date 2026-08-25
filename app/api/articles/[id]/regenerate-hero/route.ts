@@ -40,6 +40,10 @@ export async function POST(
         { status: 404 }
       );
     }
+    const articleTeamId = article.teamId;
+    if (articleTeamId == null || !Number.isInteger(articleTeamId) || articleTeamId <= 0) {
+      throw new Error(`Article ${articleId} is missing a validated teamId`);
+    }
 
     // DEFENSIVE: Get image prompt from article_assets with team check
     const asset = await db.query.articleAssets.findFirst({
@@ -87,6 +91,7 @@ export async function POST(
       prompt,
       articleId,
       article.batchId || 0,
+      articleTeamId,
       businessName
     );
 

@@ -83,7 +83,9 @@ export async function POST(
         numTitlesPerCity,
         tone,
         geographicFocus,
-        audience
+        audience,
+        undefined,
+        teamId
       );
 
       titlePoolJson = {
@@ -105,7 +107,10 @@ export async function POST(
         numTitles,
         tone,
         geographicFocus,
-        audience
+        audience,
+        undefined,
+        undefined,
+        teamId
       );
 
       titlePoolJson = {

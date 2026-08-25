@@ -12,6 +12,7 @@ import { validateBrandInOutput } from "./branding";
 import { uploadPodcastToDrive } from "./google-drive";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { refundCredits, CREDIT_COSTS } from "./credits";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface PodcastGenerationJob {
   /** Two-bucket billing: reservation runId threaded from the API route */
@@ -145,6 +146,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           console.log(`🔧 Podcast script critic: ${orchResult.repairs} repair(s), quality=${podcastQualityScore} — applied to ${script.segments.length} segments`);
         }
       } catch (orchErr) {
+        if (isProviderAccountingError(orchErr)) throw orchErr;
         console.warn('[Podcast Worker] Orchestrator failed, continuing:', (orchErr as Error).message);
       }
     }
@@ -325,6 +327,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       actionUrl: `/content/${articleId}`,
     }).catch(() => {});
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
 

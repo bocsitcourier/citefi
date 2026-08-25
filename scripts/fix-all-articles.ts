@@ -168,6 +168,7 @@ async function healArticles() {
 
         // Intent-driven injection: AI finds semantically relevant anchor phrases
         const injection = await injectLinksWithIntent(
+          batch.teamId,
           article.finalHtmlContent,
           entries,
           pages,

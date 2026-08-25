@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { isProviderAccountingError } from "../cost-telemetry";
 
 export interface HashtagResult {
   hashtags: string[];
@@ -92,6 +93,7 @@ Generate 10-20 total hashtags.`;
       },
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Hashtag generation error:", error);
     throw new Error("Failed to generate hashtags");
   }

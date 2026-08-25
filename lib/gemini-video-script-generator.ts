@@ -6,6 +6,7 @@ import { humanizeVideoScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
 import { getClientBrandContext } from "./client-brand-profile-service";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry } from "./cost-telemetry";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -195,7 +196,7 @@ interface GenerateVideoScriptRequest {
   articleContent?: string;
   landingPageUrl?: string;
   enableFactValidation?: boolean;
-  teamId?: number;
+  teamId: number;
   campaignId?: number | null;
   videoId?: number;
   dialogueMode?: VideoDialogueMode;
@@ -207,6 +208,10 @@ interface GenerateVideoScriptRequest {
 export async function generateVideoScript(
   request: GenerateVideoScriptRequest
 ): Promise<VideoScript> {
+  if (!Number.isInteger(request.teamId) || request.teamId <= 0) {
+    throw new Error("Gemini video script generation requires a validated teamId");
+  }
+
   const {
     topic,
     title,
@@ -235,15 +240,13 @@ export async function generateVideoScript(
 
   // Brand Intelligence context injection
   let brandIntelligenceContext = "";
-  if (request.teamId) {
-    try {
-      brandIntelligenceContext = await getClientBrandContext(
-        request.teamId,
-        request.campaignId ?? null
-      );
-    } catch {
-      // non-fatal
-    }
+  try {
+    brandIntelligenceContext = await getClientBrandContext(
+      request.teamId,
+      request.campaignId ?? null
+    );
+  } catch {
+    // non-fatal
   }
   
   const dialogueModeInstructions = getDialogueModeInstructions(dialogueMode);
@@ -411,6 +414,7 @@ Return a valid JSON object with this exact structure:
 CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just pure JSON.`;
 
   try {
+    const startedAt = Date.now();
     const response = await genAI.models.generateContent({
       model: getModel("geminiFlash"),
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -419,6 +423,14 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
         maxOutputTokens: 8192,
       },
     });
+    await logCostTelemetry(
+      {
+        operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+        teamId: request.teamId,
+        providerRequestId: (response as any).responseId ?? null, attempt: 1,
+      },
+      extractGeminiUsage(response), Date.now() - startedAt, true
+    );
 
     const text = (response.text || "").trim();
     
@@ -498,7 +510,7 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
     const { enforceScriptLength } = await import("./utils/video-guards");
     enforceScriptLength(script as any);
 
-    if (request.enableFactValidation && request.teamId) {
+    if (request.enableFactValidation) {
       try {
         console.log(`🔍 [Anti-Hallucination] Starting fact validation for video script...`);
         
@@ -517,12 +529,14 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
 
         console.log(`✅ [Anti-Hallucination] Video script validated. Safety: ${validationResult.validationResult?.safetyScore}%, Facts: ${validationResult.factPack.totalCount}`);
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.warn('⚠️ Fact validation skipped for video script:', (error as Error).message);
       }
     }
 
     return script;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Failed to generate video script:", error);
     throw new Error(`Video script generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }

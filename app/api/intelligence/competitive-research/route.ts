@@ -36,13 +36,14 @@ export async function POST(req: NextRequest) {
       topic,
       industry,
       location,
-      contentType as ContentTypeCI
+      contentType as ContentTypeCI,
+      teamId
     );
 
     // Phase 2 & 3: Extract patterns + gap analysis in parallel
     const [patterns, gaps] = await Promise.all([
-      competitiveIntelligenceService.extractTransferablePatterns(research, contentType as ContentTypeCI),
-      competitiveIntelligenceService.performGapAnalysis(research, topic, industry),
+      competitiveIntelligenceService.extractTransferablePatterns(research, contentType as ContentTypeCI, teamId),
+      competitiveIntelligenceService.performGapAnalysis(research, topic, industry, teamId),
     ]);
 
     // Phase 4: Seed external patterns into learning system

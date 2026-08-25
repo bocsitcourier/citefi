@@ -26,6 +26,18 @@ import { db } from "./db";
 import { campaigns, clientBrandProfiles } from "@/shared/schema";
 import { and, eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+
+async function recordBrandGeminiAttempt(teamId: number, result: any, startedAt: number, success: boolean, error?: unknown, prompt?: string): Promise<void> {
+  await logCostTelemetry(
+    { operationType: "brand_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1,
+      providerRequestId: result?.responseId ?? result?.id ?? null,
+      providerMetadata: prompt ? { queryHash: createHash("sha256").update(prompt).digest("hex") } : undefined },
+    success ? extractGeminiUsage(result) : { totalTokens: 0 },
+    Date.now() - startedAt, success, error instanceof Error ? error.message : error ? String(error) : undefined
+  );
+}
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
@@ -349,7 +361,7 @@ function emptyBrandPolicy(): BrandPolicyPack {
 // brand intelligence via Gemini.
 // ============================================================================
 
-async function analyzeClientWebsite(websiteUrl: string, companyName: string): Promise<{
+async function analyzeClientWebsite(teamId: number, websiteUrl: string, companyName: string): Promise<{
   brandVoice: BrandVoice;
   positioning: Positioning;
   targetAudience: Partial<TargetAudience>;
@@ -420,12 +432,14 @@ Return a JSON object with EXACTLY this structure (all fields required):
   }
 }`;
 
+  const startedAt = Date.now();
   try {
     const result = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     });
+    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = JSON.parse(result.text ?? "{}");
     return {
       brandVoice: parsed.brandVoice ?? emptyBrandVoice(),
@@ -435,6 +449,8 @@ Return a JSON object with EXACTLY this structure (all fields required):
       rawText: allContent.slice(0, 3_000),
     };
   } catch (err) {
+    if (isProviderAccountingError(err)) throw err;
+    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("analyzeClientWebsite Gemini error:", err);
     return { brandVoice: emptyBrandVoice(), positioning: emptyPositioning(), targetAudience: {}, localNicheIntelligence: emptyLocalIntel(), rawText: "" };
   }
@@ -467,6 +483,7 @@ async function fetchCompetitorPageMeta(url: string): Promise<string> {
 }
 
 async function discoverCompetitors(
+  teamId: number,
   companyName: string,
   positioning: Positioning,
   localNiche: LocalNicheIntelligence,
@@ -486,16 +503,30 @@ async function discoverCompetitors(
     ];
     const allResults: any[] = [];
     for (const q of queries) {
+      const startedAt = Date.now();
+      const queryHash = createHash("sha256").update(q).digest("hex");
       try {
         const res = await fetch(
           `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8`,
           { headers: { Accept: "application/json", "X-Subscription-Token": braveApiKey } }
         );
-        if (res.ok) {
-          const data = await res.json();
-          allResults.push(...(data.web?.results ?? []));
-        }
-      } catch { /* fall through */ }
+        if (!res.ok) throw new Error(`Brave API error: ${res.status}`);
+        const data = await res.json();
+        const results = data.web?.results ?? [];
+        allResults.push(...results);
+        await logCostTelemetry(
+          { operationType: "brand_intelligence", provider: "brave", model: "web-search", teamId, attempt: 1,
+            providerRequestId: res.headers.get("x-request-id"), providerMetadata: { queryHash, resultCount: results.length } },
+          { requestCount: 1 }, Date.now() - startedAt, true
+        );
+      } catch (err) {
+        if (isProviderAccountingError(err)) throw err;
+        await logFailedProviderAttempt(
+          { operationType: "brand_intelligence", provider: "brave", model: "web-search", teamId, attempt: 1,
+            providerMetadata: { queryHash } },
+          { requestCount: 0 }, Date.now() - startedAt, err
+        );
+      }
     }
     // Deduplicate by URL and exclude the client's own domain
     const seen = new Set<string>();
@@ -533,12 +564,14 @@ Return a JSON object:
 
 Use real companies — not placeholder names. If Brave results are provided, prioritize those.`;
 
+  const startedAt = Date.now();
   try {
     const result = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     });
+    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = JSON.parse(result.text ?? "{}");
     const rawCompetitors: Competitor[] = Array.isArray(parsed.competitors) ? parsed.competitors : [];
 
@@ -555,6 +588,8 @@ Use real companies — not placeholder names. If Brave results are provided, pri
     );
     return enriched.map(r => (r.status === "fulfilled" ? r.value : null)).filter(Boolean) as Competitor[];
   } catch (err) {
+    if (isProviderAccountingError(err)) throw err;
+    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("discoverCompetitors Gemini error:", err);
     return [];
   }
@@ -605,6 +640,7 @@ async function fetchRedditPainPoints(businessType: string): Promise<string[]> {
 // ============================================================================
 
 async function analyzeGapsAndFailures(
+  teamId: number,
   companyName: string,
   positioning: Positioning,
   targetAudience: Partial<TargetAudience>,
@@ -662,12 +698,14 @@ Return a JSON object:
   "decisionDrivers": ["the real psychological triggers that move a prospect from research to purchase — up to 5"]
 }`;
 
+  const startedAt = Date.now();
   try {
     const result = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     });
+    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = JSON.parse(result.text ?? "{}");
     return {
       competitiveGaps: parsed.competitiveGaps ?? { clientAdvantages: [], clientWeaknesses: [], opportunityTopics: [] },
@@ -677,6 +715,8 @@ Return a JSON object:
       decisionDrivers: parsed.decisionDrivers ?? [],
     };
   } catch (err) {
+    if (isProviderAccountingError(err)) throw err;
+    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("analyzeGapsAndFailures Gemini error:", err);
     return {
       competitiveGaps: { clientAdvantages: [], clientWeaknesses: [], opportunityTopics: [] },
@@ -695,6 +735,7 @@ Return a JSON object:
 // ============================================================================
 
 async function buildBrandPolicyPack(
+  teamId: number,
   companyName: string,
   brandVoice: BrandVoice,
   positioning: Positioning,
@@ -736,12 +777,14 @@ Return a JSON object:
   ]
 }`;
 
+  const startedAt = Date.now();
   try {
     const result = await genAI.models.generateContent({
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     });
+    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = JSON.parse(result.text ?? "{}");
     return {
       approvedClaims: parsed.approvedClaims ?? [],
@@ -752,6 +795,8 @@ Return a JSON object:
       localeConstraints: parsed.localeConstraints ?? [],
     };
   } catch (err) {
+    if (isProviderAccountingError(err)) throw err;
+    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("buildBrandPolicyPack Gemini error:", err);
     return emptyBrandPolicy();
   }
@@ -796,6 +841,9 @@ export async function runIntelligenceResearch(
   websiteUrl: string,
   companyName: string
 ): Promise<ClientBrandProfileJson> {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Brand intelligence research requires a validated teamId");
+  }
   // The table remains one-row-per-team for compatibility, so every write is
   // compare-and-set against the business URL that launched this run. A newer
   // campaign may repoint the team profile while this job is in flight; stale
@@ -817,12 +865,13 @@ export async function runIntelligenceResearch(
 
     // ── Step 1: Website brand extraction ──────────────────────────────────
     console.log(`🧠 [team:${teamId}] Step 1/5 — Analyzing ${websiteUrl}`);
-    const websiteData = await analyzeClientWebsite(websiteUrl, companyName);
+    const websiteData = await analyzeClientWebsite(teamId, websiteUrl, companyName);
 
     // ── Step 2: Competitor discovery ──────────────────────────────────────
     await setProgress("competitors");
     console.log(`🧠 [team:${teamId}] Step 2/6 — Discovering competitors`);
     const competitors = await discoverCompetitors(
+      teamId,
       companyName,
       websiteData.positioning,
       websiteData.localNicheIntelligence,
@@ -840,6 +889,7 @@ export async function runIntelligenceResearch(
     await setProgress("gaps");
     console.log(`🧠 [team:${teamId}] Step 4/6 — Analyzing competitive gaps`);
     const gapAnalysis = await analyzeGapsAndFailures(
+      teamId,
       companyName,
       websiteData.positioning,
       websiteData.targetAudience,
@@ -851,6 +901,7 @@ export async function runIntelligenceResearch(
     await setProgress("policy");
     console.log(`🧠 [team:${teamId}] Step 4/5 — Building brand policy pack`);
     const brandPolicyPack = await buildBrandPolicyPack(
+      teamId,
       companyName,
       websiteData.brandVoice,
       websiteData.positioning,
@@ -923,6 +974,7 @@ export async function runIntelligenceResearch(
     return profileJson;
 
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     const message = error instanceof Error ? error.message : String(error);
     console.error(`❌ [team:${teamId}] Intelligence research failed:`, message);
     await db.update(clientBrandProfiles)

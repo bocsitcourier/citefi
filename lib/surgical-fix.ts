@@ -11,7 +11,8 @@
  * This prevents "rewrite amnesia" where fixing one issue breaks another.
  */
 
-import { openaiClient } from "./openai-client";
+import { callOpenAI } from "./openai-client";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface SurgicalFixResult {
   html: string;
@@ -109,7 +110,7 @@ ${html}`;
   const maxOutputTokens = Math.min(Math.max(estimatedInputTokens + 2000, 8000), 16000);
 
   try {
-    const response = await openaiClient.chat.completions.create({
+    const response = await callOpenAI((client) => client.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: systemPrompt },
@@ -117,6 +118,9 @@ ${html}`;
       ],
       temperature: 0.15,
       max_tokens: maxOutputTokens,
+    }), "Surgical article fix", undefined, {
+      operationType: "article_generation",
+      model: "gpt-4.1-mini",
     });
 
     const fixedHtml = response.choices[0]?.message?.content || html;
@@ -143,6 +147,7 @@ ${html}`;
       tokenCount: response.usage?.total_tokens,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Surgical fix failed:", error);
     return { html, appliedFixes: [], unchanged: true };
   }

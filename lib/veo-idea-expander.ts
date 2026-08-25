@@ -1,5 +1,6 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -10,6 +11,7 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 export interface VideoIdeaInput {
+  teamId: number;
   ideaTitle: string;
   shortIdea: string;
   companyName: string;
@@ -95,6 +97,9 @@ const TONE_DESCRIPTIONS: Record<VideoTone, string> = {
 };
 
 export async function expandVideoIdea(input: VideoIdeaInput): Promise<ExpandedVideoConcept> {
+  if (!Number.isInteger(input.teamId) || input.teamId <= 0) {
+    throw new Error("Video idea expansion requires a validated teamId");
+  }
   console.log(`🎬 Expanding video idea: "${input.ideaTitle}"`);
   
   const styleDesc = STYLE_DESCRIPTIONS[input.style];
@@ -192,13 +197,12 @@ Return ONLY valid JSON in this exact format:
     });
 
     if (response?.usageMetadata) {
-      void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
-        safeLogCostTelemetry(
-          { operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL },
-          extractGeminiUsage(response),
-          Date.now() - _ideaStart, true
-        );
-      }).catch(() => {});
+      const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+      await logCostTelemetry(
+        { operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+          teamId: input.teamId, providerRequestId: (response as any).responseId ?? null },
+        extractGeminiUsage(response), Date.now() - _ideaStart, true
+      );
     }
 
     const text = (response.text || "").trim();
@@ -231,6 +235,7 @@ Return ONLY valid JSON in this exact format:
     
     return concept;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Error expanding video idea:", error);
     throw new Error(`Failed to expand video idea: ${error}`);
   }

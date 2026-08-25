@@ -1,4 +1,6 @@
 import { getModel } from "./model-resolver";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 /**
  * ============================================================================
  * SMART TOPIC RESEARCH MODULE
@@ -75,8 +77,10 @@ export class SmartTopicResearch {
   async researchTopic(
     topic: string,
     location: string,
+    teamId: number,
     options: { maxSearches?: number; includeCompetitors?: boolean } = {}
   ): Promise<SmartResearchResult> {
+    this.validateTeamId(teamId);
     const maxSearches = options.maxSearches || 10;
     const includeCompetitors = options.includeCompetitors !== false;
     
@@ -101,17 +105,17 @@ export class SmartTopicResearch {
 
     try {
       // Phase 1: Find local entities (hospitals, providers, etc.)
-      const localEntities = await this.findLocalEntities(topic, location, maxSearches);
+      const localEntities = await this.findLocalEntities(topic, location, maxSearches, teamId);
       result.localEntities = localEntities;
 
       // Phase 2: Find competitor titles that rank well
       if (includeCompetitors) {
-        const competitorTitles = await this.findCompetitorTitles(topic, location);
+        const competitorTitles = await this.findCompetitorTitles(topic, location, teamId);
         result.competitorTitles = competitorTitles;
       }
 
       // Phase 3: Discover topic insights and angles
-      const insights = await this.discoverTopicInsights(topic, location);
+      const insights = await this.discoverTopicInsights(topic, location, teamId);
       result.topicInsights = insights.insights;
       result.suggestedAngles = insights.angles;
       result.keywords = insights.keywords;
@@ -121,6 +125,7 @@ export class SmartTopicResearch {
       console.log(`✅ Research complete: ${result.localEntities.length} local entities, ${result.competitorTitles.length} competitor titles, ${result.suggestedAngles.length} angles`);
       
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.error('Research error:', (error as Error).message);
       return this.getFallbackResearch(topic, location);
     }
@@ -131,7 +136,8 @@ export class SmartTopicResearch {
   private async findLocalEntities(
     topic: string,
     location: string,
-    maxSearches: number
+    maxSearches: number,
+    teamId: number
   ): Promise<LocalEntity[]> {
     const entities: LocalEntity[] = [];
     
@@ -165,10 +171,11 @@ export class SmartTopicResearch {
     
     for (const query of queriesToRun) {
       try {
-        const results = await this.braveSearch(query);
+        const results = await this.braveSearch(query, teamId);
         const extracted = this.extractEntitiesFromResults(results, location);
         entities.push(...extracted);
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.error(`Entity search failed: ${query}`, (error as Error).message);
       }
     }
@@ -179,7 +186,8 @@ export class SmartTopicResearch {
 
   private async findCompetitorTitles(
     topic: string,
-    location: string
+    location: string,
+    teamId: number
   ): Promise<CompetitorTitle[]> {
     const titles: CompetitorTitle[] = [];
     
@@ -193,7 +201,7 @@ export class SmartTopicResearch {
 
     for (const query of queries.slice(0, 3)) {
       try {
-        const results = await this.braveSearch(query);
+        const results = await this.braveSearch(query, teamId);
         
         for (const result of results.slice(0, 5)) {
           const patterns = this.analyzeTitlePatterns(result.title);
@@ -221,7 +229,8 @@ export class SmartTopicResearch {
 
   private async discoverTopicInsights(
     topic: string,
-    location: string
+    location: string,
+    teamId: number
   ): Promise<{ insights: TopicInsight[]; angles: string[]; keywords: string[] }> {
     const insights: TopicInsight[] = [];
     const angles: string[] = [];
@@ -229,14 +238,14 @@ export class SmartTopicResearch {
     
     try {
       // Search for common questions
-      const questionResults = await this.braveSearch(`${topic} ${location} questions answers`);
+      const questionResults = await this.braveSearch(`${topic} ${location} questions answers`, teamId);
       
       // Extract common angles from search results
       const commonAngles = this.extractAnglesFromResults(questionResults, topic);
       angles.push(...commonAngles);
       
       // Search for related keywords
-      const relatedResults = await this.braveSearch(`${topic} related services ${location}`);
+      const relatedResults = await this.braveSearch(`${topic} related services ${location}`, teamId);
       const extractedKeywords = this.extractKeywordsFromResults(relatedResults, topic);
       keywords.push(...extractedKeywords);
       
@@ -275,8 +284,10 @@ export class SmartTopicResearch {
     return { insights, angles: [...new Set(angles)], keywords: [...new Set(keywords)] };
   }
 
-  private async braveSearch(query: string): Promise<any[]> {
+  private async braveSearch(query: string, teamId: number): Promise<any[]> {
     this.searchCount++;
+    const startedAt = Date.now();
+    const providerMetadata = { queryHash: createHash("sha256").update(query).digest("hex") };
     
     const params = new URLSearchParams({
       q: query,
@@ -284,19 +295,21 @@ export class SmartTopicResearch {
       safesearch: 'moderate'
     });
 
-    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': this.apiKey!
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Brave API error: ${response.status}`);
+    try {
+      const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+        headers: { 'Accept': 'application/json', 'X-Subscription-Token': this.apiKey! }
+      });
+      if (!response.ok) throw new Error(`Brave API error: ${response.status}`);
+      const data = await response.json();
+      await logCostTelemetry({ operationType: "topic_research", provider: "brave", model: "web-search", teamId,
+        providerRequestId: response.headers.get("x-request-id"), providerMetadata }, { requestCount: 1 }, Date.now() - startedAt);
+      return (data as any).web?.results || [];
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt({ operationType: "topic_research", provider: "brave", model: "web-search", teamId, providerMetadata },
+        { requestCount: 0 }, Date.now() - startedAt, error);
+      throw error;
     }
-
-    const data = await response.json();
-    return (data as any).web?.results || [];
   }
 
   private extractEntitiesFromResults(results: any[], location: string): LocalEntity[] {
@@ -535,8 +548,10 @@ export class SmartTopicResearch {
   async critiqueAndRefineTitles(
     titles: string[],
     researchData: SmartResearchResult,
-    industry: string
+    industry: string,
+    teamId: number
   ): Promise<CritiqueResult> {
+    this.validateTeamId(teamId);
     console.log('🧠 Agentic Review: Checking titles for hallucinations and clichés...');
     
     const competitorTitleStrings = researchData.competitorTitles.map(ct => ct.title);
@@ -607,11 +622,20 @@ Return as JSON:
       }
 
       const genAI = new GoogleGenAI({ apiKey });
-      const result = await genAI.models.generateContent({
-        model: getModel("geminiFlash"),
-        contents: [{ role: 'user', parts: [{ text: critiquePrompt }] }],
-        config: { temperature: 0.1 } // Low temp for precise analysis
-      });
+      const model = getModel("geminiFlash"), startedAt = Date.now();
+      const providerMetadata = { queryHash: createHash("sha256").update(critiquePrompt).digest("hex") };
+      let result;
+      try {
+        result = await genAI.models.generateContent({ model, contents: [{ role: 'user', parts: [{ text: critiquePrompt }] }], config: { temperature: 0.1 } });
+        await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model, teamId,
+          providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+        extractGeminiUsage(result), Date.now() - startedAt);
+      } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
+        await logFailedProviderAttempt({ operationType: "topic_research", provider: "gemini", model, teamId, providerMetadata },
+          { totalTokens: 0 }, Date.now() - startedAt, error);
+        throw error;
+      }
       const responseText = result.text || '';
       
       // Parse the JSON response
@@ -669,6 +693,7 @@ Return as JSON:
       };
       
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
       console.error('Critique error:', (error as Error).message);
       // Return original titles with scores on error
       return {
@@ -690,6 +715,12 @@ Return as JSON:
       uniquenessScore: this.calculateUniquenessScore(title, competitorTitles),
       wasRefined: false
     }));
+  }
+
+  private validateTeamId(teamId: number): void {
+    if (!Number.isInteger(teamId) || teamId <= 0) {
+      throw new Error("Smart topic research requires a validated teamId");
+    }
   }
 }
 

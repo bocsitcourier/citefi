@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, bigint, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -2862,6 +2862,89 @@ export const costTelemetry = pgTable("cost_telemetry", {
 export const insertCostTelemetrySchema = createInsertSchema(costTelemetry).omit({ id: true, createdAt: true });
 export type InsertCostTelemetry = z.infer<typeof insertCostTelemetrySchema>;
 export type CostTelemetry = typeof costTelemetry.$inferSelect;
+
+// ============================================================================
+// PROVIDER USAGE LEDGER — immutable COGS source of truth (Task #153)
+// ============================================================================
+export const providerRateVersions = pgTable("provider_rate_versions", {
+  id: serial("id").primaryKey(),
+  version: varchar("version", { length: 80 }).notNull().unique(),
+  evidenceUrl: text("evidence_url").notNull(),
+  sourceNote: text("source_note").notNull(),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  lockedAt: timestamp("locked_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const providerRates = pgTable("provider_rates", {
+  id: serial("id").primaryKey(),
+  rateVersionId: integer("rate_version_id").notNull().references(() => providerRateVersions.id),
+  provider: varchar("provider", { length: 40 }).notNull(),
+  model: varchar("model", { length: 120 }).notNull(),
+  unitType: varchar("unit_type", { length: 30 }).notNull(),
+  inputMicrousdPerMillion: bigint("input_microusd_per_million", { mode: "number" }),
+  outputMicrousdPerMillion: bigint("output_microusd_per_million", { mode: "number" }),
+  microusdPerUnit: bigint("microusd_per_unit", { mode: "number" }),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  evidenceUrl: text("evidence_url").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  versionModelUnitUnique: uniqueIndex("provider_rates_version_model_unit_unique").on(t.rateVersionId, t.provider, t.model, t.unitType),
+  lookupIdx: index("provider_rates_lookup_idx").on(t.provider, t.model, t.unitType, t.effectiveFrom),
+}));
+
+export const providerUsageLedger = pgTable("provider_usage_ledger", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  sourceEventId: varchar("source_event_id", { length: 255 }).notNull().unique(),
+  teamId: integer("team_id").notNull().references(() => teams.id),
+  agencyTeamId: integer("agency_team_id").references(() => teams.id),
+  eventType: varchar("event_type", { length: 20 }).notNull(),
+  originalEventId: bigint("original_event_id", { mode: "number" }),
+  campaignId: integer("campaign_id"),
+  runId: varchar("run_id", { length: 100 }),
+  jobId: varchar("job_id", { length: 100 }),
+  contentId: integer("content_id"),
+  resourceType: varchar("resource_type", { length: 50 }),
+  resourceId: varchar("resource_id", { length: 100 }),
+  operationType: varchar("operation_type", { length: 80 }).notNull(),
+  provider: varchar("provider", { length: 40 }).notNull(),
+  model: varchar("model", { length: 120 }).notNull(),
+  unitType: varchar("unit_type", { length: 30 }).notNull(),
+  inputUnits: integer("input_units"),
+  outputUnits: integer("output_units"),
+  unitCount: integer("unit_count").notNull().default(0),
+  costMicrousd: bigint("cost_microusd", { mode: "number" }).notNull(),
+  rateVersionId: integer("rate_version_id").references(() => providerRateVersions.id),
+  providerRateId: integer("provider_rate_id").references(() => providerRates.id),
+  rateSnapshot: jsonb("rate_snapshot").notNull(),
+  providerRequestId: varchar("provider_request_id", { length: 255 }),
+  providerMetadata: jsonb("provider_metadata"),
+  occurredAt: timestamp("occurred_at").notNull(),
+  recordedAt: timestamp("recorded_at").notNull().defaultNow(),
+}, (t) => ({
+  teamOccurredIdx: index("provider_usage_ledger_team_occurred_idx").on(t.teamId, t.occurredAt),
+  reconciliationIdx: index("provider_usage_ledger_provider_occurred_idx").on(t.provider, t.occurredAt),
+  originalIdx: index("provider_usage_ledger_original_idx").on(t.originalEventId),
+}));
+
+export const providerInvoiceReconciliations = pgTable("provider_invoice_reconciliations", {
+  id: serial("id").primaryKey(),
+  provider: varchar("provider", { length: 40 }).notNull(),
+  invoiceReference: varchar("invoice_reference", { length: 255 }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  invoicedCostMicrousd: bigint("invoiced_cost_microusd", { mode: "number" }).notNull(),
+  ledgerCostMicrousd: bigint("ledger_cost_microusd", { mode: "number" }).notNull(),
+  varianceMicrousd: bigint("variance_microusd", { mode: "number" }).notNull(),
+  evidenceUrl: text("evidence_url"),
+  metadata: jsonb("metadata"),
+  recordedAt: timestamp("recorded_at").notNull().defaultNow(),
+}, (t) => ({
+  providerInvoiceUnique: uniqueIndex("provider_invoice_reconciliation_unique").on(t.provider, t.invoiceReference),
+  providerPeriodIdx: index("provider_invoice_reconciliation_period_idx").on(t.provider, t.periodStart, t.periodEnd),
+}));
 
 // ============================================================================
 // CREDIT SYSTEM

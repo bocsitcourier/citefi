@@ -49,7 +49,7 @@ export async function POST(
 
     console.log(`🔍 Starting video style analysis for idea ${ideaId}: ${idea.referenceVideoUrl.slice(0, 60)}...`);
 
-    const analysis = await analyzeVideoStyle(idea.referenceVideoUrl, true);
+    const analysis = await analyzeVideoStyle(idea.referenceVideoUrl, teamId, true);
 
     const inferredStyle = inferStyleFromAnalysis(analysis.mood);
     const inferredTone = inferToneFromAnalysis(analysis.mood);

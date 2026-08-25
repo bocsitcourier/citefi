@@ -4,6 +4,7 @@ import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding"
 import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { jsonrepair } from "jsonrepair";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -36,13 +37,16 @@ interface GenerateVeoScriptRequest {
   companyName: string;
   articleContent?: string;
   landingPageUrl?: string;
-  teamId?: number;
+  teamId: number;
   personaId?: number;
 }
 
 export async function generateVeoScript(
   request: GenerateVeoScriptRequest
 ): Promise<VeoVideoScript> {
+  if (!Number.isInteger(request.teamId) || request.teamId <= 0) {
+    throw new Error("Veo script generation requires a validated teamId");
+  }
   const {
     topic,
     title,
@@ -162,13 +166,12 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
     });
 
     if (response?.usageMetadata) {
-      void import("./cost-telemetry").then(({ safeLogCostTelemetry, extractGeminiUsage }) => {
-        safeLogCostTelemetry(
-          { operationType: "video_script", provider: "gemini", model: GEMINI_FLASH_MODEL },
-          extractGeminiUsage(response),
-          Date.now() - _veoStart, true
-        );
-      }).catch(() => {});
+      const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
+      await logCostTelemetry(
+        { operationType: "video_script", provider: "gemini", model: GEMINI_FLASH_MODEL,
+          teamId, providerRequestId: (response as any).responseId ?? null },
+        extractGeminiUsage(response), Date.now() - _veoStart, true
+      );
     }
 
     const text = (response.text || "").trim();
@@ -213,6 +216,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
     console.log(`✅ Generated Veo script with 10 clips for 60-second video`);
     return script;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Failed to generate Veo script:", error);
     throw new Error(`Veo script generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -1,4 +1,5 @@
 import { GEMINI_CRITIQUE_MODEL } from "./ai-config";
+import { isProviderAccountingError, logFailedProviderAttempt } from "./cost-telemetry";
 /**
  * ============================================================================
  * ARTICLE CRITIQUE & FACT-CHECKING MODULE
@@ -543,8 +544,12 @@ export class ArticleCritique {
     topic: string,
     location: string,
     businessName: string,
+    teamId: number,
     targetWordCount: number = 1500
   ): Promise<ArticleCritiqueResult> {
+    if (!Number.isInteger(teamId) || teamId <= 0) {
+      throw new Error("Article critique requires a validated teamId");
+    }
     console.log('🔍 Starting article critique and fact-checking...');
     
     const startTime = Date.now();
@@ -555,7 +560,7 @@ export class ArticleCritique {
     
     // Step 2: Extract factual claims and verify
     const claims = this.extractFactualClaims(cleanedContent);
-    const factChecks = await this.verifyClaimsWithSearch(claims.slice(0, 5)); // Limit to 5 for API efficiency
+    const factChecks = await this.verifyClaimsWithSearch(claims.slice(0, 5), teamId); // Limit to 5 for API efficiency
     
     // Step 3: Run SEO analysis
     const seoAnalysis = this.analyzeSEO(cleanedContent, title, topic, location, businessName);
@@ -572,6 +577,7 @@ export class ArticleCritique {
           topic,
           location,
           businessName,
+          teamId,
           targetWordCount,
           factChecks,
           seoAnalysis
@@ -579,6 +585,7 @@ export class ArticleCritique {
         refinedContent = refinementResult.content;
         improvements = refinementResult.improvements;
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.warn('⚠️ AI refinement failed, using cleaned content:', (error as Error).message);
         improvements = ['AI refinement skipped due to error'];
       }
@@ -661,7 +668,7 @@ export class ArticleCritique {
   /**
    * Verify claims using Brave Search
    */
-  private async verifyClaimsWithSearch(claims: string[]): Promise<FactCheckResult[]> {
+  private async verifyClaimsWithSearch(claims: string[], teamId: number): Promise<FactCheckResult[]> {
     const results: FactCheckResult[] = [];
     
     if (!this.braveApiKey || claims.length === 0) {
@@ -678,7 +685,7 @@ export class ArticleCritique {
     for (const claim of claims) {
       try {
         const searchQuery = claim.substring(0, 100); // Limit query length
-        const searchResults = await this.braveSearch(searchQuery);
+        const searchResults = await this.braveSearch(searchQuery, teamId);
         
         if (searchResults.length > 0) {
           // Check if any results corroborate the claim
@@ -703,6 +710,7 @@ export class ArticleCritique {
           });
         }
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         results.push({
           claim,
           verified: false,
@@ -721,7 +729,7 @@ export class ArticleCritique {
   /**
    * Brave Search API call with timeout protection
    */
-  private async braveSearch(query: string): Promise<Array<{ title: string; snippet: string; url: string }>> {
+  private async braveSearch(query: string, teamId: number): Promise<Array<{ title: string; snippet: string; url: string }>> {
     const params = new URLSearchParams({
       q: query,
       count: '3',
@@ -732,6 +740,10 @@ export class ArticleCritique {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+    const startedAt = Date.now();
+    const { createHash } = await import("node:crypto");
+    const { logCostTelemetry } = await import("./cost-telemetry");
+    const providerMetadata = { queryHash: createHash("sha256").update(query).digest("hex") };
     try {
       const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
         headers: {
@@ -746,11 +758,18 @@ export class ArticleCritique {
       }
 
       const data = await response.json() as any;
+      await logCostTelemetry({ operationType: "article_critique", provider: "brave", model: "web-search", teamId,
+        providerRequestId: response.headers.get("x-request-id"), providerMetadata }, { requestCount: 1 }, Date.now() - startedAt);
       return (data.web?.results || []).map((r: any) => ({
         title: r.title,
         snippet: r.description,
         url: r.url
       }));
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt({ operationType: "article_critique", provider: "brave", model: "web-search", teamId, providerMetadata },
+        { requestCount: 0 }, Date.now() - startedAt, error);
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -911,6 +930,7 @@ export class ArticleCritique {
     topic: string,
     location: string,
     businessName: string,
+    teamId: number,
     targetWordCount: number,
     factChecks: FactCheckResult[],
     seoAnalysis: SEOAnalysis
@@ -950,7 +970,13 @@ INSTRUCTIONS:
 Return ONLY the refined article content in Markdown format.
 Do NOT include explanations or meta-commentary.`;
 
-    const result = await genAI.models.generateContent({
+    const startedAt = Date.now();
+    const { createHash } = await import("node:crypto");
+    const { extractGeminiUsage, logCostTelemetry } = await import("./cost-telemetry");
+    const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+    let result;
+    try {
+      result = await genAI.models.generateContent({
       model: GEMINI_CRITIQUE_MODEL,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
@@ -962,7 +988,15 @@ Do NOT include explanations or meta-commentary.`;
           includeThoughts: false,
         },
       },
-    });
+      });
+      await logCostTelemetry({ operationType: "article_critique", provider: "gemini", model: GEMINI_CRITIQUE_MODEL, teamId,
+        providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata }, extractGeminiUsage(result), Date.now() - startedAt);
+    } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      await logFailedProviderAttempt({ operationType: "article_critique", provider: "gemini", model: GEMINI_CRITIQUE_MODEL, teamId, providerMetadata },
+        { totalTokens: 0 }, Date.now() - startedAt, error);
+      throw error;
+    }
     const refinedContent = result.text || '';
 
     const improvements: string[] = [];

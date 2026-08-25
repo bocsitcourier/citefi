@@ -29,3 +29,4 @@
 - [PostgreSQL tenant RLS](postgres-tenant-rls.md) — tenant transactions must switch roles on one connection; policy recursion uses definer helpers; row policies need separate column guards.
 - [Campaign client boundaries](campaign-client-boundaries.md) — campaign deliverables must use immutable campaign Brand snapshots, never a team's mutable live profile.
 - [Ads export governance](ads-export-governance.md) — Ads Lab is export-only; finalized manifests, artifact hashes, pinned landing checks, approvals, and retained debit settlement are mandatory.
+- [Provider COGS ledger](provider-cogs-ledger.md) — actual COGS uses locked rates only; unpriced usage is zero-valued, and paid provider results fail closed if accounting fails.

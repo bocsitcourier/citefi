@@ -1,7 +1,7 @@
 import { getModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { throttledGeminiRequest } from "./gemini";
-import { safeLogCostTelemetry, extractGeminiUsage } from "./cost-telemetry";
+import { logCostTelemetry, extractGeminiUsage, isProviderAccountingError } from "./cost-telemetry";
 import { createBrandLockPromptSegment } from "./branding";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { validateContentWithFacts } from "./fact-validated-generators";
@@ -63,6 +63,9 @@ export async function generatePodcastScript(
     podcastId,
     competitiveIntel,
   } = options;
+  if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
+    throw new Error("Podcast generation requires a validated teamId");
+  }
   
   const brandLockContext = companyName && companyName !== "our company" ? createBrandLockPromptSegment(companyName) : "";
   
@@ -186,8 +189,10 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
     }));
 
     if (result?.usageMetadata) {
-      safeLogCostTelemetry(
-        { operationType: "podcast_script", provider: "gemini", model: getModel("geminiFlash") },
+      await logCostTelemetry(
+        { operationType: "podcast_script", provider: "gemini", model: getModel("geminiFlash"),
+          teamId, resourceType: "podcast", resourceId: podcastId,
+          providerRequestId: (result as any).responseId ?? null },
         extractGeminiUsage(result),
         Date.now() - _podStart, true
       );
@@ -232,12 +237,14 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
         console.log(`✅ [Anti-Hallucination] Podcast script validated. Safety: ${validationResult.validationResult?.safetyScore}%, Facts: ${validationResult.factPack.totalCount}`);
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.warn('⚠️ Fact validation skipped for podcast script:', (error as Error).message);
       }
     }
     
     return script;
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("Error generating podcast script:", error);
     throw new Error(`Podcast script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }

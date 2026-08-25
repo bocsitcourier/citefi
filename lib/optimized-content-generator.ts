@@ -23,6 +23,7 @@ import { learningService } from "./learning-service";
 import { contentReviewService } from "./content-review-service";
 import { GEMINI_FLASH_MODEL, GPT_ENHANCEMENT_MODEL } from "./ai-config";
 import { callOpenAI } from "./openai-client";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { db } from "./db";
 import {
   articles,
@@ -174,6 +175,7 @@ export class OptimizedContentGenerator {
       if (fixable.length === 0) break;
 
       currentContent = await this.repair(
+        teamId,
         currentContent,
         fixable,
         fullBrief,
@@ -235,6 +237,9 @@ export class OptimizedContentGenerator {
     contentType: string,
     brief: Brief
   ): Promise<GenResult> {
+    if (!Number.isInteger(teamId) || teamId <= 0) {
+      throw new Error("Optimized content generation requires a validated teamId");
+    }
     // ── INJECTION POINT 1: PRE — assemble everything the agent has learned ───
     const ctx = await learningService.getOptimizationContext(teamId, contentType, {});
     if (!ctx) throw new Error(`No learning agent for ${contentType}`);
@@ -251,7 +256,8 @@ export class OptimizedContentGenerator {
     let content = await this.callModel(
       ctx.modelConfig?.model ?? GEMINI_FLASH_MODEL,
       prompt,
-      ctx.modelConfig?.temperature ?? 0.7
+      ctx.modelConfig?.temperature ?? 0.7,
+      { teamId, articleId: brief.contentId }
     );
 
     // ── INJECTION POINT 2: DURING — critic-in-the-loop ───────────────────────
@@ -338,6 +344,7 @@ export class OptimizedContentGenerator {
   // model cannot accidentally weaken brand policy during a structural fix.
   // ==========================================================================
   private async repair(
+    teamId: number,
     content: string,
     defects: { code: string; evidence: string }[],
     brief: Brief,
@@ -373,7 +380,8 @@ export class OptimizedContentGenerator {
     return this.callModel(
       modelConfig.model,
       prompt,
-      Math.max(0.2, modelConfig.temperature - 0.2)
+      Math.max(0.2, modelConfig.temperature - 0.2),
+      { teamId, articleId: brief.contentId }
     );
   }
 
@@ -528,41 +536,59 @@ export class OptimizedContentGenerator {
   private async callModel(
     model: string,
     prompt: string,
-    temperature: number
+    temperature: number,
+    telemetry: { teamId: number; articleId?: number }
   ): Promise<string> {
     const isGemini =
       model.toLowerCase().startsWith("gemini") ||
       model.toLowerCase().startsWith("models/");
 
     if (isGemini) {
+      const startedAt = Date.now();
+      let providerAttemptLogged = false;
       try {
         const result = await genAI.models.generateContent({
           model,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           config: { temperature, maxOutputTokens: 8192 },
         });
+        providerAttemptLogged = true;
+        await logCostTelemetry(
+          { operationType: "article_review", provider: "gemini", model, teamId: telemetry.teamId,
+            articleId: telemetry.articleId, attempt: 1,
+            providerRequestId: (result as any).responseId ?? null },
+          extractGeminiUsage(result), Date.now() - startedAt, true
+        );
         const text = result.text ?? "";
         if (!text) throw new Error("Gemini returned empty response in repair call");
         return text;
       } catch (err) {
+        if (isProviderAccountingError(err)) throw err;
+        if (!providerAttemptLogged) {
+          await logFailedProviderAttempt(
+            { operationType: "article_review", provider: "gemini", model, teamId: telemetry.teamId,
+              articleId: telemetry.articleId, attempt: 1 },
+            { totalTokens: 0 }, Date.now() - startedAt, err
+          );
+        }
         console.error(`[OptimizedContentGenerator] Gemini repair call failed:`, err);
         throw err;
       }
     } else {
-      return callOpenAI(
-        async (client) => {
-          const resp = await client.chat.completions.create({
-            model,
-            messages: [{ role: "user", content: prompt }],
-            temperature,
-            max_tokens: 8192,
-          });
-          const text = resp.choices[0]?.message?.content ?? "";
-          if (!text) throw new Error("OpenAI returned empty response in repair call");
-          return text;
-        },
-        `optimized-content-repair-${model}`
+      const resp = await callOpenAI(
+        (client) => client.chat.completions.create({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature,
+          max_tokens: 8192,
+        }),
+        `optimized-content-repair-${model}`,
+        undefined,
+        { operationType: "article_review", model, teamId: telemetry.teamId, articleId: telemetry.articleId }
       );
+      const text = resp.choices[0]?.message?.content ?? "";
+      if (!text) throw new Error("OpenAI returned empty response in repair call");
+      return text;
     }
   }
 

@@ -3,15 +3,30 @@ import { GoogleGenAI } from "@google/genai";
 import { antiHallucination, ValidationResult } from "./anti-hallucination";
 import { generateVerifiedContent, VerifiedGenerationResult } from "./verified-content-generator";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-async function callGeminiWithRetry(prompt: string, options?: { model?: string; responseFormat?: string }): Promise<string> {
-  const result = await genAI.models.generateContent({
-    model: options?.model || GEMINI_FLASH_MODEL,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-  return result.text || "";
+async function callGeminiWithRetry(prompt: string, options: { teamId: number; model?: string; responseFormat?: string }): Promise<string> {
+  if (!Number.isInteger(options.teamId) || options.teamId <= 0) {
+    throw new Error("Fact extraction requires a validated teamId");
+  }
+  const model = options?.model || GEMINI_FLASH_MODEL;
+  const startedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  try {
+    const result = await genAI.models.generateContent({ model, contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    await logCostTelemetry({ operationType: "article_review", provider: "gemini", model, teamId: options.teamId,
+      providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
+    extractGeminiUsage(result), Date.now() - startedAt);
+    return result.text || "";
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "article_review", provider: "gemini", model, teamId: options.teamId, providerMetadata },
+      { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
 }
 
 export interface FactValidationOptions {
@@ -294,7 +309,8 @@ Return JSON:
 }`;
 
   try {
-    const response = await callGeminiWithRetry(extractionPrompt, { 
+    const response = await callGeminiWithRetry(extractionPrompt, {
+      teamId,
       model: GEMINI_FLASH_MODEL,
       responseFormat: "json"
     });
@@ -305,6 +321,7 @@ Return JSON:
     console.log(`[FactExtraction] Extracted ${facts.length} facts`);
     return facts.filter((f: any) => f.confidence >= (options.minConfidence ?? 60));
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`[FactExtraction] Failed:`, error);
     return [];
   }

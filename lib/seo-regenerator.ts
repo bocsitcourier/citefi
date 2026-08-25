@@ -1,12 +1,30 @@
 import { getModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
+import { createHash } from "node:crypto";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required");
 }
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+async function generateSeoField(prompt: string, teamId: number) {
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("SEO regeneration requires a validated teamId");
+  }
+  const model = getModel("geminiFlash"), startedAt = Date.now();
+  const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  try {
+    const result = await genAI.models.generateContent({ model, contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model, teamId, providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata }, extractGeminiUsage(result), Date.now() - startedAt);
+    return result;
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model, teamId, providerMetadata }, { totalTokens: 0 }, Date.now() - startedAt, error);
+    throw error;
+  }
+}
 
 // ============================================================================
 // INDIVIDUAL SEO FIELD REGENERATORS
@@ -14,7 +32,8 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function regenerateSeoTitle(
   currentTitle: string,
-  articleContent: string
+  articleContent: string,
+  teamId: number
 ): Promise<string> {
   // Ensure articleContent is a valid string
   const safeContent = (articleContent || currentTitle || "").substring(0, 2000);
@@ -32,10 +51,7 @@ ${safeContent}
 
 Return ONLY the new SEO title, nothing else.`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const newTitle = cleanSeoTitle(responseText.trim());
@@ -47,7 +63,8 @@ Return ONLY the new SEO title, nothing else.`;
 
 export async function regenerateMetaDescription(
   currentMeta: string,
-  articleContent: string
+  articleContent: string,
+  teamId: number
 ): Promise<string> {
   // Ensure articleContent is a valid string
   const safeContent = (articleContent || currentMeta || "").substring(0, 2000);
@@ -66,10 +83,7 @@ ${safeContent}
 
 Return ONLY the new meta description, nothing else.`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const newMeta = cleanMetaDescription(responseText.trim());
@@ -81,7 +95,8 @@ Return ONLY the new meta description, nothing else.`;
 
 export async function regenerateSlug(
   currentSlug: string,
-  title: string
+  title: string,
+  teamId: number
 ): Promise<string> {
   const prompt = `You are an SEO slug expert. Based on the title below, generate ONE URL-friendly slug that:
 - Is lowercase with hyphens (no spaces, no special characters)
@@ -94,10 +109,7 @@ TITLE: ${title}
 
 Return ONLY the new slug (e.g., "best-seo-tips-2025"), nothing else.`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const rawSlug = responseText.trim();
@@ -114,7 +126,8 @@ Return ONLY the new slug (e.g., "best-seo-tips-2025"), nothing else.`;
 export async function regenerateKeywords(
   currentKeywords: string[],
   articleContent: string,
-  articleTitle?: string
+  articleTitle: string | undefined,
+  teamId: number
 ): Promise<string[]> {
   // Ensure articleContent is a valid string
   const safeContent = (articleContent || "").substring(0, 2000);
@@ -138,10 +151,7 @@ ${safeContent}
 Return ONLY 5 keywords as a JSON array, nothing else.
 Example format: ["home care Wellesley MA", "post-rehab caregivers Wellesley", "trusted home health near Wellesley MA", "senior care services Wellesley MA", "rehabilitation support Wellesley MA"]`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const rawText = responseText.trim();
@@ -159,7 +169,8 @@ Example format: ["home care Wellesley MA", "post-rehab caregivers Wellesley", "t
 export async function regenerateHashtags(
   currentHashtags: string[],
   articleContent: string,
-  geographicFocus?: string
+  geographicFocus: string | undefined,
+  teamId: number
 ): Promise<string[]> {
   // Ensure articleContent is a valid string
   const safeContent = (articleContent || "").substring(0, 2000);
@@ -180,10 +191,7 @@ ${safeContent}
 Return ONLY hashtags as a JSON array, nothing else.
 Example format: ["#SEO", "#ContentMarketing", "#DigitalMarketing", "#SEOTips", "#MarketingStrategy"]`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const rawText = responseText.trim();
@@ -200,7 +208,8 @@ Example format: ["#SEO", "#ContentMarketing", "#DigitalMarketing", "#SEOTips", "
 
 export async function regenerateFAQ(
   currentFaq: Array<{ question: string; answer: string }>,
-  articleContent: string
+  articleContent: string,
+  teamId: number
 ): Promise<Array<{ question: string; answer: string }>> {
   // Ensure articleContent is a valid string
   const safeContent = (articleContent || "").substring(0, 2000);
@@ -221,10 +230,7 @@ ${safeContent}
 Return ONLY a JSON array of FAQ objects with "question" and "answer" fields, nothing else.
 Example format: [{"question": "What is SEO?", "answer": "SEO stands for Search Engine Optimization and helps websites rank higher in search results."}]`;
 
-  const result = await genAI.models.generateContent({
-    model: getModel("geminiFlash"),
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
+  const result = await generateSeoField(prompt, teamId);
   
   const responseText = result.text || "";
   const rawText = responseText.trim();

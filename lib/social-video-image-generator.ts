@@ -3,6 +3,7 @@ import { objectStorageClient } from "./storage";
 import type { VideoScene } from "./gemini-video-script-generator";
 import { createImageBrandLockPromptSegment } from "./branding";
 import sharp from "sharp";
+import { isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -18,6 +19,7 @@ export interface VideoImageResult {
 }
 
 interface GenerateVideoImagesRequest {
+  teamId: number;
   socialPostId: number;
   scenes: VideoScene[];
   industry: string;
@@ -50,7 +52,10 @@ const PLATFORM_DIMENSIONS: Record<string, { width: number; height: number }> = {
 export async function generateVideoImages(
   request: GenerateVideoImagesRequest
 ): Promise<VideoImageResult[]> {
-  const { socialPostId, scenes, industry, companyName, platform, landingPageUrl } = request;
+  const { teamId, socialPostId, scenes, industry, companyName, platform, landingPageUrl } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error("Video image generation requires a validated teamId");
+  }
 
   console.log(`🖼️ Generating 5 images in parallel for 60-second video (${platform} format)`);
 
@@ -133,7 +138,8 @@ Visual Elements:
     // fallback-prompt logic below.
     const callGeminiWithRetry = async (prompt: string, attempt = 1): Promise<any> => {
       try {
-        return await genAI.models.generateContent({
+        const startedAt = Date.now();
+        const result = await genAI.models.generateContent({
           model: "gemini-2.5-flash-image",
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           config: {
@@ -141,7 +147,27 @@ Visual Elements:
             imageConfig: { aspectRatio },
           },
         });
+        // A safety/refusal response is still a provider submission. Each
+        // fallback prompt is deliberately recorded as its own submission.
+        await logCostTelemetry(
+          {
+            operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image", teamId,
+            resourceType: "social_post", resourceId: socialPostId, attempt,
+            providerRequestId: (result as any).responseId ?? `${socialPostId}:scene:${scene.sceneNumber}:${attempt}`,
+          },
+          { imageCount: 1 }, Date.now() - startedAt, true
+        );
+        return result;
       } catch (err: any) {
+        if (isProviderAccountingError(err)) throw err;
+        await logFailedProviderAttempt(
+          {
+            operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image", teamId,
+            resourceType: "social_post", resourceId: socialPostId, attempt,
+            providerRequestId: `${socialPostId}:scene:${scene.sceneNumber}:${attempt}`,
+          },
+          { imageCount: 0 }, 0, err
+        );
         const isTransient =
           err?.message?.includes("fetch failed") ||
           err?.message?.includes("ECONNRESET") ||
@@ -160,7 +186,6 @@ Visual Elements:
 
     // CRITICAL FIX: Pass aspectRatio to Gemini API to prevent square/1:1 default
     // Without this, Gemini generates square images which causes black bars when resized
-    const _vidImgStart = Date.now();
     let response = await callGeminiWithRetry(imagePrompt);
 
     // Extract image from response
@@ -207,15 +232,6 @@ Visual Elements:
     if (!imageData) {
       throw new Error(`No image data returned for Scene ${scene.sceneNumber} after retry`);
     }
-
-    // Log confirmed successful image generation (after fallback resolution)
-    void import("./cost-telemetry").then(({ safeLogCostTelemetry }) => {
-      safeLogCostTelemetry(
-        { operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image" },
-        { imageCount: 1 },
-        Date.now() - _vidImgStart, true
-      );
-    }).catch(() => {});
 
     console.log(`  ✅ Image ${scene.sceneNumber} generated from Gemini`);
 

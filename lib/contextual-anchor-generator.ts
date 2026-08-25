@@ -1,5 +1,6 @@
 import { matchTopicToPages } from "./site-crawler";
 import { callOpenAI } from "./openai-client";
+import { isProviderAccountingError } from "./cost-telemetry";
 
 export interface AnchorMapping {
   phrase: string;
@@ -113,6 +114,7 @@ RULES:
       usedSiteMap: true,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error("❌ Contextual anchor generation error:", error);
     return { anchors: [], fallbackUrl: targetUrl, usedSiteMap: false };
   }

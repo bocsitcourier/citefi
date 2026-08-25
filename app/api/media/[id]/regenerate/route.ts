@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articleAssets, articles, jobBatches } from "@/shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { generateSingleImage } from "@/lib/gemini-image-generator";
 import { uploadMedia } from "@/lib/storage";
@@ -42,6 +42,10 @@ export async function POST(
         { error: "Asset not found" },
         { status: 404 }
       );
+    }
+    const assetTeamId = asset.teamId;
+    if (assetTeamId == null || !Number.isInteger(assetTeamId) || assetTeamId <= 0) {
+      throw new Error(`Media asset ${assetId} is missing a validated teamId`);
     }
 
     if (asset.assetType !== 'image') {
@@ -88,7 +92,12 @@ export async function POST(
     console.log(`🔄 Regenerating image ${assetId}${businessName ? ` with image brand lock: "${businessName}"` : ''}`);
 
     // Generate new image with Gemini 2.5 Flash Image with image-specific brand lock
-    const dataUrl = await generateSingleImage(enhancedPrompt);
+    const dataUrl = await generateSingleImage(enhancedPrompt, {
+      teamId: assetTeamId,
+      articleId: asset.articleId ?? undefined,
+      resourceType: "media_asset",
+      resourceId: assetId,
+    });
     if (!dataUrl) {
       throw new Error("No image returned from Gemini");
     }

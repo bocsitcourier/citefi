@@ -7,6 +7,7 @@ import { addImageGenerationJob } from "@/lib/queue";
 import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated } from "@/lib/learning-integration";
+import { extractGeminiUsage, logCostTelemetry } from "@/lib/cost-telemetry";
 
 interface ImagePromptGenerationResult {
   imagePrompts: string[];
@@ -16,7 +17,8 @@ async function generateImagePromptsForArticle(
   title: string,
   articleContent: string,
   businessName?: string,
-  geographicFocus?: string
+  geographicFocus?: string,
+  telemetry?: { teamId: number; batchId: number; articleId: number }
 ): Promise<string[]> {
   const { GoogleGenAI } = await import("@google/genai");
   const { throttledGeminiRequest } = await import("@/lib/gemini");
@@ -51,6 +53,7 @@ Return ONLY valid JSON in this format:
   ]
 }`;
 
+  const startedAt = Date.now();
   const result = await throttledGeminiRequest(() => genAI.models.generateContent({
     model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -69,6 +72,15 @@ Return ONLY valid JSON in this format:
       }
     }
   }));
+  await logCostTelemetry(
+    {
+      operationType: "image_generation", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      teamId: telemetry?.teamId, batchId: telemetry?.batchId, articleId: telemetry?.articleId,
+      resourceType: "article", resourceId: telemetry?.articleId,
+      providerRequestId: (result as any).responseId ?? null, attempt: 1,
+    },
+    extractGeminiUsage(result), Date.now() - startedAt, true
+  );
 
   let responseText = result.text || "";
   responseText = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -148,7 +160,8 @@ export async function POST(
           article.chosenTitle || "Untitled",
           article.content || "",
           businessName,
-          geographicFocus
+          geographicFocus,
+          { teamId, batchId, articleId: article.id }
         );
 
         if (imagePrompts.length > 0) {

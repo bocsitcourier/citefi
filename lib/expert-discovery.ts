@@ -6,6 +6,8 @@
  * Finds subject matter experts via web search to improve E-E-A-T signals.
  * Integrates with Brave Search API for real-time expert identification.
  */
+import { createHash } from "node:crypto";
+import { isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 interface ExpertProfile {
   name: string;
@@ -35,7 +37,13 @@ export class ExpertDiscovery {
   /**
    * Find top experts in a given topic/industry
    */
-  async findExperts(topic: string, industry: string, options: { limit?: number } = {}): Promise<ExpertDiscoveryResult> {
+  async findExperts(
+    topic: string,
+    industry: string,
+    teamId: number,
+    options: { limit?: number } = {}
+  ): Promise<ExpertDiscoveryResult> {
+    this.validateTeamId(teamId);
     console.log(`🔍 Searching for experts in: ${topic}`);
 
     const searchQueries = [
@@ -50,10 +58,11 @@ export class ExpertDiscovery {
 
     for (const query of searchQueries) {
       try {
-        const results = await this.webSearch(query);
+        const results = await this.webSearch(query, teamId);
         const experts = this.extractExpertsFromResults(results, topic);
         allExperts.push(...experts);
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
         console.error(`Search failed for: ${query}`, (error as Error).message);
       }
     }
@@ -81,17 +90,12 @@ export class ExpertDiscovery {
   /**
    * Perform web search (using Brave Search API or mock)
    */
-  private async webSearch(query: string): Promise<any[]> {
+  private async webSearch(query: string, teamId: number): Promise<any[]> {
     // If using Brave Search API
     if (this.searchApiKey) {
+      const startedAt = Date.now();
+      const queryHash = createHash("sha256").update(query).digest("hex");
       try {
-        const response = await fetch('https://api.search.brave.com/res/v1/web/search', {
-          headers: {
-            'Accept': 'application/json',
-            'X-Subscription-Token': this.searchApiKey
-          },
-        });
-        
         const params = new URLSearchParams({
           q: query,
           count: '10'
@@ -104,10 +108,24 @@ export class ExpertDiscovery {
             'X-Subscription-Token': this.searchApiKey
           }
         });
-        
+        if (!searchResponse.ok) throw new Error(`Brave API error: ${searchResponse.status}`);
         const data = await searchResponse.json();
-        return (data as any).web?.results || [];
+        const results = (data as any).web?.results || [];
+        // Only the query-bearing request is a search operation; do not meter
+        // the legacy endpoint probe or the local mock fallback.
+        await logCostTelemetry(
+          { operationType: "expert_discovery", provider: "brave", model: "web-search", teamId, attempt: 1,
+            providerMetadata: { queryHash, resultCount: results.length } },
+          { requestCount: 1 }, Date.now() - startedAt, true
+        );
+        return results;
       } catch (error) {
+        if (isProviderAccountingError(error)) throw error;
+        await logFailedProviderAttempt(
+          { operationType: "expert_discovery", provider: "brave", model: "web-search", teamId, attempt: 1,
+            providerMetadata: { queryHash } },
+          { requestCount: 1 }, Date.now() - startedAt, error
+        );
         console.error('Brave API error:', (error as Error).message);
       }
     }
@@ -242,5 +260,11 @@ export class ExpertDiscovery {
         url: 'https://example.com/analysis'
       }
     ];
+  }
+
+  private validateTeamId(teamId: number): void {
+    if (!Number.isInteger(teamId) || teamId <= 0) {
+      throw new Error("Expert discovery requires a validated teamId");
+    }
   }
 }

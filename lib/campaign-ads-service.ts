@@ -7,6 +7,7 @@ import { getModel } from "./model-resolver";
 import { PRODUCT_POLICY_DEFAULTS, LAUNCH_POLICY_VERSION, EXTERNAL_PLATFORM_APPROVALS } from "./launch-governance";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
 import { campaignAds, campaignAdApprovals, campaigns } from "@/shared/schema";
+import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 export const AD_EXPORT_NOTICE = PRODUCT_POLICY_DEFAULTS.advertising.exportNotice;
 export type AdPlatform = "google" | "meta";
@@ -233,17 +234,46 @@ export function deterministicPolicyCheck(google: GoogleRsaAssets, meta: MetaCrea
   };
 }
 
-async function generateAssets(prompt: string): Promise<{ google: GoogleRsaAssets; meta: MetaCreativePack; model: string }> {
+interface CampaignAdsTelemetryContext {
+  teamId: number;
+  campaignId: number;
+  requestKey: string;
+}
+
+async function generateAssets(prompt: string, telemetry: CampaignAdsTelemetryContext): Promise<{ google: GoogleRsaAssets; meta: MetaCreativePack; model: string }> {
+  if (!Number.isInteger(telemetry.teamId) || telemetry.teamId <= 0) {
+    throw new Error("Campaign ad generation requires a validated teamId");
+  }
   if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required for ad generation");
   const model = getModel("geminiFlash");
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const result = await client.models.generateContent({
-    model, contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { responseMimeType: "application/json" },
-  });
-  const parsed = JSON.parse(result.text ?? "{}");
-  if (!parsed.google || !parsed.meta) throw new Error("AI returned an invalid ad asset contract");
-  return { google: parsed.google, meta: parsed.meta, model };
+  const startedAt = Date.now();
+  let providerAttemptLogged = false;
+  try {
+    const result = await client.models.generateContent({
+      model, contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json" },
+    });
+    await logCostTelemetry(
+      { operationType: "campaign_ads", provider: "gemini", model, ...telemetry, attempt: 1,
+        providerRequestId: (result as any).responseId ?? null, resourceType: "campaign", resourceId: telemetry.campaignId },
+      extractGeminiUsage(result), Date.now() - startedAt, true
+    );
+    providerAttemptLogged = true;
+    const parsed = JSON.parse(result.text ?? "{}");
+    if (!parsed.google || !parsed.meta) throw new Error("AI returned an invalid ad asset contract");
+    return { google: parsed.google, meta: parsed.meta, model };
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    if (!providerAttemptLogged) {
+      await logFailedProviderAttempt(
+        { operationType: "campaign_ads", provider: "gemini", model, ...telemetry, attempt: 1,
+          resourceType: "campaign", resourceId: telemetry.campaignId },
+        { totalTokens: 0 }, Date.now() - startedAt, error
+      );
+    }
+    throw error;
+  }
 }
 
 export async function createCampaignAdPack(teamId: number, userId: number, campaignId: number, input: {
@@ -274,7 +304,7 @@ export async function createCampaignAdPack(teamId: number, userId: number, campa
 {"google":{"headlines":["3 to 15, each <=30 chars"],"descriptions":["2 to 4, each <=90 chars"],"path1":"<=15","path2":"<=15","keywords":[]},"meta":{"variants":[{"name":"slug","primaryText":"prefer <=125 chars","headline":"<=40 chars","description":"","callToAction":"LEARN_MORE","imageBrief":"scene only; never recreate logos, trademarks, or text"}]}}
 Create at least 3 Meta variants. Use only grounded approved claims. Include every required disclaimer in ad copy.
 Campaign: ${campaign.name}; company: ${campaign.companyName}; locations: ${JSON.stringify(campaign.locations ?? [])}
-Brief: ${input.brief ?? ""}; immutable brand snapshot: ${JSON.stringify(snapshot)}`);
+Brief: ${input.brief ?? ""}; immutable brand snapshot: ${JSON.stringify(snapshot)}`, { teamId, campaignId, requestKey: input.requestKey });
   const validation = [...validateGoogleRsa(generated.google), ...validateMetaPack(generated.meta)];
   const existingUtmParameters = [...new URL(input.landingUrl).searchParams.keys()]
     .filter((key) => key.toLowerCase().startsWith("utm_"));

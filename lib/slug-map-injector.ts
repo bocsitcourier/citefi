@@ -191,6 +191,7 @@ function dedup(entries: SlugMapEntry[]): SlugMapEntry[] {
  * @param articleTitle  For log messages
  */
 export async function injectLinksWithIntent(
+  teamId: number,
   html: string,
   entries: SlugMapEntry[],
   pages: SitePage[],
@@ -209,7 +210,7 @@ export async function injectLinksWithIntent(
     // ── SITE-MAP MODE: AI intent engine finds semantically matched phrases ──
     try {
       const { buildIntentDrivenAnchors } = await import("./intent-hyperlink-engine");
-      intentEntries = await buildIntentDrivenAnchors(html, pages, targetUrl);
+      intentEntries = await buildIntentDrivenAnchors(html, pages, targetUrl, teamId);
     } catch (err) {
       console.warn("[SlugMap] Intent engine import/call failed, using literal fallback:", err);
     }

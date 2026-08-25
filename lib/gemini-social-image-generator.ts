@@ -3,6 +3,7 @@ import { db } from "./db";
 import { socialPostAssets } from "@/shared/schema";
 import { objectStorageClient } from "./storage";
 import { createImageBrandLockPromptSegment } from "./branding";
+import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -83,6 +84,7 @@ const ASPECT_RATIOS: Record<string, { ratio: string; description: string }> = {
 
 interface GenerateSocialImagesRequest {
   socialPostId: number;
+  teamId: number;
   prompt: string;
   platforms: string[];
   industry: string;
@@ -99,7 +101,11 @@ interface ImageResult {
 export async function generateSocialImages(
   request: GenerateSocialImagesRequest
 ): Promise<ImageResult[]> {
-  const { socialPostId, prompt, platforms, industry, companyName } = request;
+  if (!Number.isInteger(request.teamId) || request.teamId <= 0) {
+    throw new Error("Gemini social image generation requires a validated teamId");
+  }
+
+  const { socialPostId, teamId, prompt, platforms, industry, companyName } = request;
 
   console.log(`🖼️ Generating images with Gemini for ${platforms.length} platforms${companyName ? ` for ${companyName}` : ''}`);
 
@@ -129,6 +135,8 @@ Requirements:
       ? `${baseImagePrompt}\n\n${createImageBrandLockPromptSegment(companyName)}`
       : baseImagePrompt;
 
+    const startedAt = Date.now();
+    let providerSubmissionRecorded = false;
     try {
       console.log(`📸 Generating ${platform} image (${aspectConfig.ratio}) with Gemini...`);
 
@@ -139,6 +147,17 @@ Requirements:
           responseModalities: ["Image"],
         },
       });
+      await logCostTelemetry(
+        {
+          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          teamId,
+          resourceType: "social_post", resourceId: socialPostId,
+          providerRequestId: (result as any).responseId ?? null, attempt: 1,
+          providerMetadata: { platform, aspectRatio: aspectConfig.ratio },
+        },
+        { imageCount: 1 }, Date.now() - startedAt, true
+      );
+      providerSubmissionRecorded = true;
 
       // Extract image data using type-safe helper
       const imageData = extractInlineImageData(result);
@@ -197,6 +216,19 @@ Requirements:
 
       console.log(`✅ Generated ${platform} image (${aspectConfig.ratio})`);
     } catch (error) {
+      if (isProviderAccountingError(error)) throw error;
+      // The request may have reached Gemini even when the SDK rejects. Do not
+      // assign image units without a confirmed delivered image.
+      if (!providerSubmissionRecorded) await logFailedProviderAttempt(
+        {
+          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          teamId,
+          resourceType: "social_post", resourceId: socialPostId, attempt: 1,
+          providerRequestId: `${socialPostId}:${platform}:1`,
+          providerMetadata: { platform, aspectRatio: aspectConfig.ratio },
+        },
+        { imageCount: 0 }, Date.now() - startedAt, error
+      );
       console.error(`❌ Failed to generate image for ${platform}:`, error);
       // Continue with other platforms even if one fails
     }

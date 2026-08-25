@@ -6,6 +6,7 @@ import { execSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
 import { getModel } from "./model-resolver";
 import { sanitizeVeoPrompt } from "@/types/video-schema";
+import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Veo video generation");
@@ -41,6 +42,7 @@ export interface VeoClipPrompt {
 }
 
 interface GenerateVeoClipRequest {
+  teamId: number;
   socialPostId: number;
   sceneNumber: number;
   prompt: string;
@@ -51,7 +53,10 @@ interface GenerateVeoClipRequest {
 export async function generateVeoClip(
   request: GenerateVeoClipRequest
 ): Promise<VeoClip> {
-  const { socialPostId, sceneNumber, prompt, aspectRatio = "16:9", duration = 8 } = request;
+  const { teamId, socialPostId, sceneNumber, prompt, aspectRatio = "16:9", duration = 8 } = request;
+  if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Veo generation requires a validated teamId");
+  let providerUsageRecorded = false;
+  let operationId: string | null = null;
 
   // Sanitize prompt to avoid content policy rejections
   const sanitizedPrompt = sanitizeVeoPrompt(prompt);
@@ -73,6 +78,7 @@ export async function generateVeoClip(
         numberOfVideos: 1,
       },
     });
+    operationId = operation.name ?? null;
 
     console.log(`  ⏳ Veo operation started: ${operation.name}`);
     console.log(`  📋 Initial operation state - done: ${operation.done}`);
@@ -182,6 +188,18 @@ export async function generateVeoClip(
       throw new Error("No video file in Veo response");
     }
 
+    // Provider completion is the billing boundary. Record it before download
+    // or local storage so delivery failures cannot erase real provider spend.
+    await logCostTelemetry(
+      { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo"),
+        teamId, resourceType: "social_post", resourceId: socialPostId, attempt: 1,
+        providerRequestId: operationId },
+      { videoSeconds: duration },
+      Date.now() - clipStartMs,
+      true
+    );
+    providerUsageRecorded = true;
+
     const tempDir = `/tmp/veo-clips/${socialPostId}`;
     await fs.mkdir(tempDir, { recursive: true });
     const localPath = path.join(tempDir, `scene-${sceneNumber}.mp4`);
@@ -240,19 +258,6 @@ export async function generateVeoClip(
 
     console.log(`  ✅ Veo clip ${sceneNumber} saved to ${localPath}`);
 
-    // Record the dominant platform spend: Veo bills per second of video.
-    // Attributed to the run via the ambient run context (cost_telemetry.jobId),
-    // feeding both the per-run cost ceiling and the global spend breaker.
-    try {
-      const { safeLogCostTelemetry } = await import("./cost-telemetry");
-      safeLogCostTelemetry(
-        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo") },
-        { videoSeconds: duration },
-        Date.now() - clipStartMs,
-        true
-      );
-    } catch { /* non-fatal */ }
-
     return {
       sceneNumber,
       prompt,
@@ -260,24 +265,26 @@ export async function generateVeoClip(
       localPath,
     };
   } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     console.error(`❌ Veo clip ${sceneNumber} generation failed:`, error);
     // Failed attempts still cost money on the provider side in some failure
     // modes; record them so the budget ceiling and spend breaker see them.
-    try {
-      const { safeLogCostTelemetry } = await import("./cost-telemetry");
-      safeLogCostTelemetry(
-        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo") },
-        { videoSeconds: duration },
+    if (!providerUsageRecorded) {
+      await logFailedProviderAttempt(
+        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo"),
+          teamId, resourceType: "social_post", resourceId: socialPostId, attempt: 1,
+          providerRequestId: operationId },
+        { videoSeconds: 0 },
         Date.now() - clipStartMs,
-        false,
-        error instanceof Error ? error.message : String(error)
+        error
       );
-    } catch { /* telemetry must never mask the real error */ }
+    }
     throw new Error(`Veo generation failed for scene ${sceneNumber}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 export async function generateAllVeoClips(
+  teamId: number,
   socialPostId: number,
   clips: VeoClipPrompt[],
   aspectRatio: "16:9" | "9:16" = "16:9"
@@ -288,6 +295,7 @@ export async function generateAllVeoClips(
 
   for (const clip of clips) {
     const generated = await generateVeoClip({
+      teamId,
       socialPostId,
       sceneNumber: clip.sceneNumber,
       prompt: clip.prompt,
