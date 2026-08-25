@@ -51,6 +51,37 @@ export interface CampaignDetail extends Campaign {
   };
 }
 
+export type AdsPlatform = "google" | "meta";
+
+export interface CampaignAd {
+  id: string | number;
+  publicId?: string;
+  platform?: AdsPlatform;
+  status?: string;
+  headline?: string;
+  primaryText?: string;
+  description?: string;
+  finalUrl?: string;
+  path?: string;
+  utm?: Record<string, string> | null;
+  policyStatus?: "ready" | "needs_review" | "unknown" | string;
+  landingUrl?: string;
+  googleAssets?: { headlines?: string[]; descriptions?: string[]; path1?: string; path2?: string; keywords?: string[] };
+  metaAssets?: { variants?: Array<{ name?: string; primaryText?: string; headline?: string; description?: string; callToAction?: string; imageBrief?: string }> };
+  validationJson?: Array<{ severity?: string; message?: string }>;
+  policyJson?: { blocksExport?: boolean; regulatedReviewRequired?: boolean; unresolvedDisclaimers?: string[] };
+  createdAt?: string;
+}
+
+export interface CampaignAdsResponse {
+  ads: CampaignAd[];
+  readiness?: {
+    brandConfirmed?: boolean;
+    generationReady?: boolean;
+    exportReady?: boolean;
+  };
+}
+
 export const campaignKey = (id: string) => ["/api/campaigns", id] as const;
 
 export function campaignId(campaign: Campaign) {

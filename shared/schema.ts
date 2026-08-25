@@ -3893,6 +3893,70 @@ export const insertCampaignExportSchema = createInsertSchema(campaignExports).om
 export type CampaignExport = typeof campaignExports.$inferSelect;
 export type InsertCampaignExport = z.infer<typeof insertCampaignExportSchema>;
 
+/**
+ * Export-only advertising creative. Generated assets remain immutable after
+ * final export authorization; publishing credentials and provider campaign IDs
+ * are intentionally not represented.
+ */
+export const campaignAds = pgTable("campaign_ads", {
+  id: serial("id").primaryKey(),
+  publicId: uuid("public_id").notNull().unique().defaultRandom(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  campaignId: integer("campaign_id").notNull(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  requestKey: varchar("request_key", { length: 255 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | internal_review | client_approved | export_ready | exported
+  landingUrl: text("landing_url").notNull(),
+  campaignSlug: varchar("campaign_slug", { length: 255 }).notNull(),
+  googleAssets: jsonb("google_assets").notNull(),
+  metaAssets: jsonb("meta_assets").notNull(),
+  validationJson: jsonb("validation_json").notNull(),
+  policyJson: jsonb("policy_json").notNull(),
+  generationModel: varchar("generation_model", { length: 100 }).notNull(),
+  brandSnapshot: jsonb("brand_snapshot").notNull(),
+  manifestJson: jsonb("manifest_json"),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }),
+  finalizedAt: timestamp("finalized_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  publicIdIdx: index("campaign_ads_public_id_idx").on(table.publicId),
+  campaignIdIdx: index("campaign_ads_campaign_id_idx").on(table.campaignId),
+  teamStatusIdx: index("campaign_ads_team_status_idx").on(table.teamId, table.status),
+  teamRequestKeyUnique: uniqueIndex("campaign_ads_team_request_key_unique").on(table.teamId, table.requestKey),
+  campaignTeamFk: foreignKey({
+    columns: [table.teamId, table.campaignId],
+    foreignColumns: [campaigns.teamId, campaigns.id],
+    name: "campaign_ads_campaign_team_fk",
+  }).onDelete("cascade"),
+}));
+
+export const campaignAdApprovals = pgTable("campaign_ad_approvals", {
+  id: serial("id").primaryKey(),
+  publicId: uuid("public_id").notNull().unique().defaultRandom(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  campaignAdId: integer("campaign_ad_id").notNull(),
+  actorUserId: integer("actor_user_id").notNull().references(() => users.id),
+  approvalType: varchar("approval_type", { length: 30 }).notNull(), // client | policy | export
+  decision: varchar("decision", { length: 20 }).notNull(), // approved | rejected
+  humanAcknowledged: boolean("human_acknowledged").notNull().default(false),
+  acknowledgementText: text("acknowledgement_text"),
+  metadataJson: jsonb("metadata_json"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  publicIdIdx: index("campaign_ad_approvals_public_id_idx").on(table.publicId),
+  adIdx: index("campaign_ad_approvals_ad_id_idx").on(table.campaignAdId),
+  teamTypeIdx: index("campaign_ad_approvals_team_type_idx").on(table.teamId, table.approvalType),
+  adTeamFk: foreignKey({
+    columns: [table.teamId, table.campaignAdId],
+    foreignColumns: [campaignAds.teamId, campaignAds.id],
+    name: "campaign_ad_approvals_ad_team_fk",
+  }).onDelete("cascade"),
+}));
+
+export type CampaignAd = typeof campaignAds.$inferSelect;
+export type CampaignAdApproval = typeof campaignAdApprovals.$inferSelect;
+
 export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
   team: one(teams, {
     fields: [campaigns.teamId],

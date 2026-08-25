@@ -27,6 +27,8 @@ export const CREDIT_MENU = {
   section_regenerate: 1,
   /** Internal link pass */
   internal_link: 2,
+  /** Google RSA + Meta creative pack generation (export-only) */
+  ads_export_pack: 5,
 } as const;
 
 export type OperationType = keyof typeof CREDIT_MENU;

@@ -27,6 +27,10 @@ import { campaigns, clientBrandProfiles } from "@/shared/schema";
 import { and, eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP } from "node:net";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -156,60 +160,93 @@ export interface ClientBrandProfileJson {
 
 /** Returns true if the IPv4 string falls in a private/reserved range. */
 function isPrivateIpv4(ip: string): boolean {
-  const PRIVATE = [
-    /^127\./,                                          // loopback
-    /^0\./,                                            // "this" network
-    /^10\./,                                           // RFC 1918 class A
-    /^172\.(1[6-9]|2\d|3[01])\./,                     // RFC 1918 class B
-    /^192\.168\./,                                     // RFC 1918 class C
-    /^169\.254\./,                                     // link-local / AWS metadata
-    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,       // CGNAT RFC 6598
-    /^192\.0\.2\./,                                    // TEST-NET-1
-    /^198\.51\.100\./,                                 // TEST-NET-2
-    /^203\.0\.113\./,                                  // TEST-NET-3
-  ];
-  return PRIVATE.some((r) => r.test(ip));
+  const octets = ip.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [a, b, c, d] = octets as [number, number, number, number];
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && c === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 192 && b === 31 && c === 196) ||
+    (a === 192 && b === 52 && c === 193) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 175 && c === 48) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224 ||
+    (a === 255 && b === 255 && c === 255 && d === 255)
+  );
 }
 
-/** Resolves the hostname via DNS and rejects if it resolves to a private address.
- *  Returns true when the URL is safe to fetch, false otherwise. */
-async function isSsrfSafeUrl(rawUrl: string): Promise<boolean> {
-  let parsed: URL;
+function isPrivateAddress(address: string): boolean {
+  if (isIP(address) === 4) return isPrivateIpv4(address);
+  if (isIP(address) !== 6) return true;
+  const normalized = address.toLowerCase();
+  // Public IPv6 unicast is 2000::/3. This excludes loopback, link-local,
+  // unique-local, multicast, IPv4-mapped and IPv4-compatible forms.
+  if (!/^[23][0-9a-f]{0,3}:/.test(normalized)) return true;
+  return /^2001:0*:/.test(normalized) ||
+    /^2001:db8:/.test(normalized) ||
+    /^2001:2:/.test(normalized) ||
+    /^2001:3:/.test(normalized) ||
+    /^2001:4:112:/.test(normalized) ||
+    /^2001:[12][0-9a-f]:/.test(normalized) ||
+    /^2002:/.test(normalized) ||
+    /^3ffe:/.test(normalized);
+}
+
+async function resolvePinnedPublicAddress(url: URL): Promise<{ address: string; family: 4 | 6 } | null> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".internal") || hostname.endsWith(".local")) return null;
+  const literalFamily = isIP(hostname);
+  if (literalFamily) return isPrivateAddress(hostname) ? null : { address: hostname, family: literalFamily as 4 | 6 };
   try {
-    parsed = new URL(rawUrl);
+    const addresses = await lookup(hostname, { all: true, verbatim: true });
+    if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) return null;
+    const selected = addresses[0]!;
+    return { address: selected.address, family: selected.family as 4 | 6 };
   } catch {
-    return false;
+    return null;
   }
-  // Only http/https
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+}
 
-  const hostname = parsed.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
-
-  // Direct IP literal checks (skip DNS for raw IPs)
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
-    return !isPrivateIpv4(hostname);
-  }
-  // IPv6 literals — block all internal (::1, fc00::/7, fe80::/10, etc.)
-  if (hostname.includes(":")) return false;
-
-  // Block reserved hostnames
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) return false;
-  if (hostname.endsWith(".internal") || hostname.endsWith(".local")) return false;
-
-  // DNS resolution check to catch rebinding
-  try {
-    const dns = await import("dns");
-    const { address } = await new Promise<{ address: string; family: number }>(
-      (resolve, reject) => dns.lookup(hostname, { family: 4 }, (err, addr, fam) =>
-        err ? reject(err) : resolve({ address: addr, family: fam })
-      )
-    );
-    if (isPrivateIpv4(address)) return false;
-  } catch {
-    // DNS resolution failure — treat as unsafe
-    return false;
-  }
-  return true;
+async function pinnedRequest(url: URL): Promise<Response | null> {
+  const pinned = await resolvePinnedPublicAddress(url);
+  if (!pinned) return null;
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  return new Promise((resolve) => {
+    const req = request(url, {
+      headers: {
+        "User-Agent": "CitefiBot/1.0 (Brand Intelligence Analyzer)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      lookup: ((_: string, __: unknown, callback: (error: Error | null, address: string, family: number) => void) =>
+        callback(null, pinned.address, pinned.family)) as any,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > 2_000_000) req.destroy(new Error("Response exceeds safe fetch limit"));
+        else chunks.push(chunk);
+      });
+      res.on("end", () => resolve(new Response(Buffer.concat(chunks), {
+        status: res.statusCode ?? 500,
+        headers: Object.fromEntries(Object.entries(res.headers).flatMap(([key, value]) =>
+          value === undefined ? [] : [[key, Array.isArray(value) ? value.join(", ") : value]]
+        )),
+      })));
+    });
+    req.setTimeout(12_000, () => req.destroy(new Error("Safe fetch timed out")));
+    req.on("error", () => resolve(null));
+    req.end();
+  });
 }
 
 /**
@@ -217,30 +254,16 @@ async function isSsrfSafeUrl(rawUrl: string): Promise<boolean> {
  * the SSRF denylist so a public URL cannot redirect to an internal target.
  * Max 5 hops; aborts after 12 s per hop.
  */
-async function safeFetchPageWithRedirects(
+export async function safeFetchPageWithRedirects(
   url: string,
   maxRedirects = 5
 ): Promise<Response | null> {
   let current = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    if (!(await isSsrfSafeUrl(current))) return null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12_000);
-    let res: Response;
-    try {
-      res = await fetch(current, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "CitefiBot/1.0 (Brand Intelligence Analyzer)",
-          "Accept": "text/html,application/xhtml+xml",
-        },
-        redirect: "manual", // never let the runtime follow redirects silently
-      });
-    } catch {
-      clearTimeout(timer);
-      return null;
-    }
-    clearTimeout(timer);
+    let parsed: URL;
+    try { parsed = new URL(current); } catch { return null; }
+    const res = await pinnedRequest(parsed);
+    if (!res) return null;
 
     // Follow 3xx explicitly after validating the destination
     if (res.status >= 300 && res.status < 400) {

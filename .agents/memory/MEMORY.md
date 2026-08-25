@@ -28,3 +28,4 @@
 - [Reservation state machine](reservation-state-machine.md) — credit_ledger reserve rows enforce RESERVED→DEBITED|RELEASED; full vs partial rules, sweeper per-reservation remaining calc, jobId two-layer idempotency.
 - [PostgreSQL tenant RLS](postgres-tenant-rls.md) — tenant transactions must switch roles on one connection; policy recursion uses definer helpers; row policies need separate column guards.
 - [Campaign client boundaries](campaign-client-boundaries.md) — campaign deliverables must use immutable campaign Brand snapshots, never a team's mutable live profile.
+- [Ads export governance](ads-export-governance.md) — Ads Lab is export-only; finalized manifests, artifact hashes, pinned landing checks, approvals, and retained debit settlement are mandatory.

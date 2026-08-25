@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Campaign, CampaignDetail } from "./campaign-types";
+import type { Campaign, CampaignAdsResponse, CampaignDetail } from "./campaign-types";
 import { campaignKey } from "./campaign-types";
 
 export function useCampaigns() {
@@ -54,5 +54,21 @@ export function useConfirmBrand(id: string) {
       await queryClient.invalidateQueries({ queryKey: campaignKey(id) });
       await queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
     },
+  });
+}
+
+export function useCampaignAds(id: string) {
+  return useQuery<CampaignAdsResponse>({
+    queryKey: [...campaignKey(id), "ads"],
+    queryFn: async () => apiRequest(`/api/campaigns/${id}/ads`) as Promise<CampaignAdsResponse>,
+    enabled: Boolean(id),
+  });
+}
+
+export function useGenerateCampaignAds(id: string) {
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      apiRequest(`/api/campaigns/${id}/ads`, { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...campaignKey(id), "ads"] }),
   });
 }
