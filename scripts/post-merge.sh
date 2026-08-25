@@ -3,11 +3,9 @@ set -e
 
 npm install
 
-# Push schema changes to the database.
-# All column/table additions are tracked in shared/schema.ts and applied here.
-# Individual migration scripts (migrate-t*.ts) are intentionally NOT called here —
-# the columns they add are already declared in schema.ts so db:push is the
-# single source of truth. Running separate scripts risks Neon cold-start failures.
+# Push declarative schema changes first. Security policies, grants, triggers,
+# and compatibility backfills are then installed by the idempotent task
+# migrations below because db:push cannot represent those controls.
 npm run db:push -- --force
 
 # Apply the tenant Row-Level-Security migration (Task #150) AFTER the schema is
@@ -23,3 +21,8 @@ node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts
 # their RLS/grants, and the idempotent campaign backfill. Fully idempotent
 # (IF EXISTS / IF NOT EXISTS / DO-guards), so re-running on every merge is safe.
 node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts
+
+# Apply the agency client report migration AFTER tenant RLS. Besides creating
+# the report tables idempotently, this installs the client/financial separation,
+# direct-child RLS, immutable snapshot triggers, and append-only delivery audit.
+node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts

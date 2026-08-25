@@ -24,6 +24,7 @@ import {
   GitBranch,
   ClipboardCheck,
   Megaphone,
+  ClipboardList,
 } from "lucide-react";
 
 export interface NavItem {
@@ -70,6 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Agency",
     items: [
       { title: "Agency Clients", href: "/agency", icon: Building2 },
+      { title: "Reports", href: "/agency/reports", icon: ClipboardList },
       { title: "Client Dashboard", href: "/client-dashboard", icon: LayoutDashboard },
       { title: "Content Review", href: "/client/review", icon: ClipboardCheck },
       { title: "My Dashboard", href: "/client/usage", icon: BarChart2 },
@@ -139,6 +141,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   "site-map": "Site Maps",
   intelligence: "Brand Intelligence",
   agency: "Agency Clients",
+  reports: "Reports",
   "client-dashboard": "Client Dashboard",
   client: "My Dashboard",
   review: "Content Review",

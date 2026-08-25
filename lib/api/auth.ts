@@ -7,6 +7,7 @@ import {
   enterBlockedDatabaseContext,
   enterSystemContext,
   enterTenantContext,
+  runWithTenantContext,
 } from "@/lib/tenant-context";
 
 /** Five-minute throttle for lastActivityAt writes — one DB write per session per 5 min. */
@@ -29,6 +30,18 @@ export interface AuthenticatedUser {
 export const AUTH_COOKIE_NAME = "auth_token";
 
 type TeamAuthResult = { userId: number; teamId: number; role: string };
+
+export function runWithAuthenticatedTeamContext<T>(
+  auth: TeamAuthResult,
+  fn: () => T,
+): T {
+  return runWithTenantContext({
+    actorType: "web",
+    userId: auth.userId,
+    teamId: auth.teamId,
+    role: auth.role,
+  }, fn);
+}
 
 function activateTenantContext(result: TeamAuthResult): TeamAuthResult {
   enterTenantContext({
@@ -447,7 +460,7 @@ export async function requireTeamMember(req: NextRequest): Promise<{ userId: num
  * Require the authenticated user to be a team admin (role = 'admin' in team_members).
  * Used for high-privilege billing actions: checkout, portal, subscription management.
  */
-export async function requireTeamAdmin(req: NextRequest): Promise<{ userId: number; teamId: number }> {
+export async function requireTeamAdmin(req: NextRequest): Promise<TeamAuthResult> {
   const authResult = await verifyTokenFromRequestImpl(req);
 
   if (!authResult) {

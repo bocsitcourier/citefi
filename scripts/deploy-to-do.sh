@@ -199,6 +199,14 @@ echo "Applying campaigns migration (migrate-t151-campaigns)..."
 node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts 2>&1 | tail -20
 echo "Campaigns schema up to date."
 
+# ── Agency client reports migration (Task #154) ────────────────────────────
+# Install / refresh report tables, client-safe vs financial separation, grants,
+# RLS policies, immutable snapshot triggers, and append-only delivery history.
+# This must run after tenant RLS so the citefi_rls helpers and tenant role exist.
+echo "Applying agency reports migration (migrate-t154-agency-reports)..."
+node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts 2>&1 | tail -20
+echo "Agency reports schema up to date."
+
 # ── PM2 reload ────────────────────────────────────────────────────────────
 echo "Reloading PM2..."
 # Capture restart counts BEFORE reload so we can detect crash-loops after

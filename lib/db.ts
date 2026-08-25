@@ -328,7 +328,11 @@ export function getTxDb() {
  * so pooled connections cannot retain another request's identity.
  */
 export async function withTenantTransaction<T>(
-  fn: (tx: ReturnType<typeof getTxDb>) => Promise<T>
+  fn: (tx: ReturnType<typeof getTxDb>) => Promise<T>,
+  options?: {
+    isolationLevel?: "read committed" | "repeatable read" | "serializable";
+    maxRetries?: number;
+  },
 ): Promise<T> {
   const context = getDatabaseExecutionContext();
   if (context?.scope !== "tenant") {
@@ -341,18 +345,22 @@ export async function withTenantTransaction<T>(
       30_000
     );
   }
-  const client = await _txPool.connect();
-  try {
-    await client.query("BEGIN");
-    await applyTenantSessionContext(client, context);
-    const tx = drizzlePooled(client, { schema }) as unknown as ReturnType<typeof getTxDb>;
-    const result = await fn(tx);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
+  const maxRetries = Math.max(0, options?.maxRetries ?? 0);
+  for (let attempt = 0; ; attempt++) {
+    const client = await _txPool.connect();
+    try {
+      const isolation = options?.isolationLevel?.toUpperCase();
+      await client.query(isolation ? `BEGIN ISOLATION LEVEL ${isolation}` : "BEGIN");
+      await applyTenantSessionContext(client, context);
+      const tx = drizzlePooled(client, { schema }) as unknown as ReturnType<typeof getTxDb>;
+      const result = await fn(tx);
+      await client.query("COMMIT");
+      return result;
+    } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      if (attempt >= maxRetries || !["40001", "40P01"].includes(error?.code)) throw error;
+    } finally {
+      client.release();
+    }
   }
 }

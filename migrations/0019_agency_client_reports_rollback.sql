@@ -1,0 +1,14 @@
+BEGIN;
+DROP POLICY IF EXISTS agency_report_credit_ledger_select ON credit_ledger;
+DROP FUNCTION IF EXISTS citefi_rls.agency_report_period_evidence(integer,integer,timestamp,timestamp);
+DROP TABLE IF EXISTS agency_report_deliveries;
+DROP TABLE IF EXISTS agency_report_financial_snapshots;
+DROP TABLE IF EXISTS agency_client_reports;
+DROP TABLE IF EXISTS agency_report_configs;
+DROP FUNCTION IF EXISTS citefi_rls.guard_agency_report_delivery();
+DROP FUNCTION IF EXISTS citefi_rls.guard_agency_report_financial_snapshot();
+DROP FUNCTION IF EXISTS citefi_rls.guard_agency_report_snapshot();
+DROP FUNCTION IF EXISTS citefi_rls.guard_agency_report_pair();
+DROP FUNCTION IF EXISTS citefi_rls.agency_report_admin(integer,integer);
+DROP FUNCTION IF EXISTS citefi_rls.agency_report_pair_valid(integer,integer);
+COMMIT;

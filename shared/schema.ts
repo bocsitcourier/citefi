@@ -2947,6 +2947,88 @@ export const providerInvoiceReconciliations = pgTable("provider_invoice_reconcil
 }));
 
 // ============================================================================
+// AGENCY CLIENT REPORTS — immutable, client-safe period evidence (Task #154)
+// ============================================================================
+export const agencyReportConfigs = pgTable("agency_report_configs", {
+  id: serial("id").primaryKey(),
+  agencyTeamId: integer("agency_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  clientTeamId: integer("client_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  logoUrl: text("logo_url"),
+  accentColor: varchar("accent_color", { length: 20 }),
+  recipientsJson: jsonb("recipients_json").notNull().default(sql`'[]'::jsonb`),
+  cadence: varchar("cadence", { length: 20 }).notNull().default("manual"),
+  clientVisibleSectionsJson: jsonb("client_visible_sections_json").notNull().default(sql`'{}'::jsonb`),
+  markupBasisPoints: integer("markup_basis_points").notNull().default(0),
+  approvalStatus: varchar("approval_status", { length: 20 }).notNull().default("draft"),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  agencyClientUnique: uniqueIndex("agency_report_configs_agency_client_unique").on(t.agencyTeamId, t.clientTeamId),
+  clientIdx: index("agency_report_configs_client_idx").on(t.clientTeamId),
+}));
+
+export const agencyClientReports = pgTable("agency_client_reports", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  agencyTeamId: integer("agency_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  clientTeamId: integer("client_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  generatedBy: integer("generated_by").notNull().references(() => users.id),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  clientSafeSnapshot: jsonb("client_safe_snapshot").notNull(),
+  snapshotSha256: varchar("snapshot_sha256", { length: 64 }).notNull(),
+  approvedBy: integer("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  periodUnique: uniqueIndex("agency_client_reports_period_unique").on(t.agencyTeamId, t.clientTeamId, t.periodStart, t.periodEnd),
+  reportPairUnique: uniqueIndex("agency_client_reports_id_agency_client_unique")
+    .on(t.id, t.agencyTeamId, t.clientTeamId),
+  clientStatusIdx: index("agency_client_reports_client_status_idx").on(t.clientTeamId, t.status),
+}));
+
+export const agencyReportFinancialSnapshots = pgTable("agency_report_financial_snapshots", {
+  reportId: bigint("report_id", { mode: "number" }).primaryKey(),
+  agencyTeamId: integer("agency_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  clientTeamId: integer("client_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  rebillingSnapshot: jsonb("rebilling_snapshot").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  reportPairFk: foreignKey({
+    columns: [t.reportId, t.agencyTeamId, t.clientTeamId],
+    foreignColumns: [agencyClientReports.id, agencyClientReports.agencyTeamId, agencyClientReports.clientTeamId],
+    name: "agency_report_financial_snapshots_report_pair_fk",
+  }).onDelete("cascade"),
+  agencyClientIdx: index("agency_report_financial_snapshots_agency_client_idx")
+    .on(t.agencyTeamId, t.clientTeamId),
+}));
+
+export const agencyReportDeliveries = pgTable("agency_report_deliveries", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  reportId: bigint("report_id", { mode: "number" }).notNull().references(() => agencyClientReports.id, { onDelete: "cascade" }),
+  agencyTeamId: integer("agency_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  clientTeamId: integer("client_team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  channel: varchar("channel", { length: 30 }).notNull(),
+  recipient: varchar("recipient", { length: 320 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull(),
+  error: text("error"),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  idempotencyUnique: uniqueIndex("agency_report_deliveries_idempotency_unique").on(t.reportId, t.idempotencyKey),
+  reportIdx: index("agency_report_deliveries_report_idx").on(t.reportId, t.createdAt),
+}));
+
+export type AgencyReportConfig = typeof agencyReportConfigs.$inferSelect;
+export type AgencyClientReport = typeof agencyClientReports.$inferSelect;
+export type AgencyReportFinancialSnapshot = typeof agencyReportFinancialSnapshots.$inferSelect;
+export type AgencyReportDelivery = typeof agencyReportDeliveries.$inferSelect;
+
+// ============================================================================
 // CREDIT SYSTEM
 // ============================================================================
 
