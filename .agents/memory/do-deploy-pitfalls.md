@@ -53,14 +53,14 @@ PM2 holds ~200 MB of RAM while running. `npm ci` on a 2 GB droplet OOMs without 
 **Symptoms:** Build succeeds (compilation + static generation all pass), but PM2 starts the app and it crashes immediately. PM2 shows `online` then `errored` within seconds. PM2 logs show `Cannot find module 'styled-jsx/package.json'` from `node_modules/next/dist/server/require-hook.js`.
 **How to apply:** Both `.github/workflows/deploy.yml` and `scripts/deploy-to-do.sh` now stop PM2 before `npm ci`.
 
-### 10. Root SSH + citefi-owned repo requires `git config --global --add safe.directory`
-When deploy connects as `root` but the repo dir (`/var/www/citefi`) is owned by user `citefi`, git exits with "dubious ownership" before any `git fetch/reset`. Must add `git config --global --add safe.directory /var/www/citefi` at the top of the remote script before any git calls.
-**How to apply:** Already in both deploy scripts immediately after `set -euo pipefail`.
+### 10. Root maintenance of a citefi-owned repo requires `safe.directory`
+Direct root recovery against `/var/www/citefi` or `/var/www/citefi-staging` makes Git reject the repo as "dubious ownership" until that exact directory is registered as safe.
+**How to apply:** Normal releases run as `citefi`; add `safe.directory` only for an authorized root maintenance session.
 
-### 11. Two PM2 daemons (root + citefi) can cause `pm2 stop all` to silently miss running processes — CRITICAL
-If PM2 was ever started as root (e.g. during manual maintenance), a root PM2 daemon (at `/root/.pm2`) runs alongside the citefi daemon. Running `pm2 stop all` as citefi only stops citefi-daemon-managed processes; root-managed processes keep running and consume ~200 MB during the build, starving it of RAM.
-**Fix:** Deploy scripts now connect as `root` so `pm2 stop all` always targets the correct daemon. If the repo is owned by another user, add `safe.directory` first (Rule 10).
-**Detection:** `ps aux | sort -k6 -rn` will show unexpected PM2 daemons or next-server processes after stop.
+### 11. One service account must own both release files and PM2 — CRITICAL
+Mixing root-owned `.next`/`node_modules` with the `citefi` PM2 daemon caused `npm ci` and `next build` permission failures, deleted `BUILD_ID`, and left web in a crash loop. PM2's momentary `online` state hid the outage.
+**Why:** A root deployment followed by a `citefi` deployment split ownership across the same release tree.
+**How to apply:** Normal SSH releases must run as `citefi`. Root is recovery-only. Fail before stopping processes if the app tree has mixed ownership or the deploy user differs from the directory owner.
 
 ### 12. `next build` peaks at ~1.7 GB RSS on 2 GB droplet — add 2 GB swap before building
 Even with `export const dynamic = "force-dynamic"` in `app/layout.tsx` (which prevents static-page OOM), the build's compilation/bundling phase peaks at ~1.7 GB RSS. On a 2 GB droplet with OS overhead, the OOM killer kills the build mid-way, leaving `.next` without `BUILD_ID`.
@@ -75,3 +75,18 @@ The "Collecting page data" phase of `next build` runs the full Next.js app in a 
 **Secondary fix:** Stop PM2 before building (`pm2 stop all`) to reclaim the ~200MB of RAM PM2+app holds. Two builds running simultaneously will definitely OOM.
 **Deploy script check:** The NEEDS_BUILD logic must test `[[ ! -f .next/BUILD_ID ]]` (not just `[[ ! -d .next ]]`). An OOM-killed build leaves a partial `.next` directory that looks present but has no BUILD_ID.
 **How to apply:** `export const dynamic = "force-dynamic"` is in `app/layout.tsx`; `pm2 stop all` before build and `BUILD_ID` check are in `scripts/deploy-to-do.sh`.
+
+### 13. Redis is a host dependency, not an npm dependency
+Production and shared-host staging both expect Redis at `127.0.0.1:6379`. If Redis is absent, the website may render while worker, queue, heartbeat, and provider-circuit health all fail.
+**Why:** The droplet initially had no Redis package even though both runtime env files pointed to localhost.
+**How to apply:** Keep `redis-server` enabled under systemd. Production uses Redis DB 0; staging uses DB 1. Never share the same Redis DB between environments.
+
+### 14. Host schema commands must explicitly load `.env.local`
+`npm run db:push` does not automatically load `.env.local` on the droplet, so Drizzle reports a missing database URL even though the application can load it.
+**Why:** Replit injects database variables into the shell, but a plain SSH shell does not.
+**How to apply:** Invoke Drizzle through Node with `--env-file=.env.local`; invoke every TypeScript migration with the same explicit env file.
+
+### 15. Shared-host staging is isolated by resource, not by hostname
+The safe staging topology is a separate app directory and PM2 names, port 5100, database `citefi_staging`, Redis DB 1, and `staging/synthetic/` object prefix. It contains no copied production rows.
+**Why:** Destructive drills need production parity without risking the live application or customer data.
+**How to apply:** Keep staging loopback-only until its DNS and HTTPS proxy are configured. Never substitute the production database, Redis DB 0, production process names, or unprefixed storage.
