@@ -90,3 +90,8 @@ Production and shared-host staging both expect Redis at `127.0.0.1:6379`. If Red
 The safe staging topology is a separate app directory and PM2 names, port 5100, database `citefi_staging`, Redis DB 1, and `staging/synthetic/` object prefix. It contains no copied production rows.
 **Why:** Destructive drills need production parity without risking the live application or customer data.
 **How to apply:** Keep staging loopback-only until its DNS and HTTPS proxy are configured. Never substitute the production database, Redis DB 0, production process names, or unprefixed storage.
+
+### 16. In-place droplet deploys must never run automatically on push
+The current host release process stops PM2 before installing and building in the live directory. Triggering it on every main-branch push caused an immediate Nginx 502 for the full install/build window.
+**Why:** Validation success does not make an in-place build zero-downtime; Nginx has no upstream while PM2 is stopped.
+**How to apply:** Keep the DigitalOcean workflow manual-only until releases build in a separate directory and switch atomically. Ordinary GitHub pushes must never invoke the in-place release runner.
