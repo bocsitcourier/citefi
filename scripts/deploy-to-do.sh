@@ -4,7 +4,7 @@ set -euo pipefail
 : "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing}"
 : "${DO_HOST:?DO_HOST env var is missing}"
 
-DO_USER="${DO_USER:-root}"
+DO_USER="${DO_USER:-citefi}"
 DO_PORT="${DO_PORT:-22}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"

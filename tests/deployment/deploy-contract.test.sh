@@ -10,7 +10,7 @@ bash -n "$ROOT/scripts/deploy-to-staging.sh"
 # Source contract: loading the runner must expose functions without deploying.
 export HOST_RELEASE_SOURCE_ONLY=1
 source "$HOST"
-declare -F write_status stop_release_processes install_and_build health_check rollback validate_staging_isolation >/dev/null
+declare -F write_status validate_deploy_ownership stop_release_processes install_and_build health_check rollback validate_staging_isolation >/dev/null
 
 # Exercise status atomicity and staging fail-closed checks without performing a release.
 tmp="$(mktemp -d)"
@@ -65,10 +65,13 @@ assert_has "$HOST" 'fallocate -l 2G'
 assert_has "$HOST" '\.next/BUILD_ID'
 assert_has "$HOST" 'safe\.directory'
 assert_has "$HOST" 'DO_VALIDATION_COMMAND'
-assert_has "$HOST" 'npm run db:push'
+assert_has "$HOST" 'node --env-file=\.env\.local node_modules/drizzle-kit/bin\.cjs push --force'
 assert_has "$HOST" 'apply-tenant-rls'
 assert_has "$HOST" 'migrate-t151-campaigns'
+assert_has "$HOST" 'migrate-t152-campaign-ads'
+assert_has "$HOST" 'migrate-t153-provider-usage-ledger'
 assert_has "$HOST" 'migrate-t154-agency-reports'
+assert_has "$HOST" 'mixed ownership'
 assert_has "$HOST" 'api/health\?full=1'
 assert_has "$HOST" 'database'
 assert_has "$HOST" 'redis'

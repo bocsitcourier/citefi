@@ -46,13 +46,38 @@ patch_lockfile() {
 
 ensure_swap() {
   if [[ ! -f /swapfile2 ]]; then
+    [[ "$(id -u)" == 0 ]] || {
+      echo "ERROR: /swapfile2 is missing. Provision it once as root before deploying as $(id -un)."
+      return 1
+    }
     fallocate -l 2G /swapfile2
     chmod 600 /swapfile2
     mkswap /swapfile2 >/dev/null
     swapon /swapfile2
   elif ! swapon --show | grep -q /swapfile2; then
+    [[ "$(id -u)" == 0 ]] || {
+      echo "ERROR: /swapfile2 exists but is inactive. Enable it as root before deploying."
+      return 1
+    }
     swapon /swapfile2
   fi
+}
+
+validate_deploy_ownership() {
+  local current_user app_owner foreign_path
+  current_user="$(id -un)"
+  app_owner="$(stat -c '%U' "$DO_APP_DIR")"
+  [[ "$current_user" == "$app_owner" ]] || {
+    echo "ERROR: deploy user $current_user does not own $DO_APP_DIR (owner: $app_owner)."
+    echo "Use the service account that owns both the application files and PM2 daemon."
+    return 1
+  }
+  foreign_path="$(find node_modules .next -xdev ! -user "$(id -u)" -print -quit 2>/dev/null || true)"
+  [[ -z "$foreign_path" ]] || {
+    echo "ERROR: deployment files have mixed ownership (first mismatch: $foreign_path)."
+    echo "Repair ownership before deploying; refusing to stop a healthy runtime."
+    return 1
+  }
 }
 
 stop_release_processes() {
@@ -67,8 +92,9 @@ stop_release_processes() {
 }
 
 install_and_build() {
-  # Root owns the production PM2 daemon. Stop it before npm ci: this RAM margin
-  # and the second 2G swap file are required on the 2 GB droplet.
+  # The application service account owns both PM2 and the release tree. Stop
+  # processes before npm ci: this RAM margin and swap are required on the 2 GB
+  # droplet.
   RUNTIME_TOUCHED=true
   stop_release_processes
   ensure_swap
@@ -219,6 +245,7 @@ main() {
   test -f .env.local
   grep -q '^DATABASE_URL=' .env.local
   grep -q '^JWT_SECRET=' .env.local
+  validate_deploy_ownership
   validate_staging_isolation
 
   OLD_SHA="$(git rev-parse HEAD)"
@@ -245,9 +272,11 @@ PY
 
   # All forward-only schema work completes before any new process starts.
   PHASE=migrations
-  npm run db:push -- --force
+  node --env-file=.env.local node_modules/drizzle-kit/bin.cjs push --force
   node --env-file=.env.local --import tsx/esm scripts/apply-tenant-rls.ts
   node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts
+  node --env-file=.env.local --import tsx/esm scripts/migrate-t152-campaign-ads.ts
+  node --env-file=.env.local --import tsx/esm scripts/migrate-t153-provider-usage-ledger.ts
   node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts
 
   PHASE=reload

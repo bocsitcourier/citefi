@@ -8,7 +8,7 @@ set -euo pipefail
 
 export DEPLOY_ENVIRONMENT=staging
 export DO_APP_DIR="${DO_APP_DIR:-/var/www/citefi-staging}"
-export DO_BRANCH="${DO_BRANCH:-staging}"
+export DO_BRANCH="${DO_BRANCH:-main}"
 export DO_PM2_CONFIG="${DO_PM2_CONFIG:-ecosystem.staging.config.cjs}"
 export DO_HEALTHCHECK_URL="${DO_HEALTHCHECK_URL:-http://127.0.0.1:5100/api/health?full=1}"
 export DO_WEB_PROCESS="${DO_WEB_PROCESS:-citefi-staging-web}"
