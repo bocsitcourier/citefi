@@ -1,8 +1,6 @@
 name: Deploy to DigitalOcean
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -37,7 +35,7 @@ jobs:
         env:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
           DO_HOST: ${{ secrets.DO_HOST }}
-          DO_USER: root
+          DO_USER: citefi
           DO_APP_DIR: /var/www/citefi
           DO_BRANCH: main
           DO_PM2_CONFIG: ecosystem.config.cjs

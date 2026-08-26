@@ -81,6 +81,11 @@ assert_has "$HOST" 'no automatic database rollback'
 
 assert_has "$ROOT/.github/workflows/deploy.yml" 'needs: validate'
 assert_has "$ROOT/.github/workflows/deploy.yml" 'scripts/deploy-to-do.sh'
+assert_has "$ROOT/.github/workflows/deploy.yml" 'workflow_dispatch'
+assert_has "$ROOT/.github/workflows/deploy.yml" 'DO_USER: citefi'
+if grep -Eq '^[[:space:]]*push:' "$ROOT/.github/workflows/deploy.yml"; then
+  echo "DigitalOcean deployment must not run automatically on every push"; exit 1
+fi
 assert_has "$ROOT/scripts/deploy-to-do.sh" 'host-release.sh'
 assert_has "$ROOT/scripts/deploy-to-staging.sh" '/var/www/citefi-staging'
 assert_has "$ROOT/scripts/deploy-to-staging.sh" 'ecosystem.staging.config.cjs'
