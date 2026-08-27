@@ -31,6 +31,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - name: Deploy with shared release runner
         env:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
@@ -40,5 +44,9 @@ jobs:
           DO_BRANCH: main
           DO_PM2_CONFIG: ecosystem.config.cjs
           DO_HEALTHCHECK_URL: http://127.0.0.1:5000/api/health?full=1
+          DO_PUBLIC_HEALTHCHECK_URL: ${{ vars.DO_PUBLIC_HEALTHCHECK_URL }}
           DO_VALIDATION_COMMAND: npm run validate:release
-        run: scripts/deploy-to-do.sh
+        run: |
+          expiry="$(($(date +%s) + 300))"
+          export PRODUCTION_DEPLOY_CONFIRMATION="DEPLOY_CITEFI_PRODUCTION_UNTIL_${expiry}"
+          scripts/deploy-to-do.sh

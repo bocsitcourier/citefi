@@ -1,514 +1,170 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, RefreshCw, ChevronDown, ChevronUp, Trash2, CheckSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, BarChart3, Clock, RefreshCw, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-interface ErrorEntry {
-  id: number;
-  source: "article" | "video_idea" | "social_video";
-  errorType: string;
-  errorMessage: string;
+type Incident = {
+  id: string;
+  title: string;
+  fingerprint: string;
   severity: string;
-  resolved: number;
-  createdAt: string;
-  articleId: number | null;
-  batchId: number | null;
-  title: string | null;
-  parentName: string | null;
-  screenshotUrl: string | null;
-}
+  status: string;
+  category: string;
+  environment: string;
+  occurrenceCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
 
-interface ErrorSummary {
-  total: number;
-  unresolved: number;
-  critical: number;
-  generation: number;
-  brandValidation: number;
-  dalle: number;
-  social: number;
-  videoIdeas: number;
-  socialVideos: number;
-}
-
-interface ErrorLogsResponse {
-  errors: ErrorEntry[];
-  summary: ErrorSummary;
+type ListResponse = {
+  incidents: Incident[];
   page: number;
+  total: number;
+  totalPages: number;
   hasMore: boolean;
+  facets: { categories: string[]; environments: string[] };
+};
+
+type Report = {
+  totals: { total: number; critical: number; new: number; regressed: number; open: number };
+  mttaMinutes: number | null;
+  mttrMinutes: number | null;
+  top: { fingerprints: { key: string; count: number }[]; categories: { key: string; count: number }[]; components: { key: string; count: number }[] };
+};
+
+function badgeVariant(severity: string): "destructive" | "secondary" | "outline" {
+  return severity === "critical" ? "destructive" : severity === "error" ? "secondary" : "outline";
 }
 
-function severityVariant(severity: string): "destructive" | "secondary" | "outline" {
-  if (severity === "critical") return "destructive";
-  if (severity === "warning") return "outline";
-  return "secondary";
+function duration(value: number | null) {
+  if (value == null) return "Not enough data";
+  if (value < 60) return `${Math.round(value)}m`;
+  return `${(value / 60).toFixed(1)}h`;
 }
 
-function sourceLabel(source: string) {
-  switch (source) {
-    case "article": return "Article";
-    case "video_idea": return "Video Idea";
-    case "social_video": return "Social Video";
-    default: return source;
-  }
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function rowKey(entry: ErrorEntry) {
-  return `${entry.source}-${entry.id}`;
-}
-
-function ErrorRow({
-  entry,
-  selected,
-  onSelect,
-  onResolve,
-  onDelete,
-}: {
-  entry: ErrorEntry;
-  selected: boolean;
-  onSelect: (key: string, checked: boolean) => void;
-  onResolve: (id: number, resolved: boolean) => void;
-  onDelete: (entry: ErrorEntry) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const isResolved = entry.resolved === 1;
-  const canDelete = entry.source === "article";
-
-  return (
-    <div
-      className={cn(
-        "border rounded-md p-4 space-y-2 transition-colors",
-        isResolved ? "opacity-60" : "",
-        selected ? "border-primary/50 bg-primary/5" : ""
-      )}
-      data-testid={`error-row-${entry.id}`}
-    >
-      <div className="flex items-start justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap">
-          {canDelete ? (
-            <Checkbox
-              checked={selected}
-              onCheckedChange={(checked) => onSelect(rowKey(entry), !!checked)}
-              data-testid={`checkbox-error-${entry.id}`}
-              aria-label="Select error"
-            />
-          ) : (
-            <div className="w-4" />
-          )}
-          <Badge variant={severityVariant(entry.severity)} data-testid={`badge-severity-${entry.id}`}>
-            {entry.severity}
-          </Badge>
-          <Badge variant="outline" data-testid={`badge-source-${entry.id}`}>
-            {sourceLabel(entry.source)}
-          </Badge>
-          <span className="text-sm font-mono text-muted-foreground">{entry.errorType}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {formatDate(entry.createdAt)}
-          </span>
-          {!isResolved && entry.source === "article" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onResolve(entry.id, true)}
-              data-testid={`button-resolve-${entry.id}`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              Resolve
-            </Button>
-          )}
-          {isResolved && entry.source === "article" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onResolve(entry.id, false)}
-              data-testid={`button-unresolve-${entry.id}`}
-            >
-              Reopen
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => onDelete(entry)}
-              data-testid={`button-delete-${entry.id}`}
-              aria-label="Delete error"
-            >
-              <Trash2 className="w-4 h-4 text-muted-foreground" />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {(entry.title || entry.parentName) && (
-        <div className="text-sm text-foreground font-medium pl-7">
-          {entry.title || entry.parentName}
-          {entry.title && entry.parentName && (
-            <span className="text-muted-foreground font-normal"> — {entry.parentName}</span>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-start gap-2 pl-7">
-        <p
-          className={cn(
-            "text-sm text-muted-foreground flex-1",
-            !expanded && "line-clamp-2"
-          )}
-          data-testid={`text-error-message-${entry.id}`}
-        >
-          {entry.errorMessage}
-        </p>
-        {entry.errorMessage && entry.errorMessage.length > 120 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0 pt-0.5"
-            data-testid={`button-expand-${entry.id}`}
-          >
-            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-        )}
-      </div>
-
-      {entry.screenshotUrl && (
-        <div className="mt-2 pl-7">
-          <p className="text-xs text-muted-foreground mb-1 font-medium">UI Screenshot at time of error:</p>
-          <a
-            href={entry.screenshotUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid={`link-screenshot-${entry.id}`}
-          >
-            <img
-              src={entry.screenshotUrl}
-              alt="Error screenshot"
-              className="rounded-md border max-h-48 object-cover hover:opacity-80 transition-opacity cursor-zoom-in"
-            />
-          </a>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function AdminErrorLogsPage() {
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [severityFilter, setSeverityFilter] = useState("all");
+export default function AdminIncidentPage() {
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const [severity, setSeverity] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [environment, setEnvironment] = useState("all");
+  const [window, setWindow] = useState<"24h" | "7d">("24h");
+  const filters = { severity, status, category, environment };
 
-  const { data, isLoading, refetch, isFetching } = useQuery<ErrorLogsResponse>({
-    queryKey: ["/api/admin/error-logs", typeFilter, severityFilter, page],
+  const query = useQuery<ListResponse>({
+    queryKey: ["/api/admin/incidents", page, filters],
     queryFn: async () => {
-      const params = new URLSearchParams({ type: typeFilter, severity: severityFilter, page: String(page) });
-      const res = await fetch(`/api/admin/error-logs?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch error logs");
-      return res.json();
+      const params = new URLSearchParams({ page: String(page), limit: "25" });
+      Object.entries(filters).forEach(([key, value]) => value !== "all" && params.set(key, value));
+      const response = await fetch(`/api/admin/incidents?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load incidents");
+      return response.json();
+    },
+  });
+  const report = useQuery<Report>({
+    queryKey: ["/api/admin/incidents/report", window],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/incidents/report?window=${window}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load incident report");
+      return response.json();
     },
   });
 
-  const errors = data?.errors || [];
-  const summary = data?.summary;
-
-  // Only article errors can be deleted (they live in error_logs table)
-  const articleErrors = errors.filter(e => e.source === "article");
-  const allArticleKeys = articleErrors.map(rowKey);
-  const selectedCount = selected.size;
-  const allSelected = allArticleKeys.length > 0 && allArticleKeys.every(k => selected.has(k));
-  const someSelected = selectedCount > 0;
-
-  function handleSelect(key: string, checked: boolean) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
-      return next;
-    });
+  function changeFilter(setter: (value: string) => void, value: string) {
+    setter(value);
+    setPage(1);
   }
-
-  function handleSelectAll(checked: boolean) {
-    if (checked) {
-      setSelected(new Set(allArticleKeys));
-    } else {
-      setSelected(new Set());
-    }
-  }
-
-  const resolveMutation = useMutation({
-    mutationFn: async ({ id, resolved }: { id: number; resolved: boolean }) => {
-      const res = await fetch("/api/admin/error-logs", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, resolved }),
-      });
-      if (!res.ok) throw new Error("Failed to update");
-      return res.json();
-    },
-    onSuccess: (_, { resolved }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
-      toast({ title: resolved ? "Error marked as resolved" : "Error reopened" });
-    },
-    onError: () => {
-      toast({ title: "Failed to update error log", variant: "destructive" });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (body: Record<string, unknown>) => {
-      const res = await fetch("/api/admin/error-logs", {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("Failed to delete");
-      return res.json();
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/error-logs"] });
-      setSelected(new Set());
-      const count = result?.deleted;
-      toast({ title: count !== undefined ? `Deleted ${count} error${count !== 1 ? "s" : ""}` : "Errors deleted" });
-    },
-    onError: () => {
-      toast({ title: "Failed to delete errors", variant: "destructive" });
-    },
-  });
-
-  function handleDeleteSelected() {
-    const ids = [...selected]
-      .filter(k => k.startsWith("article-"))
-      .map(k => Number(k.replace("article-", "")));
-    if (ids.length === 0) return;
-    deleteMutation.mutate({ ids });
-  }
-
-  function handleDeleteOne(entry: ErrorEntry) {
-    deleteMutation.mutate({ ids: [entry.id] });
-  }
-
-  function handleClearResolved() {
-    deleteMutation.mutate({ clearResolved: true });
-  }
-
-  const resolvedCount = summary?.total !== undefined
-    ? articleErrors.filter(e => e.resolved === 1).length
-    : 0;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <AlertTriangle className="w-6 h-6 text-destructive" />
-            Error Logs
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Generation failures, AI errors, and validation issues
-          </p>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><ShieldAlert className="w-6 h-6 text-destructive" />Incident Intelligence</h1>
+          <p className="text-sm text-muted-foreground mt-1">Operational incidents, evidence, ownership, and human-reviewed AI guidance</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={handleClearResolved}
-            disabled={deleteMutation.isPending || resolvedCount === 0}
-            data-testid="button-clear-resolved"
-          >
-            <CheckCircle2 className="w-4 h-4 mr-2" />
-            Clear Resolved
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            data-testid="button-refresh-errors"
-          >
-            <RefreshCw className={cn("w-4 h-4 mr-2", isFetching && "animate-spin")} />
-            Refresh
-          </Button>
-        </div>
+        <Button variant="outline" onClick={() => { query.refetch(); report.refetch(); }} disabled={query.isFetching}>
+          <RefreshCw className={cn("w-4 h-4 mr-2", query.isFetching && "animate-spin")} />Refresh
+        </Button>
       </div>
 
-      {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground font-medium">Total Errors</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold" data-testid="stat-total">{summary.total}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground font-medium">Unresolved</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold text-destructive" data-testid="stat-unresolved">{summary.unresolved}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground font-medium">Critical</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold text-destructive" data-testid="stat-critical">{summary.critical}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground font-medium">Video / Social</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 px-4">
-              <p className="text-2xl font-bold" data-testid="stat-video">{(summary.videoIdeas || 0) + (summary.socialVideos || 0)}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <div className="flex items-center gap-3 flex-wrap">
-        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); setSelected(new Set()); }}>
-          <SelectTrigger className="w-44" data-testid="select-type-filter">
-            <SelectValue placeholder="Filter by type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
-            <SelectItem value="article">Articles</SelectItem>
-            <SelectItem value="video_idea">Video Ideas</SelectItem>
-            <SelectItem value="social_video">Social Videos</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); setSelected(new Set()); }}>
-          <SelectTrigger className="w-44" data-testid="select-severity-filter">
-            <SelectValue placeholder="Filter by severity" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Severities</SelectItem>
-            <SelectItem value="critical">Critical</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-            <SelectItem value="warning">Warning</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm flex gap-2">
+        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+        <div><strong>AI advice is advisory only.</strong> A qualified human must review evidence and approve all remediation. No fixes are executed automatically.</div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="border rounded-md p-4 h-20 animate-pulse bg-muted/40" />
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4" />Incident report</h2>
+          <Select value={window} onValueChange={(value: "24h" | "7d") => setWindow(value)}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="24h">24 hours</SelectItem><SelectItem value="7d">7 days</SelectItem></SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {(["total", "critical", "new", "regressed", "open"] as const).map((key) => (
+            <Card key={key}><CardHeader className="p-4 pb-1"><CardTitle className="text-xs capitalize text-muted-foreground">{key}</CardTitle></CardHeader>
+              <CardContent className="px-4 pb-4 text-2xl font-bold">{report.data?.totals[key] ?? "—"}</CardContent></Card>
           ))}
         </div>
-      ) : errors.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
-          <CheckCircle2 className="w-10 h-10 text-green-500" />
-          <p className="font-medium">No errors found</p>
-          <p className="text-sm">All systems are running cleanly for the selected filters.</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <Card><CardContent className="p-4 text-sm"><span className="text-muted-foreground">Mean time to acknowledge:</span> <strong>{duration(report.data?.mttaMinutes ?? null)}</strong></CardContent></Card>
+          <Card><CardContent className="p-4 text-sm"><span className="text-muted-foreground">Mean time to resolve:</span> <strong>{duration(report.data?.mttrMinutes ?? null)}</strong></CardContent></Card>
         </div>
+        {report.data && (
+          <div className="grid md:grid-cols-3 gap-3">
+            {(["categories", "components", "fingerprints"] as const).map((kind) => (
+              <Card key={kind}><CardHeader className="p-4 pb-2"><CardTitle className="text-sm capitalize">Top {kind}</CardTitle></CardHeader>
+                <CardContent className="px-4 pb-4 space-y-1">{report.data.top[kind].map((row) => (
+                  <div key={row.key} className="flex justify-between gap-2 text-xs"><span className="truncate font-mono">{row.key}</span><strong>{row.count}</strong></div>
+                ))}{!report.data.top[kind].length && <span className="text-xs text-muted-foreground">No data</span>}</CardContent></Card>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="flex gap-3 flex-wrap">
+        <Select value={severity} onValueChange={(v) => changeFilter(setSeverity, v)}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All severities</SelectItem><SelectItem value="critical">Critical</SelectItem><SelectItem value="error">Error</SelectItem><SelectItem value="warning">Warning</SelectItem>
+        </SelectContent></Select>
+        <Select value={status} onValueChange={(v) => changeFilter(setStatus, v)}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All statuses</SelectItem><SelectItem value="open">Open</SelectItem><SelectItem value="acknowledged">Acknowledged</SelectItem><SelectItem value="resolved">Resolved</SelectItem><SelectItem value="ignored">Ignored</SelectItem>
+        </SelectContent></Select>
+        <Select value={category} onValueChange={(v) => changeFilter(setCategory, v)}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All categories</SelectItem>{query.data?.facets.categories.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+        </SelectContent></Select>
+        <Select value={environment} onValueChange={(v) => changeFilter(setEnvironment, v)}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent>
+          <SelectItem value="all">All environments</SelectItem>{query.data?.facets.environments.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+        </SelectContent></Select>
+      </div>
+
+      {query.isLoading ? <div className="h-40 rounded-md bg-muted animate-pulse" /> : query.isError ? (
+        <div className="text-destructive">Unable to load incidents. Try refreshing.</div>
+      ) : !query.data?.incidents.length ? (
+        <div className="py-16 text-center text-muted-foreground">No incidents match these filters.</div>
       ) : (
-        <div className="space-y-2" data-testid="error-list">
-          {/* Batch action toolbar */}
-          {articleErrors.length > 0 && (
-            <div className="flex items-center gap-3 py-2 px-4 bg-muted/40 rounded-md border">
-              <Checkbox
-                checked={allSelected}
-                onCheckedChange={handleSelectAll}
-                data-testid="checkbox-select-all"
-                aria-label="Select all article errors"
-              />
-              <span className="text-sm text-muted-foreground">
-                {someSelected
-                  ? `${selectedCount} selected`
-                  : `Select all (${articleErrors.length} article error${articleErrors.length !== 1 ? "s" : ""})`}
-              </span>
-              {someSelected && (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={handleDeleteSelected}
-                  disabled={deleteMutation.isPending}
-                  data-testid="button-delete-selected"
-                >
-                  <Trash2 className="w-3.5 h-3.5 mr-1" />
-                  Delete {selectedCount} selected
-                </Button>
-              )}
-              {someSelected && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setSelected(new Set())}
-                  data-testid="button-clear-selection"
-                >
-                  Clear selection
-                </Button>
-              )}
-            </div>
-          )}
-
-          {errors.map((entry) => (
-            <ErrorRow
-              key={rowKey(entry)}
-              entry={entry}
-              selected={selected.has(rowKey(entry))}
-              onSelect={handleSelect}
-              onResolve={(id, resolved) => resolveMutation.mutate({ id, resolved })}
-              onDelete={handleDeleteOne}
-            />
+        <div className="space-y-2">
+          {query.data.incidents.map((incident) => (
+            <Link key={incident.id} href={`/admin/error-logs/${incident.id}`} className="block border rounded-md p-4 hover:bg-muted/40 transition-colors">
+              <div className="flex justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex gap-2 items-center flex-wrap"><Badge variant={badgeVariant(incident.severity)}>{incident.severity}</Badge><Badge variant="outline">{incident.status}</Badge><Badge variant="outline">{incident.category}</Badge><span className="text-xs text-muted-foreground">{incident.environment}</span></div>
+                  <h3 className="font-medium mt-2 truncate">{incident.title}</h3>
+                  <p className="font-mono text-xs text-muted-foreground mt-1 truncate">{incident.fingerprint}</p>
+                </div>
+                <div className="text-right text-sm shrink-0"><strong>{incident.occurrenceCount}</strong> occurrences<div className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Clock className="w-3 h-3" />Last {new Date(incident.lastSeenAt).toLocaleString()}</div></div>
+              </div>
+            </Link>
           ))}
         </div>
       )}
-
-      {(data?.hasMore || page > 1) && (
-        <div className="flex items-center justify-center gap-3">
-          <Button
-            variant="outline"
-            disabled={page === 1}
-            onClick={() => setPage((p) => p - 1)}
-            data-testid="button-prev-page"
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">Page {page}</span>
-          <Button
-            variant="outline"
-            disabled={!data?.hasMore}
-            onClick={() => setPage((p) => p + 1)}
-            data-testid="button-next-page"
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      {query.data && query.data.totalPages > 1 && <div className="flex justify-center items-center gap-3"><Button variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button><span className="text-sm">Page {page} of {query.data.totalPages} · {query.data.total} incidents</span><Button variant="outline" disabled={!query.data.hasMore} onClick={() => setPage(page + 1)}>Next</Button></div>}
     </div>
   );
 }

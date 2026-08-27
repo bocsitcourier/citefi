@@ -10,45 +10,38 @@ import { startJobMonitor, stopJobMonitor } from "./job-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
 import { systemDb } from "../lib/db";
 import { runWithSystemContext } from "../lib/tenant-context";
+import { processDiagnosticLog } from "../lib/process-diagnostics";
 
 config({ path: '.env.local', override: true });
 
-// ── Crash prevention ──────────────────────────────────────────────────────────
-// pg-boss internals can throw "Connection terminated unexpectedly" when Neon
-// suspends compute during a long-running article generation (10-min Gemini
-// timeout > 5-min Neon idle window).  Without this handler the worker process
-// exits, leaving every in-progress article stuck forever.
+// ── Fatal boundary telemetry ──────────────────────────────────────────────────
+// Capture best-effort durable evidence, then preserve Node's fatal semantics.
+// Continuing after an uncaught exception can leave worker state corrupted;
+// BullMQ recovers unfinished jobs when the supervisor restarts this process.
 process.on("uncaughtException", (err: Error) => {
   const msg = err.message ?? "";
-  const isConnErr =
-    msg.includes("Connection terminated") ||
-    msg.includes("connection timeout") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("EPIPE");
-  if (isConnErr) {
-    console.error(`⚠️ [worker] DB connection error (non-fatal, continuing): ${msg}`);
-  } else {
-    console.error(`❌ [worker] Uncaught exception — logging but NOT exiting:`, err);
-    // Fire-and-forget — do not await; uncaughtException handlers must not block
-    import("../lib/error-logger").then(({ logError }) => {
-      runWithSystemContext("worker uncaught exception audit logging", () =>
-        logError({
-          errorType: "SYSTEM",
-          errorMessage: `[worker:uncaughtException] ${msg}`,
-          stackTrace: err.stack,
-          severity: "critical",
-          component: "worker-process",
-          context: { name: err.name },
-        })
-      ).catch(() => {});
-    }).catch(() => {});
-  }
+  processDiagnosticLog("error", "❌ [worker] Uncaught exception — logging before exit:", err);
+  process.exitCode = 1;
+  import("../lib/error-logger").then(({ logError }) => {
+    runWithSystemContext("worker uncaught exception audit logging", () =>
+      logError({
+        errorType: "SYSTEM",
+        errorMessage: `[worker:uncaughtException] ${msg}`,
+        stackTrace: err.stack,
+        severity: "critical",
+        component: "worker-process",
+        context: { name: err.name },
+      })
+    ).finally(() => process.exit(1));
+  }).catch(() => process.exit(1));
+  setTimeout(() => process.exit(1), 2_000).unref();
 });
 
 process.on("unhandledRejection", (reason: unknown) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   const msg = err.message;
-  console.error(`⚠️ [worker] Unhandled promise rejection (non-fatal): ${msg}`);
+  processDiagnosticLog("error", "❌ [worker] Unhandled promise rejection — logging before exit:", err);
+  process.exitCode = 1;
   import("../lib/error-logger").then(({ logError }) => {
     runWithSystemContext("worker unhandled rejection audit logging", () =>
       logError({
@@ -58,8 +51,9 @@ process.on("unhandledRejection", (reason: unknown) => {
         severity: "error",
         component: "worker-process",
       })
-    ).catch(() => {});
-  }).catch(() => {});
+    ).finally(() => process.exit(1));
+  }).catch(() => process.exit(1));
+  setTimeout(() => process.exit(1), 2_000).unref();
 });
 
 // ── Neon keep-alive pinger ────────────────────────────────────────────────────
@@ -75,7 +69,7 @@ function startNeonKeepAlive() {
     try {
       await systemDb.execute(sql`SELECT 1`);
     } catch (e) {
-      console.warn(`⚠️ [worker] Neon keep-alive ping failed (non-fatal):`, (e as Error).message);
+      processDiagnosticLog("warn", "⚠️ [worker] Neon keep-alive ping failed (non-fatal):", e);
     }
   }, NEON_PING_INTERVAL_MS);
   // Don't let the timer block process shutdown
@@ -84,10 +78,18 @@ function startNeonKeepAlive() {
 
 async function startWorkers() {
   try {
-    console.log("🔄 Worker process starting...");
+    processDiagnosticLog("log", "🔄 Worker process starting...");
 
     // Start keep-alive before any long-running work
     startNeonKeepAlive();
+
+    // Replay DB-outage telemetry before accepting jobs. Event UUIDs make this
+    // safe after a crash at any point in replay.
+    const { replayTelemetrySpool } = await import("../lib/incident-intelligence/service");
+    const spoolReplay = await replayTelemetrySpool();
+    if (spoolReplay.replayed > 0 || spoolReplay.remaining > 0) {
+      processDiagnosticLog("log", `📥 Telemetry spool replayed=${spoolReplay.replayed} remaining=${spoolReplay.remaining}`);
+    }
 
     // ── Storage configuration check ───────────────────────────────────────────
     // Non-fatal: other workers (articles, social posts, etc.) don't need storage.
@@ -95,13 +97,13 @@ async function startWorkers() {
     // silently burning Veo quota and leaving posts stuck at GENERATING.
     const { isStorageConfigured } = await import("../lib/storage");
     if (!isStorageConfigured) {
-      console.warn(
+      processDiagnosticLog("warn",
         "⚠️ [startup] DO Spaces storage not configured — video generation jobs will " +
         "be rejected immediately with STORAGE_NOT_CONFIGURED. " +
         "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET."
       );
     } else {
-      console.log("✅ [startup] Storage (DO Spaces) is configured — video generation enabled.");
+      processDiagnosticLog("log", "✅ [startup] Storage (DO Spaces) is configured — video generation enabled.");
     }
 
     // Validate publishing secrets before starting workers
@@ -139,15 +141,27 @@ async function startWorkers() {
     const { startSpendBreakerScheduler } = await import("@/lib/spend-breaker");
     startSpendBreakerScheduler();
     
-    console.log("🔄 Worker process running - event loop active");
-    console.log("Press Ctrl+C to stop workers");
+    processDiagnosticLog("log", "🔄 Worker process running - event loop active");
+    processDiagnosticLog("log", "Press Ctrl+C to stop workers");
 
     // Keep process alive
     process.stdin.resume();
 
   } catch (error) {
-    console.error("❌ Worker initialization failed:", error);
-    process.exit(1);
+    processDiagnosticLog("error", "❌ Worker initialization failed:", error);
+    const err = error instanceof Error ? error : new Error(String(error));
+    try {
+      const { logError } = await import("../lib/error-logger");
+      await runWithSystemContext("worker startup failure audit logging", () => logError({
+        errorType: "SYSTEM",
+        errorMessage: `[worker:startup] ${err.message}`,
+        stackTrace: err.stack,
+        severity: "critical",
+        component: "worker-process",
+      }));
+    } finally {
+      process.exit(1);
+    }
   }
 }
 
@@ -158,7 +172,7 @@ let shutdownPromise: Promise<void> | null = null;
 async function shutdown(signal: NodeJS.Signals) {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
-  console.log(`\n🛑 ${signal} received — draining workers...`);
+  processDiagnosticLog("log", `🛑 ${signal} received — draining workers...`);
   let exitCode = 0;
   try {
     if (keepAliveTimer) clearInterval(keepAliveTimer);
@@ -177,16 +191,16 @@ async function shutdown(signal: NodeJS.Signals) {
     const result = await closePipelineWorkers(30_000);
     if (result.timedOut) {
       exitCode = 1;
-      console.error(
+      processDiagnosticLog("error",
         `⚠️ Forced shutdown after deadline (${result.forced} worker connection(s)); BullMQ will recover unfinished jobs`
       );
     } else {
-      console.log(`✅ Drained ${result.drained} BullMQ worker(s)`);
+      processDiagnosticLog("log", `✅ Drained ${result.drained} BullMQ worker(s)`);
     }
     await closeQueues();
-    console.log("✅ Workers stopped gracefully");
+    processDiagnosticLog("log", "✅ Workers stopped gracefully");
   } catch (error) {
-    console.error("❌ Error during shutdown:", error);
+    processDiagnosticLog("error", "❌ Error during shutdown:", error);
     exitCode = 1;
   }
   process.exit(exitCode);

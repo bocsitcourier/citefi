@@ -6,11 +6,6 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 channel = "stable-24_05"
 packages = ["ffmpeg", "jq", "unzip", "run", "uwhoisd"]
 
-[deployment]
-deploymentTarget = "vm"
-build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
-
 [[ports]]
 localPort = 5000
 externalPort = 80
@@ -19,9 +14,6 @@ externalPort = 80
 localPort = 5904
 externalPort = 3000
 
-[[ports]]
-localPort = 6379
-externalPort = 4200
 
 [env]
 PORT = "5000"
@@ -53,10 +45,6 @@ args = "Push to GitHub"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "admin-notification-tests"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Deploy to DO"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -116,17 +104,6 @@ args = "WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test t
 outputType = "console"
 
 [[workflows.workflow]]
-name = "Deploy to DO"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash scripts/deploy-to-do.sh"
-
-[[workflows.workflow]]
 name = "budget-stop-tests"
 author = "agent"
 
@@ -143,10 +120,7 @@ integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascrip
 [userenv]
 
 [userenv.shared]
-API_KEY_ENCRYPTION_SECRET = "935772b1ebe93e7dcd18830cbeabff0af0ed73b2cd52d7e539d41e86f22a08b9"
 NODE_OPTIONS = "--max-old-space-size=4096"
-DO_HOST = "137.184.151.238"
-DO_USER = "citefi"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-de84b703-ccbb-4b3d-a923-9a198c55f981"

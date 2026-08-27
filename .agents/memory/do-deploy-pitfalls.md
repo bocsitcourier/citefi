@@ -95,3 +95,28 @@ The safe staging topology is a separate app directory and PM2 names, port 5100, 
 The current host release process stops PM2 before installing and building in the live directory. Triggering it on every main-branch push caused an immediate Nginx 502 for the full install/build window.
 **Why:** Validation success does not make an in-place build zero-downtime; Nginx has no upstream while PM2 is stopped.
 **How to apply:** Keep the DigitalOcean workflow manual-only until releases build in a separate directory and switch atomically. Ordinary GitHub pushes must never invoke the in-place release runner.
+
+### 17. Build and validate immutable release artifacts off-host
+The droplet must receive a checksum/size-bound artifact that already contains its production build and runtime dependencies; it must never install packages or build in the active tree.
+**Why:** Interrupted on-host builds deleted the live `BUILD_ID` and created multi-thousand-restart PM2 crash loops.
+**How to apply:** Build from a clean Git commit away from the host, reject unsafe archive paths/links, unpack once into a checksum-named release, then atomically switch `current`.
+
+### 18. Historical migrations must support pre-ledger adoption
+An existing database can contain migration-created objects while the checksum ledger is empty; replaying such a migration must be safe or explicitly catalog-baselined.
+**Why:** Staging already had immutable-ledger triggers and policies from the former migration path, so first ledger adoption collided with their names.
+**How to apply:** Make adoption-era migrations idempotent for known objects, execute each migration transactionally, and require catalog verification before cutover.
+
+### 19. PM2 reload does not migrate an executable type
+`startOrReload` can preserve a legacy executable and pass new wrapper arguments to the wrong program.
+**Why:** The first staging cutover passed `--web` to the legacy Next.js executable instead of changing it to the bounded bootstrap wrapper.
+**How to apply:** Compare live `pm_exec_path` with the desired config. When the executable type differs, delete/start only that named process; use normal reload only after both sides use the same wrapper. Apply the inverse on rollback.
+
+### 20. Shared operational status cannot live inside release directories
+Backup and deployment status must remain at stable shared paths across symlink switches.
+**Why:** Readiness falsely failed when a new release looked for status files that belonged to a prior directory layout.
+**How to apply:** Configure explicit shared status paths for every environment and preserve them independently of immutable release cleanup.
+
+### 21. Provider canaries require an explicit non-customer owner
+Real provider-backed canaries must use an explicit accounting team and must fail closed when the provider account cannot execute.
+**Why:** Picking an arbitrary customer would corrupt immutable COGS attribution; a depleted provider account otherwise looks like release readiness.
+**How to apply:** Give staging a synthetic-only accounting team, production an approved system owner, and never seed a fake success to bypass a provider-capacity failure.

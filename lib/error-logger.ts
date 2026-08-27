@@ -1,6 +1,8 @@
 import { db } from "./db";
 import { errorLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
+import { redactString, sanitizeMetadata } from "./incident-intelligence/core";
+import { ingestTelemetry } from "./incident-intelligence/service";
 
 export type ErrorType =
   | "GEMINI"
@@ -30,6 +32,10 @@ export interface LogErrorParams {
   component?: string;
   context?: Record<string, unknown>;
   screenshotUrl?: string;
+  requestId?: string;
+  jobId?: string;
+  deployId?: string;
+  fingerprint?: string;
 }
 
 // ─── Slack / webhook notification ────────────────────────────────────────────
@@ -44,7 +50,7 @@ async function sendSlackNotification(params: LogErrorParams & { severity: Severi
   if (!webhookUrl) return;
 
   const emoji = SEVERITY_EMOJI[params.severity];
-  const component = params.component ? ` [${params.component}]` : "";
+  const component = params.component ? ` [${redactString(params.component, 100)}]` : "";
   const contextText =
     params.context && Object.keys(params.context).length > 0
       ? `\`\`\`${JSON.stringify(params.context, null, 2).slice(0, 1500)}\`\`\``
@@ -63,7 +69,7 @@ async function sendSlackNotification(params: LogErrorParams & { severity: Severi
       type: "section",
       text: {
         type: "mrkdwn",
-        text: params.errorMessage.slice(0, 2000),
+        text: redactString(params.errorMessage, 2000),
       },
     },
   ];
@@ -79,15 +85,6 @@ async function sendSlackNotification(params: LogErrorParams & { severity: Severi
     blocks.push({
       type: "section",
       text: { type: "mrkdwn", text: `*Context Snapshot:*\n${contextText}` },
-    });
-  }
-
-  if (params.screenshotUrl) {
-    blocks.push({
-      type: "image",
-      title: { type: "plain_text", text: "UI Screenshot at time of error" },
-      image_url: params.screenshotUrl,
-      alt_text: "Error screenshot",
     });
   }
 
@@ -107,26 +104,29 @@ async function sendSlackNotification(params: LogErrorParams & { severity: Severi
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ blocks }),
     });
-  } catch (err) {
-    console.error("[ERROR_LOG] Failed to send Slack notification:", err);
+  } catch {
+    console.error("[ERROR_LOG] Failed to send Slack notification");
   }
 }
 
 // ─── Core logger ─────────────────────────────────────────────────────────────
 export async function logError(params: LogErrorParams): Promise<void> {
   const severity = params.severity ?? "error";
+  const safeContext = sanitizeMetadata(params.context);
+  const safeMessage = redactString(params.errorMessage, 8_000);
+  const safeStack = params.stackTrace ? redactString(params.stackTrace, 32_000) : undefined;
 
   const enrichedMessage = params.component
-    ? `[${params.component}] ${params.errorMessage}`
-    : params.errorMessage;
+    ? `[${redactString(params.component, 100)}] ${safeMessage}`
+    : safeMessage;
 
   const contextSuffix =
-    params.context && Object.keys(params.context).length > 0
-      ? `\n\n--- Context Snapshot ---\n${JSON.stringify(params.context, null, 2)}`
+    Object.keys(safeContext).length > 0
+      ? `\n\n--- Context Snapshot ---\n${JSON.stringify(safeContext, null, 2)}`
       : "";
 
-  const fullStack = params.stackTrace
-    ? params.stackTrace + contextSuffix
+  const fullStack = safeStack
+    ? safeStack + contextSuffix
     : contextSuffix || undefined;
 
   try {
@@ -137,19 +137,39 @@ export async function logError(params: LogErrorParams): Promise<void> {
       severity,
       batchId: params.batchId,
       articleId: params.articleId,
-      screenshotUrl: params.screenshotUrl,
+      // Signed object-storage URLs are credentials and must never be durable.
+      screenshotUrl: null,
       resolved: 0,
     });
-  } catch (dbError) {
-    console.error("[ERROR_LOG] Failed to persist error to database:", dbError);
+  } catch {
+    console.error("[ERROR_LOG] Failed to persist error to database");
   }
 
   console.error(
     `[ERROR_LOG] ${severity.toUpperCase()} ${params.errorType}: ${enrichedMessage}`
   );
 
+  // Durable structured store is additive: legacy error_logs and callers remain
+  // fully compatible while incident consumers migrate independently.
+  await ingestTelemetry({
+    severity,
+    category: params.errorType,
+    message: enrichedMessage,
+    stack: safeStack,
+    process: params.component,
+    requestId: params.requestId,
+    jobId: params.jobId,
+    deployId: params.deployId,
+    fingerprint: params.fingerprint,
+    metadata: {
+      ...safeContext,
+      batchId: params.batchId,
+      articleId: params.articleId,
+    },
+  });
+
   // Fire Slack notification for all error severities (warning, error, critical)
-  void sendSlackNotification({ ...params, severity });
+  void sendSlackNotification({ ...params, errorMessage: safeMessage, stackTrace: safeStack, screenshotUrl: undefined, context: safeContext, severity });
 }
 
 // ─── Convenience helpers ──────────────────────────────────────────────────────

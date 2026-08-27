@@ -1,0 +1,109 @@
+name: Production uptime monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-uptime-monitor
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe production from GitHub infrastructure
+        id: health
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -u
+          status=failed
+          http_code=000
+          for attempt in 1 2 3; do
+            http_code="$(curl \
+              --silent --show-error --location \
+              --connect-timeout 10 --max-time 20 \
+              --output /dev/null --write-out '%{http_code}' \
+              'https://citefi.co/api/health' || true)"
+            if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+              status=healthy
+              break
+            fi
+            [[ "$attempt" -lt 3 ]] && sleep 15
+          done
+          printf 'status=%s\nhttp_code=%s\n' "$status" "$http_code" >> "$GITHUB_OUTPUT"
+          [[ "$status" == healthy ]]
+
+      - name: Open or update the external uptime incident
+        if: steps.health.outputs.status != 'healthy'
+        uses: actions/github-script@v7
+        env:
+          HTTP_CODE: ${{ steps.health.outputs.http_code }}
+        with:
+          script: |
+            const title = "[uptime] citefi.co health check failed";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: "open", per_page: 100,
+            });
+            const existing = issues.find(issue => issue.title === title);
+            const body = [
+              "GitHub-hosted monitoring failed three production health probes.",
+              "",
+              `Observed HTTP status: ${process.env.HTTP_CODE || "000"}`,
+              `Workflow: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              "",
+              "**Alert ownership**",
+              `- Primary: @${owner} (application on-call / release commander)`,
+              "- Secondary: Citefi database/security owner; escalate if unacknowledged for 5 minutes",
+              "",
+              "Do not paste credentials, raw logs, customer data, or signed URLs into this issue.",
+            ].join("\n");
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body });
+              try {
+                await github.rest.issues.addAssignees({
+                  owner, repo, issue_number: created.data.number, assignees: [owner],
+                });
+              } catch (error) {
+                core.warning(`Could not assign repository owner: ${error.message}`);
+              }
+            }
+
+      - name: Close the external uptime incident after recovery
+        if: steps.health.outputs.status == 'healthy'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "[uptime] citefi.co health check failed";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: "open", per_page: 100,
+            });
+            for (const issue of issues.filter(issue => issue.title === title)) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `Production health recovered in workflow run ${context.runId}.`,
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: issue.number, state: "closed",
+                state_reason: "completed",
+              });
+            }
+
+      - name: Fail the workflow when production is unavailable
+        if: steps.health.outputs.status != 'healthy'
+        run: exit 1

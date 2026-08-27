@@ -107,6 +107,9 @@ CREATE OR REPLACE FUNCTION citefi_rls.guard_provider_usage_ledger() RETURNS trig
 BEGIN RAISE EXCEPTION 'provider usage ledger is append-only'; END $$;
 CREATE OR REPLACE FUNCTION citefi_rls.guard_provider_rate_immutability() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'provider rates are immutable'; END $$;
+DROP TRIGGER IF EXISTS provider_usage_ledger_append_only ON provider_usage_ledger;
+DROP TRIGGER IF EXISTS provider_rate_versions_immutable ON provider_rate_versions;
+DROP TRIGGER IF EXISTS provider_rates_immutable ON provider_rates;
 CREATE TRIGGER provider_usage_ledger_append_only BEFORE UPDATE OR DELETE ON provider_usage_ledger
 FOR EACH ROW EXECUTE FUNCTION citefi_rls.guard_provider_usage_ledger();
 CREATE TRIGGER provider_rate_versions_immutable BEFORE UPDATE OR DELETE ON provider_rate_versions
@@ -118,11 +121,15 @@ GRANT SELECT,INSERT ON provider_usage_ledger TO citefi_tenant;
 GRANT SELECT ON provider_rate_versions,provider_rates TO citefi_tenant;
 GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO citefi_tenant;
 ALTER TABLE provider_usage_ledger ENABLE ROW LEVEL SECURITY; ALTER TABLE provider_usage_ledger FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS provider_usage_ledger_select ON provider_usage_ledger;
+DROP POLICY IF EXISTS provider_usage_ledger_insert ON provider_usage_ledger;
 CREATE POLICY provider_usage_ledger_select ON provider_usage_ledger FOR SELECT TO citefi_tenant USING (citefi_rls.provider_ledger_select_allowed(team_id));
 CREATE POLICY provider_usage_ledger_insert ON provider_usage_ledger FOR INSERT TO citefi_tenant WITH CHECK (citefi_rls.tenant_can_access(team_id) AND NOT citefi_rls.is_client_viewer());
 ALTER TABLE provider_rate_versions ENABLE ROW LEVEL SECURITY; ALTER TABLE provider_rate_versions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS provider_rate_versions_select ON provider_rate_versions;
 CREATE POLICY provider_rate_versions_select ON provider_rate_versions FOR SELECT TO citefi_tenant USING (NOT citefi_rls.is_client_viewer());
 ALTER TABLE provider_rates ENABLE ROW LEVEL SECURITY; ALTER TABLE provider_rates FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS provider_rates_select ON provider_rates;
 CREATE POLICY provider_rates_select ON provider_rates FOR SELECT TO citefi_tenant USING (NOT citefi_rls.is_client_viewer());
 -- Invoice records are platform reconciliation evidence, not tenant data.
 -- No citefi_tenant grant/policy is deliberate; systemDb retains platform access.

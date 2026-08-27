@@ -722,6 +722,101 @@ export const errorLogs = pgTable("error_logs", {
   resolvedIdx: index("error_logs_resolved_idx").on(table.resolved),
 }));
 
+// Append-only operational telemetry. `error_logs` remains unchanged for legacy
+// callers; new ingestion writes both stores until the admin API is migrated.
+export const telemetryIncidents = pgTable("telemetry_incidents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+  environment: varchar("environment", { length: 50 }).notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  severity: varchar("severity", { length: 20 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("open"),
+  title: varchar("title", { length: 500 }).notNull(),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  evidenceVersion: integer("evidence_version").notNull().default(1),
+  firstSeenAt: timestamp("first_seen_at").notNull(),
+  lastSeenAt: timestamp("last_seen_at").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: integer("acknowledged_by").references(() => users.id),
+  assigneeUserId: integer("assignee_user_id").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  fingerprintEnvironmentUnique: uniqueIndex("telemetry_incidents_fingerprint_environment_unique").on(table.fingerprint, table.environment),
+  statusSeverityLastSeenIdx: index("telemetry_incidents_status_severity_last_seen_idx").on(table.status, table.severity, table.lastSeenAt),
+}));
+
+export const telemetryEvents = pgTable("telemetry_events", {
+  eventId: uuid("event_id").primaryKey(),
+  incidentId: uuid("incident_id").references(() => telemetryIncidents.id, { onDelete: "set null" }),
+  occurredAt: timestamp("occurred_at").notNull(),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  environment: varchar("environment", { length: 50 }).notNull(),
+  release: varchar("release", { length: 100 }),
+  process: varchar("process", { length: 100 }).notNull(),
+  severity: varchar("severity", { length: 20 }).notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+  message: text("message").notNull(),
+  stack: text("stack"),
+  requestId: varchar("request_id", { length: 128 }),
+  jobId: varchar("job_id", { length: 128 }),
+  deployId: varchar("deploy_id", { length: 128 }),
+  metadata: jsonb("metadata").notNull().default({}),
+}, (table) => ({
+  incidentOccurredIdx: index("telemetry_events_incident_occurred_idx").on(table.incidentId, table.occurredAt),
+  correlationIdx: index("telemetry_events_correlation_idx").on(table.requestId, table.jobId, table.deployId),
+  fingerprintOccurredIdx: index("telemetry_events_fingerprint_occurred_idx").on(table.fingerprint, table.occurredAt),
+}));
+
+export const telemetryIncidentAudit = pgTable("telemetry_incident_audit", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  incidentId: uuid("incident_id").notNull().references(() => telemetryIncidents.id, { onDelete: "cascade" }),
+  action: varchar("action", { length: 30 }).notNull(),
+  fromStatus: varchar("from_status", { length: 20 }),
+  toStatus: varchar("to_status", { length: 20 }),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  note: varchar("note", { length: 1000 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  incidentCreatedIdx: index("telemetry_incident_audit_incident_created_idx").on(table.incidentId, table.createdAt),
+}));
+
+export const telemetryNotificationDeliveries = pgTable("telemetry_notification_deliveries", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  incidentId: uuid("incident_id").notNull().references(() => telemetryIncidents.id, { onDelete: "cascade" }),
+  adminUserId: integer("admin_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  notificationKind: varchar("notification_kind", { length: 20 }).notNull(),
+  evidenceVersion: integer("evidence_version").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  deliveryUnique: uniqueIndex("telemetry_notification_deliveries_unique").on(table.incidentId, table.adminUserId, table.notificationKind, table.evidenceVersion),
+}));
+
+export const telemetryAiAnalyses = pgTable("telemetry_ai_analyses", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  incidentId: uuid("incident_id").notNull().references(() => telemetryIncidents.id, { onDelete: "cascade" }),
+  evidenceVersion: integer("evidence_version").notNull(),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  model: varchar("model", { length: 100 }).notNull(),
+  analysis: jsonb("analysis").notNull(),
+  inputBytes: integer("input_bytes").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  incidentEvidenceUnique: uniqueIndex("telemetry_ai_analyses_incident_evidence_unique").on(table.incidentId, table.evidenceVersion),
+}));
+
+export const telemetryAiRequests = pgTable("telemetry_ai_requests", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  incidentId: uuid("incident_id").notNull().references(() => telemetryIncidents.id, { onDelete: "cascade" }),
+  adminUserId: integer("admin_user_id").notNull().references(() => users.id),
+  evidenceVersion: integer("evidence_version").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  adminIncidentCreatedIdx: index("telemetry_ai_requests_admin_incident_created_idx").on(table.adminUserId, table.incidentId, table.createdAt),
+}));
+
 // Admin Action Logs table - audit trail for admin actions
 export const adminActionLogs = pgTable("admin_action_logs", {
   id: serial("id").primaryKey(),
@@ -2617,6 +2712,10 @@ export type InsertSocialPostLog = z.infer<typeof insertSocialPostLogSchema>;
 
 export type ErrorLog = typeof errorLogs.$inferSelect;
 export type InsertErrorLog = z.infer<typeof insertErrorLogSchema>;
+export type TelemetryIncident = typeof telemetryIncidents.$inferSelect;
+export type TelemetryEventRecord = typeof telemetryEvents.$inferSelect;
+export type TelemetryIncidentAuditRecord = typeof telemetryIncidentAudit.$inferSelect;
+export type TelemetryAiAnalysisRecord = typeof telemetryAiAnalyses.$inferSelect;
 
 export type AdminActionLog = typeof adminActionLogs.$inferSelect;
 export type InsertAdminActionLog = z.infer<typeof insertAdminActionLogSchema>;
