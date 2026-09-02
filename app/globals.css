@@ -99,6 +99,7 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: var(--font-sans);
   }
   :focus-visible {
     outline: 3px solid hsl(var(--ring) / 0.65);
@@ -113,3 +114,29 @@
     }
   }
 }
+
+@layer components {
+  .marketing-page {
+    --background: 42 36% 94%;
+    --foreground: 165 23% 17%;
+    --card: 42 43% 98%;
+    --card-foreground: 165 23% 17%;
+    --primary: 165 32% 22%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 38 24% 88%;
+    --secondary-foreground: 165 20% 27%;
+    --muted: 38 24% 89%;
+    --muted-foreground: 165 13% 39%;
+    --accent: 17 62% 38%;
+    --accent-foreground: 165 23% 17%;
+    --border: 35 18% 82%;
+    --ring: 17 57% 52%;
+    font-family: var(--font-marketing);
+  }
+  .marketing-page .on-dark-accent { color: hsl(17 78% 72%); }
+  .editorial-rule { border-top: 1px solid hsl(var(--foreground) / .18); }
+  .display-serif { font-family: var(--font-serif); }
+  .eyebrow { font-size: .68rem; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; color: hsl(var(--muted-foreground)); }
+}
+
+html { scroll-behavior: smooth; }

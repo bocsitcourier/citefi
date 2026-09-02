@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import { DM_Sans, Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/navigation/app-shell";
 import { UpgradeModal } from "@/components/UpgradeModal";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-marketing" });
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-serif" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
@@ -22,22 +23,20 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "Local SEO Content Platform for Agencies | Citefi",
+    default: "Citefi — Local marketing, with receipts",
     template: "%s | Citefi",
   },
   description:
-    "Generate locally grounded SEO articles, social content, videos, and podcasts with Brand Intelligence, review, and export workflows.",
+    "Citefi is a local marketing campaign engine for agencies and local businesses—grounded in business context, reviewable work, and clearly separated external action.",
   keywords: [
     "local SEO",
     "AI content generation",
     "local SEO content",
     "SEO agency software",
-    "E-E-A-T content",
-    "AI article generator",
-    "local SEO tool",
-    "multi-location SEO",
-    "GEO optimization",
-    "AEO content",
+    "local marketing",
+    "campaign engine",
+    "agency marketing software",
+    "local business content",
   ],
   authors: [{ name: "Citefi", url: APP_URL }],
   creator: "Citefi",
@@ -55,9 +54,9 @@ export const metadata: Metadata = {
     apple: "/icon.png",
   },
   openGraph: {
-    title: "Local SEO Content Engine for Agencies | Citefi",
+    title: "Citefi — Local marketing, with receipts",
     description:
-      "Generate 50+ ZIP-code-level SEO articles per batch with a 4-stage AI pipeline. Built for agencies, local businesses, and multi-location brands.",
+      "A local marketing campaign engine for agencies and local businesses. Create reviewable, grounded campaign work with Citefi.",
     siteName: "Citefi",
     url: APP_URL,
     type: "website",
@@ -67,15 +66,15 @@ export const metadata: Metadata = {
         url: "/icon.png",
         width: 512,
         height: 512,
-        alt: "Citefi — Local SEO Content Engine for Agencies",
+        alt: "Citefi — Local marketing campaign engine",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Local SEO Content Engine for Agencies | Citefi",
+    title: "Citefi — Local marketing, with receipts",
     description:
-      "Generate 50+ ZIP-code-level SEO articles per batch with a 4-stage AI pipeline. Built for agencies, local businesses, and multi-location brands.",
+      "Create locally informed marketing work while keeping external action separate from generation.",
     images: ["/icon.png"],
   },
 };
@@ -87,7 +86,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${dmSans.variable} ${fraunces.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <Providers>
           <AppShell>{children}</AppShell>
           <UpgradeModal />
