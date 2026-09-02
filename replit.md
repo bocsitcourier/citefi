@@ -15,6 +15,15 @@ Citefi is a dual-AI SEO content generation platform specializing in scalable, hi
 - **Development approach:** Get core working first, then expand features incrementally
 - **Lesson learned:** First app failed because it was too ambitious - prioritize working functionality
 
+## Mandatory Post-Development Review Gate
+- Every development task must receive an architect review before it is reported complete.
+- The architect must review every changed line and file, then trace direct callers, dependents, shared contracts, database effects, authentication/authorization boundaries, billing or credit effects, queues/workers, and relevant user journeys.
+- Run repository-wide static checks plus focused tests for the affected behavior. For cross-cutting changes, expand verification across every affected subsystem and integration.
+- Verify the changed behavior in the running application when it has a runtime or visual surface.
+- Resolve material findings and repeat the architect review until it passes.
+- Never describe a scoped review as whole-platform certification. Report the exact review scope, checks run, unresolved failures, known pre-existing failures, and any areas not verified.
+- A review can reduce risk but cannot honestly guarantee that no undiscovered error exists anywhere in the platform.
+
 ## System Architecture
 
 ### System Design Choices
