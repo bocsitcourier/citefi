@@ -7,7 +7,7 @@ import { requireTeamMember } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
-import { isStorageConfigured } from "@/lib/storage";
+import { isMediaEnabled, isStorageConfigured } from "@/lib/storage";
 import { randomUUID } from "crypto";
 
 /**
@@ -22,6 +22,12 @@ const CHUNK_SIZE = 10;
 const CHUNK_DELAY_MS = 5000;
 
 export async function POST(request: NextRequest) {
+  if (!isMediaEnabled) {
+    return NextResponse.json(
+      { error: "Media generation disabled", code: "FEATURE_DISABLED" },
+      { status: 503 },
+    );
+  }
   // ── Storage preflight ──────────────────────────────────────────────────────
   // Reject before touching credits or marking posts GENERATING so users get a
   // clear 503 rather than a silent per-job failure once the worker runs.

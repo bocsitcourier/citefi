@@ -3,6 +3,7 @@ import { systemDb } from "@/lib/db";
 import { sessions, activityLogs } from "@/shared/schema";
 import { verifyToken, hashToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME, getTokenFromRequest } from "@/lib/api/auth";
+import { clearCsrfCookie, requireCookieCsrf } from "@/lib/csrf";
 import { eq } from "drizzle-orm";
 
 // Build a success response that always clears the auth cookie.
@@ -15,6 +16,7 @@ function loggedOutResponse() {
     path: "/",
     maxAge: 0,
   });
+  clearCsrfCookie(response);
   return response;
 }
 
@@ -33,6 +35,8 @@ export async function POST(req: Request) {
     if (!payload) {
       return loggedOutResponse();
     }
+    const bearer = req.headers.get("authorization")?.slice(7).trim();
+    if (!bearer || bearer !== token) requireCookieCsrf(req);
 
     const tokenHash = hashToken(token);
 
@@ -55,11 +59,11 @@ export async function POST(req: Request) {
 
     return loggedOutResponse();
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Logout error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: error?.statusCode || 500 }
     );
   }
 }

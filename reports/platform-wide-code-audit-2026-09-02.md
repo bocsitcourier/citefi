@@ -1,16 +1,97 @@
 # Citefi Platform-Wide Code Audit
 
 **Date:** 2026-09-02  
-**Verdict:** **FAIL / NO-GO**  
-**Mode:** Read-only audit; no product defects were changed during this review.
+**Code verdict:** **PASS after remediation**  
+**Production certification:** **NO-GO pending external evidence**  
+**Mode:** Platform-wide audit, remediation, regression validation, security rescanning, and five-domain independent re-review.
 
 ## Executive conclusion
 
-The current repository cannot be certified as sound across the platform. The public homepage responds successfully, but the platform health endpoint returns 503, the release gate fails, TypeScript reports 295 errors, three configured test workflows fail, and the review identified material security, billing, worker, UI-contract, and deployment defects.
+The material code findings from the initial audit have been remediated. The current tree passes TypeScript, the complete release gate, the affected integration and contract suites, and five independent domain re-reviews. The homepage responds successfully and the application, Redis, and workers start cleanly.
 
-This review used five independent architect passes, repository-wide TypeScript and release checks, configured integration workflows, focused billing/canary/operations tests, live health checks, dependency auditing, static application security scanning, and privacy/dataflow scanning.
+Production remains deliberately **NO-GO**. `/api/health` returns 503 because the real canary accounting owner and fresh external certification evidence are absent. This is expected fail-closed behavior, not an application startup failure.
 
 No code review can prove the absence of every undiscovered defect. This report records what was inspected, reproduced, and not verified.
+
+## Final remediation evidence
+
+### Five-domain independent re-review
+
+| Domain | Code verdict | Production certification |
+|---|---|---|
+| Authentication and tenancy | PASS | NO-GO |
+| Billing and governance | PASS | NO-GO |
+| Pipelines and workers | PASS | NO-GO |
+| UI and API contracts | PASS | NO-GO |
+| Deployment readiness | PASS | NO-GO |
+
+The reviewers independently confirmed the following material corrections:
+
+- signed double-submit CSRF enforcement and CSRF-aware browser mutation callers, including correct multipart boundary handling;
+- server-issued, hashed, expiring, user- and method-bound 2FA challenges;
+- locked invite acceptance and final-seat enforcement;
+- forced tenant RLS and authoritative per-run reservation settlement;
+- durable Stripe reversal claims, bounded retries, terminal alerting, cumulative partial-refund math, and terminal-lost dispute semantics;
+- row-locked Ads approval separation, designated client-reviewer access, and active/non-deleted client-team revalidation at authentication, relationship lookup, and transaction time;
+- export-only Ads UI with distinct client, compliance, and export authority actions;
+- provider-ledger budget enforcement and delivered-output settlement-only retries;
+- media-disabled gates before automatic mutation and before provider work, while preserving settlement retries and terminal cleanup;
+- verified backup installer provenance before privileged execution;
+- receiver filesystem containment and slug validation;
+- fail-closed worker scheduler, canary, storage, model, backup, and release readiness controls.
+
+### Final validation matrix
+
+| Check | Final result |
+|---|---|
+| Public homepage | PASS — HTTP 200 and rendered screenshot captured |
+| Application workflow | PASS — Next.js 16.2.11 ready; Redis healthy; workers registered |
+| Platform health | EXPECTED NO-GO — HTTP 503 because canary accounting owner/evidence is absent |
+| `npm run check` | PASS |
+| `npm run validate:release` | PASS |
+| Deployment contracts | PASS |
+| Operations/readiness | PASS — 14/14 |
+| Authentication | PASS — 28/28 |
+| CSRF boundary | PASS — 4/4 |
+| Invite concurrency | PASS — 2/2 |
+| Approval links | PASS — 37/37 |
+| Admin notifications | PASS — 8/8 |
+| Budget cleanup | PASS — 3/3 |
+| Pipeline worker policy | PASS — 14/14 |
+| Reservation state machine | PASS — 13/13 |
+| Provider usage ledger | PASS — 13/13 |
+| Receiver safe paths | PASS — 3/3 |
+| Stripe, Ads, and CSRF remediation contracts | PASS — 11/11 |
+| Media-disabled and quota/settlement paths | PASS — 6/6 |
+| `git diff --check` | PASS |
+
+### Final security scan disposition
+
+- Dependency audit: **0 critical, 1 high, 12 moderate, 4 low**.
+  - The remaining high finding is lodash `4.17.23`. The scanner recommends `4.18.0`, but that release is registry-deprecated as a bad release and must not be shipped. This remains an upstream residual until a safe release or parent-package replacement exists.
+- Static application security scan: **2 critical, 2 medium**.
+  - The two critical `lib/db.ts` SQL findings are false positives: role SQL is compile-time constant and tenant values are bound parameters.
+  - The two medium secret-pattern findings contain no exposed secret value.
+- Privacy/dataflow scan: **0 high/critical, 4 medium, 14 low**.
+- Final scan payload: `/tmp/final-security-scan-post-audit-fixes.json`.
+
+### Remaining external production blockers
+
+The following evidence cannot be produced by local code changes and must pass against the current release revision before production authorization:
+
+1. Real canary accounting with a configured production canary team and provider result.
+2. Production media/storage capability verification.
+3. Production-equivalent staging migration and cutover validation.
+4. Successful backup restore drill.
+5. Successful deployment and database rollback drills.
+6. External monitoring and pager-delivery drill.
+7. Fresh independent certification tied to the exact release revision.
+
+Until all seven are recorded and reviewed, the production verdict remains **NO-GO**.
+
+## Historical baseline findings
+
+The remainder of this document records the initial pre-remediation audit. Its individual failure statements and counts are historical evidence and are superseded by the final results above.
 
 ## Blocking findings
 
@@ -274,4 +355,4 @@ The audit did not execute real Stripe events, email delivery, destructive backup
 8. Logging cleanup and dependency/receiver-path security triage
 9. Re-run all checks, staging drills, rollback/restore drills, and independent certification
 
-Until these are completed and independently rechecked, Citefi remains **NO-GO** for production certification.
+The historical remediation list above has been completed at code level. Citefi remains **NO-GO** for production certification only for the external evidence listed in the final remediation section.

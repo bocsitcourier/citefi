@@ -22,7 +22,7 @@
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import { users } from "../../shared/schema.js";
 import { eq } from "drizzle-orm";
 import {
@@ -356,6 +356,7 @@ describe("POST /api/admin/users/:id/reject", () => {
         defaultTeamId: seed.team.id,
       })
       .returning({ id: users.id });
+    if (!extraPending) throw new Error("Failed to seed extra pending user");
 
     try {
       const res = await apiPost(

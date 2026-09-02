@@ -29,6 +29,13 @@ export interface ClientSeedResult {
   memberMemberId: number;
 }
 
+function requireSeedRow<T>(row: T | undefined, description: string): T {
+  if (!row) {
+    throw new Error(`[seed-client] ${description} did not return a row`);
+  }
+  return row;
+}
+
 /**
  * Seed a minimal team: one admin + one regular member.
  * Teams start with default billing (free plan, active status).
@@ -39,7 +46,7 @@ export async function seedClientTeam(runId: string): Promise<ClientSeedResult> {
   const prefix = `test_client_${runId}`;
 
   // 1. Create admin user
-  const [adminRow] = await db
+  const [insertedAdmin] = await db
     .insert(users)
     .values({
       email: `${prefix}_admin@test.invalid`,
@@ -48,12 +55,14 @@ export async function seedClientTeam(runId: string): Promise<ClientSeedResult> {
       accountStatus: "active",
     })
     .returning({ id: users.id, email: users.email });
+  const adminRow = requireSeedRow(insertedAdmin, "admin user insert");
 
   // 2. Create team
-  const [teamRow] = await db
+  const [insertedTeam] = await db
     .insert(teams)
     .values({ name: `Client Test Team ${runId}`, createdBy: adminRow.id })
     .returning({ id: teams.id });
+  const teamRow = requireSeedRow(insertedTeam, "team insert");
 
   // 3. Link admin defaultTeamId
   await db
@@ -62,7 +71,7 @@ export async function seedClientTeam(runId: string): Promise<ClientSeedResult> {
     .where(eq(users.id, adminRow.id));
 
   // 4. Create regular member
-  const [memberRow] = await db
+  const [insertedMember] = await db
     .insert(users)
     .values({
       email: `${prefix}_member@test.invalid`,
@@ -72,17 +81,20 @@ export async function seedClientTeam(runId: string): Promise<ClientSeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  const memberRow = requireSeedRow(insertedMember, "member user insert");
 
   // 5. Wire team memberships
-  const [adminMemberRow] = await db
+  const [insertedAdminMember] = await db
     .insert(teamMembers)
     .values({ teamId: teamRow.id, userId: adminRow.id, role: "admin" })
     .returning({ id: teamMembers.id });
+  const adminMemberRow = requireSeedRow(insertedAdminMember, "admin membership insert");
 
-  const [memberMemberRow] = await db
+  const [insertedMemberMember] = await db
     .insert(teamMembers)
     .values({ teamId: teamRow.id, userId: memberRow.id, role: "member" })
     .returning({ id: teamMembers.id });
+  const memberMemberRow = requireSeedRow(insertedMemberMember, "member membership insert");
 
   return {
     password,

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 import {
   Loader2, CheckCircle2, CreditCard, Zap, Rocket, TrendingUp,
   ArrowUpRight, RefreshCw, AlertTriangle, XCircle, Info,
@@ -96,7 +97,7 @@ async function fetchBillingStatus(): Promise<BillingStatus> {
 async function createCheckout(
   payload: { kind: "subscription"; planId: string; annual?: boolean } | { kind: "topup"; topUpId: string }
 ): Promise<{ url: string; portal?: boolean }> {
-  const res = await fetch("/api/billing/checkout", {
+  const res = await csrfFetch("/api/billing/checkout", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -110,7 +111,7 @@ async function createCheckout(
 }
 
 async function openPortal(): Promise<{ url: string }> {
-  const res = await fetch("/api/billing/portal", {
+  const res = await csrfFetch("/api/billing/portal", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -226,7 +227,7 @@ export default function BillingPage() {
   async function handleCancelSubscription() {
     setCanceling(true);
     try {
-      const res = await fetch("/api/billing/cancel", {
+      const res = await csrfFetch("/api/billing/cancel", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

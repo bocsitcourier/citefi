@@ -11,6 +11,15 @@ import { ensurePublishingSecretsReady } from "../lib/publishing";
 import { systemDb } from "../lib/db";
 import { runWithSystemContext } from "../lib/tenant-context";
 import { processDiagnosticLog } from "../lib/process-diagnostics";
+import {
+  beginWorkerReadiness,
+  clearWorkerReadiness,
+  failWorkerReadiness,
+  markWorkerModelsReady,
+  markWorkerRegistration,
+  markWorkerScheduler,
+  isDevelopmentCanaryOnlyUnready,
+} from "../lib/ops/worker-readiness";
 
 config({ path: '.env.local', override: true });
 
@@ -20,6 +29,8 @@ config({ path: '.env.local', override: true });
 // BullMQ recovers unfinished jobs when the supervisor restarts this process.
 process.on("uncaughtException", (err: Error) => {
   const msg = err.message ?? "";
+  const redis = getRedisConnection();
+  void stopWorkerHeartbeat(redis).then(() => failWorkerReadiness(redis, err)).catch(() => {});
   processDiagnosticLog("error", "❌ [worker] Uncaught exception — logging before exit:", err);
   process.exitCode = 1;
   import("../lib/error-logger").then(({ logError }) => {
@@ -40,6 +51,8 @@ process.on("uncaughtException", (err: Error) => {
 process.on("unhandledRejection", (reason: unknown) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   const msg = err.message;
+  const redis = getRedisConnection();
+  void stopWorkerHeartbeat(redis).then(() => failWorkerReadiness(redis, err)).catch(() => {});
   processDiagnosticLog("error", "❌ [worker] Unhandled promise rejection — logging before exit:", err);
   process.exitCode = 1;
   import("../lib/error-logger").then(({ logError }) => {
@@ -77,8 +90,10 @@ function startNeonKeepAlive() {
 }
 
 async function startWorkers() {
+  const redis = getRedisConnection();
   try {
     processDiagnosticLog("log", "🔄 Worker process starting...");
+    await beginWorkerReadiness(redis);
 
     // Start keep-alive before any long-running work
     startNeonKeepAlive();
@@ -120,26 +135,40 @@ async function startWorkers() {
     // Validate AI model IDs against live APIs; fall back through chains if any
     // are retired. Throws if a critical tier (flash, pro, gpt-mini) has no live model.
     await validateAndResolveModels();
+    await markWorkerModelsReady(redis);
     
     // Register all BullMQ workers
     await registerWorkers();
-
-    // Shared liveness signal consumed by /api/health. TTL guarantees a killed
-    // process cannot leave a permanently healthy heartbeat behind.
-    await startWorkerHeartbeat(getRedisConnection());
+    await markWorkerRegistration(redis, "pipeline-workers");
     
     // Start job monitoring for stuck job detection
     await startJobMonitor();
+    await markWorkerScheduler(redis, "job-monitor");
 
     // Provider outage circuit breaker: probes open Gemini/OpenAI circuits every
     // minute and resumes their queues only after a cheap provider health check.
     const { startProviderCircuitScheduler } = await import("@/lib/provider-circuit-breaker");
     startProviderCircuitScheduler();
+    await markWorkerScheduler(redis, "provider-circuit");
 
     // Platform spend circuit breaker — pauses expensive queues at 80% of the
     // daily budget, all generation queues at 100%. State in Redis.
     const { startSpendBreakerScheduler } = await import("@/lib/spend-breaker");
     startSpendBreakerScheduler();
+    const readiness = await markWorkerScheduler(redis, "spend-breaker");
+    if (!readiness.ready && !isDevelopmentCanaryOnlyUnready(readiness)) {
+      throw new Error("Required worker registrations or schedulers did not reach readiness");
+    }
+
+    // Liveness begins only after the durable registration contract is ready.
+    if (readiness.ready) {
+      await startWorkerHeartbeat(redis);
+    } else {
+      processDiagnosticLog(
+        "warn",
+        "⚠️ [worker] Development workers remain active, but readiness is false because the real-provider canary accounting owner is not configured.",
+      );
+    }
     
     processDiagnosticLog("log", "🔄 Worker process running - event loop active");
     processDiagnosticLog("log", "Press Ctrl+C to stop workers");
@@ -148,6 +177,8 @@ async function startWorkers() {
     process.stdin.resume();
 
   } catch (error) {
+    await stopWorkerHeartbeat(redis).catch(() => {});
+    await failWorkerReadiness(redis, error).catch(() => {});
     processDiagnosticLog("error", "❌ Worker initialization failed:", error);
     const err = error instanceof Error ? error : new Error(String(error));
     try {
@@ -177,6 +208,7 @@ async function shutdown(signal: NodeJS.Signals) {
   try {
     if (keepAliveTimer) clearInterval(keepAliveTimer);
     await stopWorkerHeartbeat(getRedisConnection());
+    await clearWorkerReadiness(getRedisConnection());
     await stopJobMonitor();
     const [
       { stopProviderCircuitScheduler },

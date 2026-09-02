@@ -12,7 +12,13 @@ export async function POST(request: NextRequest) {
   // ── Storage preflight ──────────────────────────────────────────────────────
   // Video generation uploads the finished file to DO Spaces. Reject the request
   // immediately so we don't burn Veo quota generating a video that can't be stored.
-  const { isStorageConfigured } = await import("@/lib/storage");
+  const { isStorageConfigured, isMediaEnabled } = await import("@/lib/storage");
+  if (!isMediaEnabled) {
+    return NextResponse.json(
+      { error: "Media generation disabled", code: "FEATURE_DISABLED" },
+      { status: 503 },
+    );
+  }
   if (!isStorageConfigured) {
     return NextResponse.json(
       {

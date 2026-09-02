@@ -35,12 +35,10 @@ export async function DELETE(
       );
     }
 
-    // Extract key from storage URL
-    const urlParts = asset.storageUrl.split('/');
-    const key = urlParts.slice(-3).join('/');
-
     try {
-      await deleteFromStorage(key);
+      // Pass the durable URL captured before metadata deletion; storage owns
+      // prefix normalization for both legacy public and new private keys.
+      await deleteFromStorage(asset.storageUrl);
     } catch (storageError) {
       console.warn("⚠️  Failed to delete from storage (may not exist):", storageError);
     }

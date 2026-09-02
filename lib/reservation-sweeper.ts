@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { releaseReservation } from "@/lib/billing";
 import { protectsDeliveredReservation } from "@/lib/article-run-state";
@@ -6,12 +6,16 @@ import {
   addVideoIdeaJob,
   getQueue,
   getVideoIdeaJobIdForRunId,
+  PODCAST_GENERATION_QUEUE,
+  SOCIAL_POST_GENERATION_QUEUE,
+  SOCIAL_VIDEO_GENERATION_QUEUE,
   VIDEO_IDEA_GENERATION_QUEUE,
 } from "@/lib/queue";
 import {
   articleRuns,
   articles,
   creditLedger,
+  socialPosts,
   videoIdeas,
 } from "@/shared/schema";
 
@@ -30,6 +34,7 @@ export interface SweepStaleReservationsOptions {
   requeueVideoSettlement?: (
     recovery: VideoSettlementRecovery
   ) => Promise<void>;
+  requeueDeliveredSettlement?: (queueName: string, jobId: string) => Promise<void>;
 }
 
 export interface SweepStaleReservationsResult {
@@ -38,6 +43,26 @@ export interface SweepStaleReservationsResult {
   requeued: number;
   released: number;
   skipped: number;
+}
+
+export async function requeueDeliveredSettlement(
+  queueName: string,
+  jobId: string
+): Promise<void> {
+  const job = await getQueue(queueName).getJob(jobId);
+  if (!job) throw new Error(`Settlement recovery job ${queueName}/${jobId} is no longer retained`);
+  const state = await job.getState();
+  if (state === "failed" || state === "completed") {
+    await job.retry(state, {
+      resetAttemptsMade: true,
+      resetAttemptsStarted: true,
+    });
+    return;
+  }
+  if (["active", "waiting", "delayed", "prioritized", "waiting-children"].includes(state)) {
+    return;
+  }
+  throw new Error(`Cannot recover settlement job ${queueName}/${jobId} from ${state}`);
 }
 
 export async function requeueVideoSettlement(
@@ -168,6 +193,32 @@ export async function sweepStaleReservations(
           )
       : [];
 
+  const deliveredSocialSettlements =
+    staleRunIds.length > 0
+      ? await db.select({
+          id: socialPosts.id,
+          jobId: socialPosts.jobId,
+          billingRunId: socialPosts.billingRunId,
+          videoCreditRunId: socialPosts.videoCreditRunId,
+          status: socialPosts.status,
+          videoStatus: socialPosts.videoStatus,
+          videoUrl: socialPosts.videoUrl,
+        }).from(socialPosts).where(or(
+          inArray(socialPosts.billingRunId, staleRunIds),
+          inArray(socialPosts.videoCreditRunId, staleRunIds)
+        ))
+      : [];
+
+  const deliveredPodcastSettlements =
+    staleRunIds.length > 0
+      ? await db.select({
+          id: articles.id,
+          podcastCreditRunId: articles.podcastCreditRunId,
+          podcastStatus: articles.podcastStatus,
+          podcastUrl: articles.podcastUrl,
+        }).from(articles).where(inArray(articles.podcastCreditRunId, staleRunIds))
+      : [];
+
   const protectedRunIds = new Set(
     deliveredArticleSettlements
       .filter((run) =>
@@ -186,6 +237,50 @@ export async function sweepStaleReservations(
       : undefined;
     if (runId && video.videoUrl) {
       protectedRunIds.add(runId);
+    }
+  }
+  for (const social of deliveredSocialSettlements) {
+    if (social.status === "READY" && social.billingRunId) {
+      protectedRunIds.add(social.billingRunId);
+    }
+    if (
+      social.videoStatus === "READY" &&
+      social.videoUrl &&
+      social.videoCreditRunId
+    ) {
+      protectedRunIds.add(social.videoCreditRunId);
+    }
+  }
+  for (const podcast of deliveredPodcastSettlements) {
+    if (
+      podcast.podcastStatus === "ready" &&
+      podcast.podcastUrl &&
+      podcast.podcastCreditRunId
+    ) {
+      protectedRunIds.add(podcast.podcastCreditRunId);
+    }
+  }
+  const settlementJobByRunId = new Map<string, { queueName: string; jobId: string }>();
+  for (const social of deliveredSocialSettlements) {
+    if (social.status === "READY" && social.billingRunId && social.jobId) {
+      settlementJobByRunId.set(social.billingRunId, {
+        queueName: SOCIAL_POST_GENERATION_QUEUE,
+        jobId: social.jobId,
+      });
+    }
+    if (social.videoStatus === "READY" && social.videoCreditRunId) {
+      settlementJobByRunId.set(social.videoCreditRunId, {
+        queueName: SOCIAL_VIDEO_GENERATION_QUEUE,
+        jobId: `video:${social.videoCreditRunId}`,
+      });
+    }
+  }
+  for (const podcast of deliveredPodcastSettlements) {
+    if (podcast.podcastStatus === "ready" && podcast.podcastCreditRunId) {
+      settlementJobByRunId.set(podcast.podcastCreditRunId, {
+        queueName: PODCAST_GENERATION_QUEUE,
+        jobId: `podcast:${podcast.id}`,
+      });
     }
   }
   const videoSettlementByRunId = new Map(
@@ -227,6 +322,14 @@ export async function sweepStaleReservations(
             options.requeueVideoSettlement ?? requeueVideoSettlement;
           await requeue(videoSettlement);
           requeued += 1;
+        } else {
+          const settlementJob = settlementJobByRunId.get(row.runId);
+          if (settlementJob) {
+            const requeue =
+              options.requeueDeliveredSettlement ?? requeueDeliveredSettlement;
+            await requeue(settlementJob.queueName, settlementJob.jobId);
+            requeued += 1;
+          }
         }
         console.warn(
           `[reservation-sweeper] Protected delivered content for runId=${row.runId}; ` +

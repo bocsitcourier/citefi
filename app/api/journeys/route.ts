@@ -128,6 +128,9 @@ export async function POST(req: NextRequest) {
         status: "draft",
       })
       .returning();
+    if (!journey) {
+      throw new Error("Journey insert did not return a row");
+    }
 
     // Create steps if we have definitions
     if (stepDefs.length > 0) {

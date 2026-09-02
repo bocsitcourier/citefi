@@ -37,6 +37,17 @@ const s3Client = new S3Client({
 /** True when all required DO Spaces credentials are present. */
 export const isStorageConfigured: boolean =
   !!(DO_SPACES_KEY && DO_SPACES_SECRET && DO_SPACES_ENDPOINT && DO_SPACES_BUCKET);
+/** Policy switch used by routes to make disabled media impossible to enqueue. */
+export const isMediaEnabled: boolean = process.env.MEDIA_FEATURES_ENABLED !== "false";
+
+/**
+ * Read the media policy at the point work is about to be accepted or executed.
+ * Workers are long-lived, so unlike the exported compatibility constant this
+ * must not capture the environment before a worker process is configured.
+ */
+export function isMediaFeatureEnabled(): boolean {
+  return process.env.MEDIA_FEATURES_ENABLED !== "false";
+}
 
 if (!isStorageConfigured) {
   console.warn(
@@ -68,7 +79,11 @@ class S3FileShim {
         Key: this.key,
         Body: data,
         ContentType: opts?.contentType || "application/octet-stream",
-        CacheControl: opts?.metadata?.cacheControl || "public, max-age=31536000",
+        CacheControl:
+          opts?.metadata?.cacheControl ||
+          (this.key.startsWith("private/")
+            ? "private, no-store"
+            : "public, max-age=31536000"),
       })
     );
   }
@@ -159,7 +174,7 @@ export const objectStorageClient = {
 // ── Public URL helper ─────────────────────────────────────────────────────────
 // Files are served through the Next.js proxy route so URLs never embed a
 // provider-specific hostname and remain stable across storage migrations.
-const getPublicUrl = (key: string): string => `/api/public-objects/${key}`;
+const getObjectUrl = (key: string): string => `/api/public-objects/${key}`;
 
 // ── High-level upload helpers (API unchanged) ─────────────────────────────────
 
@@ -176,15 +191,15 @@ export async function uploadImage(params: UploadImageParams): Promise<string> {
   const { imageData, articleId, batchId, slug, index, prompt } = params;
 
   const filename   = `${slug}-${index + 1}.webp`;
-  const key        = `batch-${batchId}/${filename}`;
-  const objectName = `public/${key}`;
+  const key        = `private/articles/${articleId}/batch-${batchId}/${filename}`;
+  const objectName = key;
 
   await objectStorageClient
     .bucket(DO_SPACES_BUCKET)
     .file(objectName)
     .save(imageData, { contentType: "image/webp" });
 
-  const publicUrl = getPublicUrl(key);
+  const publicUrl = getObjectUrl(key);
   const altText   = generateAltText(prompt);
 
   await db.insert(articleAssets).values({
@@ -234,7 +249,15 @@ function generateAltText(prompt: string): string {
 }
 
 export async function deleteFromStorage(key: string): Promise<void> {
-  const objectName = `public/${key}`;
+  const normalized = key
+    .replace(/^https?:\/\/[^/]+\/api\/public-objects\//, "")
+    .replace(/^\/api\/public-objects\//, "")
+    .replace(/^\/+/, "");
+  const objectName = normalized.startsWith("private/")
+    ? normalized
+    : normalized.startsWith("public/")
+      ? normalized
+      : `public/${normalized}`;
   try {
     await objectStorageClient.bucket(DO_SPACES_BUCKET).file(objectName).delete();
     console.log(`🗑️  Deleted from storage: ${key}`);
@@ -260,16 +283,16 @@ export async function uploadMedia(params: UploadMediaParams): Promise<string> {
   const timestamp  = Date.now();
   const safeName   = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
   const key        = articleId
-    ? `article-${articleId}/${assetType}/${timestamp}-${safeName}`
-    : `uploads/${assetType}/${timestamp}-${safeName}`;
-  const objectName = `public/${key}`;
+    ? `private/articles/${articleId}/${assetType}/${timestamp}-${safeName}`
+    : `private/uploads/${assetType}/${timestamp}-${safeName}`;
+  const objectName = key;
 
   await objectStorageClient
     .bucket(DO_SPACES_BUCKET)
     .file(objectName)
     .save(fileData, { contentType });
 
-  const publicUrl = getPublicUrl(key);
+  const publicUrl = getObjectUrl(key);
 
   if (articleId) {
     const format      = fileName.split(".").pop() || "unknown";

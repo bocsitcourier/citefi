@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface GlobalErrorProps {
   error: Error & { digest?: string };
@@ -10,7 +11,7 @@ interface GlobalErrorProps {
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
   useEffect(() => {
-    fetch("/api/client-errors", {
+    csrfFetch("/api/client-errors", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: false,
         message: 'Google Drive connection failed. Check console logs for details.',
-      }, { status: error?.statusCode || 500 });
+      }, { status: 500 });
     }
   } catch (error: any) {
     console.error('[Google Drive Test] Error:', error);

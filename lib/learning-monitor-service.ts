@@ -152,16 +152,17 @@ export class LearningMonitorService {
         eq(patternDimensionStats.dimension, dimension)
       ));
 
-    const [{ total }] = await db
+    const [totalRow] = await db
       .select({ total: sql<number>`count(*)` })
       .from(learningPatterns)
       .where(eq(learningPatterns.teamId, teamId));
+    const total = Number(totalRow?.total ?? 0);
 
     const exploring = statsRows.filter(r => r.trials >= 1 && r.trials < 5).length;
     const proven = statsRows.filter(r => r.trials >= 5).length;
-    const untouched = Number(total) - statsRows.length;
+    const untouched = total - statsRows.length;
 
-    return { dimension, untouched, exploring, proven, total: Number(total) };
+    return { dimension, untouched, exploring, proven, total };
   }
 
   async enginePatternDrift(teamId: number, opts: { recentDays?: number; minRecent?: number } = {}) {

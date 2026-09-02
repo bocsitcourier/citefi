@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireTeamMember } from "@/lib/api/auth";
 import { debitReservation, releaseReservation, reserveCredits } from "@/lib/billing";
 import { getCampaignByPublicId } from "@/lib/campaign-service";
-import { createCampaignAdPack, getCampaignAdByRequestKey, listCampaignAds } from "@/lib/campaign-ads-service";
+import { createCampaignAdPack, getCampaignAdByRequestKey, listCampaignAdApprovals, listCampaignAds } from "@/lib/campaign-ads-service";
 import { EXTERNAL_PLATFORM_APPROVALS } from "@/lib/launch-governance";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,8 +21,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
     const campaign = await getCampaignByPublicId(teamId, id);
     if (!campaign) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    const ads = await listCampaignAds(teamId, campaign.id);
+    const approvals = await listCampaignAdApprovals(teamId, campaign.id);
     return NextResponse.json({
-      success: true, ads: await listCampaignAds(teamId, campaign.id),
+      success: true, ads, approvals,
       readiness: {
         brandConfirmed: campaign.brandStatus === "confirmed" && Boolean(campaign.brandConfirmedAt),
         generationReady: campaign.brandStatus === "confirmed" && Boolean(campaign.brandConfirmedAt),

@@ -24,7 +24,7 @@ import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "crypto";
 import { NextRequest } from "next/server";
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import {
   users,
   teams,
@@ -47,6 +47,9 @@ import { POST as revokeApprovalToken } from "../../app/api/admin/users/[id]/revo
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const RUN_ID = `rl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+function missingInsertedRow(): never {
+  throw new Error("Expected inserted test row");
+}
 
 // ── Token helpers ─────────────────────────────────────────────────────────────
 
@@ -108,13 +111,16 @@ function makePostReq(token: string | null, useForm = true): NextRequest {
     const body = token ? new URLSearchParams({ token }).toString() : "";
     return new NextRequest(new URL("/api/admin/users/review", "http://localhost"), {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Origin: "http://localhost",
+      },
       body,
     });
   }
   return new NextRequest(new URL("/api/admin/users/review", "http://localhost"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: JSON.stringify(token !== null ? { token } : {}),
   });
 }
@@ -162,11 +168,13 @@ before(async () => {
       fullName: "Bootstrap",
     })
     .returning({ id: users.id });
+  if (!bootstrap) throw new Error("Failed to seed review bootstrap user");
 
   const [teamRow] = await db
     .insert(teams)
     .values({ name: `RL Team ${RUN_ID}`, createdBy: bootstrap.id })
     .returning({ id: teams.id });
+  if (!teamRow) throw new Error("Failed to seed review team");
 
   await db
     .update(users)
@@ -185,6 +193,7 @@ before(async () => {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!pa) throw new Error("Failed to seed pending approval user");
 
   // Pending user for reject flow
   const [pr] = await db
@@ -198,6 +207,7 @@ before(async () => {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!pr) throw new Error("Failed to seed pending rejection user");
 
   // Active user for already-actioned tests
   const [active] = await db
@@ -211,6 +221,7 @@ before(async () => {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id });
+  if (!active) throw new Error("Failed to seed active review user");
 
   await db.insert(teamMembers).values([
     { teamId: teamRow.id, userId: bootstrap.id, role: "admin" },
@@ -243,6 +254,7 @@ before(async () => {
       teamContextId: teamRow.id,
     })
     .returning({ id: sessions.id });
+  if (!adminSession) throw new Error("Failed to seed review admin session");
 
   seed = {
     teamId: teamRow.id,
@@ -449,7 +461,7 @@ describe("POST /api/admin/users/review — approve", () => {
 
   test("sendAccountApprovedEmail is triggered on successful approval", async (t) => {
     // Seed a fresh pending user for this isolated test
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_fp_approve@test.invalid`,
@@ -484,7 +496,7 @@ describe("POST /api/admin/users/review — approve", () => {
 
   test("replay attack: reusing an approve token returns 400 HTML 'already used'", async () => {
     // Seed a fresh pending user
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_replay_approve@test.invalid`,
@@ -527,7 +539,7 @@ describe("POST /api/admin/users/review — approve", () => {
   });
 
   test("approve token accepts JSON content-type body", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_json_approve@test.invalid`,
@@ -569,7 +581,7 @@ describe("POST /api/admin/users/review — reject", () => {
   });
 
   test("sendAccountRejectedEmail is triggered on successful rejection", async (t) => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_fp_reject@test.invalid`,
@@ -603,7 +615,7 @@ describe("POST /api/admin/users/review — reject", () => {
   });
 
   test("replay attack: reusing a reject token returns 400 HTML 'already used'", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_replay_reject@test.invalid`,
@@ -717,7 +729,7 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
   });
 
   test("token signed with previous key shows confirmation page via GET handler", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_rot_get@test.invalid`,
@@ -755,7 +767,7 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
   });
 
   test("token signed with previous key can be actioned via POST handler", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_rot_post@test.invalid`,
@@ -830,7 +842,7 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
 
 describe("Race-condition guard — email-link wins, admin panel blocked", () => {
   test("after email-link approves, admin panel approve route returns 409 (no double-write)", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_race_approve@test.invalid`,
@@ -874,7 +886,7 @@ describe("Race-condition guard — email-link wins, admin panel blocked", () => 
   });
 
   test("after email-link rejects, admin panel reject route returns 409 (no double-write)", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_race_reject@test.invalid`,
@@ -922,7 +934,7 @@ describe("Race-condition guard — email-link wins, admin panel blocked", () => 
 
 describe("Race-condition guard — admin panel wins, email-link blocked", () => {
   test("after admin panel approves, email-link POST returns graceful 'Already actioned'", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_race_adm_approve@test.invalid`,
@@ -968,7 +980,7 @@ describe("Race-condition guard — admin panel wins, email-link blocked", () => 
   });
 
   test("after admin panel rejects, email-link POST returns graceful 'Already actioned'", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_race_adm_reject@test.invalid`,
@@ -1038,7 +1050,7 @@ describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endp
 
   test("returns 403 for unauthenticated request", async () => {
     // Seed a fresh pending user
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_revoke_unauth@test.invalid`,
@@ -1077,7 +1089,7 @@ describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endp
   });
 
   test("returns 200 and creates a revocation row for a pending user", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_revoke_create@test.invalid`,
@@ -1114,7 +1126,7 @@ describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endp
 
 describe("GET /api/admin/users/review — revoked token is blocked", () => {
   test("revoked token returns 400 'revoked' page (GET)", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_revoke_get@test.invalid`,
@@ -1149,7 +1161,7 @@ describe("GET /api/admin/users/review — revoked token is blocked", () => {
 
 describe("POST /api/admin/users/review — revoked token is blocked", () => {
   test("revoked token returns 400 'revoked' page (POST) and does not mutate accountStatus", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_revoke_post@test.invalid`,
@@ -1190,7 +1202,7 @@ describe("POST /api/admin/users/review — revoked token is blocked", () => {
   });
 
   test("token issued AFTER revocation is NOT blocked", async () => {
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_revoke_new_token@test.invalid`,
@@ -1253,7 +1265,7 @@ describe("POST /api/admin/users/review — expired token pruning", () => {
     assert.equal(before.length, 2, "Precondition: both expired rows must be present before the POST");
 
     // Seed a fresh pending user to have a valid token for the POST
-    const [fp] = await db
+    const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
         email: `rl_${RUN_ID}_prune_test@test.invalid`,

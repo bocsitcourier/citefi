@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { DollarSign, Clock, TrendingUp, AlertCircle, CheckCircle, XCircle, Loader2, Shield, Brain, BookOpen } from "lucide-react";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface CostData {
   summary: {
@@ -95,6 +96,7 @@ export default function MonitoringDashboard() {
     if (recentBatches && recentBatches.length > 0 && monitoringBatchId === null) {
       const active = recentBatches.find(b => MONITORING_ACTIVE.includes(b.status));
       const pick = active ?? recentBatches[0];
+      if (!pick) return;
       setMonitoringBatchId(pick.id);
       setBatchId(String(pick.id));
     }
@@ -129,7 +131,7 @@ export default function MonitoringDashboard() {
   });
 
   const calculateCustomCost = async () => {
-    await fetch("/api/monitoring/cost-calculator", {
+    await csrfFetch("/api/monitoring/cost-calculator", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

@@ -20,6 +20,7 @@ import { PublishDialog } from "@/components/PublishDialog";
 import { OptimizedVideo } from "@/components/OptimizedVideo";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 import Link from "next/link";
 import { NotificationBell } from "@/components/NotificationBell";
 
@@ -166,7 +167,7 @@ export default function IdeaToVideoPage() {
       const formData = new FormData();
       formData.append("logo", file);
       
-      const response = await fetch("/api/upload/logo", {
+      const response = await csrfFetch("/api/upload/logo", {
         method: "POST",
         credentials: "include",
         body: formData,

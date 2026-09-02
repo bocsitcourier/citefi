@@ -23,7 +23,7 @@
 import { describe, test, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import {
   users,
   teams,
@@ -89,12 +89,14 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       fullName: "Unit Admin",
     })
     .returning({ id: users.id, email: users.email });
+  if (!adminRow) throw new Error("Failed to seed unit admin");
 
   // Team
   const [teamRow] = await db
     .insert(teams)
     .values({ name: `Unit Team ${RUN_ID}`, createdBy: adminRow.id })
     .returning({ id: teams.id });
+  if (!teamRow) throw new Error("Failed to seed unit team");
 
   await db
     .update(users)
@@ -113,6 +115,7 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id });
+  if (!pendingRow) throw new Error("Failed to seed pending user");
 
   // Active user (for non-pending guard tests)
   const [activeRow] = await db
@@ -126,6 +129,7 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id });
+  if (!activeRow) throw new Error("Failed to seed active user");
 
   // Team memberships
   await db.insert(teamMembers).values([
@@ -153,6 +157,7 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       teamContextId: teamRow.id,
     })
     .returning({ id: sessions.id });
+  if (!sessionRow) throw new Error("Failed to seed admin session");
 
   return {
     adminId: adminRow.id,
@@ -263,6 +268,7 @@ describe("Reject route — email invocation", () => {
         defaultTeamId: seed.teamId,
       })
       .returning({ id: users.id, email: users.email });
+    if (!freshPending) throw new Error("Failed to seed fresh pending user");
     seed.allUserIds.push(freshPending.id);
 
     const rejectedSpy = t.mock.method(emailService, "sendAccountRejectedEmail", async () => {});
@@ -304,6 +310,7 @@ describe("Reject route — email invocation", () => {
         defaultTeamId: seed.teamId,
       })
       .returning({ id: users.id });
+    if (!noemailPending) throw new Error("Failed to seed no-email pending user");
     seed.allUserIds.push(noemailPending.id);
 
     const rejectedSpy = t.mock.method(emailService, "sendAccountRejectedEmail", async () => {});

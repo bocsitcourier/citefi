@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, csrfFetch, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -139,7 +139,7 @@ export default function AdminCreditsPage() {
 
   const grantMutation = useMutation({
     mutationFn: async (body: { teamId: number; amount: number; reason?: string }) =>
-      apiRequest("POST", "/api/admin/credits/grant", body),
+      apiRequest("/api/admin/credits/grant", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: async () => {
       toast({ title: "Credits granted", description: `${grantAmount} credits added to team ${grantTeamId}.` });
       setGrantDialogOpen(false);
@@ -208,7 +208,7 @@ export default function AdminCreditsPage() {
     }
     setSubmittingRefund(true);
     try {
-      const res = await fetch("/api/admin/billing/refund", {
+      const res = await csrfFetch("/api/admin/billing/refund", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

@@ -7,6 +7,9 @@ TRANSPORT="$ROOT/scripts/deploy-to-do.sh"
 bash -n "$HOST"
 bash -n "$TRANSPORT"
 bash -n "$ROOT/scripts/deploy-to-staging.sh"
+bash -n "$ROOT/scripts/verify-ssh-host-key.sh"
+bash -n "$ROOT/scripts/install-db-backup-cron.sh"
+bash -n "$ROOT/deploy.sh"
 
 assert_has() {
   grep -Eq "$2" "$1" || { echo "missing deployment contract '$2' in $1"; exit 1; }
@@ -132,6 +135,8 @@ assert_has "$TRANSPORT" 'scp '
 assert_lacks "$HOST" 'npm ci'
 assert_lacks "$HOST" 'npm run build'
 assert_has "$HOST" 'CANDIDATE_RELEASE="\$DO_RELEASES_DIR/'
+assert_has "$HOST" 'DO_INITIAL_RELEASE'
+assert_has "$HOST" 'DO_RELEASE_STATE_DIR/diagnostics'
 assert_has "$HOST" 'cd "\$CANDIDATE_RELEASE"'
 assert_has "$HOST" 'test -s "\$unpack_dir/\.next/BUILD_ID"'
 assert_has "$HOST" 'mv -Tf "\$next_link" "\$DO_CURRENT_LINK"'
@@ -161,6 +166,11 @@ assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'pg_advisory_xact_lock'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'citefi_schema_migrations'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0020_incident_intelligence.sql'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0021_incident_intelligence_hardening.sql'
+assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0022_billing_integrity.sql'
+assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0023_auth_login_challenges.sql'
+assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0024_pipeline_delivery_settlement.sql'
+assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0025_credit_reservation_tenant_access.sql'
+assert_has "$ROOT/scripts/post-merge.sh" 'MIGRATION_START_VERSION=0022'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'telemetry_events_append_only'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'assignee_column_shape'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'assignee_users_fk'
@@ -214,4 +224,50 @@ assert_lacks "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*6379'
 assert_has "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*5000'
 assert_has "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*5904'
 assert_has "$ROOT/lib/storage.ts" 'STORAGE_PREFIX'
+assert_has "$ROOT/scripts/validate-release.sh" '^npm run check$'
+assert_has "$ROOT/deploy.sh" 'scripts/deploy-to-do.sh'
+assert_lacks "$ROOT/deploy.sh" 'git[[:space:]]+pull|npm ci|npm run build|pm2 restart all'
+assert_lacks "$TRANSPORT" 'ssh-keyscan.*>>'
+assert_lacks "$ROOT/scripts/install-db-backup-cron.sh" 'ssh-keyscan.*>>'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'DEBIAN_FRONTEND=noninteractive apt-get install -y awscli'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'nix profile install nixpkgs#awscli2'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'AWS_CLI_VERSION="2\.17\.63"'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'AWS_CLI_SHA256="c522b373953885eacad54eb5fde5e2696ad9321d02d66b23144d9e91413f9e04"'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'AWS_CLI_SHA256="8e9e699f25a85495d84329a400b79baa67e50c96412544e79ac305ced2227871"'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'sha256sum -c -'
+assert_has "$ROOT/scripts/install-db-backup-cron.sh" 'refusing to unzip or install it'
+aws_download_line="$(grep -n 'curl --fail --location --silent --show-error "\$AWS_URL"' "$ROOT/scripts/install-db-backup-cron.sh" | head -1 | cut -d: -f1)"
+aws_verify_line="$(grep -n 'sha256sum -c -' "$ROOT/scripts/install-db-backup-cron.sh" | head -1 | cut -d: -f1)"
+aws_unzip_line="$(grep -n 'unzip -q "\$AWS_ARCHIVE"' "$ROOT/scripts/install-db-backup-cron.sh" | head -1 | cut -d: -f1)"
+aws_install_line="$(grep -nF '"${AWS_TMPDIR}/aws/install" --update' "$ROOT/scripts/install-db-backup-cron.sh" | head -1 | cut -d: -f1)"
+(( aws_download_line < aws_verify_line && aws_verify_line < aws_unzip_line && aws_unzip_line < aws_install_line ))
+assert_has "$TRANSPORT" 'DO_SSH_HOST_FINGERPRINT'
+assert_has "$ROOT/.github/workflows/deploy.yml" 'DO_SSH_HOST_FINGERPRINT'
+assert_has "$HOST" 'assert r\.get\("ok"\) is True'
+assert_has "$HOST" 's\.get\("models".*get\("ok"\) is True'
+assert_lacks "$ROOT/server/index.ts" 'fuser[[:space:]]+-k'
+assert_has "$ROOT/server/index.ts" 'LOCAL_DEV_REDIS'
+
+# Host-key verification is testable without network access.
+mkdir -p "$tmp/bin"
+cat >"$tmp/bin/keyscan" <<'SH'
+#!/usr/bin/env bash
+echo 'example ssh-ed25519 AAAATEST'
+SH
+cat >"$tmp/bin/keygen" <<'SH'
+#!/usr/bin/env bash
+cat >/dev/null
+echo '256 SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA example (ED25519)'
+SH
+chmod +x "$tmp/bin/keyscan" "$tmp/bin/keygen"
+DO_HOST=example DO_SSH_HOST_FINGERPRINT='SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+  SSH_KEYSCAN_BIN="$tmp/bin/keyscan" SSH_KEYGEN_BIN="$tmp/bin/keygen" \
+  KNOWN_HOSTS_FILE="$tmp/known_hosts" "$ROOT/scripts/verify-ssh-host-key.sh"
+test -s "$tmp/known_hosts"
+if DO_HOST=example DO_SSH_HOST_FINGERPRINT='SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' \
+  SSH_KEYSCAN_BIN="$tmp/bin/keyscan" SSH_KEYGEN_BIN="$tmp/bin/keygen" \
+  KNOWN_HOSTS_FILE="$tmp/rejected" "$ROOT/scripts/verify-ssh-host-key.sh" >/dev/null 2>&1; then
+  echo "mismatched SSH fingerprint was accepted"; exit 1
+fi
+test ! -e "$tmp/rejected"
 echo "deployment contracts passed"

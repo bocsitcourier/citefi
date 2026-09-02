@@ -11,8 +11,9 @@ import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { seedAuthUsers, cleanupAuthUsers, cleanupSignupUsers, type SeedResult } from "./seed-auth.js";
 import { closeDb, systemDb } from "../../lib/db.js";
-import { errorLogs, teams, users } from "../../shared/schema.js";
-import { eq } from "drizzle-orm";
+import { errorLogs, teams, users, sessions, loginChallenges } from "../../shared/schema.js";
+import { eq, and, isNull, count } from "drizzle-orm";
+import { hashToken } from "../../lib/auth.js";
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const COOKIE_NAME = "auth_token";
@@ -69,6 +70,10 @@ function extractCookiePair(res: Response, name: string): string | undefined {
   return `${name}=${value.trim()}`;
 }
 
+function bearerFromCookiePair(cookie: string): string {
+  return `Bearer ${cookie.slice(cookie.indexOf("=") + 1)}`;
+}
+
 /** Log in and return the cookie pair ("name=value") suitable for Cookie header, or undefined. */
 async function loginAndGetCookie(
   email: string,
@@ -85,9 +90,10 @@ async function loginAndGetCookie(
 // ── Server readiness wait ─────────────────────────────────────────────────────
 
 /**
- * Poll GET /api/health until the server responds or the timeout elapses,
- * then pre-warm the auth route bundles so the first test doesn't get a 404
- * from Next.js compiling the route on-demand.
+ * Poll the mounted /api/auth/me route until the server responds with its
+ * expected unauthenticated status. Production-readiness health can
+ * intentionally be 503 in development when external certification inputs are
+ * absent, and Next 16 returns 404 (not 405) for GET on POST-only routes.
  *
  * This lets the auth-tests workflow run immediately after the app workflow
  * starts without hard-coding a sleep delay.
@@ -100,17 +106,8 @@ async function waitForServer(
   let lastErr: unknown;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${BASE_URL}/api/health`);
-      // Any HTTP response proves the server and route bundle are accepting
-      // requests. /api/health may intentionally return 503 when an external
-      // model canary is degraded; that must not suppress independent auth tests.
-      if (res.status >= 200 && res.status < 600) {
-        // Pre-warm auth route bundles so Next.js compiles them before tests run.
-        // Only warm login here — signup pre-warming is done in before() using a
-        // RUN_ID-scoped IP so it doesn't burn shared rate-limit quota.
-        await Promise.allSettled([
-          fetch(`${BASE_URL}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
-        ]);
+      const res = await fetch(`${BASE_URL}/api/auth/me`, { method: "GET" });
+      if (res.status === 401) {
         return;
       }
     } catch (err) {
@@ -125,7 +122,7 @@ async function waitForServer(
 
 // ── Seed / teardown ───────────────────────────────────────────────────────────
 
-let seed: SeedResult;
+let seed!: SeedResult;
 
 // Collect user IDs created by signup tests so they can be removed in after().
 const signupCreatedIds: number[] = [];
@@ -152,7 +149,7 @@ before(async () => {
 
 after(async () => {
   try {
-    await cleanupAuthUsers(seed);
+    if (seed) await cleanupAuthUsers(seed);
     await cleanupSignupUsers(signupCreatedIds);
   } finally {
     await closeDb();
@@ -334,6 +331,75 @@ describe("2FA — boundary conditions", () => {
   });
 });
 
+describe("2FA — method-bound challenge concurrency", { concurrency: 1 }, () => {
+  test("parallel verification consumes one challenge and creates one session", async () => {
+    const login = await apiPost("/api/auth/login", {
+      email: seed.twoFaUser.email,
+      password: seed.password,
+    }, { "x-forwarded-for": "10.0.0.1, 198.51.100.201" });
+    assert.equal(login.status, 200);
+    const loginBody: any = await login.json();
+    assert.equal(loginBody.twoFactorMethod, "email");
+    assert.ok(loginBody.challengeToken);
+
+    // Email delivery is exercised by login; replace only the stored hash with a
+    // deterministic code so this integration test can complete without reading
+    // or logging the delivered OTP.
+    const code = "483921";
+    await systemDb.update(loginChallenges)
+      .set({ emailCodeHash: hashToken(code) })
+      .where(and(
+        eq(loginChallenges.userId, seed.twoFaUser.id),
+        isNull(loginChallenges.consumedAt)
+      ));
+    const [{ n: sessionsBefore } = { n: 0 }] = await systemDb
+      .select({ n: count() }).from(sessions)
+      .where(eq(sessions.userId, seed.twoFaUser.id));
+
+    const verify = (ip: string) => apiPost("/api/auth/verify-2fa", {
+      code,
+      challengeToken: loginBody.challengeToken,
+      // Must be ignored: the server-selected challenge method is authoritative.
+      method: "totp",
+      userId: seed.adminUser.id,
+    }, { "x-forwarded-for": `10.0.0.1, ${ip}` });
+    const responses = await Promise.all([
+      verify("198.51.100.202"),
+      verify("198.51.100.203"),
+    ]);
+    assert.deepEqual(responses.map((res) => res.status).sort(), [200, 401]);
+
+    const [{ n: sessionsAfter } = { n: 0 }] = await systemDb
+      .select({ n: count() }).from(sessions)
+      .where(eq(sessions.userId, seed.twoFaUser.id));
+    assert.equal(sessionsAfter - sessionsBefore, 1);
+  });
+
+  test("suspension after password challenge prevents session issuance", async () => {
+    const login = await apiPost("/api/auth/login", {
+      email: seed.twoFaUser.email,
+      password: seed.password,
+    }, { "x-forwarded-for": "10.0.0.1, 198.51.100.204" });
+    assert.equal(login.status, 200);
+    const body: any = await login.json();
+    const code = "739215";
+    await systemDb.update(loginChallenges).set({ emailCodeHash: hashToken(code) })
+      .where(and(eq(loginChallenges.userId, seed.twoFaUser.id), isNull(loginChallenges.consumedAt)));
+    await systemDb.update(users).set({ accountStatus: "suspended" })
+      .where(eq(users.id, seed.twoFaUser.id));
+    try {
+      const result = await apiPost("/api/auth/verify-2fa", {
+        code,
+        challengeToken: body.challengeToken,
+      }, { "x-forwarded-for": "10.0.0.1, 198.51.100.205" });
+      assert.equal(result.status, 401);
+    } finally {
+      await systemDb.update(users).set({ accountStatus: "active" })
+        .where(eq(users.id, seed.twoFaUser.id));
+    }
+  });
+});
+
 // ── Signup — success path ─────────────────────────────────────────────────────
 
 describe("Signup — success path", { concurrency: 1 }, () => {
@@ -509,7 +575,7 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
 
     const res = await fetch(`${BASE_URL}/api/client/error-screenshot`, {
       method: "POST",
-      headers: { cookie },
+      headers: { authorization: bearerFromCookiePair(cookie) },
       body: form,
     });
     assert.equal(res.status, 200, `Expected screenshot route 200, got ${res.status}`);
@@ -554,7 +620,7 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
 
     const res = await fetch(`${BASE_URL}/api/account/delete`, {
       method: "POST",
-      headers: { cookie },
+      headers: { authorization: bearerFromCookiePair(cookie) },
     });
     const body: any = await res.json();
     assert.equal(

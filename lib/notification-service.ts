@@ -1,4 +1,5 @@
 import { getTxDb } from "@/lib/db";
+import { runWithSystemContext } from "@/lib/tenant-context";
 import { notifications, users, type InsertNotification } from "@/shared/schema";
 import { eq, and, or, isNull, desc, sql, gte } from "drizzle-orm";
 
@@ -238,32 +239,34 @@ export async function notifySocialPostComplete(teamId: number, postId: number, p
  * ones, so the existing NotificationBell will display these to admins.
  */
 export async function notifyAdminsNewSignup(newUserId: number, newUserEmail: string, newUserName: string | null): Promise<void> {
-  try {
-    const adminUsers = await getTxDb()
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));
+  await runWithSystemContext("notify active admins of new user signup", async () => {
+    try {
+      const adminUsers = await getTxDb()
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.role, "admin"), eq(users.accountStatus, "active")));
 
-    if (adminUsers.length === 0) return;
+      if (adminUsers.length === 0) return;
 
-    await Promise.all(
-      adminUsers.map((admin) =>
-        createNotification({
-          userId: admin.id,
-          // teamId intentionally omitted — this is a private per-user notification
-          type: 'warning',
-          category: 'system',
-          title: 'New User Awaiting Approval',
-          message: `${newUserName || newUserEmail} has signed up and is pending review.`,
-          entityId: newUserId,
-          entityType: 'user',
-          actionUrl: '/admin/users',
-        }).catch((err) =>
-          console.error(`Failed to notify admin ${admin.id} of new signup:`, err)
+      await Promise.all(
+        adminUsers.map((admin) =>
+          createNotification({
+            userId: admin.id,
+            // teamId intentionally omitted — this is a private per-user notification
+            type: 'warning',
+            category: 'system',
+            title: 'New User Awaiting Approval',
+            message: `${newUserName || newUserEmail} has signed up and is pending review.`,
+            entityId: newUserId,
+            entityType: 'user',
+            actionUrl: '/admin/users',
+          }).catch((err) =>
+            console.error(`Failed to notify admin ${admin.id} of new signup:`, err)
+          )
         )
-      )
-    );
-  } catch (err) {
-    console.error("notifyAdminsNewSignup failed:", err);
-  }
+      );
+    } catch (err) {
+      console.error("notifyAdminsNewSignup failed:", err);
+    }
+  });
 }

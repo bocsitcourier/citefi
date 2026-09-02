@@ -21,6 +21,7 @@ fi
 
 : "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing}"
 : "${DO_HOST:?DO_HOST env var is missing}"
+: "${DO_SSH_HOST_FINGERPRINT:?DO_SSH_HOST_FINGERPRINT pin is missing}"
 
 DO_USER="${DO_USER:-citefi}"
 DO_PORT="${DO_PORT:-22}"
@@ -68,13 +69,14 @@ for line in lines:
 sys.stdout.write("\n".join(out)+"\n")
 PY
 chmod 600 "$KEY"
-ssh-keyscan -p "$DO_PORT" -H "$DO_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts" "$SCRIPT_DIR/verify-ssh-host-key.sh"
 
 remote_env=(
   DO_APP_DIR DO_PM2_CONFIG DO_HEALTHCHECK_URL DO_PUBLIC_HEALTHCHECK_URL
   DO_WEB_PROCESS DO_WORKER_PROCESS DO_RELEASE_STATE_DIR DEPLOY_ENVIRONMENT
   DO_RELEASES_DIR DO_CURRENT_LINK DO_SHARED_ENV_FILE
   DO_ARTIFACT_PATH DO_ARTIFACT_SHA256 DO_ARTIFACT_SIZE DO_RELEASE_SHA
+  DO_INITIAL_RELEASE
   STAGING_DATABASE_NAME STAGING_REDIS_DB STAGING_STORAGE_PREFIX
   STAGING_PORT STAGING_LOG_DIR SYNTHETIC_DATA_ACKNOWLEDGEMENT
 )
@@ -89,9 +91,9 @@ done
 remote_command+=" bash -s"
 
 ssh_opts=(-i "$KEY" -p "$DO_PORT" -o BatchMode=yes -o IdentitiesOnly=yes
-  -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15)
 scp_opts=(-i "$KEY" -P "$DO_PORT" -o BatchMode=yes -o IdentitiesOnly=yes
-  -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+  -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15)
 ssh "${ssh_opts[@]}" "${DO_USER}@${DO_HOST}" \
   "mkdir -p $(printf %q "$(dirname "$DO_ARTIFACT_PATH")") && chmod 700 $(printf %q "$(dirname "$DO_ARTIFACT_PATH")")"
 scp "${scp_opts[@]}" "$artifact" "${DO_USER}@${DO_HOST}:$(printf %q "$DO_ARTIFACT_PATH.part")"

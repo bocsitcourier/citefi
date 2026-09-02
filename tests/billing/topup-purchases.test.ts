@@ -13,9 +13,13 @@ import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { getTxDb } from "../../lib/db.js";
 import { grantPurchased, getBucketBalance } from "../../lib/billing.js";
+import { revokeGrantCredits } from "../../lib/credits.js";
 import { checkTeamPaywall } from "../../lib/billing/paywall.js";
 import { TOP_UPS } from "../../lib/billing/plans.js";
 import { creditBalances, creditLedger, teamMembers, teams, users } from "../../shared/schema.js";
+import { enterSystemContext } from "../../lib/tenant-context.js";
+
+enterSystemContext("top-up billing integration test");
 
 const RUN_ID = `topup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 const txDb = getTxDb();
@@ -94,5 +98,32 @@ describe("credit top-up purchases", () => {
     assert.equal(ledger.length, 1, "the Checkout Session creates exactly one ledger grant");
     assert.equal(paywall.allowed, true);
     assert.equal(paywall.creditBalance, pack.credits);
+  });
+
+  test("partial Stripe reversal is bucket-native and retry-idempotent", async () => {
+    assert.ok(teamId);
+    const grant = await grantPurchased({
+      teamId,
+      amount: 100,
+      idempotencyKey: `refund-grant-${RUN_ID}`,
+      stripePaymentIntentId: `pi_${RUN_ID}`,
+    });
+    const [grantRow] = await txDb.select({ id: creditLedger.id }).from(creditLedger)
+      .where(eq(creditLedger.idempotencyKey, `refund-grant-${RUN_ID}`));
+    assert.ok(grantRow);
+    for (let retry = 0; retry < 2; retry++) {
+      await revokeGrantCredits({
+        teamId,
+        grantLedgerRowId: grantRow.id,
+        amount: 40,
+        reversalKey: `re_${RUN_ID}`,
+        reason: "partial refund test",
+      });
+    }
+    const balance = await getBucketBalance(teamId);
+    assert.equal(balance.purchasedRemaining, 60 + TOP_UPS[0]!.credits);
+    const reversals = await txDb.select().from(creditLedger)
+      .where(eq(creditLedger.idempotencyKey, `grant-reversal:${grantRow.id}:re_${RUN_ID}`));
+    assert.equal(reversals.length, 1);
   });
 });

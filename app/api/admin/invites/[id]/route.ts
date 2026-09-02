@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { userInvites } from '@/shared/schema';
 import { requireAdminById, verifyToken } from '@/lib/api/auth';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 export async function DELETE(
   req: NextRequest,
@@ -26,11 +26,11 @@ export async function DELETE(
     const result = await db
       .update(userInvites)
       .set({ status: 'revoked' })
-      .where(eq(userInvites.id, inviteId))
+      .where(and(eq(userInvites.id, inviteId), eq(userInvites.status, 'pending')))
       .returning();
 
     if (result.length === 0) {
-      return NextResponse.json({ error: 'Invite not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Pending invite not found' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true });

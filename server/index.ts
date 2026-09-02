@@ -2,24 +2,28 @@
 import { config } from 'dotenv';
 config({ path: '.env.local', override: true });
 
-import { spawn, execSync } from 'child_process';
-import * as net from 'net';
+import { spawn, execFileSync } from 'child_process';
+import { assertPortAvailable } from '../lib/ops/port-guard';
 
 console.log('🚀 Starting Citefi (Next.js)...\n');
 
 // ── Redis startup ────────────────────────────────────────────────────────────
-// BullMQ requires Redis. Start the local Redis daemon if it's not already up.
+// BullMQ requires Redis. Bootstrapping an unauthenticated daemon is permitted
+// only when a developer explicitly opts in.
 try {
-  execSync('redis-cli ping', { stdio: 'pipe' });
+  execFileSync('redis-cli', ['ping'], { stdio: 'pipe' });
   console.log('✅ Redis already running');
 } catch {
-  console.log('🔧 Starting local Redis server...');
-  try {
-    execSync('redis-server --daemonize yes --loglevel warning --port 6379', { stdio: 'pipe' });
-    execSync('sleep 0.5');
-    console.log('✅ Redis started');
-  } catch (redisErr) {
-    console.warn('⚠️  Could not start local Redis:', (redisErr as Error).message);
+  if (process.env.NODE_ENV === 'development' && process.env.LOCAL_DEV_REDIS === 'true') {
+    console.log('🔧 Starting explicitly enabled local Redis server...');
+    try {
+      execFileSync('redis-server', ['--daemonize', 'yes', '--loglevel', 'warning', '--port', '6379'], { stdio: 'pipe' });
+      console.log('✅ Redis started');
+    } catch (redisErr) {
+      console.warn('⚠️  Could not start local Redis:', (redisErr as Error).message);
+    }
+  } else {
+    console.warn('⚠️  Redis is unavailable; set LOCAL_DEV_REDIS=true only for local development bootstrap.');
   }
 }
 
@@ -29,33 +33,7 @@ try {
 // We forcibly free it before spawning next dev so EADDRINUSE never occurs.
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-async function waitForPortFree(port: number, maxMs = 15000): Promise<void> {
-  const deadline = Date.now() + maxMs;
-  while (Date.now() < deadline) {
-    const free = await new Promise<boolean>((resolve) => {
-      const probe = net.createServer();
-      probe.once('error', () => resolve(false));
-      probe.once('listening', () => { probe.close(); resolve(true); });
-      probe.listen(port, '0.0.0.0');
-    });
-    if (free) return;
-    await new Promise(r => setTimeout(r, 200));
-  }
-  console.warn(`⚠️  Port ${port} still busy after ${maxMs}ms — starting anyway`);
-}
-
-function forceKillPort(port: number) {
-  try {
-    // fuser -k sends SIGKILL to every process bound to the port
-    execSync(`fuser -k ${port}/tcp 2>/dev/null || true`, { stdio: 'ignore' });
-  } catch {
-    // fuser may not be available; fall through to the wait loop
-  }
-}
-
-// Kill anything on the port, then wait until it's actually free
-forceKillPort(PORT);
-await waitForPortFree(PORT);
+await assertPortAvailable(PORT);
 
 // ── Workers ─────────────────────────────────────────────────────────────────
 let workerProcess: ReturnType<typeof spawn> | null = null;

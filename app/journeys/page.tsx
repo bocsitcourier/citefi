@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
+import { csrfFetch } from "@/lib/queryClient";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card";
@@ -351,7 +352,7 @@ function CreateJourneyDialog({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/journeys", {
+      const res = await csrfFetch("/api/journeys", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -524,7 +525,7 @@ function JourneyDetailPanel({
 
   const triggerMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/journeys/${journey.id}/trigger`, {
+      const res = await csrfFetch(`/api/journeys/${journey.id}/trigger`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -548,7 +549,7 @@ function JourneyDetailPanel({
   const pauseMutation = useMutation({
     mutationFn: async () => {
       const newStatus = journey.status === "active" ? "paused" : "active";
-      const res = await fetch(`/api/journeys/${journey.id}`, {
+      const res = await csrfFetch(`/api/journeys/${journey.id}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

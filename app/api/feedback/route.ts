@@ -181,6 +181,9 @@ export async function POST(req: NextRequest) {
         metricId: verifiedMetricId,
       })
       .returning();
+    if (!row) {
+      throw new Error("Feedback insert did not return a row");
+    }
 
     // Fire-and-forget hook into AI learning system (only when metric ownership verified)
     if (verifiedMetricId) {

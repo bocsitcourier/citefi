@@ -43,26 +43,58 @@ export const DAILY_QUOTAS: Record<ContentType, { free: number; pro: number; ente
   reformat:    { free: 20,  pro: 100, enterprise: 1000 },
 };
 
+export function authoritativeSpendMicrousd(rows: Array<{
+  costMicrousd: number;
+  rateVersionId: number | null;
+  providerRateId: number | null;
+}>): number {
+  let total = 0;
+  for (const row of rows) {
+    if (row.rateVersionId === null || row.providerRateId === null) {
+      throw new Error("Provider usage contains an unknown rate");
+    }
+    if (!Number.isSafeInteger(row.costMicrousd)) {
+      throw new Error("Provider usage contains an invalid monetary amount");
+    }
+    total += row.costMicrousd;
+    if (!Number.isSafeInteger(total)) throw new Error("Provider usage total exceeds safe integer range");
+  }
+  return total;
+}
+
 /**
- * Get the accumulated provider spend for a run from cost_telemetry.
+ * Get accumulated provider spend from the immutable, rate-snapshotted ledger.
  * Keyed by BullMQ jobId (= runId after the jobId dedup change in queue.ts).
  * Returns USD.
  */
-export async function getRunSpend(runId: string): Promise<number> {
+type SpendRow = { costMicrousd: number; rateVersionId: number | null; providerRateId: number | null };
+
+export async function getRunSpend(
+  runId: string,
+  loadRows?: (runId: string) => Promise<SpendRow[]>
+): Promise<number> {
   try {
+    if (loadRows) return authoritativeSpendMicrousd(await loadRows(runId)) / 1_000_000;
     const { db } = await import("./db");
-    const { costTelemetry } = await import("@/shared/schema");
-    const { eq, sum } = await import("drizzle-orm");
+    const { providerUsageLedger } = await import("@/shared/schema");
+    const { eq } = await import("drizzle-orm");
 
-    const [row] = await db
-      .select({ total: sum(costTelemetry.costMicrousd) })
-      .from(costTelemetry)
-      .where(eq(costTelemetry.jobId, runId));
+    const rows = await db
+      .select({
+        costMicrousd: providerUsageLedger.costMicrousd,
+        rateVersionId: providerUsageLedger.rateVersionId,
+        providerRateId: providerUsageLedger.providerRateId,
+      })
+      .from(providerUsageLedger)
+      .where(eq(providerUsageLedger.runId, runId));
 
-    const microusd = Number(row?.total ?? 0);
+    const microusd = authoritativeSpendMicrousd(rows);
     return microusd / 1_000_000;
-  } catch {
-    return 0; // telemetry failures must never block generation
+  } catch (cause) {
+    const error = new Error(`Authoritative provider accounting unavailable for run ${runId}`);
+    (error as any).code = "ACCOUNTING_UNAVAILABLE";
+    (error as any).cause = cause;
+    throw error;
   }
 }
 
@@ -80,7 +112,17 @@ export async function assertRunBudget(
 ): Promise<void> {
   const { PipelineError } = await import("./errors");
   const ceiling = COST_CEILINGS_USD[contentType] ?? COST_CEILINGS_USD.article;
-  const spent = await getRunSpend(runId);
+  let spent: number;
+  try {
+    spent = await getRunSpend(runId);
+  } catch (error: any) {
+    throw new PipelineError(
+      `Provider accounting is unavailable for run ${runId}; no further provider request is permitted.`,
+      "BUDGET_EXCEEDED",
+      "fatal",
+      stage
+    );
+  }
   if (spent >= ceiling) {
     throw new PipelineError(
       `Run ${runId} exceeded cost ceiling ($${spent.toFixed(4)} >= $${ceiling}) for ${contentType}. ` +

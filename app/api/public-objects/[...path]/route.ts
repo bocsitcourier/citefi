@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { objectStorageClient } from "@/lib/storage";
+import { requireTeamMember } from "@/lib/api/auth";
+import { systemDb } from "@/lib/db";
+import {
+  articleAssets,
+  articles,
+  publishingJobs,
+  socialPostAssets,
+  socialPosts,
+} from "@/shared/schema";
+import { and, eq, inArray } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -10,13 +20,77 @@ export async function GET(
   try {
     const { path } = await context.params;
     const filePath = path.join("/");
+    if (
+      !filePath ||
+      filePath.includes("..") ||
+      filePath.startsWith("/") ||
+      filePath.includes("\\")
+    ) {
+      return NextResponse.json({ error: "Invalid object path" }, { status: 400 });
+    }
 
     if (!process.env.DO_SPACES_BUCKET) {
       return NextResponse.json({ error: "Object storage not configured" }, { status: 500 });
     }
 
+    const requestedUrl = `/api/public-objects/${filePath}`;
+    const [articleAsset, socialAsset] = await Promise.all([
+      systemDb.select({
+        teamId: articles.teamId,
+        articleId: articles.id,
+      }).from(articleAssets)
+        .innerJoin(articles, eq(articles.id, articleAssets.articleId))
+        .where(eq(articleAssets.storageUrl, requestedUrl))
+        .limit(1),
+      systemDb.select({
+        teamId: socialPosts.teamId,
+        socialPostId: socialPosts.id,
+      }).from(socialPostAssets)
+        .innerJoin(socialPosts, eq(socialPosts.id, socialPostAssets.socialPostId))
+        .where(eq(socialPostAssets.storageUrl, requestedUrl))
+        .limit(1),
+    ]);
+    const owner = articleAsset[0] ?? socialAsset[0];
+    if (!owner?.teamId) {
+      // Generic uploads and untracked storage keys are never anonymously
+      // enumerable, even if somebody guesses the object name.
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+
+    let publiclyPublished = false;
+    if (!filePath.startsWith("private/")) {
+      const published = "articleId" in owner
+        ? await systemDb.select({ id: publishingJobs.id }).from(publishingJobs)
+            .where(and(
+              eq(publishingJobs.teamId, owner.teamId),
+              eq(publishingJobs.articleId, owner.articleId),
+              inArray(publishingJobs.status, ["delivered", "published"])
+            )).limit(1)
+        : await systemDb.select({ id: publishingJobs.id }).from(publishingJobs)
+            .where(and(
+              eq(publishingJobs.teamId, owner.teamId),
+              eq(publishingJobs.socialPostId, owner.socialPostId),
+              inArray(publishingJobs.status, ["delivered", "published"])
+            )).limit(1);
+      publiclyPublished = published.length > 0;
+    }
+
+    if (!publiclyPublished) {
+      try {
+        const auth = await requireTeamMember(request);
+        if (auth.teamId !== owner.teamId) {
+          return NextResponse.json({ error: "File not found" }, { status: 404 });
+        }
+      } catch {
+        return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      }
+    }
+    const cacheControl = publiclyPublished
+      ? "public, max-age=31536000, immutable"
+      : "private, no-store";
+
     const bucket   = objectStorageClient.bucket(process.env.DO_SPACES_BUCKET);
-    const fullPath = `public/${filePath}`;
+    const fullPath = filePath.startsWith("private/") ? filePath : `public/${filePath}`;
     const file     = bucket.file(fullPath);
 
     let metadata: { contentType: string; size: number; md5Hash?: string };
@@ -44,7 +118,7 @@ export async function GET(
           status: 304,
           headers: {
             ETag: etag,
-            "Cache-Control": "public, max-age=31536000, immutable",
+            "Cache-Control": cacheControl,
           },
         });
       }
@@ -84,7 +158,7 @@ export async function GET(
           "Content-Range":  `bytes ${start}-${end}/${fileSize}`,
           "Content-Length": chunkSize.toString(),
           "Accept-Ranges":  "bytes",
-          "Cache-Control":  "public, max-age=31536000, immutable",
+          "Cache-Control":  cacheControl,
         };
         if (etag) headers.ETag = etag;
 
@@ -99,7 +173,7 @@ export async function GET(
     const headers: Record<string, string> = {
       "Content-Type":  contentType,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": cacheControl,
     };
     if (fileSize > 0) headers["Content-Length"] = fileSize.toString();
     if (etag) headers.ETag = etag;

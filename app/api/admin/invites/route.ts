@@ -148,20 +148,14 @@ export async function POST(req: NextRequest) {
 
     const inviteUrl = `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/accept-invite/${token}`;
 
-    console.log(`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📧 USER INVITE SENT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Email: ${email}
-Role: ${role}
-Expires: ${expiresAt.toISOString()}
-
-Invite Link:
-${inviteUrl}
-
-${message ? `Message: ${message}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    `);
+    const [local, domain] = email.toLowerCase().split("@");
+    const redactedEmail = `${local.slice(0, 2)}***@${domain}`;
+    console.info("User invite created", {
+      inviteId: invite.id,
+      teamId: adminTeamId,
+      expiresAt: expiresAt.toISOString(),
+      email: redactedEmail,
+    });
 
     return NextResponse.json({
       success: true,

@@ -84,29 +84,43 @@ import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
 import { classifyError } from "./errors";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { getArticleGenerationBilling } from "./pipeline-billing";
 
-export async function getArticleGenerationBilling(
-  job: Pick<Job<ArticleJobData>, "data">
-) {
-  return {
-    teamId: job.data.teamId,
-    runId: job.data.creditRunId,
-    // Legacy jobs predating creditCostPerUnit must resolve the normal article
-    // price. Leaving amount undefined would release the entire batch reserve.
-    amount:
-      job.data.creditCostPerUnit ??
-      (await import("@/lib/credit-menu")).getCreditCost("article") ??
-      10,
-    releaseKey: `article:${job.data.articleId}`,
-    reason: `Article ${job.data.articleId} generation failed`,
-  };
-}
+export { getArticleGenerationBilling } from "./pipeline-billing";
 
 // Utility to truncate strings to max length (for database varchar constraints)
 function truncate(str: string | null | undefined, maxLength: number): string | null {
   if (!str) return null;
   if (str.length <= maxLength) return str;
   return str.substring(0, maxLength - 3) + "...";
+}
+
+/**
+ * Stripe API versions moved subscription period timestamps from the
+ * subscription root onto subscription items. Accept both shapes during the
+ * compatibility window and fail explicitly rather than writing an invalid
+ * billing period.
+ */
+function resolveStripeSubscriptionPeriod(subscription: {
+  id: string;
+  items: {
+    data: Array<{
+      current_period_start?: number;
+      current_period_end?: number;
+    }>;
+  };
+}): { start: number; end: number } {
+  const legacy = subscription as typeof subscription & {
+    current_period_start?: number;
+    current_period_end?: number;
+  };
+  const item = subscription.items.data[0];
+  const start = legacy.current_period_start ?? item?.current_period_start;
+  const end = legacy.current_period_end ?? item?.current_period_end;
+  if (!start || !end) {
+    throw new Error(`Stripe subscription ${subscription.id} has no billing period`);
+  }
+  return { start, end };
 }
 
 // Utility to enforce hard timeout on async operations
@@ -1882,7 +1896,78 @@ export const processArticleGenerationJob = async (
 
 export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
-          const { socialPostId, platform, creditRunId: videoCreditRunId } = job.data;
+          const { socialPostId, platform, creditRunId: videoCreditRunId, teamId, userId } = job.data;
+
+          // Social video is never free. Validate the authoritative reservation
+          // before jitter, disk work, or any provider call.
+          if (!videoCreditRunId) {
+            throw new Error(`BILLING_RUN_REQUIRED: video job for social post ${socialPostId} has no credit run`);
+          }
+          {
+            const { creditReservations } = await import("@/shared/schema");
+            const [reservation] = await db.select({
+              status: creditReservations.status,
+            }).from(creditReservations).where(and(
+              eq(creditReservations.teamId, teamId),
+              eq(creditReservations.runId, videoCreditRunId)
+            )).limit(1);
+            if (!reservation || !["RESERVED", "DEBITED"].includes(reservation.status)) {
+              throw new Error(
+                `INVALID_BILLING_RUN: video job for social post ${socialPostId} has no usable reservation`
+              );
+            }
+
+            const [checkpoint] = await db.select({
+              ownerTeamId: socialPosts.teamId,
+              videoStatus: socialPosts.videoStatus,
+              videoUrl: socialPosts.videoUrl,
+              videoCreditRunId: socialPosts.videoCreditRunId,
+              videoBillingSettledAt: socialPosts.videoBillingSettledAt,
+            }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+            assertEntityTeam({
+              entity: "socialPost(video)",
+              entityId: socialPostId,
+              jobTeamId: currentTenantTeamId(),
+              entityTeamId: checkpoint?.ownerTeamId,
+            });
+            if (
+              checkpoint?.videoStatus === "READY" &&
+              checkpoint.videoUrl &&
+              checkpoint.videoCreditRunId === videoCreditRunId &&
+              !checkpoint.videoBillingSettledAt
+            ) {
+              const { debitReservation } = await import("@/lib/billing");
+              let debitResult;
+              try {
+                debitResult = await debitReservation({
+                  teamId,
+                  runId: videoCreditRunId,
+                  userId,
+                  jobId: String(job.id ?? ""),
+                });
+              } catch (cause) {
+                throw new BillingSettlementError(
+                  `Debit settlement failed for delivered video post ${socialPostId}`,
+                  videoCreditRunId,
+                  cause
+                );
+              }
+              if (!debitResult.ok) {
+                throw new BillingSettlementError(
+                  `Debit settlement failed for delivered video post ${socialPostId}`,
+                  videoCreditRunId
+                );
+              }
+              await db.update(socialPosts).set({
+                videoBillingSettledAt: new Date(),
+                updatedAt: new Date(),
+              }).where(and(
+                eq(socialPosts.id, socialPostId),
+                eq(socialPosts.videoCreditRunId, videoCreditRunId)
+              ));
+              return;
+            }
+          }
 
           // PERMANENT FIX: Check disk space before starting (need ~500MB per video)
           try {
@@ -1910,6 +1995,14 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           await new Promise((resolve) => setTimeout(resolve, videoJitterMs));
 
           try {
+            // Do not run any generation preflight or provider work when media
+            // has been disabled. Keep this inside the normal terminal cleanup
+            // domain so already-queued work releases its slot and reservation.
+            const { isMediaFeatureEnabled } = await import("./storage");
+            if (!isMediaFeatureEnabled()) {
+              throw new Error("FEATURE_DISABLED: Media generation disabled");
+            }
+
             // Cost ceiling gate must precede infrastructure preflights. A run
             // that has already exhausted its budget should stop deterministically
             // even when optional storage is also unavailable.
@@ -2034,6 +2127,17 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
             console.log(`   Duration: ${result.duration}s`);
             console.log(`   Resolution: ${result.resolution}`);
 
+            // Explicit durable delivery checkpoint. The generator also writes
+            // media metadata, but this binds it to the reservation before debit.
+            await db.update(socialPosts).set({
+              videoStatus: "READY",
+              videoCreditRunId,
+              updatedAt: new Date(),
+            }).where(and(
+              eq(socialPosts.id, socialPostId),
+              eq(socialPosts.teamId, teamId)
+            ));
+
             // Two-bucket billing: DEBIT reservation on success
             if (videoCreditRunId) {
               const [videoPost] = await db
@@ -2046,17 +2150,34 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                 .limit(1);
               if (videoPost?.teamId) {
                 const { debitReservation } = await import("@/lib/billing");
-                const debitResult = await debitReservation({
-                  teamId: videoPost.teamId,
-                  runId: videoCreditRunId,
-                  jobId: job.id,
-                });
-                if (!debitResult.ok) {
-                  throw new Error(
-                    `[billing] DEBIT_FAILED for video post ${socialPostId} (teamId=${videoPost.teamId} runId=${videoCreditRunId}). ` +
-                    `Marking job failed so pg-boss retries the debit. Video was generated successfully.`
+                let debitResult;
+                try {
+                  debitResult = await debitReservation({
+                    teamId: videoPost.teamId,
+                    runId: videoCreditRunId,
+                    userId,
+                    jobId: String(job.id ?? ""),
+                  });
+                } catch (cause) {
+                  throw new BillingSettlementError(
+                    `Debit settlement failed for delivered video post ${socialPostId}`,
+                    videoCreditRunId,
+                    cause
                   );
                 }
+                if (!debitResult.ok) {
+                  throw new BillingSettlementError(
+                    `Debit settlement failed for delivered video post ${socialPostId}`,
+                    videoCreditRunId
+                  );
+                }
+                await db.update(socialPosts).set({
+                  videoBillingSettledAt: new Date(),
+                  updatedAt: new Date(),
+                }).where(and(
+                  eq(socialPosts.id, socialPostId),
+                  eq(socialPosts.videoCreditRunId, videoCreditRunId)
+                ));
                 // Record completed usage event — populates spending cap meter so caps can trip.
                 const { recordUsageEvent } = await import("@/lib/usage-caps");
                 await recordUsageEvent({
@@ -2080,6 +2201,11 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
 
           } catch (error) {
             if (isProviderAccountingError(error)) throw error;
+            if (error instanceof BillingSettlementError) {
+              const { releaseVideoSlotForPost } = await import("@/lib/user-gate");
+              await releaseVideoSlotForPost(socialPostId).catch(() => {});
+              throw error;
+            }
             console.error(`❌ Video generation failed for social post ${socialPostId}:`, error);
 
             // Release the per-user concurrency slot claimed at enqueue
@@ -2151,16 +2277,6 @@ export async function registerWorkers() {
         console.log(`📦 Processing batch generation job ${job.id}`);
         const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
 
-        // Delete the PENDING spending-cap reservation now that the worker is running.
-        // Per-article COMPLETED events (written by recordUsageEvent) are the real
-        // source of truth for spend. Keeping the reservation alive while articles
-        // are being generated would double-count against the cap for up to 2 hours.
-        if (capReservationId != null) {
-          cancelCapReservation(capReservationId).catch(err =>
-            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
-          );
-        }
-
       try {
         // Authoritative entity/team cross-check: the batch row's owner must
         // match the tenant (payload teamId) this job runs as before we spawn
@@ -2183,6 +2299,28 @@ export async function registerWorkers() {
           canonicalCampaignId = batchOwner?.campaignId ?? null;
         }
 
+        // Claim is a conditional state transition, not a read followed by an
+        // unconditional write. Cancellation therefore always wins the race.
+        const [claimedBatch] = await db.update(jobBatches).set({
+          status: "RUNNING",
+          numArticlesRequested: selectedTitles.length,
+        }).where(and(
+          eq(jobBatches.id, batchId),
+          eq(jobBatches.teamId, teamId),
+          inArray(jobBatches.status, ["PENDING", "QUEUED"])
+        )).returning({ id: jobBatches.id });
+        if (!claimedBatch) {
+          console.log(`🛑 Batch ${batchId} was not claimable; no children will be enqueued`);
+          return;
+        }
+
+        // Release the temporary cap hold only after this worker owns the batch.
+        if (capReservationId != null) {
+          await cancelCapReservation(capReservationId).catch(err =>
+            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
+          );
+        }
+
         // Advance the linked campaign to 'generating' as batch work begins.
         if (canonicalCampaignId != null) {
           const { advanceCampaignStatus } = await import("./campaign-service");
@@ -2190,14 +2328,6 @@ export async function registerWorkers() {
             (e) => console.warn("[batch-worker] campaign status advance failed:", e)
           );
         }
-
-        await db
-          .update(jobBatches)
-          .set({ 
-            status: "RUNNING",
-            numArticlesRequested: selectedTitles.length
-          })
-          .where(eq(jobBatches.id, batchId));
 
         // Log batch start event
         const { jobEvents } = await import("@/shared/schema");
@@ -2231,6 +2361,14 @@ export async function registerWorkers() {
         let retried = 0;
 
         for (let i = 0; i < selectedTitles.length; i++) {
+          const [orchestrationGuard] = await db.select({ status: jobBatches.status })
+            .from(jobBatches)
+            .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)))
+            .limit(1);
+          if (orchestrationGuard?.status === "CANCELLED") {
+            console.log(`🛑 Batch ${batchId} cancelled during orchestration; stopping child creation`);
+            return;
+          }
           const title = selectedTitles[i];
           if (!title) { skipped++; continue; }
 
@@ -2260,6 +2398,9 @@ export async function registerWorkers() {
               .where(eq(articles.id, existing.id));
 
             const runId = crypto.randomUUID();
+            const [enqueueGuard] = await db.select({ status: jobBatches.status })
+              .from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
+            if (enqueueGuard?.status === "CANCELLED") return;
             await addArticleJob({
               articleId: existing.id,
               batchId,
@@ -2305,6 +2446,15 @@ export async function registerWorkers() {
           }
 
           const runId = crypto.randomUUID();
+          const [enqueueGuard] = await db.select({ status: jobBatches.status })
+            .from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
+          if (enqueueGuard?.status === "CANCELLED") {
+            await db.delete(articles).where(and(
+              eq(articles.id, article.id),
+              eq(articles.articleStatus, "PENDING")
+            ));
+            return;
+          }
           await addArticleJob({
             articleId: article.id,
             batchId,
@@ -2366,7 +2516,10 @@ export async function registerWorkers() {
           await db
             .update(jobBatches)
             .set({ status: "FAILED" })
-            .where(eq(jobBatches.id, batchId));
+            .where(and(
+              eq(jobBatches.id, batchId),
+              sql`${jobBatches.status} <> 'CANCELLED'`
+            ));
         } catch (dbError) {
           console.error(`❌ Failed to update batch status:`, dbError);
         }
@@ -4401,14 +4554,15 @@ export async function registerWorkers() {
             const priceId = sub.items.data[0]?.price?.id;
             const plan = priceId ? getPlanByStripePriceId(priceId) : null;
             if (plan && (sub.status === "active" || sub.status === "trialing")) {
-              const periodStart = new Date(sub.current_period_start * 1000);
-              const periodEnd = new Date(sub.current_period_end * 1000);
+              const period = resolveStripeSubscriptionPeriod(sub);
+              const periodStart = new Date(period.start * 1000);
+              const periodEnd = new Date(period.end * 1000);
               await grantAllowance({
                 teamId: t.id,
                 amount: plan.monthlyCredits,
                 periodStart,
                 periodEnd,
-                idempotencyKey: `period-reset-${t.id}-${sub.current_period_start}`,
+                idempotencyKey: `period-reset-${t.id}-${period.start}`,
                 reason: `Period reset (webhook fallback): ${plan.name}`,
               });
               await db.update(teamsTable).set({
@@ -4468,10 +4622,11 @@ export async function registerWorkers() {
             const plan = priceId ? getPlanByStripePriceId(priceId) : null;
             const stripeStatus = sub.status;
             if (t.billingStatus !== stripeStatus || (plan && t.billingPlan !== plan.id)) {
+              const period = resolveStripeSubscriptionPeriod(sub);
               await db.update(teamsTable).set({
                 billingStatus: stripeStatus,
                 billingPlan: plan?.id ?? t.billingPlan,
-                currentPeriodEnd: new Date(sub.current_period_end * 1000),
+                currentPeriodEnd: new Date(period.end * 1000),
                 cancelAtPeriodEnd: sub.cancel_at_period_end,
                 updatedAt: new Date(),
               }).where(eq(teamsTable.id, t.id));
@@ -4498,6 +4653,35 @@ export async function registerWorkers() {
       console.log("⏱️ Stripe reconciliation registered (every 15 min)");
     } catch (scheduleErr) {
       console.warn("⚠️ Could not register stripe-reconcile scheduler (non-fatal):", (scheduleErr as Error).message);
+    }
+
+    // ── BILLING: durable credit-reversal inbox retry (every minute) ───────────
+    // Webhooks/admin refunds insert first, then attempt immediately. This
+    // system-scoped sweep is the recovery owner for DB outages and failures.
+    try {
+      const STRIPE_CREDIT_RECONCILIATION_QUEUE = "stripe-credit-reconciliation";
+      await getQueue(STRIPE_CREDIT_RECONCILIATION_QUEUE).upsertJobScheduler(
+        `${STRIPE_CREDIT_RECONCILIATION_QUEUE}-scheduler`,
+        { every: 60_000 },
+        { name: STRIPE_CREDIT_RECONCILIATION_QUEUE, data: {}, opts: { removeOnComplete: { count: 5 }, removeOnFail: { count: 20 } } },
+      );
+      createPipelineWorker(STRIPE_CREDIT_RECONCILIATION_QUEUE, async (_job) => {
+        const { sweepDueStripeCreditReconciliations } = await import("./stripe-credit-reconciliation");
+        await sweepDueStripeCreditReconciliations();
+      }, {
+        stage: "scheduler",
+        concurrency: 1,
+        execution: {
+          scope: "system",
+          reason: "stripe-credit-reconciliation: durable cross-tenant Stripe credit reversal retry sweep",
+        },
+      });
+      const { markWorkerScheduler } = await import("./ops/worker-readiness");
+      await markWorkerScheduler(getRedisConnection(), "stripe-credit-reconciliation");
+      console.log("⏱️ Stripe credit-reconciliation retry sweep registered (every minute)");
+    } catch (scheduleErr) {
+      console.error("⚠️ Could not register Stripe credit-reconciliation scheduler:", (scheduleErr as Error).message);
+      throw scheduleErr;
     }
 
     createPipelineWorker<SocialVideoJobData>(SOCIAL_VIDEO_GENERATION_QUEUE, processSocialVideoJob, {
@@ -5055,13 +5239,25 @@ export async function registerWorkers() {
   try {
     const { initializeScheduler } = await import("./scheduled-content-worker");
     await initializeScheduler();
+    const { markWorkerScheduler } = await import("./ops/worker-readiness");
+    await markWorkerScheduler(getRedisConnection(), "scheduled-content");
   } catch (error) {
     console.error("⚠️ Failed to initialize content scheduler:", error);
+    throw error;
   }
 
   // Daily model health canary — runs at 06:00 UTC to detect model deprecations
   // within hours. A single job triggers the canary; results are exposed on /api/health.
-  try {
+  const {
+    canaryAccountingIsConfigured,
+    canaryAccountingIsRequired,
+    markWorkerSchedulerDisabled,
+  } = await import("./ops/worker-readiness");
+  if (!canaryAccountingIsConfigured() && !canaryAccountingIsRequired()) {
+    const reason = "CANARY_ACCOUNTING_TEAM_ID is missing; real-provider canary disabled in development";
+    await markWorkerSchedulerDisabled(getRedisConnection(), "canary", reason);
+    console.warn(`⚠️ ${reason}. Worker readiness remains false.`);
+  } else try {
     const {
       runCanary,
       requireCanaryAccountingTeamId,
@@ -5096,10 +5292,12 @@ export async function registerWorkers() {
         reason: "canary: model-health probe (no tenant data)",
       },
     });
+    const { markWorkerScheduler } = await import("./ops/worker-readiness");
+    await markWorkerScheduler(getRedisConnection(), "canary");
     console.log("🐤 Daily model health canary registered (06:00 UTC)");
   } catch (error) {
     console.error("⚠️ Failed to register canary worker:", error);
-    // Non-critical — don't throw; other workers keep running
+    throw error;
   }
 
   // ── Stale reservation sweeper ──────────────────────────────────────────────
@@ -5123,26 +5321,35 @@ export async function registerWorkers() {
         reason: "reservation-sweeper: cross-tenant stale reservation release",
       },
     });
+    const { markWorkerScheduler } = await import("./ops/worker-readiness");
+    await markWorkerScheduler(getRedisConnection(), "reservation-sweeper");
     console.log("🧹 Stale reservation sweeper registered (every 6 hours)");
   } catch (error) {
     console.error("⚠️ Failed to register reservation sweeper:", error);
+    throw error;
   }
 
   // Start daily brief scheduler (runs every hour, checks per-user timezone + cadence)
   try {
     const { startBriefScheduler } = await import("./brief-scheduler");
     startBriefScheduler();
+    const { markWorkerScheduler } = await import("./ops/worker-readiness");
+    await markWorkerScheduler(getRedisConnection(), "brief");
     console.log("🕐 Daily brief scheduler started");
   } catch (error) {
     console.error("⚠️ Failed to start brief scheduler:", error);
+    throw error;
   }
 
   // Start comprehensive job recovery monitor
   try {
     const { startJobRecoveryMonitor } = await import("./job-recovery");
     startJobRecoveryMonitor(2); // Check every 2 minutes — halved from 5 to reduce stuck-article wait
+    const { markWorkerScheduler } = await import("./ops/worker-readiness");
+    await markWorkerScheduler(getRedisConnection(), "job-recovery");
   } catch (error) {
     console.error("⚠️ Failed to start job recovery monitor:", error);
+    throw error;
   }
 }
 
@@ -5743,7 +5950,16 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
     const connections = await db
       .select()
       .from(publishingConnections)
-      .where(inArray(publishingConnections.id, connectionIds));
+      .where(and(
+        inArray(publishingConnections.id, connectionIds),
+        eq(publishingConnections.teamId, batch.teamId)
+      ));
+
+    if (connections.length !== new Set(connectionIds).size) {
+      console.warn(
+        `⚠️ Auto-publish batch ${batchId}: rejected missing or cross-team connection IDs`
+      );
+    }
 
     const usableConnections = connections.filter(c => c.status === "active" || c.status === "pending");
 

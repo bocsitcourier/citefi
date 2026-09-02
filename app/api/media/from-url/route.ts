@@ -11,7 +11,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export async function POST(request: NextRequest) {
   try {
-    await requireTeamMember(request);
+    const { teamId } = await requireTeamMember(request);
 
     const body = await request.json();
     const { url, articleId, altText, assetType } = body;

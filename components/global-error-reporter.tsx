@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { csrfFetch } from "@/lib/queryClient";
 
 const DEDUP_WINDOW_MS = 5_000;
 const recentMessages = new Set<string>();
@@ -16,7 +17,7 @@ function reportError(payload: {
   recentMessages.add(key);
   setTimeout(() => recentMessages.delete(key), DEDUP_WINDOW_MS);
 
-  fetch("/api/client-errors", {
+  csrfFetch("/api/client-errors", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

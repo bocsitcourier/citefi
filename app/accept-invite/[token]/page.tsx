@@ -12,6 +12,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { csrfFetch } from "@/lib/queryClient";
 
 const acceptInviteSchema = z.object({
   fullName: z.string().min(2, 'Full name must be at least 2 characters'),
@@ -70,7 +71,7 @@ export default function AcceptInvitePage({ params }: { params: Promise<{ token: 
     setError('');
 
     try {
-      const res = await fetch(`/api/admin/invites/accept/${resolvedParams.token}`, {
+      const res = await csrfFetch(`/api/admin/invites/accept/${resolvedParams.token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

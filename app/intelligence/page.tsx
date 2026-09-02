@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { csrfFetch, queryClient } from "@/lib/queryClient";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card";
@@ -211,7 +211,7 @@ export default function BrandIntelligencePage() {
 
   const runMutation = useMutation({
     mutationFn: async ({ websiteUrl, companyName }: { websiteUrl: string; companyName: string }) => {
-      const res = await fetch("/api/intelligence/run", {
+      const res = await csrfFetch("/api/intelligence/run", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -232,7 +232,7 @@ export default function BrandIntelligencePage() {
 
   const overrideMutation = useMutation({
     mutationFn: async (overrides: Record<string, unknown>) => {
-      const res = await fetch("/api/intelligence", {
+      const res = await csrfFetch("/api/intelligence", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -718,7 +718,7 @@ export default function BrandIntelligencePage() {
               Paste examples of your best-performing or most on-brand content. The AI learns from these when generating new content.
             </p>
             <AddExemplarForm onSave={async (ex) => {
-              const res = await fetch("/api/intelligence", {
+              const res = await csrfFetch("/api/intelligence", {
                 method: "PATCH",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
@@ -793,7 +793,7 @@ function MarketIntelligenceSection() {
 
   const researchMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/intelligence/competitive-research", {
+      const res = await csrfFetch("/api/intelligence/competitive-research", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

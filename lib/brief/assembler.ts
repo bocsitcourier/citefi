@@ -6,7 +6,7 @@ import {
   audiencePersonas, 
   batchSeoCache, 
   clientBrandProfiles 
-} from "@shared/schema";
+} from "@/shared/schema";
 import { eq, and, desc, gte, sql, lt } from "drizzle-orm";
 
 export interface BriefContext {
@@ -145,8 +145,9 @@ export async function assembleBriefContext(
 
   // Compute days since last article
   let daysSinceLastArticle: number | null = null;
-  if (recentArticles.length > 0 && recentArticles[0].createdAt) {
-    const lastDate = new Date(recentArticles[0].createdAt);
+  const mostRecentArticle = recentArticles[0];
+  if (mostRecentArticle?.createdAt) {
+    const lastDate = new Date(mostRecentArticle.createdAt);
     daysSinceLastArticle = Math.floor((now.getTime() - lastDate.getTime()) / (24 * 60 * 60 * 1000));
   }
 
@@ -180,7 +181,7 @@ export interface ScoredAction {
 
 export interface ScoringResult {
   scored: ScoredAction[];
-  top: ScoredAction;
+  top: ScoredAction | undefined;
 }
 
 /**

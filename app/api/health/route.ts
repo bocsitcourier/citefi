@@ -7,7 +7,6 @@ import { sql, and, eq, gte } from "drizzle-orm";
 import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { systemDb as db } from "@/lib/db";
 import { errorLogs } from "@/shared/schema";
-import { getAllModels, getGeminiValidationStatus, isResolverReady } from "@/lib/model-resolver";
 import { getProviderCircuitStatus } from "@/lib/provider-circuit-breaker";
 import { evaluateCanaryHealth, getLastCanaryResult } from "@/lib/canary-worker";
 import { ALL_QUEUE_NAMES, getQueue, getRedisClientConfig, getRedisConnection } from "@/lib/queue";
@@ -15,24 +14,14 @@ import {
   collectHealth,
   healthThresholdsFromEnv,
   safeMessage,
+  capabilityPolicyFromEnv,
   type StatusFile,
 } from "@/lib/ops/health";
 import { WORKER_HEARTBEAT_KEY } from "@/lib/ops/worker-heartbeat";
+import { readWorkerReadiness } from "@/lib/ops/worker-readiness";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-function checkModels() {
-  const ready = isResolverReady();
-  const models = getAllModels();
-  const warnings: string[] = [];
-  if (!ready) warnings.push("Model resolver has not run — showing configured defaults");
-  const gemini = getGeminiValidationStatus();
-  if (!gemini.checked) warnings.push("Gemini model validation has not run yet");
-  else if (!gemini.available) warnings.push("Gemini model validation is unavailable");
-  else if (gemini.unrecognizedModels.length) warnings.push("One or more Gemini model IDs are unrecognized");
-  return { ok: gemini.available && gemini.unrecognizedModels.length === 0, ready, models, warnings };
-}
 
 async function transientRedisPing(): Promise<void> {
   const Redis = (await import("ioredis")).default;
@@ -100,6 +89,7 @@ export async function GET(_request: NextRequest) {
     database: async () => { await db.execute(sql`SELECT 1`); },
     redis: transientRedisPing,
     workerHeartbeat: () => getRedisConnection().get(WORKER_HEARTBEAT_KEY),
+    workerReadiness: () => readWorkerReadiness(getRedisConnection()),
     queues: async () => Object.fromEntries(await Promise.all(queueNames.map(async (name) => {
       const queue = getQueue(name);
       const [waiting, active, failed] = await Promise.all([
@@ -113,6 +103,14 @@ export async function GET(_request: NextRequest) {
       return { result: { ...result }, health: evaluateCanaryHealth(result) };
     },
     storage: checkStorage,
+    models: async () => {
+      const readiness = await readWorkerReadiness(getRedisConnection());
+      return {
+        ready: readiness?.modelsReady === true && readiness.failureReason == null,
+        message: readiness?.failureReason ?? (readiness ? undefined : "Worker model resolution has not been recorded"),
+        details: readiness ? { releaseVersion: readiness.releaseVersion } : undefined,
+      };
+    },
     backupStatus: () => readStatusFile(
       process.env.BACKUP_STATUS_FILE ??
       (process.env.NODE_ENV === "production" ? "/var/backups/citefi-db/status.json" : undefined)
@@ -127,7 +125,7 @@ export async function GET(_request: NextRequest) {
         .where(and(eq(errorLogs.severity, "critical"), gte(errorLogs.createdAt, since)));
       return Number(row?.count ?? 0);
     },
-  }, healthThresholdsFromEnv());
+  }, healthThresholdsFromEnv(), capabilityPolicyFromEnv());
 
   const canary = report.services.canary as Record<string, unknown>;
   report.services.canary = {
@@ -158,8 +156,6 @@ export async function GET(_request: NextRequest) {
     checkStatus: providerCircuits.status,
     ...(providerCircuits.message ? { message: providerCircuits.message } : {}),
   };
-  report.services.models = checkModels();
-
   // Keep the established top-level healthy/degraded contract while exposing
   // the more precise operational state separately.
   return NextResponse.json({

@@ -6,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { teamId, role: callerRole } = await requireTeamMember(req);
@@ -18,7 +18,8 @@ export async function DELETE(
       );
     }
 
-    const inviteId = parseInt(params.id, 10);
+    const { id } = await params;
+    const inviteId = parseInt(id, 10);
     if (isNaN(inviteId) || inviteId <= 0) {
       return NextResponse.json({ error: "Invalid invite ID" }, { status: 400 });
     }

@@ -38,6 +38,7 @@ jobs:
       - name: Deploy with shared release runner
         env:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: citefi
           DO_APP_DIR: /var/www/citefi

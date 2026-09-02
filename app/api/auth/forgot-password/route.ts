@@ -77,10 +77,6 @@ export async function POST(req: Request) {
       severity: "info",
     });
 
-    if (process.env.NODE_ENV === "development") {
-      console.log(`🔐 Password reset code for ${user.email}: ${code}`);
-    }
-
     await deliverEmail({
       to: user.email,
       subject: "Your Citefi password reset code",

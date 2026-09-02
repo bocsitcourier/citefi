@@ -14,7 +14,13 @@ export type ProductType = keyof typeof CREDIT_COSTS;
 
 export async function getCreditBalance(teamId: number): Promise<number> {
   const [row] = await db
-    .select({ balance: creditBalances.balance })
+    .select({
+      balance: sql<number>`GREATEST(
+        ${creditBalances.allowanceCredits} - ${creditBalances.allowanceUsed} - ${creditBalances.allowanceDebt}, 0
+      ) + GREATEST(
+        ${creditBalances.purchasedCredits} - ${creditBalances.purchasedUsed} - ${creditBalances.purchasedDebt}, 0
+      ) - ${creditBalances.reservedCredits}`,
+    })
     .from(creditBalances)
     .where(eq(creditBalances.teamId, teamId));
   return row?.balance ?? 0;
@@ -155,10 +161,12 @@ export async function grantCredits(opts: GrantOptions): Promise<{ balance: numbe
       .update(creditBalances)
       .set({
         balance: sql`${creditBalances.balance} + ${amount}`,
+        purchasedCredits: sql`${creditBalances.purchasedCredits} + ${amount}`,
         updatedAt: new Date(),
       })
       .where(eq(creditBalances.teamId, teamId))
       .returning({ balance: creditBalances.balance });
+    if (!updated) throw new Error(`Credit balance row missing for team ${teamId}`);
 
     const [ledger] = await tx
       .insert(creditLedger)
@@ -168,11 +176,13 @@ export async function grantCredits(opts: GrantOptions): Promise<{ balance: numbe
         amount,
         balanceAfter: updated.balance,
         eventType: eventType ?? "grant",
+        bucket: "purchased",
         sourceType: sourceType ?? null,
         idempotencyKey: idempotencyKey ?? null,
         reason: reason ?? `Grant of ${amount} credits`,
       })
       .returning({ id: creditLedger.id });
+    if (!ledger) throw new Error("Credit grant ledger insert failed");
 
     return { balance: updated.balance, ledgerRowId: ledger.id };
   });
@@ -229,6 +239,7 @@ export async function refundCredits(opts: {
       })
       .where(eq(creditBalances.teamId, teamId))
       .returning({ balance: creditBalances.balance });
+    if (!updated) throw new Error(`Credit balance row missing for team ${teamId}`);
 
     await tx.insert(creditLedger).values({
       teamId,
@@ -255,27 +266,72 @@ export async function refundCredits(opts: {
  */
 export async function revokeGrantCredits(opts: {
   teamId: number;
-  adminUserId: number;
+  adminUserId?: number;
   grantLedgerRowId: number;
   amount: number;
   reason: string;
-}): Promise<{ balance: number }> {
+  /** Stripe refund/dispute ID. Omit only for legacy full-grant callers. */
+  reversalKey?: string;
+  /**
+   * Reconcile to this cumulative entitlement reversal. This is deliberately
+   * evaluated while the grant row is locked, so concurrent partial refunds
+   * cannot both calculate their delta from the same stale balance.
+   */
+  targetReversedCredits?: number;
+}): Promise<{ balance: number; reversed: number }> {
   const { teamId, adminUserId, grantLedgerRowId, amount, reason } = opts;
   const txDb = await getTxDb();
 
   return txDb.transaction(async (tx) => {
-    // Atomically mark the grant as reversed (idempotent via reversedAt IS NULL check)
+    if (!Number.isInteger(amount) || amount <= 0) throw new Error("Grant reversal amount must be a positive integer");
+    const reversalIdempotencyKey = grantReversalIdempotencyKey(
+      grantLedgerRowId, opts.reversalKey ?? String(amount)
+    );
+    const [existingReversal] = await tx.select({ id: creditLedger.id }).from(creditLedger)
+      .where(eq(creditLedger.idempotencyKey, reversalIdempotencyKey)).limit(1);
+    if (existingReversal) {
+      const [row] = await tx.select({ balance: creditBalances.balance }).from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId));
+      return { balance: row?.balance ?? 0, reversed: 0 };
+    }
+    const [grant] = await tx.select({
+      amount: creditLedger.amount,
+      reversedCredits: creditLedger.reversedCredits,
+    }).from(creditLedger).where(and(
+      eq(creditLedger.id, grantLedgerRowId),
+      eq(creditLedger.teamId, teamId),
+      sql`${creditLedger.eventType} = 'grant'`,
+    )).for("update");
+    if (!grant) throw new Error("Credit grant is unavailable for reversal");
+    const reversalAmount = opts.targetReversedCredits == null
+      ? amount
+      : Math.max(0, opts.targetReversedCredits - grant.reversedCredits);
+    if (opts.targetReversedCredits != null &&
+      (!Number.isInteger(opts.targetReversedCredits) || opts.targetReversedCredits < 0 ||
+        opts.targetReversedCredits > grant.amount)) {
+      throw new Error("Grant reversal target is invalid");
+    }
+    if (reversalAmount === 0) {
+      const [row] = await tx.select({ balance: creditBalances.balance }).from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId));
+      return { balance: row?.balance ?? 0, reversed: 0 };
+    }
+    // Claim only this exact grant's still-reversible entitlement. Partial
+    // reversals accumulate; reversedAt is set only when the grant is exhausted.
     const [marked] = await tx
       .update(creditLedger)
-      // Preserve idempotencyKey so Stripe webhook retries with the same invoice ID
-      // still find this row and short-circuit — preventing re-grant of refunded credits.
-      .set({ reversedAt: new Date() })
+      .set({
+        reversedCredits: sql`${creditLedger.reversedCredits} + ${reversalAmount}`,
+        reversedAt: sql`CASE WHEN ${creditLedger.reversedCredits} + ${reversalAmount} = ${creditLedger.amount}
+          THEN now() ELSE ${creditLedger.reversedAt} END`,
+      })
       .where(and(
         eq(creditLedger.id, grantLedgerRowId),
         eq(creditLedger.teamId, teamId),
-        isNull(creditLedger.reversedAt)
+        sql`${creditLedger.eventType} = 'grant'`,
+        sql`${creditLedger.reversedCredits} + ${reversalAmount} <= ${creditLedger.amount}`
       ))
-      .returning({ id: creditLedger.id });
+      .returning({ id: creditLedger.id, bucket: creditLedger.bucket });
 
     if (!marked) {
       // Already reversed by a previous call — return current balance without double-subtracting
@@ -283,27 +339,49 @@ export async function revokeGrantCredits(opts: {
         .select({ balance: creditBalances.balance })
         .from(creditBalances)
         .where(eq(creditBalances.teamId, teamId));
-      return { balance: row?.balance ?? 0 };
+      return { balance: row?.balance ?? 0, reversed: 0 };
     }
 
-    // Subtract the previously-granted credits. Balance may go negative if the customer
-    // has already spent some of the refunded credits.
+    const bucket = marked.bucket === "allowance" ? "allowance" : "purchased";
+    const credits = bucket === "allowance" ? creditBalances.allowanceCredits : creditBalances.purchasedCredits;
+    const used = bucket === "allowance" ? creditBalances.allowanceUsed : creditBalances.purchasedUsed;
+    const debt = bucket === "allowance" ? creditBalances.allowanceDebt : creditBalances.purchasedDebt;
+    // Remove unspent entitlement from the grant's native bucket. If some of it
+    // was spent, carry the shortfall as explicit bucket debt; never mutate only
+    // the legacy balance while leaving bucket credits spendable.
     const [updated] = await tx
       .update(creditBalances)
-      .set({ balance: sql`${creditBalances.balance} - ${amount}`, updatedAt: new Date() })
+      .set({
+        [bucket === "allowance" ? "allowanceCredits" : "purchasedCredits"]:
+           sql`${credits} - LEAST(${reversalAmount}, GREATEST(${credits} - ${used}, 0))`,
+        [bucket === "allowance" ? "allowanceDebt" : "purchasedDebt"]:
+           sql`${debt} + GREATEST(${reversalAmount} - GREATEST(${credits} - ${used}, 0), 0)`,
+        balance: sql`GREATEST(${creditBalances.balance} - ${reversalAmount}, 0)`,
+        updatedAt: new Date(),
+      })
       .where(eq(creditBalances.teamId, teamId))
       .returning({ balance: creditBalances.balance });
 
     // Record the reversal in the ledger for audit trail
     await tx.insert(creditLedger).values({
       teamId,
-      userId: adminUserId,
-      amount: -amount,
+      adminUserId: adminUserId ?? null,
+      amount: -reversalAmount,
       balanceAfter: updated?.balance ?? 0,
       eventType: "grant_reversal",
+      bucket,
+      sourceId: grantLedgerRowId,
+      idempotencyKey: reversalIdempotencyKey,
       reason,
     });
 
-    return { balance: updated?.balance ?? 0 };
+    return { balance: updated?.balance ?? 0, reversed: reversalAmount };
   });
+}
+
+export function grantReversalIdempotencyKey(grantLedgerRowId: number, reversalKey: string): string {
+  if (!Number.isInteger(grantLedgerRowId) || grantLedgerRowId <= 0 || !reversalKey) {
+    throw new Error("Grant reversal requires a ledger row and durable key");
+  }
+  return `grant-reversal:${grantLedgerRowId}:${reversalKey}`;
 }

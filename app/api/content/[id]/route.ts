@@ -72,6 +72,9 @@ export async function GET(
         { status: 404 }
       );
     }
+    if (article.teamId === null) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
     requireTeamResource(article.teamId, teamId);
 
     // Run remaining queries in parallel — they're all independent once we have the article
@@ -182,6 +185,9 @@ export async function PUT(
         { status: 404 }
       );
     }
+    if (article.teamId === null) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
     requireTeamResource(article.teamId, teamId);
 
     const updatePayload: any = {};
@@ -247,6 +253,9 @@ export async function DELETE(
         { status: 404 }
       );
     }
+    if (article.teamId === null) {
+      return NextResponse.json({ error: "Article not found" }, { status: 404 });
+    }
     requireTeamResource(article.teamId, teamId);
 
     const assets = await db
@@ -261,9 +270,7 @@ export async function DELETE(
       const { deleteFromStorage } = await import("@/lib/storage");
       for (const asset of assets) {
         try {
-          const urlParts = asset.storageUrl.split('/');
-          const key = urlParts.slice(3).join('/');
-          await deleteFromStorage(key);
+          await deleteFromStorage(asset.storageUrl);
         } catch (err: any) {
           console.warn(`Failed to delete asset from storage: ${asset.storageUrl}`, err);
         }

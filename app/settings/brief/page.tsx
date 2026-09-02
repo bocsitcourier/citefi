@@ -22,7 +22,11 @@ import { insertDailyBriefPreferenceSchema } from "@/shared/schema";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import * as z from "zod";
 
-const briefSettingsSchema = insertDailyBriefPreferenceSchema.extend({
+const briefSettingsSchema = insertDailyBriefPreferenceSchema.pick({
+  cadence: true,
+  timezone: true,
+  sendHourLocal: true,
+}).extend({
   emailEnabled: z.number(),
   inAppEnabled: z.number(),
 });
@@ -56,7 +60,7 @@ export default function BriefSettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: preferences, isLoading } = useQuery({
+  const { data: preferences, isLoading } = useQuery<Partial<BriefSettingsValues>>({
     queryKey: ["/api/briefs/preferences"],
   });
 

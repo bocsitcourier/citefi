@@ -6,6 +6,21 @@ import { readFileSync } from "node:fs";
 // the migration/RLS suite, while these cover the accounting contracts.
 process.env.DATABASE_URL ??= "postgres://unused:unused@localhost:5432/unused";
 const ledger = await import("../lib/provider-usage-ledger");
+const ceilings = await import("../lib/cost-ceilings");
+
+test("run ceiling accounting fails closed on unknown rates and ledger outages", async () => {
+  assert.equal(ceilings.authoritativeSpendMicrousd([
+    { costMicrousd: 125_000, rateVersionId: 1, providerRateId: 2 },
+    { costMicrousd: -25_000, rateVersionId: 1, providerRateId: 2 },
+  ]), 100_000);
+  assert.throws(() => ceilings.authoritativeSpendMicrousd([
+    { costMicrousd: 1, rateVersionId: null, providerRateId: null },
+  ]), /unknown rate/);
+  await assert.rejects(
+    ceilings.getRunSpend("outage-run", async () => { throw new Error("database unavailable"); }),
+    (error: any) => error?.code === "ACCOUNTING_UNAVAILABLE"
+  );
+});
 
 test("provider request source IDs are retry-idempotent", () => {
   const input = { provider: "openai", providerRequestId: "req_123", operationType: "other", model: "gpt-4o", unitType: "tokens", unitCount: 3, costMicrousd: 12 };

@@ -63,8 +63,6 @@ export function logAIConfig() {
   console.log(`   GPT Review:      ${GPT_REVIEW_MODEL}`);
   console.log(`   GPT Advanced:    ${GPT_ADVANCED_MODEL}`);
   console.log(`   TTS:             ${TTS_MODEL} (voice: ${TTS_VOICE})`);
-  console.log(`   Gemini API key:  ${process.env.GEMINI_API_KEY ? "✅ set" : "❌ MISSING"}`);
-  console.log(`   OpenAI API key:  ${process.env.OPENAI_API_KEY ? "✅ set" : "❌ MISSING"}`);
 }
 
 export const AI_CONFIG = {

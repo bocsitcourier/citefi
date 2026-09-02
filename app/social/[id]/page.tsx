@@ -47,6 +47,7 @@ import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 import { format } from "date-fns";
 
 interface SocialPostVariant {
@@ -193,7 +194,7 @@ export default function SocialPostDetailPage() {
       const formData = new FormData();
       formData.append("logo", file);
       
-      const response = await fetch("/api/upload/logo", {
+      const response = await csrfFetch("/api/upload/logo", {
         method: "POST",
         credentials: "include",
         body: formData,

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, getTxDb } from '@/lib/db';
+import { getTxDb } from '@/lib/db';
 import { userInvites, users, teamMembers, teams } from '@/shared/schema';
-import { eq, and, gt, count } from 'drizzle-orm';
+import { eq, and, gt, count, sql } from 'drizzle-orm';
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
+import { hashPassword, validatePassword } from '@/lib/auth';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import { BILLING_PLANS } from '@/lib/billing/plans';
 import { enterSystemContext } from '@/lib/tenant-context';
@@ -34,84 +34,63 @@ export async function POST(
       );
     }
 
-    if (!password || password.length < 8) {
+    const passwordValidation = validatePassword(password || "");
+    if (!passwordValidation.isValid) {
       return NextResponse.json(
-        { error: 'Password must be at least 8 characters' },
+        { error: passwordValidation.errors[0], errors: passwordValidation.errors },
         { status: 400 }
       );
     }
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    const [invite] = await db
-      .select()
-      .from(userInvites)
-      .where(
-        and(
-          eq(userInvites.tokenHash, tokenHash),
-          eq(userInvites.status, 'pending'),
-          gt(userInvites.expiresAt, new Date())
-        )
-      )
-      .limit(1);
-
-    if (!invite) {
-      return NextResponse.json(
-        { error: 'Invalid or expired invite link' },
-        { status: 404 }
-      );
-    }
-
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, invite.email))
-      .limit(1);
-
-    if (existingUser.length > 0) {
-      return NextResponse.json(
-        { error: 'An account with this email already exists' },
-        { status: 400 }
-      );
-    }
-
-    // ── Seat limit enforcement (second gate at accept time) ────────────────
-    // Rechecks the limit to handle plan downgrades that occurred after the
-    // invite was created, or edge cases where multiple invites were in-flight.
-    const teamId = invite.teamId ?? null;
-    if (teamId !== null) {
-      const [teamRow] = await db
-        .select({ billingPlan: teams.billingPlan })
-        .from(teams)
-        .where(eq(teams.id, teamId))
-        .limit(1);
-
-      const planKey = (teamRow?.billingPlan ?? 'free') as keyof typeof BILLING_PLANS;
-      const plan = BILLING_PLANS[planKey] ?? BILLING_PLANS.free;
-      const maxSeats = plan.maxSeats;
-
-      if (maxSeats !== null) {
-        const [memberCountRow] = await db
-          .select({ n: count() })
-          .from(teamMembers)
-          .where(eq(teamMembers.teamId, teamId));
-
-        const currentMembers = memberCountRow?.n ?? 0;
-        if (currentMembers >= maxSeats) {
-          return NextResponse.json({
-            error: `This team has reached its seat limit (${maxSeats} seat${maxSeats !== 1 ? 's' : ''} on the ${plan.name} plan). Please contact the team admin.`,
-          }, { status: 402 });
-        }
-      }
-    }
-    // ── End seat limit enforcement ──────────────────────────────────────────
-
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await hashPassword(password);
 
     const txDb = getTxDb();
     let newUser: typeof users.$inferSelect;
 
     await txDb.transaction(async (tx) => {
+      const inviteResult = await tx.execute(sql`
+        SELECT * FROM user_invites
+        WHERE token_hash = ${tokenHash} AND status = 'pending' AND expires_at > now()
+        FOR UPDATE
+      `);
+      const invite = (inviteResult.rows?.[0] ?? null) as any;
+      if (!invite) {
+        const error: any = new Error('Invalid or expired invite link');
+        error.statusCode = 404;
+        throw error;
+      }
+      const teamId = invite.team_id as number | null;
+      if (teamId !== null) {
+        const teamResult = await tx.execute(sql`
+          SELECT id, billing_plan, client_status, deleted_at FROM teams
+          WHERE id = ${teamId} FOR UPDATE
+        `);
+        const team = teamResult.rows?.[0] as any;
+        if (!team || team.deleted_at || team.client_status !== 'active') {
+          const error: any = new Error('Invited team is no longer active');
+          error.statusCode = 409;
+          throw error;
+        }
+        const plan = BILLING_PLANS[(team.billing_plan ?? 'free') as keyof typeof BILLING_PLANS] ?? BILLING_PLANS.free;
+        if (plan.maxSeats !== null) {
+          const [memberCount] = await tx.select({ n: count() }).from(teamMembers)
+            .where(eq(teamMembers.teamId, teamId));
+          if ((memberCount?.n ?? 0) >= plan.maxSeats) {
+            const error: any = new Error(`This team has reached its seat limit (${plan.maxSeats} seats on the ${plan.name} plan).`);
+            error.statusCode = 402;
+            throw error;
+          }
+        }
+      }
+      const [existing] = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.email, invite.email)).limit(1);
+      if (existing) {
+        const error: any = new Error('An account with this email already exists');
+        error.statusCode = 409;
+        throw error;
+      }
       const insertedUsers = await tx
         .insert(users)
         .values({
@@ -150,7 +129,7 @@ export async function POST(
           acceptedAt: new Date(),
           acceptedBy: newUser.id,
         })
-        .where(eq(userInvites.id, invite.id));
+        .where(and(eq(userInvites.id, invite.id), eq(userInvites.status, 'pending')));
     });
 
     return NextResponse.json({
@@ -166,7 +145,7 @@ export async function POST(
     console.error('Error accepting invite:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to accept invite' },
-      { status: 500 }
+      { status: error.statusCode || (error.code === '23505' ? 409 : 500) }
     );
   }
 }

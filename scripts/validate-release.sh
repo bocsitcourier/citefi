@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Focused release gate for production operations controls. The repository-wide
-# TypeScript check has unrelated legacy failures and is tracked separately; do
-# not make deploy safety depend on an already-red baseline.
+# Authoritative release gate. Artifact transport and CI both invoke this exact
+# command before a production build can be transferred.
 set -euo pipefail
 
+npm run check
 npm run test:deploy-contract
 npm run test:ops

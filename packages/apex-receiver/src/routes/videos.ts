@@ -6,6 +6,7 @@ import { downloadMedia } from '../services/media-downloader';
 import { sendCallback, createSuccessCallback, createFailureCallback } from '../services/callbacks';
 import { getConfig } from '../config';
 import { logger } from '../utils/logger';
+import { createSafeSlug, resolvePathWithin } from '../utils/safePaths';
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.post('/', async (req: Request, res: Response) => {
   });
 
   try {
-    const slug = sanitizeSlug(video.title);
+    const slug = createSafeSlug(video.title);
     const config = getConfig();
 
     // Download the main video file
@@ -82,9 +83,9 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Write HTML page
     const pageHtml = generateVideoPage(video, videoResult.publicUrl, thumbnailPublicUrl);
-    const pagesDir = path.join(config.storagePath, '..', 'pages', 'videos');
+    const pagesDir = path.resolve(config.storagePath, '..', 'pages', 'videos');
     await fs.mkdir(pagesDir, { recursive: true });
-    const pagePath = path.join(pagesDir, `${slug}.html`);
+    const pagePath = resolvePathWithin(pagesDir, `${slug}.html`);
     await fs.writeFile(pagePath, pageHtml, 'utf-8');
 
     const pageUrl = `${config.baseUrl}/videos/${slug}`;
@@ -181,15 +182,6 @@ ${JSON.stringify(jsonLd, null, 2)}
   </article>
 </body>
 </html>`;
-}
-
-function sanitizeSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80);
 }
 
 export default router;

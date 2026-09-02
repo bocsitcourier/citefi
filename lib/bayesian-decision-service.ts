@@ -329,6 +329,9 @@ export async function createPolicy(data: {
       active: true,
     })
     .returning();
+  if (!policy) {
+    throw new Error("Decision policy insert did not return a row");
+  }
   return policy;
 }
 
@@ -365,5 +368,8 @@ export async function createArm(data: {
       active: true,
     })
     .returning();
+  if (!arm) {
+    throw new Error("Decision arm insert did not return a row");
+  }
   return arm;
 }

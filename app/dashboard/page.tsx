@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 import {
   Loader2, Sparkles, CheckCircle2, Clock, Network, ChevronDown, ChevronUp,
   Calendar, Send, UploadCloud, X, RefreshCw, ArrowRight, FileText,
@@ -548,7 +549,7 @@ export default function Dashboard() {
     try {
       const fd = new FormData();
       fd.append("logo", file);
-      const res = await fetch("/api/upload/logo", {
+      const res = await csrfFetch("/api/upload/logo", {
         method: "POST",
         credentials: "include",
         body: fd,

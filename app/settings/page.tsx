@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest } from "@/lib/queryClient";
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays, Trash2, TriangleAlert, Download } from "lucide-react";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Smartphone, CreditCard, Users, BarChart2, ChevronRight, CalendarDays, Trash2, TriangleAlert, Download, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -522,7 +522,7 @@ function ExportDataCard() {
   async function handleExport() {
     setIsPending(true);
     try {
-      const res = await fetch("/api/account/export", {
+      const res = await csrfFetch("/api/account/export", {
         method: "POST",
         credentials: "include",
       });

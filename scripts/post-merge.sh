@@ -26,3 +26,11 @@ node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts
 # the report tables idempotently, this installs the client/financial separation,
 # direct-child RLS, immutable snapshot triggers, and append-only delivery audit.
 node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts
+
+# Apply the tracked post-schema migrations. Starting at 0022 avoids replaying
+# historical task migrations already handled above, while retaining the same
+# checksum ledger and advisory lock used by immutable production releases.
+# These migrations tolerate objects already created by db:push and keep
+# backfills conflict-safe, so merged/fresh development environments converge.
+MIGRATION_START_VERSION=0022 \
+  node --env-file=.env.local --import tsx/esm scripts/run-versioned-migrations.ts

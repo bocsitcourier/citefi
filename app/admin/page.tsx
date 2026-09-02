@@ -18,6 +18,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import Link from "next/link";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface DashboardData {
   summary: {
@@ -347,7 +348,7 @@ export default function AdminDashboard() {
                   className="w-full"
                   variant="outline"
                   onClick={async () => {
-                    const res = await fetch('/api/admin/requeue-failed', { method: 'POST' });
+                    const res = await csrfFetch('/api/admin/requeue-failed', { method: 'POST' });
                     const data = await res.json();
                     alert(`Requeued ${data.requeued || 0} failed jobs`);
                     refetch();
@@ -361,7 +362,7 @@ export default function AdminDashboard() {
                   className="w-full"
                   variant="outline"
                   onClick={async () => {
-                    const res = await fetch('/api/admin/requeue-pending', { method: 'POST' });
+                    const res = await csrfFetch('/api/admin/requeue-pending', { method: 'POST' });
                     const data = await res.json();
                     alert(`Requeued ${data.requeued || 0} pending jobs`);
                     refetch();

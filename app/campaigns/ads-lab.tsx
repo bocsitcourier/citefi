@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 import type { Campaign, CampaignAd, AdsPlatform } from "./campaign-types";
 import { useCampaignAds, useGenerateCampaignAds } from "./use-campaigns";
 
@@ -46,6 +47,7 @@ export function AdsLab({ campaign }: { campaign: Campaign }) {
   const [platform, setPlatform] = useState<AdsPlatform>("google");
   const [landingUrl, setLandingUrl] = useState(campaign.businessUrl);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [approvingType, setApprovingType] = useState<"client" | "policy" | "export" | null>(null);
   const ads = data?.ads || [];
   const platformAds = useMemo(() => ads.filter((ad) => platform === "google" ? Boolean(ad.googleAssets) : Boolean(ad.metaAssets)), [ads, platform]);
   const selectedAd = platformAds[0] || ads[0];
@@ -56,7 +58,15 @@ export function AdsLab({ campaign }: { campaign: Campaign }) {
   const generatedReady = Boolean(selectedAd) && validationErrors.length === 0 && !policyBlocks;
   const readinessChecks = [brandConfirmed, Boolean(landingUrl.trim()), Boolean(selectedAd), generatedReady];
   const readyCount = readinessChecks.filter(Boolean).length;
-  const exportReady = generatedReady && acknowledged;
+  const latestApprovals = useMemo(() => {
+    const latest = new Map<string, "approved" | "rejected">();
+    for (const approval of data?.approvals || []) {
+      if (approval.campaignAdId === selectedAd?.id && !latest.has(approval.approvalType)) latest.set(approval.approvalType, approval.decision);
+    }
+    return latest;
+  }, [data?.approvals, selectedAd?.id]);
+  const requiredApprovalsClear = ["client", "policy", "export"].every((type) => latestApprovals.get(type) === "approved");
+  const exportReady = generatedReady && acknowledged && requiredApprovalsClear;
 
   const generateAds = () => generate.mutate({
     requestKey: `${campaign.publicId}-${Date.now()}`,
@@ -74,18 +84,6 @@ export function AdsLab({ campaign }: { campaign: Campaign }) {
       const ad = selectedAd;
       if (!ad?.publicId) throw new Error("Select a generated ad pack before exporting");
       const acknowledgementText = "I have reviewed this export-only ad pack and will upload it manually.";
-      for (const approvalType of ["client", "policy", "export"] as const) {
-        const approval = await fetch(`/api/campaigns/${campaign.publicId}/ads/${ad.publicId}/approve`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ approvalType, decision: "approved", humanAcknowledged: true, acknowledgementText }),
-        });
-        if (!approval.ok) {
-          const body = await approval.json().catch(() => ({}));
-          throw new Error(body.error || "Internal approval could not be recorded");
-        }
-      }
       const response = await fetch(`/api/campaigns/${campaign.publicId}/ads/${ad.publicId}/export`, {
         method: "GET",
         credentials: "include",
@@ -101,6 +99,26 @@ export function AdsLab({ campaign }: { campaign: Campaign }) {
       toast({ title: "Ads export downloaded", description: notice });
     } catch (error) {
       toast({ title: "Export failed", description: error instanceof Error ? error.message : "Try again shortly.", variant: "destructive" });
+    }
+  };
+
+  const submitApproval = async (approvalType: "client" | "policy" | "export") => {
+    if (!selectedAd?.publicId) return;
+    setApprovingType(approvalType);
+    try {
+      await apiRequest(`/api/campaigns/${campaign.publicId}/ads/${selectedAd.publicId}/approve`, {
+        method: "POST",
+        body: JSON.stringify({
+          approvalType, decision: "approved", humanAcknowledged: true,
+          acknowledgementText: "I have personally reviewed this export-only ad pack.",
+        }),
+      });
+      await refetch();
+      toast({ title: `${approvalType === "policy" ? "Compliance" : approvalType} approval recorded` });
+    } catch (error) {
+      toast({ title: "Approval unavailable", description: error instanceof Error ? error.message : "You are not authorized for this approval.", variant: "destructive" });
+    } finally {
+      setApprovingType(null);
     }
   };
 
@@ -143,6 +161,19 @@ export function AdsLab({ campaign }: { campaign: Campaign }) {
       </CardContent>
     </Card>
 
+    <Card className="border-[#5B7F6F]/30 bg-card shadow-[0_12px_32px_rgba(28,43,45,0.05)]">
+      <CardContent className="space-y-3 p-4">
+        <div><p className="font-semibold">Required independent approvals</p><p className="mt-1 text-sm text-muted-foreground">Client, compliance, and agency export approval must be recorded by different authorized people.</p></div>
+        {(["client", "policy", "export"] as const).map((approvalType) => {
+          const decision = latestApprovals.get(approvalType);
+          const label = approvalType === "policy" ? "Compliance approval" : approvalType === "client" ? "Client approval" : "Agency export approval";
+          return <div key={approvalType} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div><p className="text-sm font-medium">{label}</p><p className="text-xs text-muted-foreground">{decision === "approved" ? "Recorded" : decision === "rejected" ? "Rejected; requires a new review." : "Awaiting its authorized reviewer."}</p></div>
+            {decision === "approved" ? <Badge className="bg-[#5B7F6F]">Approved</Badge> : <Button type="button" variant="outline" size="sm" disabled={!selectedAd || approvingType !== null} onClick={() => submitApproval(approvalType)}>{approvingType === approvalType ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Record {label.toLowerCase()}</Button>}
+          </div>;
+        })}
+      </CardContent>
+    </Card>
     <Card className="border-[#5B7F6F]/30 bg-card shadow-[0_12px_32px_rgba(28,43,45,0.05)]">
       <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><Checkbox id="ads-acknowledgement" checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} className="mt-0.5 h-5 w-5" /><Label htmlFor="ads-acknowledgement" className="cursor-pointer text-sm leading-5"><span className="font-semibold">I reviewed this complete ad pack and will upload it manually.</span><span className="mt-1 block text-muted-foreground">{notice}</span></Label></div><Button onClick={exportAds} disabled={!exportReady} className="min-h-11 w-full shrink-0 sm:w-auto"><Download className="mr-2 h-4 w-4" />Export complete Ads handoff</Button></CardContent>
     </Card>

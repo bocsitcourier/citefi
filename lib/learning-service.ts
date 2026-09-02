@@ -275,6 +275,10 @@ export class LearningService {
       campaignId?: number | null;
     }
   ): Promise<OptimizationContext> {
+    if (!agent.teamId) {
+      throw new Error(`Learning agent ${agent.id} has no owning team`);
+    }
+    const agentTeamId = agent.teamId;
     // Fetch ALL non-archived patterns for this agent.
     // Archived patterns were underperformers flagged by the weekly archiving job.
     // Defense-in-depth: scope by both agentId AND teamId so a spoofed agentId
@@ -285,7 +289,7 @@ export class LearningService {
       .where(
         and(
           eq(learningPatterns.agentId, agent.id),
-          eq(learningPatterns.teamId, agent.teamId),
+          eq(learningPatterns.teamId, agentTeamId),
           eq(learningPatterns.isArchived, false)
         )
       )
@@ -315,7 +319,7 @@ export class LearningService {
     for (const s of dimStats) statMap.set(statKey(s.patternId, s.dimension), s);
 
     // Data-maturity check → determines prior strength for Thompson Sampling.
-    const maturity = await this.teamDataMaturity(agent.teamId!, agent.contentType);
+    const maturity = await this.teamDataMaturity(agentTeamId, agent.contentType);
 
     // Pre-fetch active arms BEFORE computing metric weights so terminalKpi can be resolved
     // from the arm's own stored config. This makes KPI-aware weighting universal across ALL
@@ -325,7 +329,7 @@ export class LearningService {
       .select()
       .from(variantArms)
       .where(and(
-        eq(variantArms.teamId, agent.teamId!),
+        eq(variantArms.teamId, agentTeamId),
         eq(variantArms.contentType, agent.contentType),
         eq(variantArms.isActive, true)
       ));
@@ -337,7 +341,7 @@ export class LearningService {
     // This ensures a batch with terminalKpi='conversion' always wins over the arm's
     // default, allowing the same content type to use different weights across journeys.
     const resolvedTerminalKpi: string | undefined =
-      options?.terminalKpi ?? treatmentArmConfig?.terminalKpi;
+      options?.terminalKpi ?? treatmentArmConfig?.terminalKpi ?? undefined;
 
     console.log(
       `[DECISIONING_MATURITY] type=${agent.contentType} maturity=${maturity} patterns=${allPatterns.length} terminalKpi=${resolvedTerminalKpi ?? 'default'}`

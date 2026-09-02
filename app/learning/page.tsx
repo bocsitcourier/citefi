@@ -1621,7 +1621,10 @@ export default function LearningDashboard() {
                         review:          "/learning?tab=experiments",
                         monitor:         "/monitoring",
                       };
-                      const { Icon, color } = iconMap[action.actionType] ?? iconMap.monitor;
+                      const { Icon, color } = iconMap[action.actionType] ?? {
+                        Icon: Activity,
+                        color: "text-muted-foreground",
+                      };
                       const ctaHref = ctaHrefMap[action.actionType] ?? "/learning";
                       const priorityColor = action.priority === 1 ? "destructive"
                         : action.priority === 2 ? "default"

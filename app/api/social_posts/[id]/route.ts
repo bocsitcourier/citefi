@@ -57,6 +57,9 @@ export async function GET(
         { status: 404 }
       );
     }
+    if (post.teamId === null) {
+      return NextResponse.json({ error: "Social post not found or access denied" }, { status: 404 });
+    }
     requireTeamResource(post.teamId, teamId);
 
     // Fetch all platform variants for this post
@@ -104,6 +107,9 @@ export async function PUT(
         { error: "Social post not found or access denied" },
         { status: 404 }
       );
+    }
+    if (existingPost.teamId === null) {
+      return NextResponse.json({ error: "Social post not found or access denied" }, { status: 404 });
     }
     requireTeamResource(existingPost.teamId, teamId);
 
@@ -183,6 +189,9 @@ export async function PATCH(
         { status: 404 }
       );
     }
+    if (existingPost.teamId === null) {
+      return NextResponse.json({ error: "Social post not found" }, { status: 404 });
+    }
     requireTeamResource(existingPost.teamId, teamId);
 
     const [updatedPost] = await db
@@ -249,6 +258,9 @@ export async function DELETE(
         { error: "Social post not found or access denied" },
         { status: 404 }
       );
+    }
+    if (existingPost.teamId === null) {
+      return NextResponse.json({ error: "Social post not found or access denied" }, { status: 404 });
     }
     requireTeamResource(existingPost.teamId, teamId);
 

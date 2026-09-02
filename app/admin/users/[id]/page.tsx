@@ -119,7 +119,7 @@ function fmtDate(date: string | null | undefined) {
 function UserAvatar({ name, email }: { name: string | null; email: string }) {
   const initials = name
     ? name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
-    : email[0].toUpperCase();
+    : (email[0]?.toUpperCase() ?? "?");
   return (
     <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
       <span className="text-xl font-semibold text-primary">{initials}</span>

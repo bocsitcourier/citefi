@@ -6,6 +6,13 @@ import {
   safeMessage,
   type HealthDependencies,
 } from "../../lib/ops/health";
+import { assertPortAvailable } from "../../lib/ops/port-guard";
+import {
+  canaryAccountingIsConfigured,
+  canaryAccountingIsRequired,
+  isDevelopmentCanaryOnlyUnready,
+  type WorkerReadinessState,
+} from "../../lib/ops/worker-readiness";
 
 const NOW = Date.parse("2026-02-20T12:00:00.000Z");
 
@@ -15,6 +22,15 @@ function healthyDeps(): HealthDependencies {
     database: async () => {},
     redis: async () => {},
     workerHeartbeat: async () => new Date(NOW - 1_000).toISOString(),
+    workerReadiness: async () => ({
+      ready: true,
+      registeredAt: new Date(NOW - 2_000).toISOString(),
+      releaseVersion: "test",
+      requiredRegistrations: { "pipeline-workers": true },
+      requiredSchedulers: { "job-monitor": true, "provider-circuit": true, "spend-breaker": true },
+      modelsReady: true,
+      failureReason: null,
+    }),
     queues: async () => ({
       "article-generation": { waiting: 0, active: 1, failed: 0 },
     }),
@@ -34,6 +50,7 @@ function healthyDeps(): HealthDependencies {
       health: { ok: true, stale: false, reason: null },
     }),
     storage: async () => ({ configured: true, providers: { doSpaces: true } }),
+    models: async () => ({ ready: true }),
     backupStatus: async () => ({
       state: "success",
       completedAt: new Date(NOW - 60_000).toISOString(),
@@ -124,4 +141,107 @@ test("bounds, redacts, and fails timed out checks deterministically", async () =
   assert.equal(safe.includes("hunter2"), false);
   assert.equal(safe.includes("abcdef"), false);
   assert.ok(safe.length <= 160);
+});
+
+test("fails closed for missing required storage, models, backup, and worker registration", async () => {
+  const deps = healthyDeps();
+  deps.storage = async () => ({ configured: false, providers: { doSpaces: false } });
+  deps.models = async () => ({ ready: false, message: "critical tier unresolved" });
+  deps.backupStatus = async () => null;
+  deps.workerReadiness = async () => ({
+    ready: false,
+    registeredAt: null,
+    releaseVersion: "test",
+    requiredRegistrations: { "pipeline-workers": false },
+    requiredSchedulers: { "job-monitor": true },
+    modelsReady: false,
+    failureReason: "required registration failed",
+  });
+  const report = await collectHealth(deps);
+  assert.equal(report.ok, false);
+  for (const name of ["storage", "models", "backup", "worker"]) {
+    assert.equal((report.services[name] as { status: string }).status, "fail");
+  }
+});
+
+test("disabled media is explicit and does not require storage", async () => {
+  const deps = healthyDeps();
+  deps.storage = async () => ({ configured: false, providers: { doSpaces: false } });
+  const report = await collectHealth(deps, DEFAULT_HEALTH_THRESHOLDS, {
+    mediaEnabled: false,
+    storageRequired: false,
+    backupRequired: true,
+    modelsRequired: true,
+  });
+  assert.equal(report.ok, true);
+  assert.deepEqual(
+    {
+      status: (report.services.storage as { status: string }).status,
+      reason: (report.services.storage as { reason: string }).reason,
+    },
+    { status: "skipped", reason: "disabled-by-policy" },
+  );
+});
+
+test("occupied port fails deterministically without terminating its owner", async () => {
+  let probes = 0;
+  await assert.rejects(
+    assertPortAvailable(5000, async () => {
+      probes += 1;
+      return false;
+    }),
+    /Port 5000 is already in use; refusing to terminate an unowned process/,
+  );
+  assert.equal(probes, 1);
+});
+
+test("canary accounting remains fail-closed in production and certification", () => {
+  assert.equal(canaryAccountingIsConfigured(undefined), false);
+  assert.equal(canaryAccountingIsConfigured("0"), false);
+  assert.equal(canaryAccountingIsConfigured("42"), true);
+  assert.equal(canaryAccountingIsRequired({ NODE_ENV: "production" }), true);
+  assert.equal(canaryAccountingIsRequired({ NODE_ENV: "development", READINESS_CERTIFICATION: "true" }), true);
+  assert.equal(canaryAccountingIsRequired({ NODE_ENV: "development", DEPLOY_ENVIRONMENT: "staging" }), true);
+  assert.equal(canaryAccountingIsRequired({ NODE_ENV: "development" }), false);
+});
+
+test("development can keep workers alive only for an explicitly disabled canary", async () => {
+  const state: WorkerReadinessState = {
+    version: 1,
+    ready: false,
+    releaseVersion: "test",
+    startedAt: new Date(NOW).toISOString(),
+    registeredAt: null,
+    updatedAt: new Date(NOW).toISOString(),
+    requiredRegistrations: { "pipeline-workers": true },
+    requiredSchedulers: {
+      "job-monitor": true,
+      "provider-circuit": true,
+      "spend-breaker": true,
+      "scheduled-content": true,
+      canary: false,
+      "reservation-sweeper": true,
+      brief: true,
+      "job-recovery": true,
+    },
+    disabledSchedulers: {
+      canary: "CANARY_ACCOUNTING_TEAM_ID is missing; real-provider canary disabled in development",
+    },
+    modelsReady: true,
+    failureReason: null,
+  };
+  assert.equal(isDevelopmentCanaryOnlyUnready(state, { NODE_ENV: "development" }), true);
+
+  const deps = healthyDeps();
+  deps.workerReadiness = async () => state;
+  const report = await collectHealth(deps);
+  assert.equal(report.ok, false);
+  assert.equal((report.services.worker as { status: string }).status, "fail");
+  assert.match(
+    (report.services.worker as { message: string }).message,
+    /canary: CANARY_ACCOUNTING_TEAM_ID is missing/,
+  );
+
+  state.requiredSchedulers["job-recovery"] = false;
+  assert.equal(isDevelopmentCanaryOnlyUnready(state, { NODE_ENV: "development" }), false);
 });

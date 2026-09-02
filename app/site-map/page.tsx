@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Globe, RefreshCw, Trash2, ArrowLeft, ExternalLink, Search, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface SitePage {
   id: number;
@@ -112,7 +113,7 @@ export default function SiteMapPage() {
 
     setIsCrawling(true);
     try {
-      const res = await fetch("/api/site-map/crawl", {
+      const res = await csrfFetch("/api/site-map/crawl", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -136,7 +137,7 @@ export default function SiteMapPage() {
   const deleteDomain = async (domain: string) => {
     if (!confirm(`Remove all indexed pages for ${domain}?`)) return;
     try {
-      const res = await fetch(`/api/site-map/pages?domain=${encodeURIComponent(domain)}`, {
+      const res = await csrfFetch(`/api/site-map/pages?domain=${encodeURIComponent(domain)}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -149,7 +150,7 @@ export default function SiteMapPage() {
 
   const deletePage = async (pageId: number) => {
     try {
-      await fetch(`/api/site-map/pages?id=${pageId}`, {
+      await csrfFetch(`/api/site-map/pages?id=${pageId}`, {
         method: "DELETE",
         credentials: "include",
       });

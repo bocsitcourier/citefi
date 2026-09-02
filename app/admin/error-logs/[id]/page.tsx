@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 
 type Person = { id: number; email: string; fullName: string | null };
 type Advice = {
@@ -53,7 +54,7 @@ export default function IncidentDetailPage() {
   });
   const action = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const response = await fetch(`/api/admin/incidents/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await csrfFetch(`/api/admin/incidents/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Update failed");
       return result;
@@ -63,7 +64,7 @@ export default function IncidentDetailPage() {
   });
   const analyze = useMutation({
     mutationFn: async (refresh: boolean) => {
-      const response = await fetch(`/api/admin/incidents/${id}/analysis`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh }) });
+      const response = await csrfFetch(`/api/admin/incidents/${id}/analysis`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh }) });
       if (!response.ok) throw new Error("Analysis failed");
     },
     onSuccess: () => { client.invalidateQueries({ queryKey: ["/api/admin/incidents", id] }); toast({ title: "Advisory analysis ready" }); },

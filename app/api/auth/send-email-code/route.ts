@@ -35,8 +35,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Validate purpose
-    const validPurposes = ["login_2fa", "email_verification", "password_reset"];
+    // Login codes are issued only after password verification by /auth/login.
+    if (purpose === "login_2fa") {
+      return NextResponse.json({ error: "Login verification codes require a password-verified challenge" }, { status: 401 });
+    }
+    const validPurposes = ["email_verification", "password_reset"];
     if (!validPurposes.includes(purpose)) {
       return NextResponse.json(
         { error: "Invalid purpose" },
@@ -122,8 +125,6 @@ export async function POST(req: Request) {
     return NextResponse.json({
       message: "Verification code sent successfully",
       expiresIn: 600, // 10 minutes in seconds
-      // In development, return code for testing (no live email server required)
-      ...(process.env.NODE_ENV === "development" && { code }),
     });
 
   } catch (error) {

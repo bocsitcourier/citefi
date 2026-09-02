@@ -9,6 +9,7 @@
  */
 import { describe, test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   seedClientTeam,
   seedCreditUsage,
@@ -23,6 +24,13 @@ const COOKIE_NAME = "auth_token";
 
 // Unique per run — prevents data collisions with other concurrent test runs.
 const RUN_ID = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+describe("client workspace navigation", () => {
+  test("links to the review workspace", async () => {
+    const source = await readFile(new URL("../../app/client/layout.tsx", import.meta.url), "utf8");
+    assert.match(source, /\{\s*label:\s*"Review",\s*href:\s*"\/client\/review"/);
+  });
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -492,11 +500,13 @@ describe("/api/client/team — admin remove member flow", { concurrency: 1 }, ()
         defaultTeamId: seed.team.id,
       })
       .returning({ id: usersTable.id });
+    if (!extraUser) throw new Error("[client-dashboard.test] extra user insert did not return a row");
 
     const [extraMember] = await db
       .insert(tmTable)
       .values({ teamId: seed.team.id, userId: extraUser.id, role: "member" })
       .returning({ id: tmTable.id });
+    if (!extraMember) throw new Error("[client-dashboard.test] extra membership insert did not return a row");
 
     extraMemberId = extraMember.id;
   });

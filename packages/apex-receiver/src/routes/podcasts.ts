@@ -7,6 +7,7 @@ import { sendCallback, createSuccessCallback, createFailureCallback } from '../s
 import { getConfig } from '../config';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
+import { createSafeSlug, resolvePathWithin } from '../utils/safePaths';
 
 const router = Router();
 
@@ -34,17 +35,17 @@ router.post('/', async (req: Request, res: Response) => {
     });
     
     const uniqueId = nanoid(8);
-    const slug = sanitizeSlug(podcast.slug || podcast.title);
+    const slug = createSafeSlug(podcast.slug || podcast.title);
     const audioFilename = `${slug}-${uniqueId}.mp3`;
     const audioPath = path.join('audio', audioFilename);
     
     const result = await localStorage.downloadAndStore(podcast.audioUrl, audioPath);
     
     const pageHtml = generatePodcastPage(podcast, result.publicUrl);
-    const pagesDir = path.join(getConfig().storagePath, '..', 'pages', 'podcasts');
+    const pagesDir = path.resolve(getConfig().storagePath, '..', 'pages', 'podcasts');
     await fs.mkdir(pagesDir, { recursive: true });
     
-    const pagePath = path.join(pagesDir, `${slug}.html`);
+    const pagePath = resolvePathWithin(pagesDir, `${slug}.html`);
     await fs.writeFile(pagePath, pageHtml, 'utf-8');
     
     const pageUrl = `${getConfig().baseUrl}/podcasts/${slug}`;
@@ -131,14 +132,6 @@ ${JSON.stringify(jsonLd, null, 2)}
   </article>
 </body>
 </html>`;
-}
-
-function sanitizeSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
 }
 
 function escapeHtml(text: string): string {

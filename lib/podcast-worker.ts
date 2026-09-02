@@ -13,6 +13,10 @@ import { uploadPodcastToDrive } from "./google-drive";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { refundCredits, CREDIT_COSTS } from "./credits";
 import { isProviderAccountingError } from "./cost-telemetry";
+import {
+  BillingSettlementError,
+  isBillingSettlementError,
+} from "./pipeline-worker";
 
 export interface PodcastGenerationJob {
   /** Two-bucket billing: reservation runId threaded from the API route */
@@ -49,6 +53,44 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     
     if (!article) {
       throw new Error(`Article ${articleId} not found`);
+    }
+
+    // A ready podcast is the durable delivery checkpoint. Retry only billing;
+    // never regenerate script/audio or upload a second object.
+    if (
+      article.podcastStatus === "ready" &&
+      article.podcastUrl &&
+      article.podcastCreditRunId === job.creditRunId &&
+      !article.podcastBillingSettledAt &&
+      job.creditRunId &&
+      job.teamId
+    ) {
+      const { debitReservation } = await import("@/lib/billing");
+      let debitResult;
+      try {
+        debitResult = await debitReservation({
+          teamId: job.teamId,
+          runId: job.creditRunId,
+          userId: job.userId,
+        });
+      } catch (cause) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered podcast article ${articleId}`,
+          job.creditRunId,
+          cause
+        );
+      }
+      if (!debitResult.ok) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered podcast article ${articleId}`,
+          job.creditRunId
+        );
+      }
+      await db.update(articles).set({
+        podcastBillingSettledAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(articles.id, articleId));
+      return;
     }
     
     if (!article.finalHtmlContent || !article.chosenTitle) {
@@ -171,9 +213,9 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     };
     
     const fileName = `podcast-article-${articleId}-${Date.now()}.mp3`;
-    const objectPath = `public/podcasts/${fileName}`;
+    const objectPath = `private/teams/${article.teamId}/articles/${articleId}/podcasts/${fileName}`;
     const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
-    const storageUrl = `/api/public-objects/podcasts/${fileName}`;
+    const storageUrl = `/api/public-objects/private/teams/${article.teamId}/articles/${articleId}/podcasts/${fileName}`;
     
     let uploadedFile: any = null;
     
@@ -194,7 +236,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       await file.save(audioBuffer, {
         contentType: "audio/mpeg",
         metadata: {
-          cacheControl: "public, max-age=31536000",
+          cacheControl: "private, no-store",
         },
       });
       
@@ -240,19 +282,37 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
             podcastUrl: storageUrl,
             podcastStatus: 'ready',
             podcastGeneratedAt: new Date(),
+            podcastCreditRunId: job.creditRunId ?? null,
           })
           .where(eq(articles.id, articleId));
 
         // Two-bucket billing: DEBIT on success
         if (job.teamId && job.creditRunId) {
           const { debitReservation } = await import("@/lib/billing");
-          const debitResult = await debitReservation({ teamId: job.teamId, runId: job.creditRunId, userId: job.userId });
-          if (!debitResult.ok) {
-            throw new Error(
-              `[billing] DEBIT_FAILED for podcast article ${articleId} (teamId=${job.teamId} runId=${job.creditRunId}). ` +
-              `Marking job failed so pg-boss retries the debit. Podcast was generated successfully.`
+          let debitResult;
+          try {
+            debitResult = await debitReservation({
+              teamId: job.teamId,
+              runId: job.creditRunId,
+              userId: job.userId,
+            });
+          } catch (cause) {
+            throw new BillingSettlementError(
+              `Debit settlement failed for delivered podcast article ${articleId}`,
+              job.creditRunId,
+              cause
             );
           }
+          if (!debitResult.ok) {
+            throw new BillingSettlementError(
+              `Debit settlement failed for delivered podcast article ${articleId}`,
+              job.creditRunId
+            );
+          }
+          await db.update(articles).set({
+            podcastBillingSettledAt: new Date(),
+            updatedAt: new Date(),
+          }).where(eq(articles.id, articleId));
           // Record completed usage event — populates spending cap meter so caps can trip.
           const { recordUsageEvent } = await import("@/lib/usage-caps");
           await recordUsageEvent({
@@ -260,7 +320,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
             action: "podcast",
             units: 1,
             costEstimateCents: CREDIT_COSTS.podcast ?? 8,
-            jobId: String(job.id ?? ""),
+            jobId: job.creditRunId,
             metadata: { articleId },
           }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
         }
@@ -273,6 +333,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
             .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
         }
       } catch (dbError) {
+        if (isBillingSettlementError(dbError)) throw dbError;
         console.error(`[Podcast Worker] DB write failed after upload, cleaning up:`, dbError);
         
         if (assetInserted) {
@@ -297,6 +358,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         throw dbError;
       }
     } catch (dbOrStorageError) {
+      if (isBillingSettlementError(dbOrStorageError)) throw dbOrStorageError;
       const errMsg = dbOrStorageError instanceof Error ? dbOrStorageError.message : String(dbOrStorageError);
       console.error(`[Podcast Worker] DB/Storage error for article ${articleId}:`, dbOrStorageError);
       await db.update(articles)
@@ -317,9 +379,9 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     console.log(`[Podcast Worker] Podcast generated successfully for article ${articleId}`);
 
     void createNotification({
-      teamId: teamId ?? article?.teamId,
+      teamId: teamId ?? article?.teamId ?? undefined,
       type: "success",
-      category: "content",
+      category: "article",
       title: "Podcast Ready",
       message: `Podcast for "${article?.chosenTitle?.slice(0, 80) ?? `article ${articleId}`}" is ready to play.`,
       entityId: articleId,
@@ -328,6 +390,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     }).catch(() => {});
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isBillingSettlementError(error)) throw error;
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
 
@@ -356,7 +419,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     void createNotification({
       teamId: job.teamId,
       type: "error",
-      category: "content",
+      category: "article",
       title: "Podcast Generation Failed",
       message: `Podcast generation failed for article ${articleId}: ${errMsg.slice(0, 200)}`,
       entityId: articleId,

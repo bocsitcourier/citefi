@@ -22,6 +22,7 @@ import {
 export const VIDEO_IDEA_RETRY_DISPOSITIONS = ["retry"] as const;
 
 export interface VideoIdeaGenerationDependencies {
+  isMediaFeatureEnabled?: () => boolean;
   isStorageConfigured?: boolean;
   assertRunBudget?: typeof import("@/lib/cost-ceilings").assertRunBudget;
   orchestrate?: typeof orchestrateVideoIdeaGeneration;
@@ -78,6 +79,13 @@ export async function processVideoIdeaGenerationJob(
         if (!settlementOnly) {
           // Generation-only prerequisites must never run during settlement
           // retries: content is already durable and its reservation must remain.
+          const isMediaFeatureEnabled =
+            dependencies.isMediaFeatureEnabled ??
+            (await import("@/lib/storage")).isMediaFeatureEnabled;
+          if (!isMediaFeatureEnabled()) {
+            throw new Error("FEATURE_DISABLED: Media generation disabled");
+          }
+
           const isStorageConfigured =
             dependencies.isStorageConfigured ??
             (await import("@/lib/storage")).isStorageConfigured;
@@ -139,7 +147,9 @@ export async function processVideoIdeaGenerationJob(
             const debitMessage =
               debitError instanceof Error ? debitError.message : String(debitError);
             throw new BillingSettlementError(
-              `Debit settlement threw for video idea ${videoIdeaId}: ${debitMessage}`
+              `Debit settlement threw for video idea ${videoIdeaId}: ${debitMessage}`,
+              creditRunId,
+              debitError
             );
           }
           if (!debitResult.ok) {
@@ -148,7 +158,8 @@ export async function processVideoIdeaGenerationJob(
               `Video was generated but debit failed — throwing so BullMQ can retry the debit.`
             );
             throw new BillingSettlementError(
-              `Debit settlement failed for video idea ${videoIdeaId}`
+              `Debit settlement failed for video idea ${videoIdeaId}`,
+              creditRunId
             );
           }
           console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);

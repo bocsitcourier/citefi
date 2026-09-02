@@ -6,7 +6,7 @@ import { db } from "./db";
 import { getModel } from "./model-resolver";
 import { PRODUCT_POLICY_DEFAULTS, LAUNCH_POLICY_VERSION, EXTERNAL_PLATFORM_APPROVALS } from "./launch-governance";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
-import { campaignAds, campaignAdApprovals, campaigns } from "@/shared/schema";
+import { campaignAds, campaignAdApprovals, campaigns, teamMembers, teams, users } from "@/shared/schema";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 export const AD_EXPORT_NOTICE = PRODUCT_POLICY_DEFAULTS.advertising.exportNotice;
@@ -329,6 +329,15 @@ export async function listCampaignAds(teamId: number, campaignId: number) {
   return db.select().from(campaignAds).where(and(eq(campaignAds.teamId, teamId), eq(campaignAds.campaignId, campaignId))).orderBy(desc(campaignAds.createdAt));
 }
 
+export async function listCampaignAdApprovals(teamId: number, campaignId: number) {
+  const ads = await listCampaignAds(teamId, campaignId);
+  if (!ads.length) return [];
+  const approvals = await Promise.all(ads.map((ad) => db.select().from(campaignAdApprovals).where(and(
+    eq(campaignAdApprovals.teamId, teamId), eq(campaignAdApprovals.campaignAdId, ad.id)
+  )).orderBy(desc(campaignAdApprovals.createdAt))));
+  return approvals.flat();
+}
+
 export async function getCampaignAdByRequestKey(teamId: number, campaignId: number, requestKey: string) {
   const [row] = await db.select().from(campaignAds).where(and(
     eq(campaignAds.teamId, teamId), eq(campaignAds.campaignId, campaignId), eq(campaignAds.requestKey, requestKey)
@@ -342,59 +351,134 @@ export function canonicalAdManifestJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export type ApprovalAuthorityContext = {
+  approvalType: "client" | "policy" | "export";
+  actorUserId: number;
+  agencyTeamId: number;
+  clientTeamId: number | null;
+  clientParentTeamId: number | null;
+  designatedApproverUserId: number | null;
+  clientMembershipRole?: string | null;
+  agencyMembershipRole?: string | null;
+  globalRole?: string | null;
+  previouslyApprovedTypes?: Array<{ actorUserId: number; approvalType: string }>;
+};
+
+export function assertApprovalAuthority(context: ApprovalAuthorityContext): void {
+  if (context.approvalType === "client") {
+    if (!context.clientTeamId || context.clientParentTeamId !== context.agencyTeamId) {
+      throw new Error("Campaign has no configured client team relationship");
+    }
+    if (!context.clientMembershipRole || context.designatedApproverUserId !== context.actorUserId) {
+      throw new Error("Only the client team's designated approver may give client approval");
+    }
+  } else if (context.approvalType === "policy") {
+    if (context.globalRole !== "compliance" && context.globalRole !== "admin"
+        && context.agencyMembershipRole !== "compliance") {
+      throw new Error("Compliance authorization is required for policy approval");
+    }
+  } else if (!["owner", "admin"].includes(context.agencyMembershipRole ?? "")) {
+    throw new Error("Workspace owner or admin authorization is required for export");
+  }
+  if (context.previouslyApprovedTypes?.some((approval) =>
+    approval.actorUserId === context.actorUserId && approval.approvalType !== context.approvalType
+  )) {
+    throw new Error("Approval separation requires a different authorized actor");
+  }
+}
+
 export async function approveCampaignAd(teamId: number, userId: number, role: string, campaignId: number, adPublicId: string, input: {
   approvalType: "client" | "policy" | "export"; decision: "approved" | "rejected";
   humanAcknowledged: boolean; acknowledgementText?: string;
 }) {
-  const [ad] = await db.select().from(campaignAds).where(and(
-    eq(campaignAds.teamId, teamId), eq(campaignAds.campaignId, campaignId), eq(campaignAds.publicId, adPublicId)
-  )).limit(1);
-  if (!ad) return null;
-  if (ad.finalizedAt) throw new Error("Finalized ad manifests and approvals are immutable");
   if (!input.humanAcknowledged) throw new Error("Human acknowledgement is required");
-  if (input.approvalType === "export" && !["owner", "admin"].includes(role)) throw new Error("Workspace owner or admin authorization is required for export");
-  const priorApprovals = await db.select().from(campaignAdApprovals).where(and(
-    eq(campaignAdApprovals.teamId, teamId), eq(campaignAdApprovals.campaignAdId, ad.id)
-  )).orderBy(desc(campaignAdApprovals.createdAt));
-  const priorLatest = (type: string) => priorApprovals.find((a) => a.approvalType === type)?.decision;
-  const policy: any = ad.policyJson;
-  const issues: any[] = ad.validationJson as any[];
-  if (input.approvalType === "export" && input.decision === "approved" && (
-    priorLatest("client") !== "approved" || priorLatest("policy") !== "approved" ||
-    policy.blocksExport || issues.some((x) => x.severity === "error")
-  )) {
-    throw new Error("Client approval, policy approval, disclaimers, and deterministic validation must pass before export authorization");
-  }
-  await db.insert(campaignAdApprovals).values({
-    teamId, campaignAdId: ad.id, actorUserId: userId, ...input,
-    metadataJson: { notice: AD_EXPORT_NOTICE, policyVersion: LAUNCH_POLICY_VERSION },
-  });
-  const approvals = await db.select().from(campaignAdApprovals).where(and(eq(campaignAdApprovals.teamId, teamId), eq(campaignAdApprovals.campaignAdId, ad.id))).orderBy(desc(campaignAdApprovals.createdAt));
-  const latest = (type: string) => approvals.find((a) => a.approvalType === type)?.decision;
-  let status = input.decision === "rejected" ? "internal_review" :
-    latest("client") === "approved" ? "client_approved" : "internal_review";
-  if (latest("client") === "approved" && latest("policy") === "approved" && !policy.blocksExport && !issues.some((x) => x.severity === "error")) status = "export_ready";
-  let manifest: any = null;
-  let hash: string | null = null;
-  if (input.approvalType === "export" && input.decision === "approved") {
-    manifest = {
-      schemaVersion: "campaign-ads-export/v1", policyVersion: LAUNCH_POLICY_VERSION,
-      mode: "export_only", directPublishing: false, notice: AD_EXPORT_NOTICE,
+  // The ad row is the serialization point.  Approval history must be read and
+  // appended while this lock is held; otherwise two concurrent requests from
+  // the same actor can each observe an empty history and approve different
+  // required types.
+  return db.transaction(async (tx) => {
+    const [ad] = await tx.select().from(campaignAds).where(and(
+      eq(campaignAds.teamId, teamId), eq(campaignAds.campaignId, campaignId), eq(campaignAds.publicId, adPublicId)
+    )).limit(1).for("update");
+    if (!ad) return null;
+    if (ad.finalizedAt) throw new Error("Finalized ad manifests and approvals are immutable");
+    const [campaign] = await tx.select({
+      clientTeamId: campaigns.clientTeamId, parentTeamId: teams.parentTeamId,
+      designatedApprover: teams.designatedClientApproverUserId,
+      clientDeletedAt: teams.deletedAt,
+      clientStatus: teams.clientStatus,
+    }).from(campaigns).leftJoin(teams, eq(teams.id, campaigns.clientTeamId))
+      .where(and(eq(campaigns.id, campaignId), eq(campaigns.teamId, teamId))).limit(1);
+    if (!campaign) return null;
+    if (
+      input.approvalType === "client" &&
+      (!campaign.clientTeamId || campaign.clientDeletedAt || campaign.clientStatus !== "active")
+    ) {
+      throw new Error("Client team relationship is not active");
+    }
+
+    const [actor] = await tx.select({ globalRole: users.role, agencyMembershipRole: teamMembers.role })
+      .from(users).leftJoin(teamMembers, and(eq(teamMembers.userId, users.id), eq(teamMembers.teamId, teamId)))
+      .where(eq(users.id, userId)).limit(1);
+    const [clientMembership] = await tx.select({ role: teamMembers.role }).from(teamMembers).where(and(
+      eq(teamMembers.teamId, campaign.clientTeamId ?? -1), eq(teamMembers.userId, userId)
+    )).limit(1);
+    const authority = {
+      approvalType: input.approvalType, actorUserId: userId, agencyTeamId: teamId,
+      clientTeamId: campaign.clientTeamId, clientParentTeamId: campaign.parentTeamId,
+      designatedApproverUserId: campaign.designatedApprover, clientMembershipRole: clientMembership?.role,
+      agencyMembershipRole: actor?.agencyMembershipRole ?? role, globalRole: actor?.globalRole,
+    };
+    assertApprovalAuthority(authority);
+    const authoritySnapshot: Record<string, unknown> = input.approvalType === "client"
+      ? { authority: "designated_client_approver", agencyTeamId: teamId, clientTeamId: campaign.clientTeamId, membershipRole: clientMembership?.role, designatedApproverUserId: campaign.designatedApprover }
+      : input.approvalType === "policy"
+        ? { authority: "compliance", globalRole: actor?.globalRole, membershipRole: actor?.agencyMembershipRole, agencyTeamId: teamId }
+        : { authority: "agency_export", agencyTeamId: teamId, membershipRole: actor?.agencyMembershipRole };
+    const priorApprovals = await tx.select().from(campaignAdApprovals).where(and(
+      eq(campaignAdApprovals.teamId, teamId), eq(campaignAdApprovals.campaignAdId, ad.id)
+    )).orderBy(desc(campaignAdApprovals.createdAt));
+    const priorLatest = (type: string) => priorApprovals.find((a) => a.approvalType === type)?.decision;
+    const policy: any = ad.policyJson;
+    const issues: any[] = ad.validationJson as any[];
+    if (input.decision === "approved") assertApprovalAuthority({
+      ...authority, previouslyApprovedTypes: priorApprovals.filter((a) => a.decision === "approved"),
+    });
+    if (input.approvalType === "export" && input.decision === "approved" && (
+      priorLatest("client") !== "approved" || priorLatest("policy") !== "approved" ||
+      policy.blocksExport || issues.some((x) => x.severity === "error")
+    )) throw new Error("Client approval, policy approval, disclaimers, and deterministic validation must pass before export authorization");
+    await tx.insert(campaignAdApprovals).values({
+      teamId, campaignAdId: ad.id, actorUserId: userId, ...input,
+      metadataJson: { notice: AD_EXPORT_NOTICE, policyVersion: LAUNCH_POLICY_VERSION }, authoritySnapshot,
+    });
+    const approvals = await tx.select().from(campaignAdApprovals).where(and(eq(campaignAdApprovals.teamId, teamId), eq(campaignAdApprovals.campaignAdId, ad.id))).orderBy(desc(campaignAdApprovals.createdAt));
+    const latest = (type: string) => approvals.find((a) => a.approvalType === type)?.decision;
+    let status = input.decision === "rejected" ? "internal_review" :
+      latest("client") === "approved" ? "client_approved" : "internal_review";
+    if (latest("client") === "approved" && latest("policy") === "approved" && !policy.blocksExport && !issues.some((x) => x.severity === "error")) status = "export_ready";
+    let manifest: any = null;
+    let hash: string | null = null;
+    if (input.approvalType === "export" && input.decision === "approved") {
+      manifest = {
+        schemaVersion: "campaign-ads-export/v1", policyVersion: LAUNCH_POLICY_VERSION,
+        mode: "export_only", directPublishing: false, notice: AD_EXPORT_NOTICE,
        campaignId: ad.campaignId, adPublicId: ad.publicId, campaignSlug: ad.campaignSlug, landingUrl: ad.landingUrl,
        landingAlignment: (ad.policyJson as any)?.landingAlignment,
-      utmConvention: PRODUCT_POLICY_DEFAULTS.utm,
-      brandSnapshot: ad.brandSnapshot, google: ad.googleAssets, meta: ad.metaAssets,
-      validation: ad.validationJson, policy: ad.policyJson,
-      externalApprovals: { google: EXTERNAL_PLATFORM_APPROVALS.googleAds.status, meta: EXTERNAL_PLATFORM_APPROVALS.metaAds.status },
-      approvals: approvals.map((a) => ({ type: a.approvalType, decision: a.decision, actorUserId: a.actorUserId, humanAcknowledged: a.humanAcknowledged, createdAt: a.createdAt })),
-    };
-    hash = createHash("sha256").update(canonicalAdManifestJson(manifest)).digest("hex");
-    status = "exported";
-  }
-  const [updated] = await db.update(campaignAds).set({
-    status, ...(manifest ? { manifestJson: manifest, manifestSha256: hash, finalizedAt: new Date() } : {}), updatedAt: new Date(),
-  }).where(and(eq(campaignAds.teamId, teamId), eq(campaignAds.id, ad.id))).returning();
-  return updated ?? null;
+        utmConvention: PRODUCT_POLICY_DEFAULTS.utm,
+        brandSnapshot: ad.brandSnapshot, google: ad.googleAssets, meta: ad.metaAssets,
+        validation: ad.validationJson, policy: ad.policyJson,
+        externalApprovals: { google: EXTERNAL_PLATFORM_APPROVALS.googleAds.status, meta: EXTERNAL_PLATFORM_APPROVALS.metaAds.status },
+        approvals: approvals.map((a) => ({ type: a.approvalType, decision: a.decision, actorUserId: a.actorUserId, humanAcknowledged: a.humanAcknowledged, createdAt: a.createdAt })),
+      };
+      hash = createHash("sha256").update(canonicalAdManifestJson(manifest)).digest("hex");
+      status = "exported";
+    }
+    const [updated] = await tx.update(campaignAds).set({
+      status, ...(manifest ? { manifestJson: manifest, manifestSha256: hash, finalizedAt: new Date() } : {}), updatedAt: new Date(),
+    }).where(and(eq(campaignAds.teamId, teamId), eq(campaignAds.id, ad.id))).returning();
+    return updated ?? null;
+  });
 }
 
 export async function getCampaignAdForExport(teamId: number, campaignId: number, adPublicId: string) {

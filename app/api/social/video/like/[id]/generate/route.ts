@@ -7,13 +7,19 @@ import { addVideoIdeaJob } from "@/lib/queue";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
-import { isStorageConfigured } from "@/lib/storage";
+import { isMediaEnabled, isStorageConfigured } from "@/lib/storage";
 import { randomUUID } from "crypto";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isMediaEnabled) {
+    return NextResponse.json(
+      { error: "Media generation disabled", code: "FEATURE_DISABLED" },
+      { status: 503 },
+    );
+  }
   // ── Storage preflight ──────────────────────────────────────────────────────
   if (!isStorageConfigured) {
     return NextResponse.json(

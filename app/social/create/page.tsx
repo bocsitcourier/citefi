@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Sparkles, ArrowLeft, Upload, X, Image as ImageIcon, FileText, MapPin, Target, Info, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -215,7 +216,7 @@ function CreateSocialPost() {
       const formData = new FormData();
       formData.append("logo", file);
       
-      const response = await fetch("/api/upload/logo", {
+      const response = await csrfFetch("/api/upload/logo", {
         method: "POST",
         credentials: "include",
         body: formData,

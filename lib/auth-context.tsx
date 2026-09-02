@@ -14,8 +14,8 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; userId?: number; twoFactorMethod?: string }>;
-  verify2FA: (code: string, userId: number, method: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string }>;
+  verify2FA: (code: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string, fullName?: string, teamName?: string) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -65,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return {
         requiresTwoFactor: true,
-        userId: response.userId,
         twoFactorMethod: response.twoFactorMethod,
       };
     }
@@ -74,17 +73,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { requiresTwoFactor: false };
   };
 
-  const verify2FA = async (code: string, userId: number, method: string) => {
+  const verify2FA = async (code: string) => {
     const challengeToken = (() => {
       try { return sessionStorage.getItem("auth_2fa_challenge"); } catch { return null; }
     })();
 
     const response = await apiRequest("/api/auth/verify-2fa", {
       method: "POST",
-      body: JSON.stringify({ userId, code, method, challengeToken }),
+      body: JSON.stringify({ code, challengeToken }),
     });
 
-    // Clear the one-time challenge token regardless of outcome
+    // Clear only after success so a mistyped code can be retried.
     try { sessionStorage.removeItem("auth_2fa_challenge"); } catch { /* ignore */ }
 
     setUser(response.user);

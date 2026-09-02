@@ -221,7 +221,9 @@ function verifyWithKeyring(
  * Always signed with the current (first) key in the keyring.
  */
 export function generateApprovalToken(userId: number, action: ApprovalAction): string {
-  const { kid, secret } = getKeyring()[0];
+  const currentKey = getKeyring()[0];
+  if (!currentKey) throw new Error("No approval token signing key is configured");
+  const { kid, secret } = currentKey;
   const payload: TokenPayload = {
     userId,
     action,
@@ -247,7 +249,8 @@ export function decodeApprovalTokenIgnoreExpiry(token: string): TokenPayload {
   if (parts.length !== 2) {
     throw new Error("Malformed token");
   }
-  const [encodedPayload, receivedSig] = parts;
+  const encodedPayload = parts[0]!;
+  const receivedSig = parts[1]!;
 
   // Speculatively parse to get the kid before verifying
   const speculative = speculativeParsePayload(encodedPayload);
@@ -276,7 +279,8 @@ export function verifyApprovalToken(token: string): TokenPayload {
   if (parts.length !== 2) {
     throw new Error("Malformed token");
   }
-  const [encodedPayload, receivedSig] = parts;
+  const encodedPayload = parts[0]!;
+  const receivedSig = parts[1]!;
 
   // Speculatively parse to get the kid before verifying
   const speculative = speculativeParsePayload(encodedPayload);

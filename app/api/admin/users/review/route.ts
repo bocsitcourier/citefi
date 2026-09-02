@@ -368,6 +368,21 @@ export async function GET(req: NextRequest) {
 // ─── POST: perform the action (only reachable by explicit button click) ──────
 
 export async function POST(req: NextRequest) {
+  // This is a capability-token HTML form and cannot send a custom CSRF header.
+  // Require a browser same-origin submission instead.
+  const origin = req.headers.get("origin");
+  const forwardedHost = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const forwardedOrigin = forwardedHost
+    ? `${req.headers.get("x-forwarded-proto") || "https"}://${forwardedHost}`
+    : req.nextUrl.origin;
+  if (!origin || (origin !== req.nextUrl.origin && origin !== forwardedOrigin)) {
+    return htmlPage(
+      "Invalid request",
+      "Invalid request origin",
+      "<p>Please open the approval link and use the button on that page.</p>",
+      false
+    );
+  }
   let token: string | null = null;
 
   try {

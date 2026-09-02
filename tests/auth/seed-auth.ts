@@ -13,6 +13,7 @@ import {
   sessions,
   activityLogs,
   emailVerificationCodes,
+  loginChallenges,
 } from "../../shared/schema.js";
 import { hashPassword } from "../../lib/auth.js";
 import { eq, inArray } from "drizzle-orm";
@@ -121,6 +122,7 @@ export async function cleanupSignupUsers(userIds: number[]): Promise<void> {
   if (userIds.length === 0) return;
   try {
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
+    await db.delete(loginChallenges).where(inArray(loginChallenges.userId, userIds));
     await db
       .delete(emailVerificationCodes)
       .where(inArray(emailVerificationCodes.userId, userIds));
@@ -144,6 +146,7 @@ export async function cleanupAuthUsers(seed: SeedResult): Promise<void> {
   try {
     // Delete child rows that reference users.id with RESTRICT (no cascade)
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
+    await db.delete(loginChallenges).where(inArray(loginChallenges.userId, userIds));
     await db
       .delete(emailVerificationCodes)
       .where(inArray(emailVerificationCodes.userId, userIds));

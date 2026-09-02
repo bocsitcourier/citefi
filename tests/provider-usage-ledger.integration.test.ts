@@ -82,7 +82,10 @@ test("database trigger rejects mutation of a recorded event", async () => {
         .set({ costMicrousd: 1 })
         .where(eq(providerUsageLedger.id, eventId))
     ),
-    /append-only/
+    (error: unknown) => {
+      const wrapped = error as { message?: string; cause?: { message?: string } };
+      return /append-only/.test(`${wrapped.message ?? ""} ${wrapped.cause?.message ?? ""}`);
+    }
   );
 });
 

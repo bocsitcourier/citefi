@@ -134,7 +134,7 @@ function computeConfidence(
 
 // ─── Holdout baseline query ─────────────────────────────────────────────────
 
-interface HoldoutRow {
+interface HoldoutRow extends Record<string, unknown> {
   policy_id: number;
   holdout_impressions: number;
   holdout_conversions: number;
@@ -155,7 +155,8 @@ async function fetchHoldoutBaselines(teamId: number): Promise<Map<number, { alph
   `);
 
   const map = new Map<number, { alpha: number; beta: number; mean: number }>();
-  for (const row of rows.rows ?? rows as any[]) {
+  const resultRows = (rows.rows ?? (Array.isArray(rows) ? rows : [])) as unknown as HoldoutRow[];
+  for (const row of resultRows) {
     const imps = Number(row.holdout_impressions) || 0;
     const convs = Number(row.holdout_conversions) || 0;
     const alpha = 1 + convs;
@@ -167,7 +168,7 @@ async function fetchHoldoutBaselines(teamId: number): Promise<Map<number, { alph
 
 // ─── Arm aggregation query ──────────────────────────────────────────────────
 
-interface ArmRow {
+interface ArmRow extends Record<string, unknown> {
   policy_id: number;
   arm_id: number;
   arm_content_type: string;
@@ -224,7 +225,7 @@ async function fetchArmRows(teamId: number, contentType?: string): Promise<ArmRo
     ORDER BY dp.id, da.id
   `);
 
-  return result.rows ?? (result as any[]);
+  return (result.rows ?? (Array.isArray(result) ? result : [])) as unknown as ArmRow[];
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────

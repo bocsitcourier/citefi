@@ -21,7 +21,6 @@ export default function Verify2FAPage() {
 function Verify2FAContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const userIdParam = searchParams.get("userId");
   const method = searchParams.get("method");
   const { verify2FA } = useAuth();
   const { toast } = useToast();
@@ -29,15 +28,16 @@ function Verify2FAContent() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!userIdParam || !method) {
+    const challenge = sessionStorage.getItem("auth_2fa_challenge");
+    if (!challenge || (method !== "email" && method !== "totp")) {
       router.push("/login");
     }
-  }, [userIdParam, method, router]);
+  }, [method, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!userIdParam || !method) {
+    if (method !== "email" && method !== "totp") {
       toast({
         variant: "destructive",
         title: "Invalid session",
@@ -50,7 +50,7 @@ function Verify2FAContent() {
     setIsLoading(true);
 
     try {
-      await verify2FA(code, Number(userIdParam), method);
+      await verify2FA(code);
       toast({
         title: "Verification successful!",
         description: "You have been securely authenticated.",
@@ -79,7 +79,9 @@ function Verify2FAContent() {
           </div>
           <CardTitle className="text-2xl font-bold text-center">Two-Factor Authentication</CardTitle>
           <CardDescription className="text-center">
-            Enter the verification code from your authenticator app or email
+            {method === "email"
+              ? "We sent a six-digit verification code to your email address."
+              : "Enter the six-digit code from your authenticator app."}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

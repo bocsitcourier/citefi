@@ -53,6 +53,9 @@ export async function GET(
         { status: 404 }
       );
     }
+    if (batch.teamId === null) {
+      return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
+    }
     requireTeamResource(batch.teamId, teamId);
 
     // Only select columns needed for the UI — avoids pulling 20KB+ bodyHtml on every poll
@@ -182,6 +185,9 @@ export async function PATCH(
         { status: 404 }
       );
     }
+    if (existingBatch.teamId === null) {
+      return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
+    }
     requireTeamResource(existingBatch.teamId, teamId);
 
     if (existingBatch.status === "RUNNING") {
@@ -268,6 +274,9 @@ export async function DELETE(
         { error: "Batch not found or access denied" },
         { status: 404 }
       );
+    }
+    if (batch.teamId === null) {
+      return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
     }
     requireTeamResource(batch.teamId, teamId);
 

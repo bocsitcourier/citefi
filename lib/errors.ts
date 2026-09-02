@@ -25,6 +25,7 @@ export type ErrorCode =
   | "MODEL_NOT_FOUND"        // 404 from a model API — dead ID, never self-heals
   | "AUTH_FAILURE"           // 401/403 — bad key or expired credential
   | "CONFIG_MISSING"         // required env var absent
+  | "FEATURE_DISABLED"       // an operator intentionally disabled this capability
   | "BUDGET_EXCEEDED"        // run accumulated cost >= ceiling; no retry would help
   // Retryable — transient
   | "RATE_LIMITED"           // 429 — honor Retry-After
@@ -45,6 +46,7 @@ export const FATAL_CODES = new Set<ErrorCode>([
   "MODEL_NOT_FOUND",
   "AUTH_FAILURE",
   "CONFIG_MISSING",
+  "FEATURE_DISABLED",
   "STORAGE_NOT_CONFIGURED",
   "BUDGET_EXCEEDED",         // credits returned to user; no retry will succeed
 ]);
@@ -135,6 +137,10 @@ export function classifyError(
   if (lower.includes("not configured") || lower.includes("missing env") ||
       lower.includes("api key not set") || lower.includes("no api key")) {
     return new PipelineError(msg, "CONFIG_MISSING", "fatal", stage, undefined, err);
+  }
+
+  if (lower.includes("feature_disabled") || lower.includes("media generation disabled")) {
+    return new PipelineError(msg, "FEATURE_DISABLED", "fatal", stage, undefined, err);
   }
 
   // ── Fallback / degrade ───────────────────────────────────────────────────

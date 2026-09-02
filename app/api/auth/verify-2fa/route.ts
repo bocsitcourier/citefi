@@ -1,240 +1,126 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { users, sessions, activityLogs, totpSecrets, emailVerificationCodes } from "@/shared/schema";
+import { getTxDb, systemDb } from "@/lib/db";
+import { users, sessions, activityLogs, totpSecrets, loginChallenges } from "@/shared/schema";
 import { generateAccessToken, hashToken, verifyTOTPToken } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
+import { issueCsrfCookie } from "@/lib/csrf";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { enterSystemContext } from "@/lib/tenant-context";
+import crypto from "crypto";
+
+function hashesMatch(value: string, expected: string): boolean {
+  const actual = Buffer.from(hashToken(value));
+  const wanted = Buffer.from(expected);
+  return actual.length === wanted.length && crypto.timingSafeEqual(actual, wanted);
+}
 
 export async function POST(req: Request) {
   enterSystemContext("pre-session two-factor verification");
   try {
     const ip = getClientIp(req);
     const rl = await rateLimitDb(`2fa-verify:${ip}`, 5, 15 * 60 * 1000);
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: "Too many verification attempts. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
-      );
+    if (!rl.allowed) return NextResponse.json(
+      { error: "Too many verification attempts. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+
+    const { code, challengeToken } = await req.json();
+    if (!code || !challengeToken) {
+      return NextResponse.json({ error: "code and challengeToken are required; legacy challenges are no longer supported" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const { userId, code, method, challengeToken } = body;
-
-    if (!userId || !code || !method || !challengeToken) {
-      return NextResponse.json(
-        { error: "userId, code, method, and challengeToken are required" },
-        { status: 400 }
-      );
+    const [challenge] = await systemDb.select().from(loginChallenges).where(and(
+      eq(loginChallenges.tokenHash, hashToken(String(challengeToken))),
+      isNull(loginChallenges.consumedAt),
+      gt(loginChallenges.expiresAt, new Date())
+    )).limit(1);
+    if (!challenge) return NextResponse.json(
+      { error: "Invalid or expired login session. Please log in again." },
+      { status: 401 }
+    );
+    if (challenge.attempts >= 5) {
+      return NextResponse.json({ error: "Too many verification attempts. Please log in again." }, { status: 429 });
     }
 
-    const userRl = await rateLimitDb(`2fa-verify:user:${userId}`, 5, 15 * 60 * 1000);
-    if (!userRl.allowed) {
-      return NextResponse.json(
-        { error: "Too many verification attempts for this account. Please try again later." },
-        { status: 429, headers: { "Retry-After": String(userRl.retryAfter) } }
-      );
+    const [user] = await systemDb.select().from(users).where(eq(users.id, challenge.userId)).limit(1);
+    if (!user || user.accountStatus !== "active" || user.twoFactorEnabled !== 1 ||
+        user.twoFactorMethod !== challenge.method) {
+      return NextResponse.json({ error: "Two-factor login is no longer authorized. Please log in again." }, { status: 401 });
     }
 
-    // Fetch user first — needed for TOTP secret lookup and session creation.
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const userRl = await rateLimitDb(`2fa-verify:user:${user.id}`, 5, 15 * 60 * 1000);
+    if (!userRl.allowed) return NextResponse.json(
+      { error: "Too many verification attempts for this account. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(userRl.retryAfter) } }
+    );
 
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Step 1: Validate the 2FA code BEFORE consuming the challenge token.
-    //
-    // With the old order (consume challenge → validate code), a wrong TOTP digit
-    // would burn the challenge and force the user to restart the entire login flow.
-    // By validating first, a typo lets the user retry within the 5-minute window.
-    //
-    // Concurrency: two requests that both pass code validation then race to consume
-    // the challenge; only one wins — the other gets 0 rows back and returns 401.
-    // This is the correct serialisation behaviour.
     let verified = false;
-
-    if (method === "totp") {
-      const [totpSecret] = await db
-        .select()
-        .from(totpSecrets)
-        .where(eq(totpSecrets.userId, userId))
-        .limit(1);
-
-      if (!totpSecret) {
-        return NextResponse.json(
-          { error: "TOTP not set up for this user" },
-          { status: 400 }
-        );
-      }
-
-      verified = verifyTOTPToken(code, totpSecret.secret);
-
-      if (verified) {
-        await db
-          .update(totpSecrets)
-          .set({ lastUsedAt: new Date() })
-          .where(eq(totpSecrets.userId, userId));
-      }
-    } else if (method === "email") {
-      // Atomically validate + consume the email code in a single conditional UPDATE.
-      const [emailCode] = await db
-        .select()
-        .from(emailVerificationCodes)
-        .where(
-          and(
-            eq(emailVerificationCodes.userId, userId),
-            eq(emailVerificationCodes.code, code),
-            eq(emailVerificationCodes.purpose, "login_2fa"),
-            eq(emailVerificationCodes.isUsed, 0),
-            gt(emailVerificationCodes.expiresAt, new Date())
-          )
-        )
-        .limit(1);
-
-      if (!emailCode) {
-        return NextResponse.json(
-          { error: "Invalid or expired verification code" },
-          { status: 401 }
-        );
-      }
-
-      if (emailCode.attempts >= 5) {
-        return NextResponse.json(
-          { error: "Too many verification attempts" },
-          { status: 429 }
-        );
-      }
-
-      await db
-        .update(emailVerificationCodes)
-        .set({ isUsed: 1, attempts: emailCode.attempts + 1 })
-        .where(
-          and(
-            eq(emailVerificationCodes.id, emailCode.id),
-            eq(emailVerificationCodes.isUsed, 0)
-          )
-        );
-
-      verified = true;
+    if (challenge.method === "totp") {
+      const [totp] = await systemDb.select().from(totpSecrets)
+        .where(eq(totpSecrets.userId, user.id)).limit(1);
+      verified = !!totp && verifyTOTPToken(String(code), totp.secret);
+    } else if (challenge.method === "email" && challenge.emailCodeHash) {
+      verified = hashesMatch(String(code), challenge.emailCodeHash);
     }
 
     if (!verified) {
-      await db.insert(activityLogs).values({
-        userId: user.id,
-        action: "2fa_verification_failed",
-        resource: "users",
-        resourceId: user.id,
-        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-        userAgent: req.headers.get("user-agent") || null,
-        details: { method },
-        severity: "warning",
-      });
-
-      // Challenge token is NOT consumed here — the user can retry with the
-      // correct code without needing to log in again (within the 5-min window).
-      return NextResponse.json(
-        { error: "Invalid verification code" },
-        { status: 401 }
-      );
+      await systemDb.update(loginChallenges)
+        .set({ attempts: sql`${loginChallenges.attempts} + 1` })
+        .where(and(eq(loginChallenges.id, challenge.id), isNull(loginChallenges.consumedAt)));
+      return NextResponse.json({ error: "Invalid verification code" }, { status: 401 });
     }
 
-    // Step 2: Code is confirmed valid — now atomically consume the challenge token.
-    // Using a single conditional UPDATE prevents two concurrent successful requests
-    // from both creating sessions off the same login challenge.
-    const [consumed] = await db
-      .update(emailVerificationCodes)
-      .set({ isUsed: 1 })
-      .where(and(
-        eq(emailVerificationCodes.userId, userId),
-        eq(emailVerificationCodes.code, String(challengeToken)),
-        eq(emailVerificationCodes.purpose, "2fa_challenge_token"),
-        eq(emailVerificationCodes.isUsed, 0),
-        gt(emailVerificationCodes.expiresAt, new Date())
-      ))
-      .returning({ id: emailVerificationCodes.id });
-
-    if (!consumed) {
-      return NextResponse.json(
-        { error: "Invalid or expired login session. Please log in again." },
-        { status: 401 }
-      );
-    }
-
-    // 2FA verified — generate access token and create session.
-    const accessToken = generateAccessToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    });
-
-    const tokenHash = hashToken(accessToken);
-
-    await db
-      .insert(sessions)
-      .values({
-        userId: user.id,
-        tokenHash,
+    const accessToken = generateAccessToken({ userId: user.id, email: user.email, role: user.role });
+    const now = new Date();
+    const won = await getTxDb().transaction(async (tx) => {
+      // This conditional update both revalidates current account/2FA state and
+      // row-locks the user until commit, preventing a concurrent disable or
+      // suspension from racing session issuance.
+      const [stillAuthorized] = await tx.update(users).set({
+        failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: now,
+      }).where(and(
+        eq(users.id, user.id), eq(users.accountStatus, "active"),
+        eq(users.twoFactorEnabled, 1), eq(users.twoFactorMethod, challenge.method)
+      )).returning({ id: users.id });
+      if (!stillAuthorized) return false;
+      const [consumed] = await tx.update(loginChallenges).set({ consumedAt: now }).where(and(
+        eq(loginChallenges.id, challenge.id),
+        isNull(loginChallenges.consumedAt),
+        gt(loginChallenges.expiresAt, now)
+      )).returning({ id: loginChallenges.id });
+      if (!consumed) return false;
+      await tx.insert(sessions).values({
+        userId: user.id, tokenHash: hashToken(accessToken),
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
-        isActive: 1,
-        teamContextId: user.defaultTeamId,
+        isActive: 1, teamContextId: user.defaultTeamId,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       });
-
-    await db
-      .update(users)
-      .set({
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastLoginAt: new Date(),
-      })
-      .where(eq(users.id, user.id));
-
-    await db.insert(activityLogs).values({
-      userId: user.id,
-      action: "2fa_verification_success",
-      resource: "users",
-      resourceId: user.id,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { method },
-      severity: "info",
+      if (challenge.method === "totp") {
+        await tx.update(totpSecrets).set({ lastUsedAt: now }).where(eq(totpSecrets.userId, user.id));
+      }
+      return true;
     });
+    if (!won) return NextResponse.json({ error: "Login challenge has already been used" }, { status: 401 });
 
+    await systemDb.insert(activityLogs).values({
+      userId: user.id, action: "2fa_verification_success", resource: "users",
+      resourceId: user.id, ipAddress: req.headers.get("x-forwarded-for") || null,
+      userAgent: req.headers.get("user-agent") || null,
+      details: { method: challenge.method }, severity: "info",
+    });
     const response = NextResponse.json({
       message: "2FA verification successful",
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        twoFactorEnabled: user.twoFactorEnabled === 1,
-      },
+      user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, twoFactorEnabled: true },
     });
-
-    // HttpOnly session cookie — XSS-safe; secure+sameSite:none required for
-    // Replit iframe embedding (dev preview pane uses a cross-origin iframe).
     response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      path: "/",
-      maxAge: 24 * 60 * 60,
+      httpOnly: true, secure: true, sameSite: "none", path: "/", maxAge: 24 * 60 * 60,
     });
-
+    issueCsrfCookie(response);
     return response;
-
   } catch (error) {
     console.error("2FA verification error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

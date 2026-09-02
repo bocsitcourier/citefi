@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, Link2, Loader2, CheckCircle2, AlertCircle, Image, Music, Video } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { csrfFetch } from "@/lib/queryClient";
 
 export type MediaType = 'image' | 'audio' | 'video';
 
@@ -41,7 +42,7 @@ export function MediaUploader({ articleId, assetType, onUploadComplete, maxSizeM
       if (altText) formData.append('altText', altText);
 
       setProgress("Uploading...");
-      const response = await fetch('/api/media/upload', {
+      const response = await csrfFetch('/api/media/upload', {
         method: 'POST',
         body: formData,
       });
@@ -93,7 +94,7 @@ export function MediaUploader({ articleId, assetType, onUploadComplete, maxSizeM
     setProgress("Fetching from URL...");
 
     try {
-      const response = await fetch('/api/media/from-url', {
+      const response = await csrfFetch('/api/media/from-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

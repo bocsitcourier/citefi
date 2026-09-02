@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { randomInt } from "crypto";
+import crypto from "crypto";
 import { getTxDb } from "@/lib/db";
-import { users, sessions, activityLogs, emailVerificationCodes } from "@/shared/schema";
-import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration } from "@/lib/auth";
+import { users, sessions, activityLogs, loginChallenges } from "@/shared/schema";
+import { verifyPassword, generateAccessToken, hashToken, isAccountLocked, calculateLockoutDuration, generateEmailCode } from "@/lib/auth";
 import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
+import { issueCsrfCookie } from "@/lib/csrf";
+import { sendEmailVerificationCode } from "@/lib/email";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: Request) {
@@ -152,23 +154,45 @@ export async function POST(req: Request) {
 
     // Check if 2FA is enabled
     if (user.twoFactorEnabled) {
-      // Generate a short-lived challenge token to bind the 2FA step to this
-      // completed password-verification. Without it, anyone who knows a user's
-      // TOTP code could call /api/auth/verify-2fa directly without proving the
-      // password step first.
-      const challengeCode = randomInt(100000, 1000000).toString();
-      await getTxDb().insert(emailVerificationCodes).values({
-        userId: user.id,
-        code: challengeCode,
-        purpose: "2fa_challenge_token",
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute window
+      const method = user.twoFactorMethod;
+      if (method !== "totp" && method !== "email") {
+        return NextResponse.json({ error: "Two-factor authentication is misconfigured" }, { status: 409 });
+      }
+      const challengeToken = crypto.randomBytes(32).toString("base64url");
+      const emailCode = method === "email" ? generateEmailCode() : null;
+      await getTxDb().transaction(async (tx) => {
+        // A new completed password step supersedes older outstanding attempts.
+        await tx.update(loginChallenges).set({ consumedAt: new Date() }).where(and(
+          eq(loginChallenges.userId, user.id),
+          isNull(loginChallenges.consumedAt)
+        ));
+        await tx.insert(loginChallenges).values({
+          userId: user.id,
+          tokenHash: hashToken(challengeToken),
+          method,
+          emailCodeHash: emailCode ? hashToken(emailCode) : null,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute window
+        });
       });
+
+      if (emailCode) {
+        try {
+          await sendEmailVerificationCode({
+            to: user.email,
+            code: emailCode,
+            purpose: "login_2fa",
+            fullName: user.fullName,
+          });
+        } catch (emailError) {
+          console.error("Failed to deliver login verification email:", emailError);
+          return NextResponse.json({ error: "Failed to send verification email. Please try again." }, { status: 503 });
+        }
+      }
 
       return NextResponse.json({
         requiresTwoFactor: true,
-        userId: user.id,
-        twoFactorMethod: user.twoFactorMethod,
-        challengeToken: challengeCode,
+        twoFactorMethod: method,
+        challengeToken,
         message: "Please complete 2FA verification",
       });
     }
@@ -240,6 +264,7 @@ export async function POST(req: Request) {
       path: "/",
       maxAge: 24 * 60 * 60, // 24 hours
     });
+    issueCsrfCookie(response);
 
     return response;
 

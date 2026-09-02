@@ -71,6 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         triggerArticleId: topArticle.id,
       })
       .returning();
+    if (!journey) {
+      throw new Error("Journey insert did not return a row");
+    }
 
     // Create steps from template config
     for (const stepDef of stepsConfig) {

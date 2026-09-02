@@ -14,6 +14,10 @@ const files = [
   "0019_agency_client_reports.sql",
   "0020_incident_intelligence.sql",
   "0021_incident_intelligence_hardening.sql",
+  "0022_billing_integrity.sql",
+  "0023_auth_login_challenges.sql",
+  "0024_pipeline_delivery_settlement.sql",
+  "0025_credit_reservation_tenant_access.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");
@@ -32,7 +36,14 @@ async function main() {
       version varchar(128) PRIMARY KEY, sha256 char(64) NOT NULL,
       applied_at timestamptz NOT NULL DEFAULT now()
     )`);
-    for (const file of files) {
+    const startVersion = process.env.MIGRATION_START_VERSION;
+    const selectedFiles = startVersion
+      ? files.filter((file) => file.localeCompare(startVersion, "en") >= 0)
+      : files;
+    if (startVersion && selectedFiles.length === 0) {
+      throw new Error(`No versioned migrations found at or after ${startVersion}`);
+    }
+    for (const file of selectedFiles) {
       const source = readFileSync(join(root, "migrations", file), "utf8");
       const sql = source.replace(/^\s*BEGIN\s*;\s*/i, "").replace(/\s*COMMIT\s*;\s*$/i, "");
       const digest = createHash("sha256").update(source).digest("hex");
@@ -46,7 +57,8 @@ async function main() {
       await client.query("INSERT INTO citefi_schema_migrations(version,sha256) VALUES($1,$2)", [file, digest]);
       console.log(`migration applied: ${file}`);
     }
-    const verification = await client.query(`
+    if (!startVersion || startVersion.localeCompare("0022", "en") < 0) {
+      const verification = await client.query(`
       SELECT
         to_regclass('public.telemetry_incidents') IS NOT NULL AS incidents,
         to_regclass('public.telemetry_events') IS NOT NULL AS events,
@@ -142,11 +154,49 @@ async function main() {
             AND c.conrelid=to_regclass('public.' || required.table_name)
             AND c.contype='c' AND c.convalidated
         ) = 4 AS all_incident_check_constraints`);
-    if (!Object.values(verification.rows[0]).every(Boolean)) {
-      throw new Error(`incident schema catalog verification failed: ${JSON.stringify(verification.rows[0])}`);
+      if (!Object.values(verification.rows[0]).every(Boolean)) {
+        throw new Error(`incident schema catalog verification failed: ${JSON.stringify(verification.rows[0])}`);
+      }
+    }
+    const postSchemaVerification = await client.query(`
+      SELECT
+        to_regclass('public.credit_reservations') IS NOT NULL AS reservations,
+        to_regclass('public.credit_reservation_quarantine') IS NOT NULL AS reservation_quarantine,
+        to_regclass('public.stripe_credit_reconciliations') IS NOT NULL AS stripe_reconciliations,
+        to_regclass('public.login_challenges') IS NOT NULL AS login_challenges,
+        EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid=to_regclass('public.credit_balances')
+            AND attname='allowance_debt' AND NOT attisdropped
+        ) AS allowance_debt,
+        EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid=to_regclass('public.social_posts')
+            AND attname='billing_settled_at' AND NOT attisdropped
+        ) AS social_settlement,
+        EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid=to_regclass('public.articles')
+            AND attname='podcast_billing_settled_at' AND NOT attisdropped
+        ) AS podcast_settlement,
+        (
+          SELECT count(*) FROM pg_policy
+          WHERE polrelid=to_regclass('public.credit_reservations')
+            AND polname IN (
+              'rls_credit_reservations_sel', 'rls_credit_reservations_ins',
+              'rls_credit_reservations_upd', 'rls_credit_reservations_del'
+            )
+        ) = 4 AS reservation_policies,
+        (
+          SELECT relrowsecurity AND relforcerowsecurity
+          FROM pg_class WHERE oid=to_regclass('public.credit_reservations')
+        ) AS reservation_rls
+    `);
+    if (!Object.values(postSchemaVerification.rows[0]).every(Boolean)) {
+      throw new Error(`post-schema migration catalog verification failed: ${JSON.stringify(postSchemaVerification.rows[0])}`);
     }
     await client.query("COMMIT");
-    console.log("migration ledger and incident schema verified");
+    console.log("migration ledger and schema controls verified");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;

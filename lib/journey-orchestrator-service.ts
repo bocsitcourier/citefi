@@ -255,6 +255,9 @@ export async function getOrCreateActivePolicy(
         active: true,
       })
       .returning();
+    if (!policy) {
+      throw new Error("Decision policy insert did not return a row");
+    }
 
     // Create arms linked to each eligible content item
     for (const item of eligibleItems) {
@@ -428,8 +431,7 @@ export async function getJourneyStats(teamId: number): Promise<JourneyStats> {
     WHERE dp.team_id = ${teamId}
   `);
 
-  // Neon HTTP driver returns { rows: [...] }; plain pg Pool returns an array
-  const row = ((funnelResult as any).rows ?? funnelResult as any[])[0] ?? {};
+  const row = funnelResult.rows[0] ?? {};
   const totalVisitors = Number(row.total_visitors ?? 0);
   const totalImpressions = Number(row.impressions ?? 0);
   const totalConversions = Number(row.conversions ?? 0);

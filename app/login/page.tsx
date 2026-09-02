@@ -39,9 +39,7 @@ function LoginForm() {
       const result = await login(email, password);
 
       if (result.requiresTwoFactor) {
-        router.replace(
-          `/verify-2fa?userId=${result.userId}&method=${result.twoFactorMethod}`
-        );
+        router.replace(`/verify-2fa?method=${result.twoFactorMethod}`);
       } else {
         toast({
           title: "Welcome back!",

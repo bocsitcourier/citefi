@@ -70,7 +70,7 @@ async function getStripeKey(): Promise<string> {
 async function main() {
   const { default: Stripe } = await import("stripe");
   const secretKey = await getStripeKey();
-  const stripe = new Stripe(secretKey, { apiVersion: "2025-05-28.basil" });
+  const stripe = new Stripe(secretKey, { apiVersion: "2026-05-27.dahlia" });
 
   console.log("\n=== Seeding Stripe subscription plans ===\n");
   const envLines: string[] = [];
@@ -82,7 +82,7 @@ async function main() {
 
     let productId: string;
     if (existing.data.length > 0) {
-      productId = existing.data[0].id;
+      productId = existing.data[0]!.id;
       console.log(`[SKIP] ${plan.name} product already exists: ${productId}`);
     } else {
       const product = await stripe.products.create({
@@ -144,7 +144,7 @@ async function main() {
 
     let productId: string;
     if (existing.data.length > 0) {
-      productId = existing.data[0].id;
+      productId = existing.data[0]!.id;
       console.log(`[SKIP] ${topUp.name} product already exists: ${productId}`);
     } else {
       const product = await stripe.products.create({

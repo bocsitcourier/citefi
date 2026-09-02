@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import Link from "next/link";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface ErrorPageProps {
   error: Error & { digest?: string };
@@ -12,7 +13,7 @@ interface ErrorPageProps {
 
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
   useEffect(() => {
-    fetch("/api/client-errors", {
+    csrfFetch("/api/client-errors", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

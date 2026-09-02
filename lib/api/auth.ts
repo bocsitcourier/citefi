@@ -9,6 +9,7 @@ import {
   enterTenantContext,
   runWithTenantContext,
 } from "@/lib/tenant-context";
+import { requireCookieCsrf } from "@/lib/csrf";
 
 /** Five-minute throttle for lastActivityAt writes — one DB write per session per 5 min. */
 const ACTIVITY_THROTTLE_MS = 5 * 60 * 1000;
@@ -134,6 +135,8 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
   if (!token) {
     throw new Error("No authentication token provided");
   }
+  const bearer = req.headers.get("authorization")?.slice(7).trim();
+  if (!bearer || bearer !== token) requireCookieCsrf(req);
 
   // Verify JWT
   const payload = verifyJWT(token);
@@ -308,6 +311,11 @@ async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: n
       .limit(1);
 
     if (!session) continue; // No active session row — try next candidate (cookie fallback)
+
+    // Only browser-cookie credentials need CSRF. A valid bearer credential is
+    // not ambient browser authority and remains compatible with API clients.
+    const bearer = req.headers.get("authorization")?.slice(7).trim();
+    if (!bearer || bearer !== token) requireCookieCsrf(req);
 
     // Throttled lastActivityAt refresh — one write per session per 5 min.
     const now = new Date();
@@ -698,6 +706,14 @@ export async function requireClientReviewer(req: NextRequest): Promise<{ userId:
     const [directMembership] = await db
       .select({ role: teamMembers.role })
       .from(teamMembers)
+      .innerJoin(
+        teams,
+        and(
+          eq(teams.id, teamMembers.teamId),
+          isNull(teams.deletedAt),
+          eq(teams.clientStatus, "active")
+        )
+      )
       .where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, authResult.teamContextId)))
       .limit(1);
 

@@ -17,7 +17,7 @@ import {
   Filter, Upload, Layers,
 } from "lucide-react";
 import { SiFacebook, SiLinkedin, SiTiktok } from "react-icons/si";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, csrfFetch, queryClient } from "@/lib/queryClient";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle, DialogTrigger,
@@ -248,7 +248,7 @@ export default function PublishingDashboard() {
 
   const deleteJobMutation = useMutation({
     mutationFn: async (jobId: number) => {
-      const res = await fetch(`/api/publishing/jobs/${jobId}`, { method: "DELETE", credentials: "include" });
+      const res = await csrfFetch(`/api/publishing/jobs/${jobId}`, { method: "DELETE", credentials: "include" });
       return res.json();
     },
     onSuccess: () => {
@@ -262,7 +262,7 @@ export default function PublishingDashboard() {
 
   const batchDeleteMutation = useMutation({
     mutationFn: async (ids: number[]) => {
-      const res = await fetch("/api/publishing/jobs", {
+      const res = await csrfFetch("/api/publishing/jobs", {
         method: "DELETE",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

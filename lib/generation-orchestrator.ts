@@ -175,7 +175,7 @@ async function sampleArm(teamId: number, contentType: string): Promise<number | 
         and(
           eq(decisionArms.teamId, teamId),
           aliases.length === 1
-            ? eq(decisionArms.contentType, aliases[0])
+            ? eq(decisionArms.contentType, aliases[0]!)
             : inArray(decisionArms.contentType, aliases),
           eq(decisionArms.active, true)
         )
@@ -191,10 +191,10 @@ async function sampleArm(teamId: number, contentType: string): Promise<number | 
       }
       return undefined;
     }
-    if (arms.length === 1) return arms[0].id; // Only one arm — no sampling needed
+    if (arms.length === 1) return arms[0]!.id; // Only one arm — no sampling needed
 
     // Thompson Sampling: draw from each arm's Beta posterior, pick the highest
-    let bestId = arms[0].id;
+    let bestId = arms[0]!.id;
     let bestDraw = -1;
     for (const arm of arms) {
       const draw = betaSample(arm.posteriorAlpha, arm.posteriorBeta);

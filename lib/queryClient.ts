@@ -13,7 +13,7 @@ function showErrorToast(message: string) {
 
 function reportClientError(type: string, error: Error) {
   if (typeof window === "undefined") return;
-  fetch("/api/client-errors", {
+  csrfFetch("/api/client-errors", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -70,18 +70,35 @@ export const queryClient = new QueryClient({
   },
 });
 
-export async function apiRequest(url: string, options?: RequestInit) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options?.headers as Record<string, string> | undefined ?? {}),
-  };
+export async function csrfFetch(url: string, options?: RequestInit) {
+  const headers = new Headers(options?.headers);
+  const body = options?.body;
+  const browserSelectsContentType =
+    (typeof FormData !== "undefined" && body instanceof FormData) ||
+    (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) ||
+    (typeof Blob !== "undefined" && body instanceof Blob) ||
+    (typeof ArrayBuffer !== "undefined" && body instanceof ArrayBuffer);
+  if (body != null && !browserSelectsContentType && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const method = (options?.method || "GET").toUpperCase();
+  if (typeof document !== "undefined" && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const csrf = document.cookie
+      .split("; ")
+      .find((entry) => entry.startsWith("csrf_token="))
+      ?.slice("csrf_token=".length);
+    if (csrf) headers.set("X-CSRF-Token", decodeURIComponent(csrf));
+  }
 
-  const response = await fetch(url, {
+  return fetch(url, {
     ...options,
     credentials: "include",
     headers,
   });
+}
 
+export async function apiRequest(url: string, options?: RequestInit) {
+  const response = await csrfFetch(url, options);
   if (!response.ok) {
     let errorMessage = `Request failed with status ${response.status}`;
     let errorData: any = null;

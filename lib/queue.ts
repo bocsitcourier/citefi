@@ -104,6 +104,7 @@ export interface SocialVideoJobData {
   platform?: string;
   videoType?: string;
   teamId: number;
+  userId?: number;
   journeyStepId?: number;
 }
 
@@ -676,7 +677,8 @@ export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { d
       // Falls back to socialPostId + timestamp so intentional retries after
       // failure still create new jobs.
       jobId,
-      attempts: 1, // No retries — each attempt consumes a credit reservation
+      attempts: 3,
+      backoff: { type: "exponential", delay: 60_000 },
       ...(opts?.delayMs ? { delay: opts.delayMs } : {}),
     });
   } catch (error) {

@@ -338,11 +338,11 @@ export async function validateAndResolveModels(): Promise<void> {
   console.log(`   ℹ️  veoVideo: ${working.veoVideo} (not validated — Veo uses a separate endpoint)`);
 
   if (errors.length > 0) {
-    // A model retirement must be visible to operators, but should not prevent
-    // unrelated queues from starting. Jobs using the affected tier will fail
-    // explicitly until the configured model or fallback chain is corrected.
-    console.warn(
-      `[model-resolver] Critical model tiers have no live model — continuing startup:\n  • ${errors.join("\n  • ")}`
+    throw new PipelineError(
+      `Critical model tiers have no live model: ${errors.join("; ")}`,
+      "MODEL_NOT_FOUND",
+      "fatal",
+      "startup",
     );
   }
 

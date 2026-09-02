@@ -4,6 +4,7 @@ import { load as cheerioLoad } from 'cheerio';
 import { StorageAdapter, StorageResult, UpsertResult } from './index';
 import { getConfig } from '../config';
 import { logger } from '../utils/logger';
+import { createSafeSlug, resolvePathWithin } from '../utils/safePaths';
 import type { ArticlePayload } from '../types/payloads';
 import type { DownloadResult } from '../services/media-downloader';
 
@@ -52,7 +53,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
   }
 
   async saveFile(relativePath: string, content: Buffer): Promise<string> {
-    const fullPath = path.join(this.basePath, relativePath);
+    const fullPath = resolvePathWithin(this.basePath, relativePath);
     const dir = path.dirname(fullPath);
     
     await this.ensureDirectory(dir);
@@ -68,7 +69,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
   }
 
   async deleteFile(relativePath: string): Promise<void> {
-    const fullPath = path.join(this.basePath, relativePath);
+    const fullPath = resolvePathWithin(this.basePath, relativePath);
     try {
       await fs.unlink(fullPath);
       logger.debug('File deleted', { path: fullPath });
@@ -80,7 +81,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
   }
 
   async fileExists(relativePath: string): Promise<boolean> {
-    const fullPath = path.join(this.basePath, relativePath);
+    const fullPath = resolvePathWithin(this.basePath, relativePath);
     try {
       await fs.access(fullPath);
       return true;
@@ -131,7 +132,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
     article: ArticlePayload,
     mediaMap: Map<string, DownloadResult>
   ): Promise<UpsertResult> {
-    const slug = sanitizeSlug(article.slug);
+    const slug = createSafeSlug(article.slug);
     const publishedAt = new Date().toISOString();
 
     logger.info('Upserting article (Platinum)', {
@@ -223,7 +224,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
       updatedAt: publishedAt,
     };
 
-    const dataFilePath = path.join(this.dataDir, `${slug}.json`);
+    const dataFilePath = resolvePathWithin(this.dataDir, `${slug}.json`);
     await fs.writeFile(dataFilePath, JSON.stringify(record, null, 2), 'utf-8');
     logger.info('Article data record written', { dataFilePath });
 
@@ -276,7 +277,7 @@ export class LocalFilesystemAdapter implements StorageAdapter {
     try {
       await this.ensureDirectory(this.pagesDir);
       const pageHtml = generateFullPage(article, bodyHtml, heroImageUrl || null, this.baseUrl, slug);
-      const htmlFilePath = path.join(this.pagesDir, `${slug}.html`);
+      const htmlFilePath = resolvePathWithin(this.pagesDir, `${slug}.html`);
       await fs.writeFile(htmlFilePath, pageHtml, 'utf-8');
       logger.info('Standalone HTML page written', { htmlFilePath, pageUrl });
     } catch (htmlErr) {
@@ -303,14 +304,6 @@ function sanitizeHtml(html: string): string {
     .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
     .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
     .replace(/<embed\b[^>]*\/?>/gi, '');
-}
-
-function sanitizeSlug(slug: string): string {
-  return slug
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
 }
 
 function escapeHtml(text: string): string {

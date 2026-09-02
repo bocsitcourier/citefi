@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { PENDING_COUNT_KEY } from "@/hooks/use-invalidate-pending-count";
+import { csrfFetch } from "@/lib/queryClient";
 
 const adminNavItems = [
   {
@@ -175,7 +176,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const handleLogout = async () => {
     try {
-      const res = await fetch("/api/auth/logout", { method: "POST" });
+      const res = await csrfFetch("/api/auth/logout", { method: "POST" });
       if (res.ok) {
         router.push("/login");
       } else {

@@ -69,7 +69,7 @@ export async function getJourneyContext(
       const [pillarArticle] = await db
         .select({
           chosenTitle: articles.chosenTitle,
-          bodyText: articles.bodyText,
+          bodyText: articles.finalHtmlContent,
         })
         .from(articles)
         // Scope article lookup by teamId to prevent cross-team leaks
@@ -106,16 +106,18 @@ export async function getJourneyContext(
 
         if (batch?.personaId) {
           const [persona] = await db
-            .select({ name: audiencePersonas.name, psychographicProfile: audiencePersonas.psychographicProfile })
+            .select({ name: audiencePersonas.name, painPoints: audiencePersonas.painPoints })
             .from(audiencePersonas)
             // Scope persona by teamId
             .where(and(eq(audiencePersonas.id, batch.personaId), eq(audiencePersonas.teamId, resolvedTeamId)))
             .limit(1);
 
           if (persona) {
-            const profile = persona.psychographicProfile as Record<string, unknown> | null;
-            const painPoints = profile?.painPoints
-              ? `Key pain points: ${(profile.painPoints as string[]).slice(0, 3).join("; ")}`
+            const personaPainPoints = Array.isArray(persona.painPoints)
+              ? persona.painPoints.filter((item): item is string => typeof item === "string")
+              : [];
+            const painPoints = personaPainPoints.length > 0
+              ? `Key pain points: ${personaPainPoints.slice(0, 3).join("; ")}`
               : "";
             personaGuidance = `Target persona: ${persona.name}. ${painPoints}`.trim();
           }

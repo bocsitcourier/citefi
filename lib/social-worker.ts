@@ -13,10 +13,15 @@ import {
   ContentType,
   articles,
 } from "@/shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { SocialPostJobData } from "./queue";
 import { addVideoGenerationJob, SOCIAL_VIDEO_GENERATION_QUEUE } from "./queue";
-import { assertEntityTeam, currentTenantTeamId } from "./pipeline-worker";
+import {
+  assertEntityTeam,
+  BillingSettlementError,
+  currentTenantTeamId,
+  isBillingSettlementError,
+} from "./pipeline-worker";
 import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
@@ -31,6 +36,124 @@ const CHAR_LIMITS = {
   linkedin: 3000,
   pinterest: 500,
 } as const;
+
+export interface AutomaticVideoDependencies {
+  addJob?: typeof addVideoGenerationJob;
+  isMediaFeatureEnabled?: () => boolean;
+}
+
+/**
+ * Metered follow-on used by social generation. It deliberately mirrors the
+ * direct video route: advisory quota gate, spending-cap reservation, credit
+ * reservation, atomic user slot, durable intent, then enqueue.
+ */
+export async function enqueueAutomaticSocialVideo(
+  args: { socialPostId: number; teamId: number; userId: number; platform: string },
+  dependencies: AutomaticVideoDependencies = {}
+): Promise<string | null> {
+  // This must be first: automatic video is optional, and a disabled media
+  // capability must not consume quota, reserve cap/credits, or claim a slot.
+  const isMediaFeatureEnabled =
+    dependencies.isMediaFeatureEnabled ??
+    (await import("./storage")).isMediaFeatureEnabled;
+  if (!isMediaFeatureEnabled()) {
+    console.warn(
+      `[SocialWorker] Skipping automatic video for social post ${args.socialPostId}: media generation is disabled`
+    );
+    return null;
+  }
+
+  const { checkVideoGate, acquireVideoSlot, releaseVideoSlot } = await import("./user-gate");
+  const { checkUsageCap, cancelCapReservation } = await import("./usage-caps");
+  const { reserveCredits, releaseReservation } = await import("./billing");
+  const creditRunId = `social-auto-video:${args.teamId}:${args.socialPostId}:${args.platform}`;
+
+  const [current] = await db.select({
+    videoCreditRunId: socialPosts.videoCreditRunId,
+    videoStatus: socialPosts.videoStatus,
+  }).from(socialPosts).where(and(
+    eq(socialPosts.id, args.socialPostId),
+    eq(socialPosts.teamId, args.teamId)
+  )).limit(1);
+  if (current?.videoCreditRunId === creditRunId &&
+      ["PENDING", "GENERATING", "READY"].includes(current.videoStatus ?? "")) {
+    return null;
+  }
+
+  const gate = await checkVideoGate(args.userId, args.teamId);
+  if (!gate.allowed) throw new Error(gate.message ?? "Automatic video quota exceeded");
+
+  let capReservationId: number | null = null;
+  let slotAcquired = false;
+  let reserved = false;
+  try {
+    capReservationId = await checkUsageCap(args.teamId, 15);
+    const reservation = await reserveCredits({
+      teamId: args.teamId,
+      operationType: "video",
+      runId: creditRunId,
+      userId: args.userId,
+    });
+    if (!reservation.ok) throw new Error("Insufficient credits for automatic social video");
+    reserved = true;
+
+    slotAcquired = await acquireVideoSlot(args.userId, args.teamId);
+    if (!slotAcquired) throw new Error("Automatic video concurrency limit reached");
+
+    const [intent] = await db.update(socialPosts).set({
+      videoCreditRunId: creditRunId,
+      videoCapReservationId: capReservationId,
+      videoStatus: "PENDING",
+      videoStage: "queued",
+      videoProgress: 0,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(socialPosts.id, args.socialPostId),
+      eq(socialPosts.teamId, args.teamId),
+      sql`${socialPosts.videoCreditRunId} IS NULL OR ${socialPosts.videoCreditRunId} = ${creditRunId}`
+    )).returning({ id: socialPosts.id });
+    if (!intent) throw new Error("A different automatic video intent already exists");
+
+    const jobId = await (dependencies.addJob ?? addVideoGenerationJob)({
+      socialPostId: args.socialPostId,
+      platform: args.platform,
+      teamId: args.teamId,
+      creditRunId,
+      userId: args.userId,
+    });
+    if (!jobId) throw new Error("Video queue did not accept the automatic job");
+    await db.update(socialPosts).set({
+      videoStatus: "GENERATING",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(socialPosts.id, args.socialPostId),
+      eq(socialPosts.videoCreditRunId, creditRunId)
+    ));
+    return String(jobId);
+  } catch (error) {
+    if (slotAcquired) await releaseVideoSlot(args.userId).catch(() => {});
+    if (capReservationId !== null) await cancelCapReservation(capReservationId).catch(() => {});
+    if (reserved) {
+      await releaseReservation({
+        teamId: args.teamId,
+        runId: creditRunId,
+        reason: `Automatic video enqueue failed for social post ${args.socialPostId}`,
+      }).catch(() => {});
+    }
+    await db.update(socialPosts).set({
+      videoCreditRunId: null,
+      videoCapReservationId: null,
+      videoStatus: "FAILED_ENQUEUE",
+      videoStage: null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(socialPosts.id, args.socialPostId),
+      eq(socialPosts.teamId, args.teamId),
+      eq(socialPosts.videoCreditRunId, creditRunId)
+    )).catch(() => {});
+    throw error;
+  }
+}
 
 // ============================================================================
 // SEO/GEO HELPER FUNCTIONS
@@ -111,6 +234,63 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
   console.log(`🎭 Processing social post generation ${socialPostId} for ${platforms.length} platforms${generateVideos ? ' (with video)' : ''}`);
 
   try {
+    const [postDetails] = await db
+      .select()
+      .from(socialPosts)
+      .where(eq(socialPosts.id, socialPostId));
+
+    assertEntityTeam({
+      entity: "socialPost",
+      entityId: socialPostId,
+      jobTeamId: currentTenantTeamId(),
+      entityTeamId: postDetails?.teamId,
+    });
+    const validatedPostTeamId = postDetails?.teamId;
+    if (!Number.isInteger(validatedPostTeamId) || (validatedPostTeamId ?? 0) <= 0) {
+      throw new Error(`Social post ${socialPostId} has no validated team`);
+    }
+    const teamId = validatedPostTeamId!;
+
+    // READY is the durable delivery checkpoint. A retry after a debit failure
+    // settles only; it must never call either content provider again.
+    if (
+      postDetails?.status === "READY" &&
+      postDetails.billingRunId === job.data.creditRunId &&
+      !postDetails.billingSettledAt &&
+      job.data.creditRunId
+    ) {
+      const { debitReservation } = await import("@/lib/billing");
+      let debitResult;
+      try {
+        debitResult = await debitReservation({
+          teamId,
+          runId: job.data.creditRunId,
+          userId,
+          jobId: String(job.id ?? ""),
+        });
+      } catch (cause) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered social post ${socialPostId}`,
+          job.data.creditRunId,
+          cause
+        );
+      }
+      if (!debitResult.ok) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered social post ${socialPostId}`,
+          job.data.creditRunId
+        );
+      }
+      await db.update(socialPosts)
+        .set({ billingSettledAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(socialPosts.id, socialPostId),
+          eq(socialPosts.teamId, teamId),
+          eq(socialPosts.billingRunId, job.data.creditRunId)
+        ));
+      return;
+    }
+
     // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
     // catch (status=FAILED write) before createPipelineWorker releases the
     // reservation and stops retries. Keyed by the same creditRunId the wrapper
@@ -150,26 +330,6 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     // Import AI providers
     const { generateSocialPostWithGemini } = await import("./gemini-social");
     const { enhanceSocialPostWithGPT } = await import("./openai-social");
-    
-    // Get post details to extract location, company name for SEO/GEO and validation
-    const [postDetails] = await db
-      .select()
-      .from(socialPosts)
-      .where(eq(socialPosts.id, socialPostId));
-
-    // Authoritative entity/team cross-check: the social post's owner must match
-    // the tenant this job runs as before any generation/billing happens.
-    assertEntityTeam({
-      entity: "socialPost",
-      entityId: socialPostId,
-      jobTeamId: currentTenantTeamId(),
-      entityTeamId: postDetails?.teamId,
-    });
-    const validatedPostTeamId = postDetails?.teamId;
-    if (!Number.isInteger(validatedPostTeamId) || (validatedPostTeamId ?? 0) <= 0) {
-      throw new Error(`Social post ${socialPostId} has no validated team`);
-    }
-    const teamId = validatedPostTeamId!;
     
     const location = postDetails?.location || "";
     const topic = postDetails?.topic || "";
@@ -497,9 +657,12 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       try {
         console.log(`🎬 Queueing video generation for social post ${socialPostId}`);
         
-        const videoJobId = await addVideoGenerationJob(
-          { socialPostId, platform: "tiktok", teamId },
-        );
+        const videoJobId = await enqueueAutomaticSocialVideo({
+          socialPostId,
+          platform: "tiktok",
+          teamId,
+          userId,
+        });
 
         if (videoJobId) {
           // Update post with video status
@@ -557,7 +720,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
     await db
       .update(socialPosts)
-      .set({ status: finalStatus, updatedAt: new Date() })
+      .set({
+        status: finalStatus,
+        billingRunId: finalStatus === "READY" ? (job.data.creditRunId ?? null) : null,
+        updatedAt: new Date(),
+      })
       .where(updateWhere);
 
     if (finalStatus === "FAILED") {
@@ -606,17 +773,29 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     const teamIdForBilling = job.data.teamId ?? postDetails?.teamId;
     if (job.data.creditRunId && teamIdForBilling) {
       const { debitReservation } = await import("@/lib/billing");
-      const debitResult = await debitReservation({
-        teamId: teamIdForBilling,
-        runId: job.data.creditRunId,
-        jobId: job.id,
-      });
-      if (!debitResult.ok) {
-        throw new Error(
-          `[billing] DEBIT_FAILED for social post ${socialPostId} (teamId=${teamIdForBilling} runId=${job.data.creditRunId}). ` +
-          `Marking job failed so pg-boss retries the debit. Post was generated successfully.`
+      let debitResult;
+      try {
+        debitResult = await debitReservation({
+          teamId: teamIdForBilling,
+          runId: job.data.creditRunId,
+          jobId: String(job.id ?? ""),
+        });
+      } catch (cause) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered social post ${socialPostId}`,
+          job.data.creditRunId,
+          cause
         );
       }
+      if (!debitResult.ok) {
+        throw new BillingSettlementError(
+          `Debit settlement failed for delivered social post ${socialPostId}`,
+          job.data.creditRunId
+        );
+      }
+      await db.update(socialPosts)
+        .set({ billingSettledAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamIdForBilling)));
       // Record completed usage event — populates spending cap meter so caps can trip.
       const { recordUsageEvent } = await import("@/lib/usage-caps");
       await recordUsageEvent({
@@ -648,6 +827,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     }
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isBillingSettlementError(error)) {
+      // Delivery is durable. Preserve READY metadata and let the shared
+      // pipeline handler retry settlement without releasing the reservation.
+      throw error;
+    }
     console.error(`❌ Social post generation failed for ${socialPostId}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
 

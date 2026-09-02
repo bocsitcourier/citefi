@@ -55,7 +55,11 @@ bash scripts/install-db-backup-cron.sh
 
 This will:
 1. Upload `/usr/local/bin/citefi-db-backup.sh` to the droplet
-2. Install the AWS CLI v2 if not already present
+2. Use an existing AWS CLI or install the distribution/Nix package noninteractively.
+   If no compatible package is available, install only the pinned AWS CLI v2.17.63
+   archive after its architecture-specific, review-recorded SHA-256 verifies.
+   A checksum mismatch fails closed before the archive is unzipped or its installer
+   is executed.
 3. Write `/etc/cron.d/citefi-db-backup` (schedule: 02:05 UTC daily)
 4. **Perform an authenticated DO Spaces API call** to confirm credentials work — the installer fails hard if any required var is missing or if the bucket is unreachable
 
@@ -128,7 +132,8 @@ aws s3 cp "s3://${DO_SPACES_BUCKET}/db-backups/citefi_YYYYMMDD_HHMMSS.sql.gz" \
 Prevent writes while the restore is in progress:
 
 ```bash
-pm2 stop all
+pm2 stop citefi-web
+pm2 stop citefi-worker
 ```
 
 ### Step 3 — Extract the database name from DATABASE_URL

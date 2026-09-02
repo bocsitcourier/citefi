@@ -170,6 +170,23 @@ processes without `npm ci`, rebuilding, or changing `.next`. Schema migrations
 remain forward-only. Do not delete the release named by `knownGoodRelease` in
 `.deploy/release-status.json`.
 
+### Deployment capability policy
+
+Database, Redis, queue/canary checks, durable worker registration and scheduler
+readiness, critical provider-model resolution, fresh backup status, and storage
+for enabled media are release-required. `MEDIA_FEATURES_ENABLED=false` is the
+only supported way to make storage optional: health reports
+`disabled-by-policy`, and media enqueue routes return 503 rather than accepting
+work. Missing credentials while media remains enabled is `misconfigured` and
+unhealthy. `AI_FEATURES_ENABLED=false` and `BACKUP_REQUIRED=false` are intended
+only for explicitly non-production environments; production release policy
+must leave both required.
+
+Both artifact deployment and backup installation require the independently
+recorded `DO_SSH_HOST_FINGERPRINT=SHA256:...` pin. A key fetched at runtime is
+written to `known_hosts` only after its SHA-256 fingerprint matches; absence or
+mismatch aborts before SCP or SSH.
+
 The release also probes `DO_PUBLIC_HEALTHCHECK_URL` directly after local health;
 connection refusal/no listener or non-2xx is a rollback condition. Failure output
 includes PM2 descriptions, BUILD_ID, socket listeners, a verbose public probe,
@@ -240,6 +257,25 @@ pm2 save
 Provision and enable `/swapfile2` as root if it is absent; normal deployment
 runs as `citefi` and deliberately refuses to create root-owned deployment
 files. Ensure `flock` (from `util-linux`) and `rsync` are installed.
+
+For a genuinely fresh host (no legacy built checkout), provision only the
+shared layout as root, then run the normal immutable transport:
+
+```bash
+install -d -o citefi -g citefi -m 750 \
+  /var/www/citefi /var/www/citefi/releases \
+  /var/www/citefi/.deploy/incoming /var/www/citefi/.deploy/diagnostics \
+  /var/log/citefi
+install -o citefi -g citefi -m 600 /dev/null /var/www/citefi/.env.local
+# Populate .env.local through the approved secret channel, then from CI/operator:
+export DO_INITIAL_RELEASE=true
+scripts/deploy-to-do.sh
+```
+
+The initial-release flag is accepted only when `current` does not exist. The
+validated candidate becomes `current`; PM2 starts only `citefi-web` and
+`citefi-worker` from that symlink. Remove the flag after bootstrap. An empty or
+template shared environment fails preflight before PM2 starts.
 
 Staging uses the same immutable layout under `/var/www/citefi-staging`, its own
 `current`, `releases`, `.deploy/release.lock`, environment file, PM2 names, port

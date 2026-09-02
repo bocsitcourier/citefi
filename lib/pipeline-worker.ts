@@ -329,10 +329,12 @@ export function isFinalPipelineAttempt(
  */
 export class BillingSettlementError extends Error {
   readonly code = "DEBIT_FAILED";
+  readonly reservationRunId?: string;
 
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, reservationRunId?: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
     this.name = "BillingSettlementError";
+    this.reservationRunId = reservationRunId;
   }
 }
 

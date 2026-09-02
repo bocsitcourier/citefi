@@ -3,7 +3,7 @@
  * Creates and tears down isolated test users + team per test run.
  * Uses RUN_ID suffix so parallel runs don't collide.
  */
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import {
   users,
   teams,
@@ -40,6 +40,7 @@ export async function seedAdminUsers(runId: string): Promise<AdminSeedResult> {
       fullName: "Admin User",
     })
     .returning({ id: users.id, email: users.email });
+  if (!adminRow) throw new Error("Failed to seed admin user");
 
   // 2. Create team with admin as creator
   const teamName = `Admin Test Team ${runId}`;
@@ -47,6 +48,7 @@ export async function seedAdminUsers(runId: string): Promise<AdminSeedResult> {
     .insert(teams)
     .values({ name: teamName, createdBy: adminRow.id })
     .returning({ id: teams.id });
+  if (!teamRow) throw new Error("Failed to seed admin team");
 
   // 3. Update admin's defaultTeamId now that team exists
   await db
@@ -66,6 +68,7 @@ export async function seedAdminUsers(runId: string): Promise<AdminSeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!activeRow) throw new Error("Failed to seed active user");
 
   // 5. Create pending_approval users — two so each destructive test gets its own
   const [pendingRow1] = await db
@@ -79,6 +82,7 @@ export async function seedAdminUsers(runId: string): Promise<AdminSeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!pendingRow1) throw new Error("Failed to seed first pending user");
 
   const [pendingRow2] = await db
     .insert(users)
@@ -91,6 +95,7 @@ export async function seedAdminUsers(runId: string): Promise<AdminSeedResult> {
       defaultTeamId: teamRow.id,
     })
     .returning({ id: users.id, email: users.email });
+  if (!pendingRow2) throw new Error("Failed to seed second pending user");
 
   // 6. Wire team memberships
   await db.insert(teamMembers).values([

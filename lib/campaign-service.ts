@@ -29,9 +29,11 @@ import {
   costTelemetry,
   usageEvents,
   contentEvents,
+  teams,
 } from "@/shared/schema";
 import { and, desc, eq, isNull, sql, inArray, ne, or } from "drizzle-orm";
 import { getEffectiveCreditCost, getCreditCost } from "./credit-menu";
+import { runWithSystemContext } from "./tenant-context";
 
 // ============================================================================
 // STATE MACHINES
@@ -971,6 +973,37 @@ export async function getCampaignByPublicId(
     .where(and(eq(campaigns.publicId, publicId), teamCampaignPredicate(teamId)))
     .limit(1);
   return campaign ?? null;
+}
+
+/**
+ * Resolve the agency-owned campaign associated with an authenticated client
+ * workspace. This is intentionally narrow and system-scoped because campaign
+ * rows belong to the parent agency tenant while the reviewer is operating in
+ * the client tenant context.
+ */
+export async function getCampaignForClientApprovalByPublicId(
+  clientTeamId: number,
+  publicId: string
+): Promise<typeof campaigns.$inferSelect | null> {
+  return runWithSystemContext(
+    "campaign client approval relationship lookup",
+    async () => {
+      const [row] = await db
+        .select({ campaign: campaigns })
+        .from(campaigns)
+        .innerJoin(teams, and(
+          eq(teams.id, campaigns.clientTeamId),
+          isNull(teams.deletedAt),
+          eq(teams.clientStatus, "active")
+        ))
+        .where(and(
+          eq(campaigns.publicId, publicId),
+          eq(campaigns.clientTeamId, clientTeamId)
+        ))
+        .limit(1);
+      return row?.campaign ?? null;
+    }
+  );
 }
 
 /**

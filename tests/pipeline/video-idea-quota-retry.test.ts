@@ -48,8 +48,10 @@ import {
   teamMembers,
   teams,
   users,
+  socialPosts,
   videoIdeas,
 } from "../../shared/schema";
+import { enqueueAutomaticSocialVideo } from "../../lib/social-worker";
 
 after(async () => {
   const { closeDb } = await import("../../lib/db");
@@ -69,6 +71,195 @@ void test("the production Veo orchestration stage lets quota errors reach BullMQ
     /RESOURCE_EXHAUSTED/
   );
   assert.equal(providerCalls, 1);
+});
+
+void test("disabled media skips automatic social video before it can queue or reserve work", async () => {
+  const fixtureId = `test-social-auto-media-disabled-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let userId: number | undefined;
+  let teamId: number | undefined;
+  let socialPostId: number | undefined;
+
+  try {
+    const [user] = await db.insert(users).values({
+      email: `${fixtureId}@test.invalid`,
+      passwordHash: "x",
+      role: "member",
+      accountStatus: "active",
+    }).returning({ id: users.id });
+    assert.ok(user);
+    userId = user.id;
+
+    const [team] = await db.insert(teams).values({
+      name: `Automatic social disabled ${fixtureId}`,
+      createdBy: userId,
+    }).returning({ id: teams.id });
+    assert.ok(team);
+    teamId = team.id;
+    await db.insert(teamMembers).values({ teamId, userId, role: "owner" });
+
+    const [post] = await db.insert(socialPosts).values({
+      userId,
+      teamId,
+      topic: "Disabled media test",
+      title: "Disabled media test",
+      location: "Testville",
+      platformsJson: ["x"],
+      status: "READY",
+      companyName: "Test Co",
+    }).returning({ id: socialPosts.id });
+    assert.ok(post);
+    socialPostId = post.id;
+
+    let queueCalls = 0;
+    const result = await enqueueAutomaticSocialVideo(
+      { socialPostId, teamId, userId, platform: "tiktok" },
+      {
+        isMediaFeatureEnabled: () => false,
+        addJob: async () => {
+          queueCalls += 1;
+          return "must-not-queue";
+        },
+      }
+    );
+
+    assert.equal(result, null);
+    assert.equal(queueCalls, 0, "disabled media must not enqueue provider work");
+    const [unchangedPost] = await db.select({
+      status: socialPosts.status,
+      videoCreditRunId: socialPosts.videoCreditRunId,
+      videoCapReservationId: socialPosts.videoCapReservationId,
+      videoStatus: socialPosts.videoStatus,
+    }).from(socialPosts).where(eq(socialPosts.id, socialPostId));
+    assert.equal(unchangedPost?.status, "READY", "the parent social post remains terminal");
+    assert.equal(unchangedPost?.videoCreditRunId, null);
+    assert.equal(unchangedPost?.videoCapReservationId, null);
+    assert.equal(unchangedPost?.videoStatus, null);
+  } finally {
+    if (socialPostId !== undefined) {
+      await db.delete(socialPosts).where(eq(socialPosts.id, socialPostId));
+    }
+    if (teamId !== undefined) {
+      await db.delete(creditLedger).where(eq(creditLedger.teamId, teamId));
+      await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
+      await db.delete(teams).where(eq(teams.id, teamId));
+    }
+    if (userId !== undefined) {
+      await db.delete(users).where(eq(users.id, userId));
+    }
+  }
+});
+
+void test("disabled media terminally fails queued video ideas without calling Veo or stranding credits", async () => {
+  const runId = `test-video-idea-media-disabled-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let userId: number | undefined;
+  let teamId: number | undefined;
+  let videoIdeaId: number | undefined;
+
+  try {
+    const [user] = await db.insert(users).values({
+      email: `${runId}@test.invalid`,
+      passwordHash: "x",
+      role: "member",
+      accountStatus: "active",
+    }).returning({ id: users.id });
+    assert.ok(user);
+    userId = user.id;
+    const [team] = await db.insert(teams).values({
+      name: `Disabled video idea ${runId}`,
+      createdBy: userId,
+    }).returning({ id: teams.id });
+    assert.ok(team);
+    teamId = team.id;
+    await db.insert(teamMembers).values({ teamId, userId, role: "owner" });
+    await db.insert(creditBalances).values({
+      teamId,
+      allowanceCredits: 100,
+      purchasedCredits: 0,
+      allowanceUsed: 0,
+      purchasedUsed: 0,
+      reservedCredits: 0,
+      balance: 100,
+    });
+    const [idea] = await db.insert(videoIdeas).values({
+      userId,
+      teamId,
+      ideaTitle: "Disabled queued video",
+      shortIdea: "This must never reach the Veo provider.",
+      status: "EXPANDING",
+    }).returning({ id: videoIdeas.id });
+    assert.ok(idea);
+    videoIdeaId = idea.id;
+    assert.equal((await reserveCredits({
+      teamId,
+      operationType: "video",
+      runId,
+      amount: 20,
+    })).ok, true);
+
+    let providerCalls = 0;
+    const releases: unknown[] = [];
+    const handler = createPipelineHandler<VideoIdeaJobData>(
+      VIDEO_IDEA_GENERATION_QUEUE,
+      (job) => processVideoIdeaGenerationJob(job, {
+        isMediaFeatureEnabled: () => false,
+        orchestrate: async () => {
+          providerCalls += 1;
+          return { videoUrl: "https://must-not-be-created.test/video.mp4" };
+        },
+        logError: async () => {},
+        notifyVideoFailed: async () => {},
+      }),
+      {
+        stage: "video_gen",
+        execution: { scope: "tenant", getTeamId: (j) => j.data.teamId ?? null },
+        getBilling: getVideoIdeaGenerationBilling,
+        _deps: {
+          recordProviderFailure: async () => {},
+          releaseReservation: async (args) => {
+            releases.push(args);
+            await releaseReservation(args);
+          },
+        },
+      }
+    );
+    const job = {
+      id: `video-idea:${runId}`,
+      data: { videoIdeaId, teamId, userId, creditRunId: runId },
+      opts: VIDEO_IDEA_JOB_OPTIONS,
+      attemptsMade: 0,
+    } as unknown as Job<VideoIdeaJobData>;
+
+    await assert.rejects(
+      () => handler(job),
+      (error: unknown) => error instanceof UnrecoverableError && /FEATURE_DISABLED/.test((error as Error).message)
+    );
+    assert.equal(providerCalls, 0, "disabled media must not call Veo");
+    assert.equal(releases.length, 1, "terminal cleanup releases the reservation once");
+    const [failedIdea] = await db.select({
+      status: videoIdeas.status,
+      currentStage: videoIdeas.currentStage,
+      errorMessage: videoIdeas.errorMessage,
+    }).from(videoIdeas).where(eq(videoIdeas.id, videoIdeaId));
+    assert.equal(failedIdea?.status, "FAILED");
+    assert.equal(failedIdea?.currentStage, "error");
+    assert.match(failedIdea?.errorMessage ?? "", /Media generation disabled/);
+    const [balance] = await db.select({ reservedCredits: creditBalances.reservedCredits })
+      .from(creditBalances).where(eq(creditBalances.teamId, teamId));
+    assert.equal(balance?.reservedCredits, 0, "disabled job must not strand credits");
+  } finally {
+    if (videoIdeaId !== undefined) {
+      await db.delete(videoIdeas).where(eq(videoIdeas.id, videoIdeaId));
+    }
+    if (teamId !== undefined) {
+      await db.delete(creditLedger).where(eq(creditLedger.teamId, teamId));
+      await db.delete(creditBalances).where(eq(creditBalances.teamId, teamId));
+      await db.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
+      await db.delete(teams).where(eq(teams.id, teamId));
+    }
+    if (userId !== undefined) {
+      await db.delete(users).where(eq(users.id, userId));
+    }
+  }
 });
 
 void test("Veo quota failures retry before the wrapper releases credits on the final attempt", async () => {

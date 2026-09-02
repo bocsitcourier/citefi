@@ -45,7 +45,7 @@ async function getStripeCredentials(): Promise<{ secretKey: string; webhookSecre
 
 export async function getStripeClient(): Promise<Stripe> {
   const { secretKey } = await getStripeCredentials();
-  return new Stripe(secretKey, { apiVersion: "2025-05-28.basil" });
+  return new Stripe(secretKey, { apiVersion: "2026-05-27.dahlia" });
 }
 
 export async function getStripeWebhookSecret(): Promise<string> {

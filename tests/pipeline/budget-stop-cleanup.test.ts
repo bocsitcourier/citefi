@@ -23,14 +23,17 @@ import { test as nodeTest, after, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { UnrecoverableError } from "bullmq";
+import { Client } from "pg";
 import { createPipelineHandler } from "../../lib/pipeline-worker";
 import { processArticleGenerationJob, processSocialVideoJob } from "../../lib/worker";
 import { db, closeDb } from "../../lib/db";
 import { runWithSystemContext } from "../../lib/tenant-context";
 import { assertRunBudget } from "../../lib/cost-ceilings";
 import { logCostTelemetry } from "../../lib/cost-telemetry";
+import { recordProviderUsage } from "../../lib/provider-usage-ledger";
 import {
-  users, teams, jobBatches, articles, socialPosts, costTelemetry, errorLogs, notifications, jobEvents,
+  users, teams, jobBatches, articles, articleRuns, socialPosts, costTelemetry,
+  creditReservations, errorLogs, notifications, jobEvents,
 } from "../../shared/schema";
 import { eq, like } from "drizzle-orm";
 
@@ -61,16 +64,41 @@ function deps() {
   return { calls, _deps: { releaseReservation: async (args: any) => { calls.push(args); } } };
 }
 
-async function insertOverCeilingTelemetry(runId: string, teamId: number) {
-  await db.insert(costTelemetry).values({
+async function insertOverCeilingUsage(runId: string, teamId: number) {
+  const result = await recordProviderUsage({
+    sourceEventId: `budget-stop:${runId}`,
     teamId,
-    jobId: runId,
-    operationType: "article_generation",
+    runId,
+    operationType: "veo_clip",
     provider: "gemini",
-    model: "test-model",
-    costMicrousd: 100_000_000, // $100 — far above every ceiling
-    success: 1,
+    model: "veo-3.1-fast-generate-preview",
+    unitType: "seconds",
+    unitCount: 20,
+    costMicrousd: 3_600_000,
   });
+  assert.ok(result.event.rateVersionId, "budget fixture must use a locked rate version");
+  assert.ok(result.event.providerRateId, "budget fixture must use a locked provider rate");
+  assert.equal(result.event.costMicrousd, 3_600_000);
+}
+
+async function deleteProviderUsage(runIds: string[]) {
+  const connectionString = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
+  assert.ok(connectionString, "DATABASE_URL is required for provider ledger fixture cleanup");
+  const owner = new Client({ connectionString });
+  await owner.connect();
+  try {
+    await owner.query("BEGIN");
+    await owner.query("LOCK TABLE provider_usage_ledger IN ACCESS EXCLUSIVE MODE");
+    await owner.query("ALTER TABLE provider_usage_ledger DISABLE TRIGGER provider_usage_ledger_append_only");
+    await owner.query("DELETE FROM provider_usage_ledger WHERE run_id = ANY($1::varchar[])", [runIds]);
+    await owner.query("ALTER TABLE provider_usage_ledger ENABLE TRIGGER provider_usage_ledger_append_only");
+    await owner.query("COMMIT");
+  } catch (error) {
+    await owner.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    await owner.end();
+  }
 }
 
 void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, no retry", async (t) => {
@@ -94,6 +122,7 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
     teamId: team.id,
     coreTopic: marker,
     targetUrl: "https://example.test",
+    businessName: marker,
     status: "RUNNING",
     numArticlesRequested: 1,
   }).returning();
@@ -105,7 +134,7 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
     articleStatus: "PENDING",
   }).returning();
   assert.ok(article, "article fixture row must be created");
-  await insertOverCeilingTelemetry(runId, team.id);
+  await insertOverCeilingUsage(runId, team.id);
 
   try {
     const d = deps();
@@ -135,6 +164,7 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
         runId: articleRunId,
         title: marker,
         targetUrl: "https://example.test",
+        businessName: marker,
         teamId: team.id,
         creditRunId: runId,
         creditCostPerUnit: 10,
@@ -169,10 +199,11 @@ void test("budget-stopped ARTICLE: FAILED status, batch not stuck, one release, 
     assert.equal(d.calls[0].amount, 10, "partial release amount (not whole batch)");
     assert.equal(d.calls[0].releaseKey, `article:${article.id}`);
   } finally {
-    await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    await deleteProviderUsage([runId]);
     await db.delete(errorLogs).where(eq(errorLogs.articleId, article.id)).catch(() => {});
     await db.delete(jobEvents).where(eq(jobEvents.articleId, article.id)).catch(() => {});
     await db.delete(jobEvents).where(eq(jobEvents.batchId, batch.id)).catch(() => {});
+    await db.delete(articleRuns).where(eq(articleRuns.articleId, article.id));
     await db.delete(articles).where(eq(articles.id, article.id));
     await db.delete(jobBatches).where(eq(jobBatches.id, batch.id));
     await db.delete(notifications).where(eq(notifications.userId, user.id)).catch(() => {});
@@ -204,9 +235,19 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     location: "Testville",
     platformsJson: ["x"],
     videoStatus: "GENERATING",
+    videoCreditRunId: runId,
   } as any).returning();
   assert.ok(post, "video fixture social post must be created");
-  await insertOverCeilingTelemetry(runId, team.id);
+  await db.insert(creditReservations).values({
+    teamId: team.id,
+    runId,
+    operationType: "video",
+    originalAmount: 30,
+    remainingAmount: 30,
+    status: "RESERVED",
+    requestKey: `budget-stop:${runId}`,
+  });
+  await insertOverCeilingUsage(runId, team.id);
 
   // Temp dir the compositor cleanup must remove on failure.
   const fs = await import("fs/promises");
@@ -244,7 +285,13 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
 
     const job: AnyJob = {
       id: `job-${marker}`,
-      data: { socialPostId: post.id, platform: "x", creditRunId: runId },
+      data: {
+        socialPostId: post.id,
+        platform: "x",
+        creditRunId: runId,
+        teamId: team.id,
+        userId: user.id,
+      },
       opts: { attempts: 2 },
       attemptsMade: 0,
     };
@@ -276,9 +323,10 @@ void test("budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one rel
     assert.equal(d.calls.length, 1);
     assert.equal(d.calls[0].runId, runId);
   } finally {
-    await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    await deleteProviderUsage([runId]);
     await db.delete(errorLogs).where(like(errorLogs.errorMessage, `%Social Post #${post.id}%`)).catch(() => {});
     await db.delete(socialPosts).where(eq(socialPosts.id, post.id));
+    await db.delete(creditReservations).where(eq(creditReservations.runId, runId));
     await db.delete(notifications).where(eq(notifications.userId, user.id)).catch(() => {});
     await db.delete(teams).where(eq(teams.id, team.id));
     await db.delete(users).where(eq(users.id, user.id));
@@ -373,6 +421,7 @@ void test("provider telemetry inherits the worker tenant and trips its run budge
     } as AnyJob);
   } finally {
     await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    await deleteProviderUsage([runId]);
     await db.delete(teams).where(eq(teams.id, team.id));
     await db.delete(users).where(eq(users.id, user.id));
   }

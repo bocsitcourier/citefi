@@ -7,6 +7,7 @@
 import { test as nodeTest, after } from "node:test";
 import assert from "node:assert/strict";
 import { runWithSystemContext } from "../../lib/tenant-context";
+import { Client } from "pg";
 
 function test(name: string, fn: () => void | Promise<void>) {
   return nodeTest(name, () =>
@@ -47,6 +48,43 @@ function deps() {
       recordProviderFailure: async (queueName: string, error: any) => { providerFailures.push({ queueName, error }); },
     },
   };
+}
+
+async function insertOverCeilingProviderUsage(runId: string, teamId: number) {
+  const { recordProviderUsage } = await import("../../lib/provider-usage-ledger");
+  const result = await recordProviderUsage({
+    sourceEventId: `pipeline-budget:${runId}`,
+    teamId,
+    runId,
+    operationType: "veo_clip",
+    provider: "gemini",
+    model: "veo-3.1-fast-generate-preview",
+    unitType: "seconds",
+    unitCount: 20,
+    costMicrousd: 3_600_000,
+  });
+  assert.ok(result.event.rateVersionId, "budget fixture must use a locked rate version");
+  assert.ok(result.event.providerRateId, "budget fixture must use a locked provider rate");
+}
+
+async function deleteProviderUsage(runIds: string[]) {
+  const connectionString = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
+  assert.ok(connectionString, "DATABASE_URL is required for provider ledger fixture cleanup");
+  const owner = new Client({ connectionString });
+  await owner.connect();
+  try {
+    await owner.query("BEGIN");
+    await owner.query("LOCK TABLE provider_usage_ledger IN ACCESS EXCLUSIVE MODE");
+    await owner.query("ALTER TABLE provider_usage_ledger DISABLE TRIGGER provider_usage_ledger_append_only");
+    await owner.query("DELETE FROM provider_usage_ledger WHERE run_id = ANY($1::varchar[])", [runIds]);
+    await owner.query("ALTER TABLE provider_usage_ledger ENABLE TRIGGER provider_usage_ledger_append_only");
+    await owner.query("COMMIT");
+  } catch (error) {
+    await owner.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    await owner.end();
+  }
 }
 
 const billingOpts = {
@@ -158,7 +196,7 @@ void test("a failed batch article releases only its share and duplicate final fa
     // Exercise the exact production article-worker resolver. Without its
     // amount and article-scoped release key, releaseReservation defaults to
     // the entire batch and duplicate final deliveries can refund siblings.
-    const { getArticleGenerationBilling } = await import("../../lib/worker");
+    const { getArticleGenerationBilling } = await import("../../lib/pipeline-billing");
     let preclaimsAtBarrier = 0;
     let openPreclaimBarrier!: () => void;
     const preclaimBarrier = new Promise<void>((resolve) => {
@@ -176,7 +214,7 @@ void test("a failed batch article releases only its share and duplicate final fa
           // now deterministically let both deliveries decrement the reservation.
           releaseReservation: async (args: Parameters<typeof releaseReservation>[0]) => {
             return releaseReservation(args, {
-              afterExistingReleaseCheck: async () => {
+              beforeReservationLock: async () => {
                 preclaimsAtBarrier += 1;
                 if (preclaimsAtBarrier === 2) openPreclaimBarrier();
                 await preclaimBarrier;
@@ -340,26 +378,22 @@ void test("every metered content type: telemetry under creditRunId attributes AN
   // run ID must (a) be what the wrapper attributes (currentRunId) and
   // (b) trip the real assertRunBudget gate keyed by the same creditRunId.
   const { db } = await import("../../lib/db");
-  const { costTelemetry } = await import("../../shared/schema");
-  const { eq } = await import("drizzle-orm");
+  const { teams } = await import("../../shared/schema");
   const { currentRunId } = await import("../../lib/run-context");
   const { assertRunBudget } = await import("../../lib/cost-ceilings");
+  const [fixtureTeam] = await db.select({ id: teams.id }).from(teams).limit(1);
+  assert.ok(fixtureTeam, "an existing team is required for provider-ledger budget fixtures");
   const cases: Array<{ contentType: any; stage: string }> = [
     { contentType: "article", stage: "text_gen" },
     { contentType: "social_post", stage: "text_gen" },
     { contentType: "podcast", stage: "text_gen" },
     { contentType: "video", stage: "video_gen" },
   ];
+  const runIds: string[] = [];
   for (const c of cases) {
     const runId = `test-budget-${c.contentType}-${Date.now()}`;
-    await db.insert(costTelemetry).values({
-      jobId: runId,
-      operationType: `${c.contentType}_generation`,
-      provider: "gemini",
-      model: "test-model",
-      costMicrousd: 100_000_000, // $100 — above every ceiling
-      success: 1,
-    });
+    runIds.push(runId);
+    await insertOverCeilingProviderUsage(runId, fixtureTeam.id);
     try {
       const d = deps();
       const handler = createPipelineHandler("q", async (job: AnyJob) => {
@@ -373,13 +407,13 @@ void test("every metered content type: telemetry under creditRunId attributes AN
         _deps: d._deps,
       } as any);
       await assert.rejects(
-        () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: 7, creditRunId: runId } })),
+        () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: fixtureTeam.id, creditRunId: runId } })),
         (err: unknown) => err instanceof UnrecoverableError && /BUDGET_EXCEEDED/.test((err as Error).message),
         `${c.contentType}: gate must trip as fatal`
       );
       assert.equal(d.calls.length, 1, `${c.contentType}: exactly one release`);
     } finally {
-      await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+      await deleteProviderUsage([runId]);
     }
   }
 });
@@ -391,17 +425,11 @@ void test("recorded telemetry under the run ID trips the next attempt's budget g
   // the gate must throw BUDGET_EXCEEDED, and the wrapper must release once
   // and convert it to UnrecoverableError.
   const { db } = await import("../../lib/db");
-  const { costTelemetry } = await import("../../shared/schema");
-  const { eq } = await import("drizzle-orm");
+  const { teams } = await import("../../shared/schema");
+  const [fixtureTeam] = await db.select({ id: teams.id }).from(teams).limit(1);
+  assert.ok(fixtureTeam, "an existing team is required for provider-ledger budget fixtures");
   const runId = `test-budget-${Date.now()}`;
-  await db.insert(costTelemetry).values({
-    jobId: runId,
-    operationType: "article_generation",
-    provider: "gemini",
-    model: "test-model",
-    costMicrousd: 100_000_000, // $100 — far above any content ceiling
-    success: 1,
-  });
+  await insertOverCeilingProviderUsage(runId, fixtureTeam.id);
   try {
     const d = deps();
     const handler = createPipelineHandler("q", async (job: AnyJob) => {
@@ -416,12 +444,12 @@ void test("recorded telemetry under the run ID trips the next attempt's budget g
       _deps: d._deps,
     } as any);
     await assert.rejects(
-      () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: 7, creditRunId: runId } })),
+      () => handler(makeJob({ attemptsMade: 0, attempts: 3, data: { teamId: fixtureTeam.id, creditRunId: runId } })),
       (err: unknown) => err instanceof UnrecoverableError && /BUDGET_EXCEEDED/.test((err as Error).message)
     );
     assert.equal(d.calls.length, 1, "budget-tripped run must release its reservation exactly once");
     assert.equal(d.calls[0].runId, runId);
   } finally {
-    await db.delete(costTelemetry).where(eq(costTelemetry.jobId, runId));
+    await deleteProviderUsage([runId]);
   }
 });

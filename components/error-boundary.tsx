@@ -3,6 +3,7 @@
 import React from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { csrfFetch } from "@/lib/queryClient";
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -57,7 +58,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         formData.append("screenshot", screenshotBlob, "screenshot.png");
       }
 
-      await fetch("/api/client/error-screenshot", {
+      await csrfFetch("/api/client/error-screenshot", {
         method: "POST",
         credentials: "include",
         body: formData,

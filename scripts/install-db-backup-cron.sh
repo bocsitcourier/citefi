@@ -16,6 +16,7 @@ set -euo pipefail
 
 : "${DO_SSH_PRIVATE_KEY:?DO_SSH_PRIVATE_KEY secret is missing}"
 : "${DO_HOST:?DO_HOST env var is missing}"
+: "${DO_SSH_HOST_FINGERPRINT:?DO_SSH_HOST_FINGERPRINT pin is missing}"
 
 DO_USER="${DO_USER:-root}"
 DO_PORT="${DO_PORT:-22}"
@@ -48,7 +49,8 @@ else:
 PYEOF
 chmod 600 "$KEY"
 
-ssh-keyscan -p "$DO_PORT" -H "$DO_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts" "$SCRIPT_DIR/verify-ssh-host-key.sh"
 
 SSH_OPTS=(
   -i "$KEY"
@@ -56,6 +58,7 @@ SSH_OPTS=(
   -o BatchMode=yes
   -o IdentitiesOnly=yes
   -o StrictHostKeyChecking=yes
+  -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
   -o ConnectTimeout=15
 )
 
@@ -74,18 +77,76 @@ set -euo pipefail
 
 ENV_FILE="/var/www/citefi/.env.local"
 
-# ── Ensure aws CLI is installed ───────────────────────────────────────────────
+# ── Ensure AWS CLI is installed ───────────────────────────────────────────────
+# The backup commands only need the stable `aws s3` interface, which is provided
+# by both distro AWS CLI packages and AWS CLI v2. Prefer the distribution's
+# signed package repository. The zip fallback is deliberately version- and
+# digest-pinned: never execute an archive downloaded from the network before its
+# independently recorded SHA-256 is checked.
 if ! command -v aws &>/dev/null; then
-  echo "  Installing AWS CLI v2..."
-  ARCH="$(uname -m)"
-  if [[ "$ARCH" == "aarch64" ]]; then
-    AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
-  else
-    AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+  echo "  Installing AWS CLI from the system package manager..."
+  installed_from_package_manager=false
+  if command -v apt-get &>/dev/null; then
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y awscli >/dev/null 2>&1; then
+      installed_from_package_manager=true
+    fi
+  elif command -v dnf &>/dev/null; then
+    if dnf install -y awscli >/dev/null 2>&1; then
+      installed_from_package_manager=true
+    fi
+  elif command -v yum &>/dev/null; then
+    if yum install -y awscli >/dev/null 2>&1; then
+      installed_from_package_manager=true
+    fi
+  elif command -v apk &>/dev/null; then
+    if apk add --no-interactive aws-cli >/dev/null 2>&1; then
+      installed_from_package_manager=true
+    fi
+  elif command -v nix &>/dev/null; then
+    if nix profile install nixpkgs#awscli2 >/dev/null 2>&1; then
+      export PATH="$HOME/.nix-profile/bin:$PATH"
+      installed_from_package_manager=true
+    fi
   fi
-  curl -fsSL "$AWS_URL" -o /tmp/awscliv2.zip
-  cd /tmp && unzip -q awscliv2.zip && ./aws/install --update && rm -rf /tmp/awscliv2.zip /tmp/aws
-  cd - >/dev/null
+
+  if ! "$installed_from_package_manager" || ! command -v aws &>/dev/null; then
+    echo "  System AWS CLI package unavailable; installing verified AWS CLI v2 fallback..."
+    # AWS CLI v2.17.63 official archive digests, recorded independently at
+    # review time. Update the URL and its matching digest together.
+    AWS_CLI_VERSION="2.17.63"
+    case "$(uname -m)" in
+      x86_64)
+        AWS_ARCH="x86_64"
+        AWS_CLI_SHA256="c522b373953885eacad54eb5fde5e2696ad9321d02d66b23144d9e91413f9e04"
+        ;;
+      aarch64)
+        AWS_ARCH="aarch64"
+        AWS_CLI_SHA256="8e9e699f25a85495d84329a400b79baa67e50c96412544e79ac305ced2227871"
+        ;;
+      *)
+        echo "  ✗ FAIL: no verified AWS CLI fallback for architecture $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
+    AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ARCH}-${AWS_CLI_VERSION}.zip"
+    AWS_TMPDIR="$(mktemp -d)"
+    trap 'rm -rf "$AWS_TMPDIR"' EXIT
+    AWS_ARCHIVE="${AWS_TMPDIR}/awscliv2.zip"
+    curl --fail --location --silent --show-error "$AWS_URL" -o "$AWS_ARCHIVE"
+    if ! printf '%s  %s\n' "$AWS_CLI_SHA256" "$AWS_ARCHIVE" | sha256sum -c -; then
+      echo "  ✗ FAIL: AWS CLI archive checksum mismatch; refusing to unzip or install it" >&2
+      exit 1
+    fi
+    unzip -q "$AWS_ARCHIVE" -d "$AWS_TMPDIR"
+    "${AWS_TMPDIR}/aws/install" --update
+    rm -rf "$AWS_TMPDIR"
+    trap - EXIT
+  fi
+
+  if ! command -v aws &>/dev/null; then
+    echo "  ✗ FAIL: AWS CLI installation did not provide an aws executable" >&2
+    exit 1
+  fi
   echo "  ✓ AWS CLI installed: $(aws --version)"
 else
   echo "  ✓ AWS CLI already present: $(aws --version 2>&1 | head -1)"

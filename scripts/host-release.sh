@@ -18,6 +18,7 @@ DO_ARTIFACT_SHA256="${DO_ARTIFACT_SHA256:-}"
 DO_ARTIFACT_SIZE="${DO_ARTIFACT_SIZE:-}"
 DO_RELEASE_SHA="${DO_RELEASE_SHA:-}"
 STAGING_PORT="${STAGING_PORT:-5100}"
+DO_INITIAL_RELEASE="${DO_INITIAL_RELEASE:-false}"
 
 OLD_SHA=unknown
 NEW_SHA=unknown
@@ -84,8 +85,15 @@ validate_layout() {
   }
   grep -q '^DATABASE_URL=' "$DO_SHARED_ENV_FILE"
   grep -q '^JWT_SECRET=' "$DO_SHARED_ENV_FILE"
-  mkdir -p "$DO_RELEASES_DIR"
+  mkdir -p "$DO_RELEASES_DIR" "$DO_RELEASE_STATE_DIR/incoming" "$DO_RELEASE_STATE_DIR/diagnostics"
   [[ -L "$DO_CURRENT_LINK" ]] || {
+    if [[ "$DO_INITIAL_RELEASE" == true && ! -e "$DO_CURRENT_LINK" ]]; then
+      OLD_SHA=none
+      KNOWN_GOOD_SHA=
+      ACTIVE_RELEASE=
+      KNOWN_GOOD_RELEASE=
+      return 0
+    fi
     echo "ERROR: $DO_CURRENT_LINK must be a symlink to the known-good release."
     echo "Complete the one-time immutable-release migration in the production runbook."
     return 1
@@ -94,7 +102,7 @@ validate_layout() {
   [[ "$ACTIVE_RELEASE" == "$DO_RELEASES_DIR/"* && -d "$ACTIVE_RELEASE" && -s "$ACTIVE_RELEASE/.next/BUILD_ID" ]] || {
     echo "ERROR: current must resolve to a built immutable release under $DO_RELEASES_DIR."; return 1;
   }
-  OLD_SHA="$(cat "$ACTIVE_RELEASE/.release-sha" 2>/dev/null || git -C "$DO_APP_DIR" rev-parse HEAD)"
+  OLD_SHA="$(cat "$ACTIVE_RELEASE/.release-sha" 2>/dev/null || echo unknown)"
   KNOWN_GOOD_SHA="$OLD_SHA"
   KNOWN_GOOD_RELEASE="$ACTIVE_RELEASE"
 }
@@ -228,14 +236,16 @@ health_check() {
     if [[ -n "$response" ]] && RESPONSE="$response" python3 -c '
 import json, os
 r=json.loads(os.environ["RESPONSE"]); s=r.get("services", {})
+assert r.get("ok") is True
 assert s.get("database", {}).get("ok") is True
 assert s.get("redis", {}).get("ok") is True
 assert s.get("canary", {}).get("ok") is True
 assert s.get("worker", {}).get("ok") is True
 assert s.get("queues", {}).get("ok") is True
 assert s.get("providerCircuits", {}).get("ok") is True
-assert s.get("storage", {}).get("status") != "fail"
-assert s.get("backup", {}).get("status") != "fail"
+assert s.get("storage", {}).get("ok") is True
+assert s.get("models", {}).get("ok") is True
+assert s.get("backup", {}).get("ok") is True
 ' && process_online "$DO_WEB_PROCESS" && process_online "$DO_WORKER_PROCESS"; then
       echo "Health passed: web, dependencies, canary, and worker are healthy."
       return 0
@@ -353,9 +363,10 @@ main() {
   : "${DO_ARTIFACT_SIZE:?artifact byte size is required}"
   : "${DO_RELEASE_SHA:?release SHA is required}"
   acquire_release_lock
-  validate_deploy_ownership
+  mkdir -p "$DO_RELEASES_DIR" "$DO_RELEASE_STATE_DIR/incoming" "$DO_RELEASE_STATE_DIR/diagnostics"
   validate_staging_isolation
   validate_layout
+  validate_deploy_ownership
 
   NEW_SHA="$DO_RELEASE_SHA"
   export PHASE

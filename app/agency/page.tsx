@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient } from "@/lib/queryClient";
+import { csrfFetch, queryClient } from "@/lib/queryClient";
 import { BILLING_PLANS } from "@/lib/billing/plans";
 import {
   Dialog,
@@ -169,7 +169,7 @@ export default function AgencyPage() {
 
   const createMutation = useMutation({
     mutationFn: async ({ name, websiteUrl }: { name: string; websiteUrl?: string }) => {
-      const res = await fetch("/api/agency/clients", {
+      const res = await csrfFetch("/api/agency/clients", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -202,7 +202,7 @@ export default function AgencyPage() {
 
   const archiveMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: "active" | "archived" }) => {
-      const res = await fetch(`/api/agency/clients/${id}`, {
+      const res = await csrfFetch(`/api/agency/clients/${id}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -225,7 +225,7 @@ export default function AgencyPage() {
   async function handleSwitchTeam(clientId: number, clientName: string) {
     setSwitchingTo(clientId);
     try {
-      const res = await fetch("/api/auth/team-context", {
+      const res = await csrfFetch("/api/auth/team-context", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

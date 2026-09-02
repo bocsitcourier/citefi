@@ -7,8 +7,30 @@ import { getPlanByStripePriceId, getTopUpByStripePriceId } from "@/lib/billing/p
 import { getStripeClient, getStripeWebhookSecret } from "@/lib/stripe";
 import type Stripe from "stripe";
 import { enterSystemContext } from "@/lib/tenant-context";
+import { enqueueStripeCreditReversal, shouldReverseStripeDispute } from "@/lib/stripe-credit-reconciliation";
 
 export const dynamic = "force-dynamic";
+
+function subscriptionPeriod(subscription: Stripe.Subscription): { start: number; end: number } {
+  const legacy = subscription as Stripe.Subscription & {
+    current_period_start?: number;
+    current_period_end?: number;
+  };
+  const item = subscription.items.data[0] as (Stripe.SubscriptionItem & {
+    current_period_start?: number;
+    current_period_end?: number;
+  }) | undefined;
+  const start = legacy.current_period_start ?? item?.current_period_start;
+  const end = legacy.current_period_end ?? item?.current_period_end;
+  if (!start || !end) throw new Error(`Stripe subscription ${subscription.id} has no billing period`);
+  return { start, end };
+}
+
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const value = (invoice as any).subscription
+    ?? (invoice as any).parent?.subscription_details?.subscription;
+  return typeof value === "string" ? value : value?.id ?? null;
+}
 
 async function findTeamByCustomerId(customerId: string): Promise<number | null> {
   const [team] = await db
@@ -91,6 +113,8 @@ async function grantTopUpForCheckoutSession(
     amount: topUp.credits,
     idempotencyKey: `topup-${session.id}`,
     reason: `Top-up: ${topUp.label} ($${topUp.priceUsd})`,
+    stripeCheckoutSessionId: session.id,
+    stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : undefined,
   });
   console.log(`[billing/webhook] Granted ${topUp.credits} purchased credits to team ${teamId}`);
 }
@@ -150,6 +174,7 @@ export async function POST(req: NextRequest) {
           });
           const priceId = sub.items.data[0]?.price?.id;
           const plan = priceId ? getPlanByStripePriceId(priceId) : null;
+          const period = subscriptionPeriod(sub);
 
           if (!plan) {
             // Fail closed: unknown Stripe price — preserve existing plan, do not downgrade.
@@ -162,7 +187,7 @@ export async function POST(req: NextRequest) {
               stripeSubscriptionId: subId,
               stripePriceId: priceId ?? null,
               billingStatus: sub.status,
-              currentPeriodEnd: new Date(sub.current_period_end * 1000),
+              currentPeriodEnd: new Date(period.end * 1000),
               cancelAtPeriodEnd: sub.cancel_at_period_end,
               updatedAt: new Date(),
             }).where(eq(teams.id, teamId));
@@ -174,7 +199,7 @@ export async function POST(req: NextRequest) {
             stripePriceId: priceId ?? null,
             billingPlan: plan.id,
             billingStatus: sub.status,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            currentPeriodEnd: new Date(period.end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             updatedAt: new Date(),
           }).where(eq(teams.id, teamId));
@@ -182,8 +207,8 @@ export async function POST(req: NextRequest) {
           await grantAllowance({
             teamId,
             amount: plan.monthlyCredits,
-            periodStart: new Date(sub.current_period_start * 1000),
-            periodEnd: new Date(sub.current_period_end * 1000),
+            periodStart: new Date(period.start * 1000),
+            periodEnd: new Date(period.end * 1000),
             idempotencyKey: `checkout-grant-${session.id}`,
             reason: `Plan activated: ${plan.name} (${plan.monthlyCredits} credits)`,
           });
@@ -210,7 +235,7 @@ export async function POST(req: NextRequest) {
       case "invoice.paid": {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = invoice.customer as string;
-        const subId = invoice.subscription as string | null;
+        const subId = invoiceSubscriptionId(invoice);
 
         teamId = await resolveTeamId(stripe, customerId, subId ?? undefined);
         if (!teamId) {
@@ -225,10 +250,11 @@ export async function POST(req: NextRequest) {
         });
         const priceId = sub.items.data[0]?.price?.id;
         const plan = priceId ? getPlanByStripePriceId(priceId) : null;
+        const period = subscriptionPeriod(sub);
 
         if (plan) {
-          const periodStart = new Date((invoice.period_start ?? sub.current_period_start) * 1000);
-          const periodEnd = new Date((invoice.period_end ?? sub.current_period_end) * 1000);
+          const periodStart = new Date((invoice.period_start ?? period.start) * 1000);
+          const periodEnd = new Date((invoice.period_end ?? period.end) * 1000);
 
           await grantAllowance({
             teamId,
@@ -236,6 +262,7 @@ export async function POST(req: NextRequest) {
             periodStart,
             periodEnd,
             idempotencyKey: `invoice-grant-${invoice.id}`,
+            stripeInvoiceId: invoice.id,
             reason: `Billing cycle renewal: ${plan.name} (${plan.monthlyCredits} credits)`,
           });
 
@@ -243,7 +270,7 @@ export async function POST(req: NextRequest) {
             billingPlan: plan.id,
             billingStatus: sub.status,
             stripePriceId: priceId ?? null,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            currentPeriodEnd: new Date(period.end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             updatedAt: new Date(),
           }).where(eq(teams.id, teamId));
@@ -256,7 +283,7 @@ export async function POST(req: NextRequest) {
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = invoice.customer as string;
-        const subId = invoice.subscription as string | null;
+        const subId = invoiceSubscriptionId(invoice);
         teamId = await resolveTeamId(stripe, customerId, subId ?? undefined);
 
         if (!teamId) {
@@ -275,6 +302,7 @@ export async function POST(req: NextRequest) {
 
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
+        const period = subscriptionPeriod(sub);
         teamId = await resolveTeamId(
           stripe,
           sub.customer as string,
@@ -300,7 +328,7 @@ export async function POST(req: NextRequest) {
             billingStatus: sub.status,
             stripePriceId: priceId ?? null,
             stripeSubscriptionId: sub.id,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            currentPeriodEnd: new Date(period.end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             updatedAt: new Date(),
           }).where(eq(teams.id, teamId));
@@ -310,7 +338,7 @@ export async function POST(req: NextRequest) {
             billingPlan: plan.id,
             stripePriceId: priceId ?? null,
             stripeSubscriptionId: sub.id,
-            currentPeriodEnd: new Date(sub.current_period_end * 1000),
+            currentPeriodEnd: new Date(period.end * 1000),
             cancelAtPeriodEnd: sub.cancel_at_period_end,
             updatedAt: new Date(),
           }).where(eq(teams.id, teamId));
@@ -322,6 +350,7 @@ export async function POST(req: NextRequest) {
 
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
+        const period = subscriptionPeriod(sub);
         teamId = await resolveTeamId(
           stripe,
           sub.customer as string,
@@ -337,11 +366,11 @@ export async function POST(req: NextRequest) {
         await db.update(teams).set({
           billingStatus: "cancelled",
           cancelAtPeriodEnd: true,
-          currentPeriodEnd: new Date(sub.current_period_end * 1000),
+          currentPeriodEnd: new Date(period.end * 1000),
           updatedAt: new Date(),
         }).where(eq(teams.id, teamId));
 
-        console.log(`[billing/webhook] Team ${teamId} subscription cancelled (period ends ${new Date(sub.current_period_end * 1000).toISOString()})`);
+        console.log(`[billing/webhook] Team ${teamId} subscription cancelled (period ends ${new Date(period.end * 1000).toISOString()})`);
         break;
       }
 
@@ -354,6 +383,65 @@ export async function POST(req: NextRequest) {
           sub.metadata
         );
         console.log(`[billing/webhook] Trial ending in 3 days — team ${teamId ?? "(not found)"}, subscription ${sub.id}`);
+        break;
+      }
+
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        teamId = await resolveTeamId(stripe, typeof charge.customer === "string" ? charge.customer : null);
+        if (!teamId) throw new Error(`No team found for refunded charge ${charge.id}`);
+        const invoiceId = typeof (charge as any).invoice === "string" ? (charge as any).invoice : (charge as any).invoice?.id;
+        for (const refund of charge.refunds?.data ?? []) {
+          if (refund.status && refund.status !== "succeeded") continue;
+          await enqueueStripeCreditReversal({
+            providerObjectId: refund.id, objectType: "refund", teamId, chargeId: charge.id,
+            refundId: refund.id, invoiceId: invoiceId ?? undefined,
+            paymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+            currencyAmount: charge.amount_refunded, originalChargeAmount: charge.amount, payload: refund,
+          });
+        }
+        break;
+      }
+
+      case "refund.updated": {
+        const refund = event.data.object as Stripe.Refund;
+        if (refund.status && refund.status !== "succeeded") break;
+        const chargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+        if (!chargeId) throw new Error(`Refund ${refund.id} has no charge`);
+        const charge = await stripe.charges.retrieve(chargeId);
+        teamId = await resolveTeamId(stripe, typeof charge.customer === "string" ? charge.customer : null);
+        if (!teamId) throw new Error(`No team found for refund ${refund.id}`);
+        await enqueueStripeCreditReversal({
+          providerObjectId: refund.id, objectType: "refund", teamId, chargeId,
+          refundId: refund.id,
+          invoiceId: typeof (charge as any).invoice === "string" ? (charge as any).invoice : (charge as any).invoice?.id,
+          paymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+          currencyAmount: charge.amount_refunded, originalChargeAmount: charge.amount, payload: refund,
+        });
+        break;
+      }
+
+      case "charge.dispute.created":
+      case "charge.dispute.closed": {
+        const dispute = event.data.object as Stripe.Dispute;
+        // Opening a dispute is not a settled loss. Do not even enqueue a
+        // reconciliation row here: it may subsequently be won or withdrawn.
+        if (event.type === "charge.dispute.created") break;
+        const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge.id;
+        const charge = await stripe.charges.retrieve(chargeId);
+        teamId = await resolveTeamId(stripe, typeof charge.customer === "string" ? charge.customer : null);
+        if (!teamId) throw new Error(`No team found for dispute ${dispute.id}`);
+        // A lost dispute is equivalent to a full refund. Won/withdrawn closures
+        // remain in billing_events but do not revoke entitlement.
+        if (shouldReverseStripeDispute(dispute.status)) {
+          await enqueueStripeCreditReversal({
+            providerObjectId: dispute.id, objectType: "dispute", teamId, chargeId,
+            disputeId: dispute.id,
+            invoiceId: typeof (charge as any).invoice === "string" ? (charge as any).invoice : (charge as any).invoice?.id,
+            paymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+            currencyAmount: dispute.amount, originalChargeAmount: charge.amount, payload: dispute,
+          });
+        }
         break;
       }
 

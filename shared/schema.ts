@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, bigint, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, bigint, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -28,6 +28,7 @@ export const teams = pgTable("teams", {
   // Agency hierarchy — a client team points to its parent agency team
   parentTeamId: integer("parent_team_id").references((): AnyPgColumn => teams.id, { onDelete: "set null" }),
   clientStatus: varchar("client_status", { length: 20 }).notNull().default("active"), // active, archived
+  designatedClientApproverUserId: integer("designated_client_approver_user_id").references((): AnyPgColumn => users.id),
   // Conversion webhook: HMAC-SHA256 secret for unauthenticated external conversion signals
   conversionWebhookSecret: varchar("conversion_webhook_secret", { length: 100 }),
 }, (table) => ({
@@ -202,6 +203,23 @@ export const emailVerificationCodes = pgTable("email_verification_codes", {
   expiresAtIdx: index("email_codes_expires_at_idx").on(table.expiresAt),
 }));
 
+// Password-verified, method-bound login challenges. Tokens and email OTPs are
+// stored only as SHA-256 hashes so a database read cannot complete a login.
+export const loginChallenges = pgTable("login_challenges", {
+  id: serial("id").primaryKey(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  method: varchar("method", { length: 20 }).notNull(),
+  emailCodeHash: varchar("email_code_hash", { length: 64 }),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  tokenHashIdx: uniqueIndex("login_challenges_token_hash_idx").on(table.tokenHash),
+  activeUserIdx: index("login_challenges_user_active_idx").on(table.userId, table.consumedAt, table.expiresAt),
+}));
+
 // Job Batches table - tracks bulk submission jobs
 export const jobBatches = pgTable("job_batches", {
   id: serial("id").primaryKey(),
@@ -294,6 +312,8 @@ export const articles = pgTable("articles", {
   podcastGeneratedAt: timestamp("podcast_generated_at"),
   podcastStatus: varchar("podcast_status", { length: 50 }).default("none"), // none, pending, processing, ready, failed
   podcastScriptJson: jsonb("podcast_script_json"), // Two-voice conversational script
+  podcastCreditRunId: varchar("podcast_credit_run_id", { length: 255 }),
+  podcastBillingSettledAt: timestamp("podcast_billing_settled_at"),
 
   // Failure tracking — stores the human-readable reason an article reached FAILED status
   errorMessage: text("error_message"),
@@ -584,8 +604,11 @@ export const socialPosts = pgTable("social_posts", {
   // Job Metadata
   jobId: varchar("job_id", { length: 255 }), // pg-boss job ID
   requestKey: varchar("request_key", { length: 255 }), // per-request idempotency key (composite unique with teamId below)
+  billingRunId: varchar("billing_run_id", { length: 255 }),
+  billingSettledAt: timestamp("billing_settled_at"),
   videoCreditRunId: varchar("video_credit_run_id", { length: 255 }), // credit reservation runId — persisted for recovery
   videoCapReservationId: integer("video_cap_reservation_id"), // spending-cap event ID — persisted for recovery cancellation
+  videoBillingSettledAt: timestamp("video_billing_settled_at"),
   errorMessage: text("error_message"),
   
   // Soft Delete Support
@@ -2166,6 +2189,11 @@ export const insertEmailVerificationCodeSchema = createInsertSchema(emailVerific
   createdAt: true,
 });
 
+export const insertLoginChallengeSchema = createInsertSchema(loginChallenges).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertJobBatchSchema = createInsertSchema(jobBatches).omit({
   id: true,
   publicId: true,
@@ -3141,6 +3169,8 @@ export const creditBalances = pgTable("credit_balances", {
   purchasedCredits: integer("purchased_credits").notNull().default(0),
   allowanceUsed: integer("allowance_used").notNull().default(0),
   purchasedUsed: integer("purchased_used").notNull().default(0),
+  allowanceDebt: integer("allowance_debt").notNull().default(0),
+  purchasedDebt: integer("purchased_debt").notNull().default(0),
   reservedCredits: integer("reserved_credits").notNull().default(0),
   periodStart: timestamp("period_start"),
   periodEnd: timestamp("period_end"),
@@ -3150,6 +3180,30 @@ export const creditBalances = pgTable("credit_balances", {
 }));
 
 export type CreditBalance = typeof creditBalances.$inferSelect;
+
+/** Authoritative ownership of a team's aggregate reserved_credits hold. */
+export const creditReservations = pgTable("credit_reservations", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  runId: varchar("run_id", { length: 255 }).notNull(),
+  operationType: varchar("operation_type", { length: 50 }).notNull(),
+  originalAmount: integer("original_amount").notNull(),
+  remainingAmount: integer("remaining_amount").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("RESERVED"),
+  requestKey: varchar("request_key", { length: 255 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  teamRunUnique: uniqueIndex("credit_reservations_team_run_unique").on(t.teamId, t.runId),
+  requestKeyUnique: uniqueIndex("credit_reservations_team_request_unique").on(t.teamId, t.requestKey),
+  outstandingIdx: index("credit_reservations_outstanding_idx").on(t.status, t.updatedAt),
+  amountsCheck: check("credit_reservations_amounts_check",
+    sql`${t.originalAmount} > 0 AND ${t.remainingAmount} >= 0 AND ${t.remainingAmount} <= ${t.originalAmount}`),
+  statusCheck: check("credit_reservations_status_check",
+    sql`${t.status} IN ('RESERVED','DEBITED','RELEASED') AND (${t.status} = 'RESERVED' OR ${t.remainingAmount} = 0)`),
+}));
+
+export type CreditReservation = typeof creditReservations.$inferSelect;
 
 export const creditLedger = pgTable("credit_ledger", {
   id: serial("id").primaryKey(),
@@ -3171,6 +3225,10 @@ export const creditLedger = pgTable("credit_ledger", {
   idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
   reason: text("reason"),
   reversedAt: timestamp("reversed_at"),
+  reversedCredits: integer("reversed_credits").notNull().default(0),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id", { length: 255 }),
+  stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
+  stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
   /**
    * DB-enforced state machine for reserve rows (null on non-reserve / legacy rows).
    * Transitions:  RESERVED → DEBITED  (debitReservation wins)
@@ -3215,6 +3273,33 @@ export const billingEvents = pgTable("billing_events", {
 }));
 
 export type BillingEvent = typeof billingEvents.$inferSelect;
+
+export const stripeCreditReconciliations = pgTable("stripe_credit_reconciliations", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id),
+  providerObjectId: varchar("provider_object_id", { length: 255 }).notNull().unique(),
+  objectType: varchar("object_type", { length: 30 }).notNull(),
+  chargeId: varchar("charge_id", { length: 255 }),
+  refundId: varchar("refund_id", { length: 255 }),
+  disputeId: varchar("dispute_id", { length: 255 }),
+  invoiceId: varchar("invoice_id", { length: 255 }),
+  paymentIntentId: varchar("payment_intent_id", { length: 255 }),
+  checkoutSessionId: varchar("checkout_session_id", { length: 255 }),
+  originalGrantId: integer("original_grant_id").references(() => creditLedger.id),
+  currencyAmount: integer("currency_amount").notNull(),
+  creditsReversed: integer("credits_reversed").notNull().default(0),
+  status: varchar("status", { length: 30 }).notNull().default("pending"),
+  payload: jsonb("payload"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  lastError: text("last_error"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  retryIdx: index("stripe_credit_reconciliation_retry_idx").on(t.status, t.nextAttemptAt),
+  chargeIdx: index("stripe_credit_reconciliation_charge_idx").on(t.chargeId),
+}));
 
 // ============================================================================
 // FREE TIER GRANTS — anti-abuse deduplication for the free plan
@@ -4050,6 +4135,7 @@ export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  clientTeamId: integer("client_team_id").references(() => teams.id),
   createdBy: integer("created_by").notNull().references(() => users.id),
 
   // Business identity
@@ -4206,6 +4292,7 @@ export const campaignAdApprovals = pgTable("campaign_ad_approvals", {
   humanAcknowledged: boolean("human_acknowledged").notNull().default(false),
   acknowledgementText: text("acknowledgement_text"),
   metadataJson: jsonb("metadata_json"),
+  authoritySnapshot: jsonb("authority_snapshot"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   publicIdIdx: index("campaign_ad_approvals_public_id_idx").on(table.publicId),

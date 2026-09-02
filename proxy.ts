@@ -22,7 +22,15 @@ import type { NextRequest } from "next/server";
 //   new browser tab instead.
 
 const AUTH_COOKIE_NAME = "auth_token";
+const CSRF_COOKIE_NAME = "csrf_token";
 const ADMIN_PAGE_PATTERN = /^\/admin(\/|$)/;
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const PUBLIC_CAPABILITY_PATHS = [
+  "/api/auth/login", "/api/auth/signup", "/api/auth/forgot-password",
+  "/api/auth/reset-password", "/api/auth/reset-password-token",
+  "/api/auth/verify-2fa", "/api/admin/invites/accept/",
+  "/api/admin/users/review",
+];
 
 // ── Edge-compatible HS256 JWT verification ──────────────────────────────────
 // Cannot use `jsonwebtoken` (Node.js-only) here. Web Crypto API is supported
@@ -47,7 +55,9 @@ async function verifyAdminJwt(token: string): Promise<boolean> {
     const parts = token.split(".");
     if (parts.length !== 3) return false;
 
-    const [headerB64, payloadB64, sigB64] = parts;
+    const headerB64 = parts[0]!;
+    const payloadB64 = parts[1]!;
+    const sigB64 = parts[2]!;
 
     // Import the signing key
     const keyData = new TextEncoder().encode(secret);
@@ -106,6 +116,42 @@ function extractToken(req: NextRequest): string | null {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Universal API CSRF gate. It runs before handlers (and therefore before any
+  // mutation), while bearer API clients and explicit capability-token flows
+  // remain unaffected.
+  const bearer = request.headers.get("authorization");
+  const cookieAuth = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const isCapability = PUBLIC_CAPABILITY_PATHS.some((path) => pathname.startsWith(path));
+  if (pathname.startsWith("/api/") && UNSAFE_METHODS.has(request.method) &&
+      cookieAuth && !bearer?.match(/^Bearer\s+\S+/i) && !isCapability) {
+    const origin = request.headers.get("origin");
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const expectedOrigins = new Set([request.nextUrl.origin]);
+    if (host) expectedOrigins.add(`${request.headers.get("x-forwarded-proto") || request.nextUrl.protocol.replace(":", "")}://${host}`);
+    for (const configured of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL, process.env.REPLIT_DEV_DOMAIN]) {
+      if (!configured) continue;
+      try { expectedOrigins.add(new URL(configured.includes("://") ? configured : `https://${configured}`).origin); } catch {}
+    }
+    const csrf = request.cookies.get(CSRF_COOKIE_NAME)?.value;
+    const submitted = request.headers.get("x-csrf-token");
+    let valid = !!origin && expectedOrigins.has(origin) && !!csrf && csrf === submitted;
+    if (valid) {
+      const separator = csrf!.lastIndexOf(".");
+      const secret = process.env.CSRF_SECRET || process.env.JWT_SECRET;
+      if (separator < 1 || !secret) valid = false;
+      else {
+        const key = await crypto.subtle.importKey(
+          "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+        );
+        valid = await crypto.subtle.verify(
+          "HMAC", key, base64UrlDecode(csrf!.slice(separator + 1)),
+          new TextEncoder().encode(csrf!.slice(0, separator))
+        ).catch(() => false);
+      }
+    }
+    if (!valid) return NextResponse.json({ error: "Invalid CSRF proof" }, { status: 403 });
+  }
 
   // Only gate /admin/* page navigations; all other paths pass through.
   if (!ADMIN_PAGE_PATTERN.test(pathname)) {

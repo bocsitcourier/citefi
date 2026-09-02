@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireTeamMember } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { eq, and, isNull, desc, sql } from "drizzle-orm";
 
 /** GET /api/client/articles — read-only article list for client team */
 export async function GET(req: NextRequest) {
@@ -16,12 +16,12 @@ export async function GET(req: NextRequest) {
       .select({
         id: articles.id,
         publicId: articles.publicId,
-        title: articles.title,
-        status: articles.status,
+        title: articles.chosenTitle,
+        status: articles.articleStatus,
         seoScore: articles.seoScore,
         wordCount: articles.wordCount,
         createdAt: articles.createdAt,
-        publishedAt: articles.publishedAt,
+        publishedAt: sql<Date | null>`null`,
       })
       .from(articles)
       .where(and(eq(articles.teamId, teamId), isNull(articles.deletedAt)))

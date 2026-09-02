@@ -12,7 +12,7 @@ import { Loader2, Sparkles, CheckSquare, ArrowLeft, Send, Upload, X, Users, Coin
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, csrfFetch, queryClient } from "@/lib/queryClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -475,7 +475,7 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
                               try {
                                 const formData = new FormData();
                                 formData.append('logo', file);
-                                const res = await fetch('/api/upload/logo', {
+                                const res = await csrfFetch('/api/upload/logo', {
                                   method: 'POST',
                                   credentials: "include",
                                   body: formData,

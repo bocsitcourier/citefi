@@ -13,7 +13,7 @@
  * test exercises the actual notification generation logic, not a hand-crafted
  * database insert.
  */
-import { db } from "../../lib/db.js";
+import { systemDb as db } from "../../lib/db.js";
 import {
   users,
   sessions,
@@ -55,6 +55,7 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
       fullName: "Teamless Admin",
     })
     .returning({ id: users.id, email: users.email });
+  if (!adminRow) throw new Error("Failed to seed notification admin");
 
   // Team-less regular user — acts as the "new signup" that triggers the alert,
   // and also as the non-admin subject used for the blocked-access tests.
@@ -68,6 +69,7 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
       fullName: "Teamless Member",
     })
     .returning({ id: users.id, email: users.email });
+  if (!nonAdminRow) throw new Error("Failed to seed notification member");
 
   // Build bearer tokens directly — mirrors what /api/auth/login produces
   const adminToken = generateAccessToken({
@@ -142,6 +144,17 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
 export async function cleanupNotificationUsers(seed: NotificationSeedResult): Promise<void> {
   const userIds = [seed.teamlessAdmin.id, seed.teamlessNonAdmin.id];
   try {
+    // The signup service notifies every active admin, so remove all notifications
+    // generated for this seeded signup, including rows owned by non-test admins.
+    await db
+      .delete(notifications)
+      .where(
+        and(
+          eq(notifications.entityType, "user"),
+          eq(notifications.entityId, seed.teamlessNonAdmin.id),
+          eq(notifications.title, "New User Awaiting Approval"),
+        )
+      );
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
     await db
       .delete(emailVerificationCodes)
@@ -149,7 +162,7 @@ export async function cleanupNotificationUsers(seed: NotificationSeedResult): Pr
     await db
       .delete(activityLogs)
       .where(inArray(activityLogs.userId, userIds as number[]));
-    // notifications cascade-delete via userId FK (onDelete: 'cascade')
+    // Any remaining notification owned by the test admin cascades via userId.
     await db.delete(users).where(inArray(users.id, userIds));
   } catch (e) {
     console.warn("[seed-notifications] cleanup warning:", e);

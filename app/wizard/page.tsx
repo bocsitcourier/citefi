@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { csrfFetch } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,7 +66,7 @@ export default function ContentWizard() {
   // Save a single exemplar to brand profile
   const saveExemplarMutation = useMutation({
     mutationFn: async (text: string) => {
-      const res = await fetch("/api/intelligence", {
+      const res = await csrfFetch("/api/intelligence", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -98,7 +99,7 @@ export default function ContentWizard() {
   // Auto-trigger intelligence research for non-agency teams
   const startIntelligenceMutation = useMutation({
     mutationFn: async ({ websiteUrl, companyName }: { websiteUrl: string; companyName: string }) => {
-      const res = await fetch("/api/intelligence/run", {
+      const res = await csrfFetch("/api/intelligence/run", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

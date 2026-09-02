@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, teamMembers, teams, adminActionLogs, creditLedger } from "@/shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { users, teamMembers, teams, adminActionLogs } from "@/shared/schema";
+import { eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/api/auth";
 import { getStripeClient } from "@/lib/stripe";
 import { deliverEmail } from "@/lib/email";
-import { revokeGrantCredits } from "@/lib/credits";
+import { enqueueStripeCreditReversal } from "@/lib/stripe-credit-reconciliation";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
@@ -129,44 +129,25 @@ export async function POST(req: NextRequest) {
       { idempotencyKey: `refund-${chargeId}-${adminUserId}-${amount}` }
     );
 
-    // Reverse any credit grants associated with this charge's invoice.
-    // This prevents refunded customers from retaining credits they were granted for the
-    // refunded billing period. Best-effort: logged but never blocks the refund response.
-    try {
-      const invoiceId = typeof charge.invoice === "string" ? charge.invoice : null;
-
-      if (invoiceId) {
-        const [grantRow] = await db
-          .select({
-            id: creditLedger.id,
-            amount: creditLedger.amount,
-            teamId: creditLedger.teamId,
-          })
-          .from(creditLedger)
-          .where(and(
-            eq(creditLedger.idempotencyKey, `invoice-grant-${invoiceId}`),
-            isNull(creditLedger.reversedAt)
-          ))
-          .limit(1);
-
-        if (grantRow) {
-          await revokeGrantCredits({
-            teamId: grantRow.teamId,
-            adminUserId,
-            grantLedgerRowId: grantRow.id,
-            amount: grantRow.amount,
-            reason: `Stripe refund ${refund.id} for charge ${chargeId} (invoice ${invoiceId})`,
-          });
-          console.log(`[admin/billing/refund] Revoked ${grantRow.amount} credits for team ${grantRow.teamId} (invoice ${invoiceId})`);
-        } else {
-          console.warn(`[admin/billing/refund] No unreversed credit grant found for invoice ${invoiceId} — credits not revoked`);
-        }
-      } else {
-        console.warn(`[admin/billing/refund] Charge ${chargeId} has no associated invoice — cannot determine credit grant to reverse`);
-      }
-    } catch (creditErr) {
-      console.error("[admin/billing/refund] Credit reversal failed (Stripe refund still processed):", creditErr);
-    }
+    // Stripe success and credit reconciliation share one durable idempotent
+    // path with webhooks. A DB failure returns 500 so the same Stripe
+    // idempotency key can safely retry instead of silently leaving credits.
+    await enqueueStripeCreditReversal({
+      providerObjectId: refund.id,
+      objectType: "refund",
+      teamId: membership.teamId,
+      chargeId,
+      refundId: refund.id,
+      invoiceId: typeof (charge as any).invoice === "string" ? (charge as any).invoice : (charge as any).invoice?.id,
+      paymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+      // Fetching the charge above gives the pre-refund total. Stripe returns
+      // the authoritative cumulative amount on the refund response only in
+      // some API versions, so retrieve it after creation for exact partitions.
+      currencyAmount: (await stripe.charges.retrieve(chargeId)).amount_refunded,
+      originalChargeAmount: charge.amount,
+      payload: refund,
+      adminUserId,
+    });
 
     await db.insert(adminActionLogs).values({
       userId: adminUserId,

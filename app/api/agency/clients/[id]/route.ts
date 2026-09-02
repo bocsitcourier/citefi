@@ -11,10 +11,11 @@ const updateSchema = z.object({
 });
 
 /** PATCH /api/agency/clients/[id] — rename or archive a client team */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { teamId } = await requireTeamAdmin(req);
-    const clientId = parseInt(params.id, 10);
+    const { id } = await params;
+    const clientId = parseInt(id, 10);
     if (isNaN(clientId)) return NextResponse.json({ error: "Invalid client ID" }, { status: 400 });
 
     // Verify the client belongs to this agency
@@ -58,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 /** POST /api/agency/clients/[id]/invite — invite a user as client_viewer to a client team */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await params;
   return NextResponse.json({ error: "Use /api/agency/clients/[id]/invite for invites" }, { status: 405 });
 }

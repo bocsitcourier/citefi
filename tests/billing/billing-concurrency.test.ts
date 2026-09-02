@@ -12,15 +12,19 @@
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { db } from "../../lib/db.js";
-import { debitReservation, getBucketBalance } from "../../lib/billing.js";
+import { debitReservation, getBucketBalance, reserveCredits } from "../../lib/billing.js";
 import {
   teams,
   users,
   teamMembers,
   creditBalances,
   creditLedger,
+  creditReservations,
 } from "../../shared/schema.js";
 import { eq, inArray } from "drizzle-orm";
+import { enterSystemContext } from "../../lib/tenant-context.js";
+
+enterSystemContext("billing concurrency integration test");
 
 const RUN_ID = `billing_conc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
@@ -44,11 +48,13 @@ async function seedBillingTeam(tag: string): Promise<SeedResult> {
       accountStatus: "active",
     })
     .returning({ id: users.id });
+  assert.ok(userRow, "billing test user insert must return a row");
 
   const [teamRow] = await db
     .insert(teams)
     .values({ name: `BillingTest ${tag} ${RUN_ID}`, createdBy: userRow.id })
     .returning({ id: teams.id });
+  assert.ok(teamRow, "billing test team insert must return a row");
 
   await db.insert(teamMembers).values({
     teamId: teamRow.id,
@@ -82,6 +88,14 @@ async function seedReservation(
   runId: string,
   amount: number
 ): Promise<void> {
+  await db.insert(creditReservations).values({
+    teamId,
+    runId,
+    operationType: "article",
+    originalAmount: amount,
+    remainingAmount: amount,
+    status: "RESERVED",
+  });
   await db.insert(creditLedger).values({
     teamId,
     amount,
@@ -104,6 +118,27 @@ async function cleanupBillingTeam(teamId: number, userId: number): Promise<void>
 // ---------------------------------------------------------------------------
 
 describe("debitReservation — concurrent batch workers", () => {
+  test("concurrent same-run reserve creates one owned hold and one ledger projection", async () => {
+    const { teamId, userId } = await seedBillingTeam("same_run");
+    const runId = `${RUN_ID}_same_run`;
+    try {
+      await seedCreditBalance(teamId, 100, 0, 0);
+      const results = await Promise.all(Array.from({ length: 8 }, () =>
+        reserveCredits({ teamId, runId, operationType: "article", amount: 10 })
+      ));
+      assert.equal(results.filter((result) => result.ok).length, 8);
+      const [reservations, ledger, balance] = await Promise.all([
+        db.select().from(creditReservations).where(eq(creditReservations.runId, runId)),
+        db.select().from(creditLedger).where(eq(creditLedger.runId, runId)),
+        getBucketBalance(teamId),
+      ]);
+      assert.equal(reservations.length, 1);
+      assert.equal(ledger.filter((row) => row.eventType === "reserve").length, 1);
+      assert.equal(balance.reservedCredits, 10);
+    } finally {
+      await cleanupBillingTeam(teamId, userId);
+    }
+  });
   // Scenario A: 5 concurrent debits × 10 credits
   //   allowance=30, purchased=40, reserved=50
   //   Expected final: allowanceUsed=30, purchasedUsed=20, reserved=0
@@ -124,7 +159,7 @@ describe("debitReservation — concurrent batch workers", () => {
 
       // All debits must succeed
       for (let i = 0; i < results.length; i++) {
-        assert.equal(results[i].ok, true, `debit ${i + 1} should succeed`);
+        assert.equal(results[i]!.ok, true, `debit ${i + 1} should succeed`);
       }
 
       // Total deducted must match reservation

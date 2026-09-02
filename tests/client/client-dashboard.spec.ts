@@ -232,11 +232,13 @@ test.describe("/client/team — admin remove member flow", () => {
         defaultTeamId: seed.team.id,
       })
       .returning({ id: users.id });
+    if (!extraUser) throw new Error("[client-dashboard.spec] extra user insert did not return a row");
 
     const [extraMember] = await db
       .insert(teamMembers)
       .values({ teamId: seed.team.id, userId: extraUser.id, role: "member" })
       .returning({ id: teamMembers.id });
+    if (!extraMember) throw new Error("[client-dashboard.spec] extra membership insert did not return a row");
 
     extraUserId = extraUser.id;
     extraMemberId = extraMember.id;

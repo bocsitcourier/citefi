@@ -18,16 +18,20 @@ export async function GET(req: NextRequest) {
 
       db.select({
         total: count(),
-        published: sql<number>`count(*) filter (where status = 'published')`.mapWith(Number),
-        draft: sql<number>`count(*) filter (where status = 'draft')`.mapWith(Number),
+        published: sql<number>`count(*) filter (where article_status = 'COMPLETE')`.mapWith(Number),
+        draft: sql<number>`count(*) filter (where article_status <> 'COMPLETE')`.mapWith(Number),
       }).from(articles).where(and(eq(articles.teamId, teamId), isNull(articles.deletedAt))),
 
       db.select({
         id: jobBatches.id,
         publicId: jobBatches.publicId,
         status: jobBatches.status,
-        totalArticles: jobBatches.totalArticles,
-        completedArticles: jobBatches.completedArticles,
+        totalArticles: jobBatches.numArticlesRequested,
+        completedArticles: sql<number>`(
+          select count(*)::int from articles
+          where articles.batch_id = ${jobBatches.id}
+            and articles.article_status = 'COMPLETE'
+        )`.mapWith(Number),
         createdAt: jobBatches.createdAt,
       }).from(jobBatches)
         .where(eq(jobBatches.teamId, teamId))

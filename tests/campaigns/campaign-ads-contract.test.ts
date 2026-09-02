@@ -7,7 +7,88 @@ import {
   validateGoogleRsa,
   validateLandingUrl,
   validateMetaPack,
+  assertApprovalAuthority,
 } from "../../lib/campaign-ads-service.js";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+test("Ads approval RBAC enforces client, compliance, export, and separation authorities", () => {
+  const base = {
+    actorUserId: 7, agencyTeamId: 10, clientTeamId: 11,
+    clientParentTeamId: 10, designatedApproverUserId: 7,
+  };
+  assert.doesNotThrow(() => assertApprovalAuthority({
+    ...base, approvalType: "client", clientMembershipRole: "client_viewer",
+  }));
+  assert.throws(() => assertApprovalAuthority({
+    ...base, approvalType: "client", actorUserId: 8, clientMembershipRole: "admin",
+  }), /designated approver/);
+  assert.throws(() => assertApprovalAuthority({
+    ...base, approvalType: "client", clientParentTeamId: 99, clientMembershipRole: "client_viewer",
+  }), /relationship/);
+  assert.doesNotThrow(() => assertApprovalAuthority({
+    ...base, approvalType: "policy", globalRole: "compliance",
+  }));
+  assert.throws(() => assertApprovalAuthority({
+    ...base, approvalType: "policy", globalRole: "team_member", agencyMembershipRole: "owner",
+  }), /Compliance/);
+  assert.doesNotThrow(() => assertApprovalAuthority({
+    ...base, approvalType: "export", agencyMembershipRole: "owner",
+  }));
+  assert.throws(() => assertApprovalAuthority({
+    ...base, approvalType: "export", agencyMembershipRole: "member",
+  }), /owner or admin/);
+  assert.throws(() => assertApprovalAuthority({
+    ...base, approvalType: "export", agencyMembershipRole: "admin",
+    previouslyApprovedTypes: [{ actorUserId: 7, approvalType: "policy" }],
+  }), /separation/);
+});
+
+test("concurrent cross-type approvals cannot let one actor win twice", async () => {
+  // Model the database row lock: each contender evaluates its authorization
+  // against the history only after the prior contender has appended.
+  const approvals: Array<{ actorUserId: number; approvalType: string }> = [];
+  let tail = Promise.resolve();
+  const approveUnderAdLock = (approvalType: "client" | "policy") => {
+    const attempt = tail.then(() => {
+      assertApprovalAuthority({
+        approvalType, actorUserId: 7, agencyTeamId: 10, clientTeamId: 11,
+        clientParentTeamId: 10, designatedApproverUserId: 7,
+        clientMembershipRole: "client_viewer", globalRole: "compliance",
+        previouslyApprovedTypes: approvals,
+      });
+      approvals.push({ actorUserId: 7, approvalType });
+    });
+    tail = attempt.catch(() => undefined);
+    return attempt;
+  };
+  const results = await Promise.allSettled([
+    approveUnderAdLock("client"),
+    approveUnderAdLock("policy"),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(approvals.length, 1);
+
+  const source = readFileSync(resolve(import.meta.dirname, "../../lib/campaign-ads-service.ts"), "utf8");
+  assert.match(source, /db\.transaction\(async \(tx\)/);
+  assert.match(source, /\.limit\(1\)\.for\("update"\)/);
+});
+
+test("client approval route accepts a client reviewer without agency membership", () => {
+  const route = readFileSync("app/api/campaigns/[id]/ads/[adId]/approve/route.ts", "utf8");
+  const campaignService = readFileSync("lib/campaign-service.ts", "utf8");
+  assert.match(route, /requireClientReviewer/);
+  assert.match(route, /getCampaignForClientApprovalByPublicId/);
+  assert.match(route, /approveCampaignAd\(campaign\.teamId/);
+  assert.match(campaignService, /eq\(campaigns\.clientTeamId, clientTeamId\)/);
+  assert.match(campaignService, /isNull\(teams\.deletedAt\)/);
+  assert.match(campaignService, /eq\(teams\.clientStatus, "active"\)/);
+  assert.match(campaignService, /campaign client approval relationship lookup/);
+  const auth = readFileSync("lib/api/auth.ts", "utf8");
+  assert.match(auth, /requireClientReviewer[\s\S]*isNull\(teams\.deletedAt\)[\s\S]*eq\(teams\.clientStatus, "active"\)/);
+  const adsService = readFileSync("lib/campaign-ads-service.ts", "utf8");
+  assert.match(adsService, /clientDeletedAt[\s\S]*clientStatus[\s\S]*Client team relationship is not active/);
+});
 
 test("locked UTM convention is deterministic and preserves non-UTM query parameters", () => {
   const url = buildAdTrackingUrl({

@@ -14,7 +14,7 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { OptimizedVideo } from "@/components/OptimizedVideo";
 
 interface MediaAsset {
@@ -58,7 +58,7 @@ export default function MediaLibraryPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (assetId: number) => {
-      const response = await fetch(`/api/media/${assetId}`, {
+      const response = await csrfFetch(`/api/media/${assetId}`, {
         method: 'DELETE',
         credentials: "include",
       });
@@ -212,7 +212,7 @@ export default function MediaLibraryPage() {
         description: "This may take 60-180 seconds. You'll be notified when complete.",
       });
 
-      const response = await fetch('/api/social/video/generate', {
+      const response = await csrfFetch('/api/social/video/generate', {
         method: 'POST',
         credentials: "include",
         headers: { 'Content-Type': 'application/json' },

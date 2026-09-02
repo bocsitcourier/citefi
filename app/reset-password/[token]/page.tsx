@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, ArrowLeft, Lock, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
+import { csrfFetch } from "@/lib/queryClient";
 
 type State = "loading" | "invalid" | "valid" | "success";
 
@@ -75,7 +76,7 @@ export default function ResetPasswordTokenPage() {
     }
     setIsSubmitting(true);
     try {
-      const res = await fetch("/api/auth/reset-password-token", {
+      const res = await csrfFetch("/api/auth/reset-password-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, newPassword }),

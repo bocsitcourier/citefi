@@ -141,6 +141,7 @@ export async function checkUsageCap(
       status: "pending",
     })
     .returning({ id: usageEvents.id });
+  if (!reserved) throw new Error("Failed to create usage cap reservation");
 
   const reservationId = reserved.id;
   const periodStart = startOfMonth();

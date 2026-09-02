@@ -13,7 +13,7 @@
 import { eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getTxDb, db } from "./db";
-import { creditBalances, creditLedger, teams } from "@/shared/schema";
+import { creditBalances, creditLedger, creditReservations, teams } from "@/shared/schema";
 import { getCreditCost, getEffectiveCreditCost, type OperationType } from "./credit-menu";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +25,8 @@ export interface BucketBalance {
   purchasedCredits: number;
   allowanceUsed: number;
   purchasedUsed: number;
+  allowanceDebt: number;
+  purchasedDebt: number;
   reservedCredits: number;
   allowanceRemaining: number;
   purchasedRemaining: number;
@@ -67,6 +69,8 @@ async function ensureBucketRow(teamId: number, tx: any): Promise<void> {
       purchasedCredits: 0,
       allowanceUsed: 0,
       purchasedUsed: 0,
+      allowanceDebt: 0,
+      purchasedDebt: 0,
       reservedCredits: 0,
     })
     .onConflictDoNothing();
@@ -93,10 +97,12 @@ function computeRemaining(row: {
   purchasedCredits: number;
   allowanceUsed: number;
   purchasedUsed: number;
+  allowanceDebt?: number;
+  purchasedDebt?: number;
   reservedCredits: number;
 }) {
-  const allowanceRemaining = Math.max(0, row.allowanceCredits - row.allowanceUsed);
-  const purchasedRemaining = Math.max(0, row.purchasedCredits - row.purchasedUsed);
+  const allowanceRemaining = Math.max(0, row.allowanceCredits - row.allowanceUsed - (row.allowanceDebt ?? 0));
+  const purchasedRemaining = Math.max(0, row.purchasedCredits - row.purchasedUsed - (row.purchasedDebt ?? 0));
   // totalRemaining is gross available minus already-reserved-but-not-yet-debited
   const totalRemaining = Math.max(0, allowanceRemaining + purchasedRemaining - row.reservedCredits);
   return { allowanceRemaining, purchasedRemaining, totalRemaining };
@@ -119,6 +125,8 @@ export async function getBucketBalance(teamId: number): Promise<BucketBalance> {
       purchasedCredits: 0,
       allowanceUsed: 0,
       purchasedUsed: 0,
+      allowanceDebt: 0,
+      purchasedDebt: 0,
       reservedCredits: 0,
       allowanceRemaining: 0,
       purchasedRemaining: 0,
@@ -135,6 +143,8 @@ export async function getBucketBalance(teamId: number): Promise<BucketBalance> {
     purchasedCredits: row.purchasedCredits,
     allowanceUsed: row.allowanceUsed,
     purchasedUsed: row.purchasedUsed,
+    allowanceDebt: row.allowanceDebt,
+    purchasedDebt: row.purchasedDebt,
     reservedCredits: row.reservedCredits,
     allowanceRemaining,
     purchasedRemaining,
@@ -180,49 +190,36 @@ export async function reserveCredits(params: {
   }
 
   const amount = effectiveCost;
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error(`[billing] reservation amount must be a positive integer (received ${amount})`);
+  }
 
   const txDb = await getTxDb();
 
   return txDb.transaction(async (tx) => {
     await ensureBucketRow(teamId, tx);
 
-    // ── Idempotency ──────────────────────────────────────────────────────────
-    // If this runId was already reserved (e.g. network retry), return the
-    // prior result without double-reserving.
-    const [existingReserve] = await tx
-      .select({ id: creditLedger.id })
-      .from(creditLedger)
-      .where(
-        sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} = 'reserve'`
-      )
-      .limit(1);
-
-    if (existingReserve) {
-      // Only reuse the reservation if it is still OUTSTANDING — i.e. it has NOT been
-      // consumed by a debit or release yet. If it was consumed (e.g. reserve → release →
-      // retry with same runId), fall through and create a fresh reservation so the caller
-      // is never left with ok:true but no actual credit hold.
-      const [consumed] = await tx
-        .select({ id: creditLedger.id })
-        .from(creditLedger)
-        .where(
-          sql`${creditLedger.teamId} = ${teamId} AND ${creditLedger.runId} = ${runId} AND ${creditLedger.eventType} IN ('debit', 'release')`
-        )
-        .limit(1);
-
-      if (!consumed) {
-        // Reservation is still active — return cached ok:true without double-reserving
-        const [row] = await tx
-          .select()
-          .from(creditBalances)
-          .where(eq(creditBalances.teamId, teamId))
-          .limit(1);
-        const after = row
-          ? computeRemaining(row)
-          : { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
-        return { ok: true, runId, requiredCredits: amount, ...after };
+    // Claim per-run ownership before touching the aggregate hold. The unique
+    // (team,run) row is the serialization point; the ledger is only a projection.
+    const created = await tx.insert(creditReservations).values({
+      teamId, runId, operationType, originalAmount: amount, remainingAmount: amount,
+      status: "RESERVED",
+    }).onConflictDoNothing({
+      target: [creditReservations.teamId, creditReservations.runId],
+    }).returning({ id: creditReservations.id });
+    if (created.length === 0) {
+      const [existing] = await tx.select().from(creditReservations).where(
+        sql`${creditReservations.teamId}=${teamId} AND ${creditReservations.runId}=${runId}`
+      ).limit(1);
+      if (!existing) throw new Error("[billing] reservation ownership conflict could not be resolved");
+      if (existing.operationType !== operationType || existing.originalAmount !== amount) {
+        throw new Error(`[billing] runId ${runId} was reused with a different operation or amount`);
       }
-      // Reservation was consumed — fall through to create a fresh one
+      const [row] = await tx.select().from(creditBalances)
+        .where(eq(creditBalances.teamId, teamId)).limit(1);
+      const after = row ? computeRemaining(row) :
+        { allowanceRemaining: 0, purchasedRemaining: 0, totalRemaining: 0 };
+      return { ok: existing.status === "RESERVED", runId, requiredCredits: amount, ...after };
     }
 
     // ── Atomic reserve ───────────────────────────────────────────────────────
@@ -239,13 +236,15 @@ export async function reserveCredits(params: {
         sql`${creditBalances.teamId} = ${teamId}
           AND (
             GREATEST(${creditBalances.allowanceCredits} - ${creditBalances.allowanceUsed}, 0) +
-            GREATEST(${creditBalances.purchasedCredits} - ${creditBalances.purchasedUsed}, 0) -
+             GREATEST(${creditBalances.purchasedCredits} - ${creditBalances.purchasedUsed}, 0) -
+             ${creditBalances.allowanceDebt} - ${creditBalances.purchasedDebt} -
             ${creditBalances.reservedCredits}
           ) >= ${amount}`
       )
       .returning();
 
     if (updatedRows.length === 0) {
+      await tx.delete(creditReservations).where(eq(creditReservations.id, created[0]!.id));
       // 0 rows affected = insufficient funds
       const [current] = await tx
         .select()
@@ -339,8 +338,27 @@ export async function debitReservation(params: {
       };
     }
 
-    // Support partial debits for batch/multi-unit reservations
-    const amount = params.amount ?? reservation.amount;
+    const [ownedReservation] = await tx.select().from(creditReservations).where(
+      sql`${creditReservations.teamId}=${teamId} AND ${creditReservations.runId}=${runId}`
+    ).limit(1).for("update");
+    if (!ownedReservation) {
+      throw new Error(`[billing] authoritative reservation missing for teamId=${teamId} runId=${runId}`);
+    }
+    // Omitted amount always means "settle exactly what this run still owns".
+    const amount = params.amount ?? ownedReservation.remainingAmount;
+    if (!Number.isInteger(amount) || amount <= 0) {
+      if (ownedReservation.remainingAmount === 0) {
+        const balance = await getBucketBalance(teamId);
+        return { ok: ownedReservation.status === "DEBITED", fromAllowance: 0, fromPurchased: 0, ...balance };
+      }
+      throw new Error(`[billing] debit amount must be a positive integer`);
+    }
+    if (amount > ownedReservation.remainingAmount) {
+      throw new Error(`[billing] debit amount ${amount} exceeds run reservation remaining ${ownedReservation.remainingAmount}`);
+    }
+    if (amount < ownedReservation.remainingAmount && !jobId) {
+      throw new Error("[billing] partial debit requires a durable jobId");
+    }
 
     // ── Idempotency: prevent double-debit (jobId path) ───────────────────────
     // For batch reservations jobId is unique per article, so runId+jobId is
@@ -372,8 +390,8 @@ export async function debitReservation(params: {
     // Partial debits (multi-article batches) keep reservation_status=RESERVED
     // so subsequent per-article debits can still proceed; their race safety
     // comes from the FOR UPDATE lock on credit_balances below + jobId idempotency.
-    const isFullDebit = amount >= reservation.amount;
-    if (isFullDebit && reservation.reservationStatus !== null) {
+    const isFullDebit = amount === ownedReservation.remainingAmount;
+    if (isFullDebit && amount === reservation.amount && reservation.reservationStatus !== null) {
       const claimed = await tx
         .update(creditLedger)
         .set({ reservationStatus: "DEBITED" })
@@ -449,6 +467,18 @@ export async function debitReservation(params: {
       }
     }
 
+    const reservationRows = await tx.update(creditReservations).set({
+      remainingAmount: sql`${creditReservations.remainingAmount} - ${amount}`,
+      status: sql`CASE WHEN ${creditReservations.remainingAmount} = ${amount} THEN 'DEBITED' ELSE 'RESERVED' END`,
+      updatedAt: new Date(),
+    }).where(sql`${creditReservations.id}=${ownedReservation.id}
+      AND ${creditReservations.status}='RESERVED'
+      AND ${creditReservations.remainingAmount} >= ${amount}`)
+      .returning({ id: creditReservations.id });
+    if (reservationRows.length === 0) {
+      throw new Error(`[billing] reservation ${runId} no longer owns ${amount} credits`);
+    }
+
     // Compute bucket split: allowance first, then purchased.
     // Safe under concurrency because the FOR UPDATE lock above guarantees no
     // other transaction can update this row until our transaction commits.
@@ -521,6 +551,9 @@ export async function debitReservation(params: {
       runId,
       bucket,
       jobId: jobId ?? null,
+      idempotencyKey: `credit-debit:${createHash("sha256")
+        .update(`${teamId}:${runId}:${jobId ?? "full"}`)
+        .digest("hex")}`,
       reason: `Debit ${amount} credits for ${reservation.operationType} (runId: ${runId})`,
     });
 
@@ -559,10 +592,10 @@ export async function releaseReservation(params: {
 }, testHooks: {
   /**
    * Test-only synchronization seam for proving concurrent keyed releases.
-   * Runs inside the transaction after the legacy reason lookup and immediately
-   * before the DB-unique idempotency claim.
+   * Runs before the authoritative reservation row lock so multiple transactions
+   * can reach the same barrier without deadlocking behind FOR UPDATE.
    */
-  afterExistingReleaseCheck?: () => Promise<void>;
+  beforeReservationLock?: () => Promise<void>;
 } = {}): Promise<void> {
   const { teamId, runId, userId, reason } = params;
 
@@ -583,8 +616,26 @@ export async function releaseReservation(params: {
       return;
     }
 
-    // Support partial releases for batch/multi-unit reservations
-    const amount = params.amount ?? reservation.amount;
+    await testHooks.beforeReservationLock?.();
+
+    const [ownedReservation] = await tx.select().from(creditReservations).where(
+      sql`${creditReservations.teamId}=${teamId} AND ${creditReservations.runId}=${runId}`
+    ).limit(1).for("update");
+    if (!ownedReservation) {
+      throw new Error(`[billing] authoritative reservation missing for teamId=${teamId} runId=${runId}`);
+    }
+    // Omitted amount settles only this run's authoritative remainder.
+    const amount = params.amount ?? ownedReservation.remainingAmount;
+    if (!Number.isInteger(amount) || amount <= 0) {
+      if (ownedReservation.remainingAmount === 0) return;
+      throw new Error("[billing] release amount must be a positive integer");
+    }
+    if (amount > ownedReservation.remainingAmount) {
+      throw new Error(`[billing] release amount ${amount} exceeds run reservation remaining ${ownedReservation.remainingAmount}`);
+    }
+    if (amount < ownedReservation.remainingAmount && !params.releaseKey) {
+      throw new Error("[billing] partial release requires a durable releaseKey");
+    }
 
     // ── State-machine atomic claim (full releases only) ───────────────────────
     // The CAS RESERVED → RELEASED is only safe for full releases (amount >=
@@ -601,9 +652,9 @@ export async function releaseReservation(params: {
     //
     // Legacy rows (reservation_status IS NULL) always use the original
     // LIKE-based idempotency check.
-    const isFullRelease = amount >= reservation.amount;
+    const isFullRelease = amount === ownedReservation.remainingAmount;
 
-    if (isFullRelease && reservation.reservationStatus !== null) {
+    if (isFullRelease && amount === reservation.amount && reservation.reservationStatus !== null) {
       const claimed = await tx
         .update(creditLedger)
         .set({ reservationStatus: "RELEASED" })
@@ -637,6 +688,15 @@ export async function releaseReservation(params: {
       } else {
         // We own the full-release claim.  Proceed to decrement credit_balances.
         // (Skips the legacy idempotency block below.)
+        const ownedRows = await tx.update(creditReservations).set({
+          remainingAmount: 0, status: "RELEASED", updatedAt: new Date(),
+        }).where(sql`${creditReservations.id}=${ownedReservation.id}
+          AND ${creditReservations.status}='RESERVED'
+          AND ${creditReservations.remainingAmount}=${amount}`)
+          .returning({ id: creditReservations.id });
+        if (ownedRows.length === 0) {
+          throw new Error(`[billing] reservation ${runId} no longer owns ${amount} credits`);
+        }
         const releaseRows = await tx
           .update(creditBalances)
           .set({
@@ -700,8 +760,6 @@ export async function releaseReservation(params: {
       return;
     }
 
-    await testHooks.afterExistingReleaseCheck?.();
-
     const releaseReason = params.releaseKey
       ? `${reason ?? `Release for ${reservation.operationType} (runId: ${runId})`} [releaseKey:${params.releaseKey}]`
       : (reason ?? `Release reservation for ${reservation.operationType} (runId: ${runId})`);
@@ -738,6 +796,18 @@ export async function releaseReservation(params: {
         );
         return;
       }
+    }
+
+    const reservationRows = await tx.update(creditReservations).set({
+      remainingAmount: sql`${creditReservations.remainingAmount} - ${amount}`,
+      status: sql`CASE WHEN ${creditReservations.remainingAmount} = ${amount} THEN 'RELEASED' ELSE 'RESERVED' END`,
+      updatedAt: new Date(),
+    }).where(sql`${creditReservations.id}=${ownedReservation.id}
+      AND ${creditReservations.status}='RESERVED'
+      AND ${creditReservations.remainingAmount} >= ${amount}`)
+      .returning({ id: creditReservations.id });
+    if (reservationRows.length === 0) {
+      throw new Error(`[billing] reservation ${runId} no longer owns ${amount} credits`);
     }
 
     // Release: decrement reservedCredits.
@@ -796,6 +866,7 @@ export async function grantAllowance(params: {
   adminUserId?: number;
   reason?: string;
   idempotencyKey?: string;
+  stripeInvoiceId?: string;
 }): Promise<BucketBalance> {
   const { teamId, amount, periodStart, periodEnd, adminUserId, reason, idempotencyKey } = params;
 
@@ -841,6 +912,7 @@ export async function grantAllowance(params: {
       bucket: "allowance",
       operationType: "plan_renewal",
       idempotencyKey: idempotencyKey ?? null,
+      stripeInvoiceId: params.stripeInvoiceId ?? null,
       reason: reason ?? `Allowance grant: ${amount} credits for period ${periodStart.toISOString()} – ${periodEnd.toISOString()}`,
     });
 
@@ -870,6 +942,8 @@ export async function grantPurchased(params: {
   adminUserId?: number;
   reason?: string;
   idempotencyKey?: string;
+  stripeCheckoutSessionId?: string;
+  stripePaymentIntentId?: string;
 }): Promise<BucketBalance> {
   const { teamId, amount, adminUserId, reason, idempotencyKey } = params;
 
@@ -912,6 +986,8 @@ export async function grantPurchased(params: {
       bucket: "purchased",
       operationType: "topup",
       idempotencyKey: idempotencyKey ?? null,
+      stripeCheckoutSessionId: params.stripeCheckoutSessionId ?? null,
+      stripePaymentIntentId: params.stripePaymentIntentId ?? null,
       reason: reason ?? `Purchased credit grant: ${amount} credits`,
     });
 
@@ -995,6 +1071,8 @@ function computeAndReturnBalance(row: {
   purchasedCredits: number;
   allowanceUsed: number;
   purchasedUsed: number;
+  allowanceDebt: number;
+  purchasedDebt: number;
   reservedCredits: number;
   balance: number;
   periodStart: Date | null;
@@ -1006,6 +1084,8 @@ function computeAndReturnBalance(row: {
     purchasedCredits: row.purchasedCredits,
     allowanceUsed: row.allowanceUsed,
     purchasedUsed: row.purchasedUsed,
+    allowanceDebt: row.allowanceDebt,
+    purchasedDebt: row.purchasedDebt,
     reservedCredits: row.reservedCredits,
     allowanceRemaining,
     purchasedRemaining,

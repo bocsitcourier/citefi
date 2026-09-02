@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, teams, teamMembers } from "@/shared/schema";
 import { verifyToken, AUTH_COOKIE_NAME } from "@/lib/api/auth";
+import { clearCsrfCookie } from "@/lib/csrf";
 import { eq, and, isNull } from "drizzle-orm";
 
 /** Clear the auth cookie from a response so stale/orphan tokens are wiped on the next 401. */
@@ -13,6 +14,7 @@ function clearAuthCookie(res: NextResponse): NextResponse {
     path: "/",
     maxAge: 0,
   });
+  clearCsrfCookie(res);
   return res;
 }
 

@@ -44,6 +44,16 @@ export interface HealthDependencies {
   database: () => Promise<void>;
   redis: () => Promise<void>;
   workerHeartbeat: () => Promise<string | null>;
+  workerReadiness: () => Promise<{
+    ready: boolean;
+    registeredAt: string | null;
+    releaseVersion: string;
+    requiredRegistrations: Record<string, boolean>;
+    requiredSchedulers: Record<string, boolean>;
+    disabledSchedulers?: Record<string, string>;
+    modelsReady: boolean;
+    failureReason: string | null;
+  } | null>;
   queues: () => Promise<Record<string, QueueDepth>>;
   providerCircuits: () => Promise<unknown>;
   canary: () => Promise<{
@@ -51,9 +61,27 @@ export interface HealthDependencies {
     health: { ok: boolean; stale: boolean; reason: string | null };
   }>;
   storage: () => Promise<{ configured: boolean; providers?: Record<string, boolean> }>;
+  models: () => Promise<{ ready: boolean; message?: string; details?: unknown }>;
   backupStatus: () => Promise<StatusFile | null>;
   deploymentStatus: () => Promise<StatusFile | null>;
   recentCriticalErrors: (since: Date) => Promise<number>;
+}
+
+export interface CapabilityPolicy {
+  mediaEnabled: boolean;
+  storageRequired: boolean;
+  backupRequired: boolean;
+  modelsRequired: boolean;
+}
+
+export function capabilityPolicyFromEnv(): CapabilityPolicy {
+  const mediaEnabled = process.env.MEDIA_FEATURES_ENABLED !== "false";
+  return {
+    mediaEnabled,
+    storageRequired: mediaEnabled,
+    backupRequired: process.env.BACKUP_REQUIRED !== "false",
+    modelsRequired: process.env.AI_FEATURES_ENABLED !== "false",
+  };
 }
 
 export interface HealthReport {
@@ -141,18 +169,21 @@ function fileDate(status: StatusFile): number {
 export async function collectHealth(
   deps: HealthDependencies,
   thresholds: HealthThresholds = DEFAULT_HEALTH_THRESHOLDS,
+  policy: CapabilityPolicy = { mediaEnabled: true, storageRequired: true, backupRequired: true, modelsRequired: true },
 ): Promise<HealthReport> {
   const now = deps.now?.() ?? Date.now();
   const timeout = thresholds.timeoutMs;
-  const [database, redis, heartbeat, queues, circuits, canary, storage, backup, deployment, errors] =
+  const [database, redis, heartbeat, readiness, queues, circuits, canary, storage, models, backup, deployment, errors] =
     await Promise.all([
       timed(deps.database, timeout, "database"),
       timed(deps.redis, timeout, "redis"),
       timed(deps.workerHeartbeat, timeout, "worker heartbeat"),
+      timed(deps.workerReadiness, timeout, "worker readiness"),
       timed(deps.queues, timeout, "queues"),
       timed(deps.providerCircuits, timeout, "provider circuits"),
       timed(deps.canary, timeout, "canary"),
       timed(deps.storage, timeout, "storage"),
+      timed(deps.models, timeout, "models"),
       timed(deps.backupStatus, timeout, "backup status"),
       timed(deps.deploymentStatus, timeout, "deployment status"),
       timed(() => deps.recentCriticalErrors(new Date(now - 60 * 60 * 1_000)), timeout, "critical errors"),
@@ -171,8 +202,16 @@ export async function collectHealth(
 
   const heartbeatAt = heartbeat.value ? Date.parse(heartbeat.value) : Number.NaN;
   const heartbeatAgeMs = Number.isFinite(heartbeatAt) ? Math.max(0, now - heartbeatAt) : null;
-  const workerCheck: HealthCheck = heartbeat.error
-    ? { ok: false, status: "fail", message: heartbeat.error }
+  const workerReady = readiness.value;
+  const disabledWorkerReason = workerReady?.disabledSchedulers
+    ? Object.entries(workerReady.disabledSchedulers)
+        .map(([name, reason]) => `${name}: ${reason}`)
+        .join("; ")
+    : "";
+  const workerCheck: HealthCheck = heartbeat.error || readiness.error
+    ? { ok: false, status: "fail", message: heartbeat.error ?? readiness.error }
+    : !workerReady?.ready
+      ? { ok: false, status: "fail", message: workerReady?.failureReason ?? (disabledWorkerReason || "Worker registrations or schedulers are not ready"), readiness: workerReady ?? null }
     : heartbeatAgeMs === null || heartbeatAgeMs > thresholds.workerStaleMs
       ? { ok: false, status: "fail", message: "Worker heartbeat is missing or stale", lastHeartbeatAt: heartbeat.value ?? null, ageMs: heartbeatAgeMs }
       : { ok: true, status: "ok", lastHeartbeatAt: heartbeat.value, ageMs: heartbeatAgeMs };
@@ -227,9 +266,19 @@ export async function collectHealth(
 
   const storageCheck: HealthCheck = storage.error
     ? { ok: false, status: "fail", message: storage.error }
+    : !policy.mediaEnabled
+      ? { ok: true, status: "skipped", configured: storage.value?.configured ?? false, enabled: false, reason: "disabled-by-policy", providers: storage.value?.providers ?? {} }
     : !storage.value?.configured
-      ? { ok: true, status: "skipped", configured: false, providers: storage.value?.providers ?? {} }
+      ? { ok: !policy.storageRequired, status: policy.storageRequired ? "fail" : "skipped", configured: false, enabled: true, reason: "misconfigured", providers: storage.value?.providers ?? {} }
       : { ok: true, status: "ok", configured: true, providers: storage.value.providers ?? {}, latencyMs: storage.latencyMs };
+
+  const modelsCheck: HealthCheck = models.error
+    ? { ok: false, status: policy.modelsRequired ? "fail" : "degraded", message: models.error }
+    : !policy.modelsRequired
+      ? { ok: true, status: "skipped", enabled: false, reason: "disabled-by-policy" }
+      : !models.value?.ready
+        ? { ok: false, status: "fail", enabled: true, reason: "misconfigured", message: models.value?.message ?? "Critical model tiers are unresolved", details: models.value?.details }
+        : { ok: true, status: "ok", enabled: true, details: models.value.details };
 
   const backupValue = backup.value;
   const backupState = (backupValue?.state ?? backupValue?.status ?? "").toLowerCase();
@@ -239,7 +288,7 @@ export async function collectHealth(
   const backupCheck: HealthCheck = backup.error
     ? { ok: false, status: "fail", message: backup.error }
     : !backupConfigured
-      ? { ok: true, status: "skipped", configured: false }
+      ? { ok: !policy.backupRequired, status: policy.backupRequired ? "fail" : "skipped", configured: false }
       : { ok: backupOk, status: backupOk ? "ok" : "fail", state: backupState || "unknown", ageMs: Number.isFinite(backupAge) ? backupAge : null };
 
   const deploymentValue = deployment.value;
@@ -271,7 +320,7 @@ export async function collectHealth(
       };
 
   const checks = [dbCheck, redisCheck, workerCheck, queueCheck, circuitCheck, canaryCheck,
-    storageCheck, backupCheck, deploymentCheck, criticalCheck];
+    storageCheck, modelsCheck, backupCheck, deploymentCheck, criticalCheck];
   const hasFailure = checks.some((check) => check.status === "fail");
   const hasDegraded = checks.some((check) => check.status === "degraded");
   return {
@@ -286,6 +335,7 @@ export async function collectHealth(
       providerCircuits: circuitCheck,
       canary: canaryCheck,
       storage: storageCheck,
+      models: modelsCheck,
       backup: backupCheck,
       deployment: deploymentCheck,
       recentCriticalErrors: criticalCheck,

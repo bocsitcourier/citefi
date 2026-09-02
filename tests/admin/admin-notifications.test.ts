@@ -36,8 +36,9 @@ async function apiGet(path: string, bearerToken?: string): Promise<Response> {
 }
 
 /**
- * Poll /api/health until the server is ready, then pre-warm the notifications
- * route bundle so the first test doesn't hit a cold-compile 404.
+ * Poll the notifications route until its expected unauthenticated response.
+ * Production-readiness health can intentionally be 503 in development while
+ * external canary/storage certification inputs are absent.
  * Each fetch uses a short AbortSignal timeout so the polling loop can't hang
  * indefinitely on a slow Turbopack compile.
  */
@@ -46,16 +47,10 @@ async function waitForServer(timeoutMs = 60_000, intervalMs = 500): Promise<void
   let lastErr: unknown;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${BASE_URL}/api/health`, {
+      const res = await fetch(`${BASE_URL}/api/notifications`, {
         signal: AbortSignal.timeout(4_000),
       });
-      if (res.ok) {
-        // Pre-warm the notifications route so Turbopack compiles it before tests.
-        // Use a short timeout — if this hangs the first test will trigger compile instead.
-        await fetch(`${BASE_URL}/api/notifications`, {
-          method: "GET",
-          signal: AbortSignal.timeout(8_000),
-        }).catch(() => {});
+      if (res.status === 401) {
         return;
       }
     } catch (err) {
@@ -70,7 +65,7 @@ async function waitForServer(timeoutMs = 60_000, intervalMs = 500): Promise<void
 
 // ── Seed / teardown ───────────────────────────────────────────────────────────
 
-let seed: NotificationSeedResult;
+let seed!: NotificationSeedResult;
 
 before(async () => {
   await waitForServer();
@@ -78,7 +73,7 @@ before(async () => {
 });
 
 after(async () => {
-  await cleanupNotificationUsers(seed);
+  if (seed) await cleanupNotificationUsers(seed);
 });
 
 // ── Team-less admin — can read userId-scoped notifications ────────────────────

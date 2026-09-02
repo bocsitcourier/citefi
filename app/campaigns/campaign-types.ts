@@ -73,8 +73,17 @@ export interface CampaignAd {
   createdAt?: string;
 }
 
+export interface CampaignAdApproval {
+  campaignAdId: string | number;
+  actorUserId: number;
+  approvalType: "client" | "policy" | "export";
+  decision: "approved" | "rejected";
+  createdAt?: string;
+}
+
 export interface CampaignAdsResponse {
   ads: CampaignAd[];
+  approvals?: CampaignAdApproval[];
   readiness?: {
     brandConfirmed?: boolean;
     generationReady?: boolean;
