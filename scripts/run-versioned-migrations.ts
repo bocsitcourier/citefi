@@ -18,6 +18,10 @@ const files = [
   "0023_auth_login_challenges.sql",
   "0024_pipeline_delivery_settlement.sql",
   "0025_credit_reservation_tenant_access.sql",
+  "0026_totp_setup_login_challenges.sql",
+  "0027_campaign_public_id_constraints.sql",
+  "0028_legacy_unique_constraint_names.sql",
+  "0029_incident_schema_constraints.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");

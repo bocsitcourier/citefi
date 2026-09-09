@@ -1,12 +1,18 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 npm install
 
 # Push declarative schema changes first. Security policies, grants, triggers,
 # and compatibility backfills are then installed by the idempotent task
 # migrations below because db:push cannot represent those controls.
-npm run db:push -- --force
+schema_push_log="$(mktemp)"
+trap 'rm -f "$schema_push_log"' EXIT
+npm run db:push -- --force 2>&1 | tee "$schema_push_log"
+if grep -Fq "Interactive prompts require a TTY terminal" "$schema_push_log"; then
+  echo "db:push required an interactive schema decision; refusing a false-success setup" >&2
+  exit 1
+fi
 
 # Apply the tenant Row-Level-Security migration (Task #150) AFTER the schema is
 # in place, so every table the policies target already exists. The migration is
@@ -27,10 +33,10 @@ node --env-file=.env.local --import tsx/esm scripts/migrate-t151-campaigns.ts
 # direct-child RLS, immutable snapshot triggers, and append-only delivery audit.
 node --env-file=.env.local --import tsx/esm scripts/migrate-t154-agency-reports.ts
 
-# Apply the tracked post-schema migrations. Starting at 0022 avoids replaying
-# historical task migrations already handled above, while retaining the same
-# checksum ledger and advisory lock used by immutable production releases.
+# Apply the tracked post-schema migrations. Starting at 0020 includes the
+# incident-intelligence objects that db:push cannot fully represent, while
+# retaining the checksum ledger and advisory lock used by immutable releases.
 # These migrations tolerate objects already created by db:push and keep
 # backfills conflict-safe, so merged/fresh development environments converge.
-MIGRATION_START_VERSION=0022 \
+MIGRATION_START_VERSION=0020 \
   node --env-file=.env.local --import tsx/esm scripts/run-versioned-migrations.ts

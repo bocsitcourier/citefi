@@ -3208,7 +3208,7 @@ export const creditReservations = pgTable("credit_reservations", {
     sql`${t.originalAmount} > 0 AND ${t.remainingAmount} >= 0 AND ${t.remainingAmount} <= ${t.originalAmount}`),
   statusCheck: check("credit_reservations_status_check",
     sql`${t.status} IN ('RESERVED','DEBITED','RELEASED') AND (${t.status} = 'RESERVED' OR ${t.remainingAmount} = 0)`),
-}));
+})).enableRLS();
 
 export type CreditReservation = typeof creditReservations.$inferSelect;
 
