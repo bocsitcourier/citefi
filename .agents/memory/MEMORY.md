@@ -1,6 +1,6 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
 - [Learning system loops](learning-system-loops.md) — PATTERN_DIMENSION single source of truth, mineCorpus routing, updatePatternDimension atomic upsert, podcast learning loop design.
-- [Auth token storage](auth-token-storage.md) — JWT is stored in sessionStorage (not localStorage) and sent as Authorization: Bearer on every request; all components must read from sessionStorage.
+- [Auth token storage](auth-token-storage.md) — production is HttpOnly-cookie-only; development adds a sessionStorage bearer fallback for Replit’s cross-site preview iframe.
 - [Learning system design](learning-system-loops.md) — Thompson Sampling (not epsilon-greedy) drives pattern selection; METRIC_WEIGHTS per content type; isArchived filter excludes archived patterns; teamDataMaturity() gates prior strength.
 - [Optimized content generator](optimized-content-generator.md) — 3-point injection orchestrator; reviewer wired at Stage 1.6 articles + Stage 1.5 social; exemplar retrieval is the last gap.
 - [T004 auth test patterns](t004-auth-tests.md) — node --env-file + tsx/esm runner; jti fix for concurrent logins; TEST-NET-1/2 IP separation; /api/auth/me nests under body.user; waitForServer() required.

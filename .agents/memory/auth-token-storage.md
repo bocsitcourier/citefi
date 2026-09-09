@@ -1,22 +1,22 @@
 ---
 name: Auth token storage
-description: Auth is cookie-only after P0 hardening — no sessionStorage, no Bearer headers from client
+description: Production uses HttpOnly cookies; development adds a scoped bearer fallback for Replit preview iframe compatibility
 ---
 
 ## Rule
-Auth is **cookie-only**. The server sets an `auth_token` HttpOnly cookie on login (sameSite:none, secure, 24h). Every client fetch must use `credentials: "include"` — no Bearer headers, no sessionStorage reads.
+Auth is **cookie-first**. The server sets an `auth_token` HttpOnly cookie on login (sameSite:none, secure, 24h), and every client fetch uses `credentials: "include"`.
 
-**The `token` field is no longer returned in login/verify-2fa JSON responses.**
+Production is cookie-only. In development, login and 2FA responses also return `previewToken`; the client stores it as `auth_preview_token` in sessionStorage and `csrfFetch()` sends it as a bearer token. This is required when a browser blocks the HttpOnly cookie in Replit's cross-site preview iframe.
 
 ## 2FA challenge token (intentional exception)
 `auth_2fa_challenge` is stored in sessionStorage temporarily during the login → 2FA flow only. It is a short-lived (5 min) binding token, not a secret auth token. It is cleared immediately after `verify-2fa` completes.
 
 ## Server-side fallback
-`lib/api/auth.ts` still accepts `Authorization: Bearer` as a secondary fallback for backward compatibility (tests that send tokens directly). The client never sends it.
+`lib/api/auth.ts` accepts `Authorization: Bearer` for tests, API clients, and the development preview fallback.
 
 ## queryClient.ts defaults
-The default TanStack Query `queryFn` in `lib/queryClient.ts` uses `credentials: "include"` and no Authorization header. `apiRequest()` likewise.
+The default TanStack Query `queryFn` uses `credentials: "include"`. `csrfFetch()` also attaches the development preview token when one exists.
 
-**Why:** sessionStorage tokens were visible to JS and could be exfiltrated by XSS. HttpOnly cookies are not accessible from JS. The old rationale ("SameSite=None blocked in iframes") no longer applies since the app serves frontend and backend on the same port.
+**Why:** HttpOnly cookies reduce XSS token exposure and remain mandatory in production. Replit preview is embedded cross-site, so browsers may reject even `SameSite=None` cookies; without a development-only fallback, login succeeds server-side but the preview immediately appears signed out.
 
-**How to apply:** Any new fetch or mutation in a client component must use `credentials: "include"` only. Never read `sessionStorage.getItem("auth_token")`. Never construct Authorization: Bearer headers from client code.
+**How to apply:** Route authenticated client requests through `csrfFetch()`/`apiRequest()` and keep `credentials: "include"`. Never return a bearer token in production, never use the old `auth_token` sessionStorage key, and clear `auth_preview_token` on logout.

@@ -9,7 +9,7 @@
  *   ADMIN_RECOVERY_CONFIRM=RESET_EXISTING_GLOBAL_ADMIN \
  *   node --env-file=.env.local --import tsx/esm scripts/recover-global-admin.ts
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { getTxDb } from "../lib/db";
 import { hashPassword, validatePassword } from "../lib/auth";
 import { activityLogs, sessions, users } from "../shared/schema";
@@ -22,6 +22,8 @@ async function main() {
 
   const email = process.env.ADMIN_RECOVERY_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_RECOVERY_PASSWORD;
+  const reassignOriginalEmail =
+    process.env.ADMIN_RECOVERY_REASSIGN_EMAIL === "REASSIGN_ORIGINAL_GLOBAL_ADMIN";
   if (!email || !password) {
     throw new Error("ADMIN_RECOVERY_EMAIL and ADMIN_RECOVERY_PASSWORD are required");
   }
@@ -34,9 +36,10 @@ async function main() {
   enterSystemContext("controlled global administrator credential recovery");
   const txDb = getTxDb();
   await txDb.transaction(async (tx) => {
-    const [admin] = await tx
+    let [admin] = await tx
       .select({
         id: users.id,
+        email: users.email,
         role: users.role,
         accountStatus: users.accountStatus,
         deletedAt: users.deletedAt,
@@ -45,6 +48,26 @@ async function main() {
       .where(eq(users.email, email))
       .limit(1)
       .for("update");
+
+    if (!admin && reassignOriginalEmail) {
+      [admin] = await tx
+        .select({
+          id: users.id,
+          email: users.email,
+          role: users.role,
+          accountStatus: users.accountStatus,
+          deletedAt: users.deletedAt,
+        })
+        .from(users)
+        .where(and(
+          eq(users.role, "admin"),
+          eq(users.accountStatus, "active"),
+          isNull(users.deletedAt),
+        ))
+        .orderBy(asc(users.createdAt))
+        .limit(1)
+        .for("update");
+    }
 
     if (
       !admin ||
@@ -55,10 +78,16 @@ async function main() {
       throw new Error("No active global administrator matches the supplied email");
     }
 
+    const emailReassigned = admin.email !== email;
     const passwordHash = await hashPassword(password);
     await tx
       .update(users)
-      .set({ passwordHash, failedLoginAttempts: 0, lockedUntil: null })
+      .set({
+        ...(emailReassigned ? { email, emailVerified: 1 } : {}),
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      })
       .where(eq(users.id, admin.id));
 
     await tx
@@ -75,7 +104,11 @@ async function main() {
       action: "global_admin_credential_recovered",
       resource: "users",
       resourceId: admin.id,
-      details: { method: "controlled_recovery_script", sessionsRevoked: true },
+      details: {
+        method: "controlled_recovery_script",
+        sessionsRevoked: true,
+        emailReassigned,
+      },
       severity: "warning",
     });
   });

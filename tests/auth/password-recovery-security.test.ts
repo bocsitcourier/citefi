@@ -17,6 +17,7 @@ test("forgot-password never returns or console-delivers a reset credential", () 
 test("controlled admin recovery is explicit, role-bound, and revokes sessions", () => {
   const script = readFileSync("scripts/recover-global-admin.ts", "utf8");
   assert.match(script, /RESET_EXISTING_GLOBAL_ADMIN/);
+  assert.match(script, /REASSIGN_ORIGINAL_GLOBAL_ADMIN/);
   assert.match(script, /admin\.role !== "admin"/);
   assert.match(script, /admin\.accountStatus !== "active"/);
   assert.match(script, /eq\(sessions\.isActive, 1\)/);
