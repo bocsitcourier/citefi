@@ -6,7 +6,10 @@ import { eq, and, sql } from "drizzle-orm";
 import { addBatchGenerationJob } from "@/lib/queue";
 import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
-import { requireTeamMember } from "@/lib/api/auth";
+import {
+  runWithAuthenticatedTeamContext,
+  withAuthenticatedTeamContext,
+} from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
@@ -48,9 +51,12 @@ export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
   // Hoisted so the outer catch can reset status to PENDING on unexpected errors
   let _batchId: number | null = null;
+  let authenticatedAuth: { userId: number; teamId: number; role: string } | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      authenticatedAuth = auth;
+      const { teamId, userId } = auth;
 
     const body = await request.json();
     const validatedData = batchSubmitSchema.parse(body);
@@ -327,25 +333,33 @@ export async function POST(request: NextRequest) {
       articlesQueued: selectedTitles.length,
       message: `Batch submitted successfully. ${selectedTitles.length} articles will be generated.`,
     });
+      });
   } catch (error: any) {
     console.error("Batch submission error:", error);
-    // Best-effort: release any spending-cap reservation created before the error.
-    // The 2-hour auto-expiry is the safety net if this call also fails.
-    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-    // Reset batch to PENDING so the user can retry
-    if (_batchId !== null) {
-      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, _batchId)).catch(() => {});
+    const cleanup = async () => {
+      // Best-effort: release any spending-cap reservation created before the error.
+      // The 2-hour auto-expiry is the safety net if this call also fails.
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      // Reset batch to PENDING so the user can retry
+      if (_batchId !== null) {
+        await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, _batchId)).catch(() => {});
+      }
+      // Log to Admin Error Log so infra crashes are visible instead of silent
+      const { logError: _logError } = await import("@/lib/error-logger");
+      await _logError({
+        errorType: "SYSTEM",
+        errorMessage: `Batch submit unexpected error (batch ${_batchId ?? "unknown"}): ${error instanceof Error ? error.message : String(error)}`,
+        stackTrace: error instanceof Error ? error.stack : undefined,
+        severity: "error",
+        batchId: _batchId ?? undefined,
+        component: "batch-submit-outer",
+      }).catch(() => {});
+    };
+    if (authenticatedAuth) {
+      await runWithAuthenticatedTeamContext(authenticatedAuth, cleanup);
+    } else {
+      await cleanup();
     }
-    // Log to Admin Error Log so infra crashes are visible instead of silent
-    const { logError: _logError } = await import("@/lib/error-logger");
-    await _logError({
-      errorType: "SYSTEM",
-      errorMessage: `Batch submit unexpected error (batch ${_batchId ?? "unknown"}): ${error instanceof Error ? error.message : String(error)}`,
-      stackTrace: error instanceof Error ? error.stack : undefined,
-      severity: "error",
-      batchId: _batchId ?? undefined,
-      component: "batch-submit-outer",
-    }).catch(() => {});
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

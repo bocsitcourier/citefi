@@ -6,12 +6,14 @@ id = "f8YavHTVb5Oo1bc12JBPH"
 uri = "file://DO_SSH_PRIVATE_KEY.txt"
 type = "text"
 title = "Private Key → paste into GitHub secret DO_SSH_KEY"
+logical_id = "52020eb6-15ec-4eb2-9cb5-5bc9c994ddd7"
 
 [[outputs]]
 id = "ktgqGFWtgiJC6vis1C37-"
 uri = "file://DO_SSH_PUBLIC_KEY.txt"
 type = "text"
 title = "Public Key → paste on your DO droplet"
+logical_id = "938fed3b-d9f0-4a78-8fa7-569023f24c2b"
 
 [[outputs]]
 id = "xMPKZ7_U821LW7vQknaNV"
@@ -19,3 +21,32 @@ uri = "file://reports/citefi-full-qa-blueprint-comparison-2026-08-22.md"
 type = "text"
 title = "Citefi Full QA & Blueprint Comparison"
 description = "Architect verdict, implementation scorecard, browser and test evidence, and prioritized launch gaps."
+logical_id = "8e58d395-e1ae-4277-ad40-24f015eeeda8"
+
+[[outputs]]
+id = "kjkG7oJ_khU4Wd2Dze2dt"
+uri = "file://screenshots/security-review-login.jpg"
+type = "image"
+title = "Authentication UI verification"
+description = "Final login-page capture after fixing the Next.js development-origin configuration."
+logical_id = "588be52f-f4bf-4981-a4f2-21f1eb5b9702"
+content_hash = "sha256:201ad696e25cf244c85194e54249708011b1e2a629e73bdb9856e723783c9174"
+size = 55024
+mtime_ms = 1788993715232
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/588be52f-f4bf-4981-a4f2-21f1eb5b9702/b5a79ac6-67ae-4ea7-8c2d-e507fe09460c"
+storage_version_token = "1788994675448531"
+content_type = "image/jpeg"
+
+[[outputs]]
+id = "GMGjFr_7VB8NyxRusnSAn"
+uri = "file://reports/enterprise-authentication-security-review-2026-09-09.md"
+type = "text"
+title = "Enterprise authentication security review"
+description = "Final CTO/security assessment, implemented controls, scanner results, roadmap, and production release blockers."
+logical_id = "41689b2b-b7ff-41aa-9b87-a9c51401e9b8"
+content_hash = "sha256:9d3b4bf4e90701a43e024421fe1b0b6d0a2b73b5016d1e61b0963938241ad870"
+size = 12097
+mtime_ms = 1788994535629
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/41689b2b-b7ff-41aa-9b87-a9c51401e9b8/497a659a-0192-4291-b537-52308e1c5f64"
+storage_version_token = "1788994676200848"
+content_type = "text/markdown"

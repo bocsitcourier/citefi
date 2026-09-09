@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { articles, jobBatches, ContentType } from "@/shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
@@ -94,7 +94,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
     const batchId = parseInt(id);
 
@@ -233,6 +234,7 @@ export async function POST(
       errors: errors.length > 0 ? errors : undefined
     });
 
+      });
   } catch (error: any) {
     console.error("Error regenerating images:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

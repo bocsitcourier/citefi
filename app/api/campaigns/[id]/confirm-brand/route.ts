@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
   confirmBrandSnapshot,
   getCampaignByPublicId,
@@ -18,7 +18,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
@@ -51,6 +51,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       campaign: { ...confirmedCampaign, ...workspace },
+    });
     });
   } catch (err: any) {
     if (err.statusCode)

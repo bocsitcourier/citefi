@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { learningService } from "@/lib/learning-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ contentType: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { contentType } = await params;
     const searchParams = request.nextUrl.searchParams;
@@ -29,6 +29,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       optimization: context,
+    });
     });
   } catch (error: any) {
     console.error("Failed to get optimization context:", error);

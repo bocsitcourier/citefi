@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, teamMembers, teams, adminActionLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
-import { requireAdmin } from "@/lib/api/auth";
+import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { getStripeClient } from "@/lib/stripe";
 import { deliverEmail } from "@/lib/email";
 import { enqueueStripeCreditReversal } from "@/lib/stripe-credit-reconciliation";
@@ -10,7 +10,7 @@ import { z } from "zod";
 
 export async function GET(req: NextRequest) {
   try {
-    const adminUserId = await requireAdmin(req);
+    const adminUserId = await requireRecentAdminMfa(req);
     const { searchParams } = new URL(req.url);
     const userIdParam = searchParams.get("userId");
     if (!userIdParam) {
@@ -79,7 +79,7 @@ const refundSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const adminUserId = await requireAdmin(req);
+    const adminUserId = await requireRecentAdminMfa(req);
 
     const body = await req.json();
     const parsed = refundSchema.safeParse(body);

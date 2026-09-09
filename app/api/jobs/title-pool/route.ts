@@ -5,12 +5,13 @@ import { generateTitlePool, generateTitlePoolForMultipleCities, parseMultipleCit
 import { performRedditResearch } from "@/lib/reddit-research-service";
 import { smartResearch } from "@/lib/smart-topic-research";
 import { eq } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId, userId: authenticatedUserId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId, userId: authenticatedUserId } = auth;
 
     const body = await request.json();
     const { 
@@ -279,6 +280,7 @@ export async function POST(request: NextRequest) {
         refinedCount
       }
     });
+      });
   } catch (error: any) {
     console.error("❌ Title pool generation error:", error);
     return NextResponse.json(

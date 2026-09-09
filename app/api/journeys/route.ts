@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { journeys, journeySteps, journeyTemplates } from "@/shared/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -29,7 +29,7 @@ const createJourneySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const status = url.searchParams.get("status");
 
@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
     );
 
     return NextResponse.json({ journeys: enriched });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)
@@ -83,7 +84,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = createJourneySchema.safeParse(body);
     if (!parsed.success)
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest) {
       .orderBy(journeySteps.stepIndex);
 
     return NextResponse.json({ journey, steps }, { status: 201 });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

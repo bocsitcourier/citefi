@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext, withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { decisionArms, decisionPolicies, articles, socialPosts } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -18,7 +18,7 @@ const createArmSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const policyId = parseInt(url.searchParams.get("policyId") ?? "");
 
@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
       .orderBy(decisionArms.id);
 
     return NextResponse.json({ arms });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {
@@ -61,15 +62,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const body = await req.json().catch(() => ({}));
-    const parsed = createArmSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid input", issues: parsed.error.issues },
-        { status: 400 }
-      );
-    }
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const body = await req.json().catch(() => ({}));
+      const parsed = createArmSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Invalid input", issues: parsed.error.issues },
+          { status: 400 }
+        );
+      }
 
     const { policyId, contentType, articleId, socialPostId } = parsed.data;
 
@@ -121,8 +122,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const arm = await createArm({ teamId, ...parsed.data });
-    return NextResponse.json({ arm }, { status: 201 });
+      const arm = await createArm({ teamId, ...parsed.data });
+      return NextResponse.json({ arm }, { status: 201 });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {

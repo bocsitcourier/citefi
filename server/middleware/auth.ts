@@ -3,7 +3,7 @@ import { verifyToken, JWTPayload } from "../../lib/auth";
 import { systemDb as db } from "../../lib/db";
 import { users, sessions, activityLogs, teamMembers, teams } from "../../shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
-import { enterTenantContext } from "../../lib/tenant-context";
+import { runWithTenantContext } from "../../lib/tenant-context";
 
 // Extend Express Request to include user info with team context
 declare global {
@@ -122,14 +122,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       role: user.role,
       teamId: teamMembership.teamId,
     };
-    enterTenantContext({
+    return runWithTenantContext({
       actorType: "web",
       userId: user.id,
       teamId: teamMembership.teamId,
       role: teamMembership.role,
-    });
-
-    return next();
+    }, () => next());
   } catch (error) {
     console.error("Auth middleware error:", error);
     return res.status(401).json({ error: "Unauthorized - Authentication failed" });

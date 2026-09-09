@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { debitReservation, releaseReservation, reserveCredits } from "@/lib/billing";
 import { getCampaignByPublicId } from "@/lib/campaign-service";
 import { createCampaignAdPack, getCampaignAdByRequestKey, listCampaignAdApprovals, listCampaignAds } from "@/lib/campaign-ads-service";
@@ -16,7 +16,7 @@ const createSchema = z.object({
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
     const campaign = await getCampaignByPublicId(teamId, id);
@@ -35,6 +35,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         meta: EXTERNAL_PLATFORM_APPROVALS.metaAds.status,
       },
     });
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Failed to list ads" }, { status: err.statusCode ?? 500 });
   }
@@ -43,7 +44,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   let reservation: { teamId: number; userId: number; runId: string } | null = null;
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
+    try {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
     const input = createSchema.parse(await request.json());
@@ -74,8 +76,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       error: "Ad pack was generated but credit settlement is pending. Retry this request before export.",
     }, { status: 503 });
     return NextResponse.json({ success: true, reused: false, ad }, { status: 201 });
+    } catch (err) {
+      const pendingReservation = reservation as { teamId: number; userId: number; runId: string } | null;
+      if (pendingReservation) await releaseReservation({ ...pendingReservation, reason: "ads_export_pack_failed" }).catch(() => undefined);
+      throw err;
+    }
+    });
   } catch (err: any) {
-    if (reservation) await releaseReservation({ ...reservation, reason: "ads_export_pack_failed" }).catch(() => undefined);
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
     const clientError = /required|invalid|must|domain|HTTPS|UTM|confirmed|align/i.test(err.message ?? "");
     return NextResponse.json({ error: err.message ?? "Failed to generate ad pack" }, { status: err.statusCode ?? (clientError ? 400 : 500) });

@@ -3,14 +3,15 @@ import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { addArticleJob } from "@/lib/queue";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await context.params;
     const batchId = parseInt(id);
 
@@ -105,6 +106,7 @@ export async function POST(
       skipped,
       message: `${succeeded.length} requeued. ${failed.length} error(s). ${skipped.length} skipped.`,
     });
+      });
   } catch (error: any) {
     console.error("Error requeuing articles:", error);
     return NextResponse.json(

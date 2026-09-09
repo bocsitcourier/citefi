@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dailyBriefs, dailyBriefPreferences } from "@/shared/schema";
-import { requireAuth } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { eq, and } from "drizzle-orm";
 
 /** Compute YYYY-MM-DD in the user's local timezone */
@@ -20,42 +20,43 @@ function getLocalDateForTz(timezone: string): string {
 
 export async function GET(req: NextRequest) {
   try {
-    const { userId } = await requireAuth(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId }) => {
 
-    // Resolve the user's local date from their timezone preference
-    const [prefs] = await db
-      .select()
-      .from(dailyBriefPreferences)
-      .where(eq(dailyBriefPreferences.userId, userId))
-      .limit(1);
+      // Resolve the user's local date from their timezone preference
+      const [prefs] = await db
+        .select()
+        .from(dailyBriefPreferences)
+        .where(eq(dailyBriefPreferences.userId, userId))
+        .limit(1);
 
-    const timezone = prefs?.timezone || "America/New_York";
-    const today = getLocalDateForTz(timezone);
+      const timezone = prefs?.timezone || "America/New_York";
+      const today = getLocalDateForTz(timezone);
 
-    const [brief] = await db
-      .select()
-      .from(dailyBriefs)
-      .where(
-        and(
-          eq(dailyBriefs.userId, userId),
-          eq(dailyBriefs.localDate, today),
-          eq(dailyBriefs.status, 'generated')
+      const [brief] = await db
+        .select()
+        .from(dailyBriefs)
+        .where(
+          and(
+            eq(dailyBriefs.userId, userId),
+            eq(dailyBriefs.localDate, today),
+            eq(dailyBriefs.status, 'generated')
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    if (!brief) {
-      return NextResponse.json({ available: false, localDate: today });
-    }
+      if (!brief) {
+        return NextResponse.json({ available: false, localDate: today });
+      }
 
-    return NextResponse.json({
-      available: true,
-      brief: brief.sectionsJson,
-      id: brief.id,
-      localDate: today,
-      generatedAt: brief.generatedAt,
-      todayFocusType: brief.todayFocusType,
-      sourceMetrics: brief.sourceMetricsJson,
+      return NextResponse.json({
+        available: true,
+        brief: brief.sectionsJson,
+        id: brief.id,
+        localDate: today,
+        generatedAt: brief.generatedAt,
+        todayFocusType: brief.todayFocusType,
+        sourceMetrics: brief.sourceMetricsJson,
+      });
     });
   } catch (error: any) {
     console.error("Failed to fetch today's brief:", error);

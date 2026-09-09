@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { learningService } from "@/lib/learning-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await params;
     const body = await request.json();
@@ -22,6 +22,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "Default patterns seeded successfully",
+    });
     });
   } catch (error: any) {
     console.error("Failed to seed patterns:", error);

@@ -3,8 +3,8 @@
  *
  * Delivery strategy (in priority order):
  * 1. SMTP via Nodemailer when SMTP_HOST + SMTP_USER + SMTP_PASS are set.
- * 2. Console-log fallback (matching the existing send-email-code pattern)
- *    so the app works without email credentials during development.
+ * 2. Credential-safe development fallback that records only redacted delivery
+ *    metadata. Production fails explicitly when SMTP is unavailable.
  *
  * Required env vars for real delivery:
  *   SMTP_HOST   — e.g. smtp.sendgrid.net
@@ -33,7 +33,7 @@ function escapeHtml(raw: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function buildTransport(): nodemailer.Transporter | null {
+function buildTransport(): ReturnType<typeof nodemailer.createTransport> | null {
   const { SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
 
@@ -63,24 +63,24 @@ export async function deliverEmail(payload: EmailPayload): Promise<void> {
         text: payload.text,
         html: payload.html,
       });
-      console.log(`📧 Email sent via SMTP to ${payload.to}: ${payload.subject}`);
+      console.log("Email sent via SMTP");
     } catch (err) {
-      console.error(`📧 SMTP delivery failed for ${payload.to}:`, err);
-      throw err;
+      const providerCode =
+        typeof (err as { code?: unknown })?.code === "string"
+          ? String((err as { code: string }).code).replace(/[^A-Z0-9_-]/gi, "").slice(0, 40)
+          : null;
+      console.error("SMTP delivery failed", {
+        providerCode,
+      });
+      throw new Error("SMTP delivery failed");
     }
   } else {
-    // Development / no-SMTP fallback — log the full email body
-    const border = "━".repeat(54);
-    console.log(`
-${border}
-📧 EMAIL (console fallback — set SMTP_HOST/SMTP_USER/SMTP_PASS for real delivery)
-${border}
-To:      ${payload.to}
-Subject: ${payload.subject}
-
-${payload.text}
-${border}
-    `);
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Email delivery is not configured");
+    }
+    // Never print message bodies: they routinely contain OTPs, reset links,
+    // approval tokens, and other bearer credentials.
+    console.warn("Email not delivered because SMTP is not configured");
   }
 }
 

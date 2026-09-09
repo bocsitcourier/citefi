@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
   CAMPAIGN_GOALS,
   CAMPAIGN_STATUSES,
@@ -48,7 +48,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
@@ -63,6 +63,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       campaign: { ...campaign, ...workspace },
+    });
     });
   } catch (err: any) {
     if (err.statusCode)
@@ -83,7 +84,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
@@ -118,6 +119,7 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       campaign: detail ? { ...detail.campaign, ...workspace } : updated,
+    });
     });
   } catch (err: any) {
     if (err.statusCode)

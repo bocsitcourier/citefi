@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { journeys, journeySteps, journeyTemplates, jobBatches, articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -13,7 +13,8 @@ import { eq, and } from "drizzle-orm";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async (auth) => {
+      const { teamId } = auth;
     const batchId = parseInt(id);
     if (isNaN(batchId)) return NextResponse.json({ error: "Invalid batch id" }, { status: 400 });
 
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       triggerArticle: { id: topArticle.id, title: topArticle.chosenTitle },
       message: `Journey "${journeyName}" created and activated with ${steps.length} steps.`,
     }, { status: 201 });
+      });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { psychographicService } from "@/lib/psychographic-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const personas = await psychographicService.getTeamPersonas(teamId);
 
     return NextResponse.json({
       success: true,
       personas,
+    });
     });
   } catch (error: any) {
     console.error("Failed to get personas:", error);
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const body = await request.json();
     const {
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       persona,
+    });
     });
   } catch (error: any) {
     console.error("Failed to create persona:", error);

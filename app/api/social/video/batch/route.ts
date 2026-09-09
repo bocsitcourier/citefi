@@ -3,7 +3,7 @@ import { addVideoGenerationJob } from "@/lib/queue";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { eq, inArray } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
@@ -49,7 +49,8 @@ export async function POST(request: NextRequest) {
   const reservations: { postId: number; creditRunId: string }[] = [];
 
   try {
-    const auth = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+    try {
     teamId = auth.teamId;
     const userId = auth.userId;
 
@@ -258,20 +259,24 @@ export async function POST(request: NextRequest) {
       estimatedTime: `${estimatedMinutes}-${estimatedMinutes + 10} minutes`,
       jobIds: queuedJobIds,
     });
-  } catch (error: any) {
-    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-    if (reservations.length > 0 && teamId) {
-      console.warn(`[billing] batch emergency release: releasing ${reservations.length} stranded reservations`);
-      await Promise.all(
-        reservations.map((r) =>
-          releaseReservation({
-            teamId: teamId!,
-            runId: r.creditRunId,
-            reason: "Unexpected error in batch video route",
-          }).catch((e) => console.warn(`[billing] emergency batch releaseReservation for post ${r.postId}:`, e))
-        )
-      );
+    } catch (error) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      if (reservations.length > 0 && teamId) {
+        console.warn(`[billing] batch emergency release: releasing ${reservations.length} stranded reservations`);
+        await Promise.all(
+          reservations.map((r) =>
+            releaseReservation({
+              teamId: teamId!,
+              runId: r.creditRunId,
+              reason: "Unexpected error in batch video route",
+            }).catch((e) => console.warn(`[billing] emergency batch releaseReservation for post ${r.postId}:`, e))
+          )
+        );
+      }
+      throw error;
     }
+    });
+  } catch (error: any) {
     console.error("❌ Batch video generation failed:", error);
     return NextResponse.json(
       {

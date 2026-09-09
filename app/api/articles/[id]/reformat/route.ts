@@ -3,14 +3,15 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { addReformatJob } from "@/lib/queue";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -54,6 +55,7 @@ export async function POST(
       jobId,
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Reformat queue error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;

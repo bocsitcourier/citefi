@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateSchemaMarkup } from "@/lib/seo-intelligence";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId }) => {
     const body = await req.json();
     const { content_type, data } = body;
 
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(schema);
+    });
   } catch (error: any) {
     console.error("Schema markup generation error:", error);
     return NextResponse.json(

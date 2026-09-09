@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { journeys, journeySteps, articles, socialPosts } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -15,7 +15,7 @@ const updateJourneySchema = z.object({
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
@@ -111,6 +111,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     );
 
     return NextResponse.json({ journey, steps: enrichedSteps });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)
@@ -123,7 +124,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
@@ -147,6 +148,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .returning();
 
     return NextResponse.json({ journey: updated });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

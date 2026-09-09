@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTeamAdmin, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { approveAgencyReportConfig } from "@/lib/agency-report-service";
 
 const inputSchema = z.object({ clientTeamId: z.number().int().positive() });
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireTeamAdmin(request);
-    const parsed = inputSchema.safeParse(await request.json());
-    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    return await runWithAuthenticatedTeamContext(auth, async () =>
-      NextResponse.json({ config: await approveAgencyReportConfig(parsed.data.clientTeamId) }));
+    return await withAuthenticatedTeamAdminContext(request, async () => {
+      const parsed = inputSchema.safeParse(await request.json());
+      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      return NextResponse.json({ config: await approveAgencyReportConfig(parsed.data.clientTeamId) });
+    });
   } catch (error: any) {
     const status = error instanceof SyntaxError ? 400
       : error?.statusCode ?? (/not found|direct child/i.test(error?.message) ? 404 : 500);

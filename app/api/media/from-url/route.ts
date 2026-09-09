@@ -3,7 +3,7 @@ import { uploadMedia } from "@/lib/storage";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { validateExternalUrl } from "@/lib/url-validation";
 import sharp from "sharp";
 
@@ -11,7 +11,8 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const body = await request.json();
     const { url, articleId, altText, assetType } = body;
@@ -130,6 +131,7 @@ export async function POST(request: NextRequest) {
       metadata,
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Media import from URL error:", error);
     return NextResponse.json(

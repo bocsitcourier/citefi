@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireClientReviewer, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
+import { withAuthenticatedClientReviewerContext } from "@/lib/api/auth";
 import { getApprovedClientSafeReports } from "@/lib/agency-report-service";
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireClientReviewer(request);
-    return await runWithAuthenticatedTeamContext(auth, async () =>
+    return await withAuthenticatedClientReviewerContext(request, async (auth) =>
       NextResponse.json({ reports: await getApprovedClientSafeReports(auth.teamId) }));
   } catch (error: any) {
     const status = error?.statusCode ?? 500;

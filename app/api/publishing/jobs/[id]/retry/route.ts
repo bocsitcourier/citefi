@@ -3,14 +3,15 @@ import { db } from '@/lib/db';
 import { publishingJobs } from '@/shared/schema';
 import { eq, and } from 'drizzle-orm';
 import { addPublishingJob } from '@/lib/queue';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
     const jobId = parseInt(id, 10);
 
@@ -58,6 +59,7 @@ export async function POST(
     console.log(`🔁 Publishing job ${jobId} manually retried — new BullMQ job: ${pgBossJobId}`);
 
     return NextResponse.json({ success: true, message: 'Job queued for retry' });
+      });
   } catch (error: any) {
     console.error('Error retrying publishing job:', error);
     if (error?.statusCode === 401) {

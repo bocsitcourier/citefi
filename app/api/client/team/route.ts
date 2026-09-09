@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teamMembers, users, userInvites, teams } from "@/shared/schema";
 import { eq, and, isNull, gt, count } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { BILLING_PLANS } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const [members, pendingInvites] = await Promise.all([
       db.select({
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     return NextResponse.json({ members, pendingInvites });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {
@@ -61,7 +62,7 @@ const inviteSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, teamId, role: callerRole } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId, role: callerRole }) => {
 
     if (callerRole !== "admin") {
       return NextResponse.json({ error: "Only team admins can invite members" }, { status: 403 });
@@ -178,6 +179,7 @@ export async function POST(req: NextRequest) {
       inviteUrl,
       message: `Invite created for ${email}. Share the link below — it expires in 7 days.`,
     });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {
@@ -194,7 +196,7 @@ const removeSchema = z.object({
 
 export async function DELETE(req: NextRequest) {
   try {
-    const { userId, teamId, role: callerRole } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId, role: callerRole }) => {
 
     if (callerRole !== "admin") {
       return NextResponse.json({ error: "Only team admins can remove members" }, { status: 403 });
@@ -237,6 +239,7 @@ export async function DELETE(req: NextRequest) {
     await db.delete(teamMembers).where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)));
 
     return NextResponse.json({ success: true, message: "Member removed" });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

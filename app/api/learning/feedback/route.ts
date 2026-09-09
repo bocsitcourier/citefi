@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { learningService } from "@/lib/learning-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const body = await request.json();
     const { metricId, isSuccess, reason } = body;
@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Feedback recorded and learning updated",
+    });
     });
   } catch (error: any) {
     console.error("Failed to record feedback:", error);

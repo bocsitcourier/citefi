@@ -4,14 +4,15 @@ import {
   deleteConnection,
   testConnection
 } from '@/lib/publishing';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
 
     const connectionId = parseInt(id, 10);
@@ -32,6 +33,7 @@ export async function GET(
         apiKeyHash: undefined,
       },
     });
+      });
   } catch (error: any) {
     console.error('Error fetching connection:', error);
     return NextResponse.json(
@@ -46,7 +48,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
 
     const connectionId = parseInt(id, 10);
@@ -60,6 +63,7 @@ export async function DELETE(
       success: true,
       message: 'Connection deleted',
     });
+      });
   } catch (error: any) {
     console.error('Error deleting connection:', error);
     return NextResponse.json(

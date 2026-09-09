@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import {
   learningPatterns,
@@ -39,7 +39,7 @@ function twoProportionZ(ts: number, tn: number, hs: number, hn: number) {
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const contentType = url.searchParams.get("contentType") ?? "article";
 
@@ -313,6 +313,7 @@ export async function GET(req: NextRequest) {
       readinessScore,
       readinessGates,
       weights,
+    });
     });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;

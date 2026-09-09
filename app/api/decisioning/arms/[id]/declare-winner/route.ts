@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import {
   variantArms,
@@ -58,7 +58,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
     const { id } = await params;
     const armId = parseInt(id);
     if (isNaN(armId)) {
@@ -311,12 +311,13 @@ export async function POST(
       `patterns=${JSON.stringify(winner)} readiness=${readinessScore}`
     );
 
-    return NextResponse.json({
-      message: "Winner declared",
-      arm: updated,
-      baselinePatternIds: winner,
-      readinessScore,
-      gateDetails,
+      return NextResponse.json({
+        message: "Winner declared",
+        arm: updated,
+        baselinePatternIds: winner,
+        readinessScore,
+        gateDetails,
+      });
     });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;

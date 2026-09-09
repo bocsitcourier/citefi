@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { articles, jobBatches, errorLogs } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { addArticleJob } from "@/lib/queue";

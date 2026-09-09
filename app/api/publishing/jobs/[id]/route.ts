@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publishingJobs, articles } from '@/shared/schema';
 import { eq, and } from 'drizzle-orm';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
     const jobId = parseInt(id);
 
@@ -27,6 +28,7 @@ export async function GET(
     }
 
     return NextResponse.json({ success: true, data: job });
+      });
   } catch (error: any) {
     console.error('Error fetching publishing job:', error);
     return NextResponse.json({ error: 'Failed to fetch job' }, { status: error?.statusCode || 500 });
@@ -38,7 +40,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
     const jobId = parseInt(id);
 
@@ -67,6 +70,7 @@ export async function DELETE(
       .where(and(eq(publishingJobs.id, jobId), eq(publishingJobs.teamId, teamId)));
 
     return NextResponse.json({ success: true, message: 'Job deleted' });
+      });
   } catch (error: any) {
     console.error('Error deleting publishing job:', error);
     return NextResponse.json({ error: 'Failed to delete job' }, { status: error?.statusCode || 500 });

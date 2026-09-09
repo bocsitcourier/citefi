@@ -47,12 +47,12 @@ function allowedOrigins(req: Request): Set<string> {
 
 /**
  * Enforces signed double-submit CSRF for unsafe cookie-authenticated requests.
- * Bearer credentials and safe methods are intentionally exempt.
+ * Callers must invoke this only after determining that the credential actually
+ * selected for authentication came from the cookie. A merely present, invalid
+ * Bearer header must never disable cookie CSRF checks.
  */
 export function requireCookieCsrf(req: Request): void {
   if (!UNSAFE_METHODS.has(req.method.toUpperCase())) return;
-  const auth = req.headers.get("authorization");
-  if (auth?.match(/^Bearer\s+\S+/i) && !auth.match(/^Bearer\s+(null|undefined)$/i)) return;
 
   const origin = req.headers.get("origin");
   if (!origin || !allowedOrigins(req).has(origin)) {
@@ -76,14 +76,14 @@ export function requireCookieCsrf(req: Request): void {
   }
 }
 
-export function issueCsrfCookie(response: NextResponse): void {
+export function issueCsrfCookie(response: NextResponse, maxAgeSeconds: number = 24 * 60 * 60): void {
   const value = crypto.randomBytes(32).toString("base64url");
   response.cookies.set(CSRF_COOKIE_NAME, `${value}.${sign(value)}`, {
     httpOnly: false,
     secure: true,
     sameSite: "none",
     path: "/",
-    maxAge: 24 * 60 * 60,
+    maxAge: maxAgeSeconds,
   });
 }
 

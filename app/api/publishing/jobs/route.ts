@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import { publishingJobs, articles, publishingConnections, videoIdeas, socialPosts } from '@/shared/schema';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import { createPublishingJob, getConnectionById } from '@/lib/publishing';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 const createJobSchema = z.object({
   connectionId: z.number(),
@@ -18,7 +18,8 @@ const batchDeleteSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status');
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     return NextResponse.json({ success: true, data: jobs });
+      });
   } catch (error: any) {
     console.error('Error fetching publishing jobs:', error);
     const status = (error as any)?.statusCode ?? 500;
@@ -70,7 +72,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const body = await request.json();
     const parsed = createJobSchema.safeParse(body);
@@ -129,6 +132,7 @@ export async function POST(request: NextRequest) {
     const job = await createPublishingJob(teamId, connectionId, contentType, contentId);
 
     return NextResponse.json({ success: true, data: job, message: 'Publishing job created' });
+      });
   } catch (error: any) {
     console.error('Error creating publishing job:', error);
     const status = (error as any)?.statusCode ?? 500;
@@ -138,7 +142,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const body = await request.json();
     const parsed = batchDeleteSchema.safeParse(body);
@@ -178,6 +183,7 @@ export async function DELETE(request: NextRequest) {
       deleted: deletableIds.length,
       skipped: ids.length - deletableIds.length,
     });
+      });
   } catch (error: any) {
     console.error('Error batch deleting publishing jobs:', error);
     return NextResponse.json({ error: 'Failed to delete jobs' }, { status: error?.statusCode || 500 });

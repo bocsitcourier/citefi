@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import os from "os";
 import { getQueue, ALL_QUEUE_NAMES } from "@/lib/queue";

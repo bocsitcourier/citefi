@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getBucketBalance } from "@/lib/billing";
 import { getEffectiveCreditCost, CREDIT_MENU, type OperationType } from "@/lib/credit-menu";
 import { z } from "zod";
@@ -25,7 +25,7 @@ const previewSchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const { searchParams } = new URL(req.url);
     // `operation` is the spec-canonical param name; `operationType` is accepted
@@ -82,6 +82,7 @@ export async function GET(req: NextRequest) {
       insufficientBy: canAfford ? 0 : totalCost - balance.totalRemaining,
       /** Full credit menu for display purposes */
       creditMenu: CREDIT_MENU,
+    });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
 import { grantCredits } from "@/lib/credits";
 import { grantAllowance, grantPurchased } from "@/lib/billing";
+import { runWithSystemContext } from "@/lib/tenant-context";
 import { z } from "zod";
 
 const grantSchema = z.object({
@@ -49,15 +50,18 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      const newBalance = await grantAllowance({
-        teamId,
-        amount,
-        periodStart: new Date(periodStart),
-        periodEnd: new Date(periodEnd),
-        adminUserId,
-        reason,
-        idempotencyKey,
-      });
+      const newBalance = await runWithSystemContext(
+        `admin allowance grant by user ${adminUserId}`,
+        () => grantAllowance({
+          teamId,
+          amount,
+          periodStart: new Date(periodStart),
+          periodEnd: new Date(periodEnd),
+          adminUserId,
+          reason,
+          idempotencyKey,
+        }),
+      );
       return NextResponse.json({
         success: true,
         teamId,
@@ -74,7 +78,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (bucket === "purchased") {
-      const newBalance = await grantPurchased({ teamId, amount, adminUserId, reason, idempotencyKey });
+      const newBalance = await runWithSystemContext(
+        `admin purchased credit grant by user ${adminUserId}`,
+        () => grantPurchased({ teamId, amount, adminUserId, reason, idempotencyKey }),
+      );
       return NextResponse.json({
         success: true,
         teamId,
@@ -91,7 +98,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Default legacy path — keeps existing behaviour for backward compat
-    const result = await grantCredits({ teamId, adminUserId, amount, reason });
+    const result = await runWithSystemContext(
+      `admin legacy credit grant by user ${adminUserId}`,
+      () => grantCredits({ teamId, adminUserId, amount, reason }),
+    );
     return NextResponse.json({
       success: true,
       teamId,

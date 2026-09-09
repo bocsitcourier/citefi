@@ -16,7 +16,7 @@ import {
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function DELETE(
   request: NextRequest,
@@ -24,7 +24,8 @@ export async function DELETE(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const articleId = parseInt(id);
@@ -109,6 +110,7 @@ export async function DELETE(
       message: "Article permanently deleted",
       deletedId: articleId,
     });
+      });
   } catch (error: any) {
     console.error("Error deleting article:", error);
     return NextResponse.json(

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles, articleAssets, jobBatches, errorLogs } from "@/shared/schema";
 import { and, eq, asc, desc } from "drizzle-orm";
 import { z } from "zod";
-import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
 
 // Helper: Convert any absolute image URL to a relative /api/public-objects/ path.
 // This makes URLs immune to Replit dev domain changes and works on any deployment.
@@ -50,7 +50,8 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -128,6 +129,7 @@ export async function GET(
         format: asset.fileFormat,
       })),
     });
+      });
   } catch (error: any) {
     console.error("Error fetching article:", error);
     return NextResponse.json(
@@ -151,7 +153,8 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -217,6 +220,7 @@ export async function PUT(
       success: true,
       message: "No changes to save",
     });
+      });
   } catch (error: any) {
     console.error("Error updating article:", error);
     return NextResponse.json(
@@ -231,7 +235,8 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -287,6 +292,7 @@ export async function DELETE(
       message: "Article and all related data deleted successfully",
       deletedAssets: assets.length,
     });
+      });
   } catch (error: any) {
     console.error("Error deleting article:", error);
     return NextResponse.json(

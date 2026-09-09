@@ -12,9 +12,18 @@ import assert from "node:assert/strict";
 import speakeasy from "speakeasy";
 import { seedAuthUsers, cleanupAuthUsers, cleanupSignupUsers, type SeedResult } from "./seed-auth.js";
 import { closeDb, systemDb } from "../../lib/db.js";
-import { errorLogs, teams, users, sessions, loginChallenges, totpSecrets } from "../../shared/schema.js";
+import {
+  errorLogs,
+  teams,
+  users,
+  sessions,
+  loginChallenges,
+  passwordResets,
+  emailVerificationCodes,
+  totpSecrets,
+} from "../../shared/schema.js";
 import { eq, and, isNull, count, desc } from "drizzle-orm";
-import { hashToken, verifyTOTPSetupToken } from "../../lib/auth.js";
+import { hashPassword, hashToken, verifyTOTPSetupToken } from "../../lib/auth.js";
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const COOKIE_NAME = "auth_token";
@@ -332,6 +341,46 @@ describe("Admin authorization — requireAdmin", () => {
     const res = await apiGet("/api/admin/users", cookie);
     assert.equal(res.status, 200);
   });
+
+  test("expired administrator MFA grace period blocks privileged routes", async () => {
+    const cookie = await loginAndGetCookie(
+      seed.adminUser.email,
+      seed.password,
+      "198.51.100.212",
+    );
+    assert.ok(cookie);
+    await systemDb.update(users)
+      .set({ mfaEnrollmentDeadline: new Date(Date.now() - 60_000) })
+      .where(eq(users.id, seed.adminUser.id));
+    try {
+      const res = await apiGet("/api/admin/users", cookie);
+      assert.equal(res.status, 403);
+    } finally {
+      await systemDb.update(users)
+        .set({ mfaEnrollmentDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) })
+        .where(eq(users.id, seed.adminUser.id));
+    }
+  });
+
+  test("missing administrator MFA policy state fails closed", async () => {
+    const cookie = await loginAndGetCookie(
+      seed.adminUser.email,
+      seed.password,
+      "198.51.100.213",
+    );
+    assert.ok(cookie);
+    await systemDb.update(users)
+      .set({ mfaEnrollmentDeadline: null })
+      .where(eq(users.id, seed.adminUser.id));
+    try {
+      const res = await apiGet("/api/admin/users", cookie);
+      assert.equal(res.status, 403);
+    } finally {
+      await systemDb.update(users)
+        .set({ mfaEnrollmentDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) })
+        .where(eq(users.id, seed.adminUser.id));
+    }
+  });
 });
 
 // ── 2FA — boundary conditions ─────────────────────────────────────────────────
@@ -644,6 +693,221 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
     }
   });
 
+  test("password reset atomically revokes sessions and pending login challenges", async () => {
+    const resetToken = `reset-${RUN_ID}-${"x".repeat(40)}`;
+    const replacementPassword = `Replacement-${RUN_ID}-Password!`;
+    await systemDb.insert(passwordResets).values({
+      userId: seed.twoFaUser.id,
+      tokenHash: hashToken(resetToken),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      resetType: "self_service",
+    });
+    const [preexistingEmailReset] = await systemDb.insert(emailVerificationCodes).values({
+      userId: seed.twoFaUser.id,
+      code: "194827",
+      purpose: "password_reset",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    }).returning({ id: emailVerificationCodes.id });
+    const preResetSessionToken = `session-${RUN_ID}-${"y".repeat(40)}`;
+    const [preResetSession] = await systemDb.insert(sessions).values({
+      userId: seed.twoFaUser.id,
+      tokenHash: hashToken(preResetSessionToken),
+      ipAddress: "198.51.100.230",
+      userAgent: "auth-reset-test",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      authAssurance: "mfa",
+      mfaVerifiedAt: new Date(),
+    }).returning({ id: sessions.id });
+    assert.ok(preResetSession);
+
+    const challenged = await apiPost(
+      "/api/auth/login",
+      { email: seed.twoFaUser.email, password: seed.password },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.230" },
+    );
+    assert.equal(challenged.status, 200);
+    const challengedBody: any = await challenged.json();
+    assert.equal(challengedBody.requiresTwoFactor, true);
+
+    const applied = await apiPost(
+      "/api/auth/reset-password-token",
+      { token: resetToken, newPassword: replacementPassword },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.231" },
+    );
+    assert.equal(applied.status, 200);
+
+    const [revoked] = await systemDb.select({
+      active: sessions.isActive,
+      reason: sessions.terminationReason,
+    }).from(sessions).where(eq(sessions.id, preResetSession.id)).limit(1);
+    assert.equal(revoked?.active, 0);
+    assert.equal(revoked?.reason, "Password reset completed");
+    const pendingChallenges = await systemDb.select({ id: loginChallenges.id })
+      .from(loginChallenges)
+      .where(and(
+        eq(loginChallenges.userId, seed.twoFaUser.id),
+        isNull(loginChallenges.consumedAt),
+      ));
+    assert.equal(pendingChallenges.length, 0);
+    const [invalidatedEmailReset] = await systemDb.select({ isUsed: emailVerificationCodes.isUsed })
+      .from(emailVerificationCodes)
+      .where(eq(emailVerificationCodes.id, preexistingEmailReset!.id))
+      .limit(1);
+    assert.equal(invalidatedEmailReset?.isUsed, 1);
+
+    const oldPasswordLogin = await apiPost(
+      "/api/auth/login",
+      { email: seed.twoFaUser.email, password: seed.password },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.232" },
+    );
+    assert.equal(oldPasswordLogin.status, 401);
+    const newPasswordLogin = await apiPost(
+      "/api/auth/login",
+      { email: seed.twoFaUser.email, password: replacementPassword },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.233" },
+    );
+    assert.equal(newPasswordLogin.status, 200);
+  });
+
+  test("email-code password reset is one-time and revokes sessions and challenges", async () => {
+    const cookie = await loginAndGetCookie(
+      seed.activeUser.email,
+      seed.password,
+      "198.51.100.234",
+    );
+    assert.ok(cookie);
+    const [activeSession] = await systemDb.select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.userId, seed.activeUser.id))
+      .orderBy(desc(sessions.id))
+      .limit(1);
+    assert.ok(activeSession);
+
+    const challengeToken = `code-reset-challenge-${RUN_ID}`;
+    const [challenge] = await systemDb.insert(loginChallenges).values({
+      tokenHash: hashToken(challengeToken),
+      userId: seed.activeUser.id,
+      method: "email",
+      emailCodeHash: hashToken("test-email-code"),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    }).returning({ id: loginChallenges.id });
+    const code = "847263";
+    await systemDb.insert(emailVerificationCodes).values({
+      userId: seed.activeUser.id,
+      code,
+      purpose: "password_reset",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    const displacedResetToken = `displaced-reset-${RUN_ID}-${"z".repeat(32)}`;
+    const [displacedReset] = await systemDb.insert(passwordResets).values({
+      userId: seed.activeUser.id,
+      tokenHash: hashToken(displacedResetToken),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      resetType: "self_service",
+    }).returning({ id: passwordResets.id });
+    const replacementPassword = `Code-Reset-${RUN_ID}!A1`;
+
+    const applied = await apiPost(
+      "/api/auth/reset-password",
+      { email: seed.activeUser.email, code, newPassword: replacementPassword },
+      { "x-forwarded-for": "10.0.0.1, 198.51.100.235" },
+    );
+    assert.equal(applied.status, 200);
+    const [revokedSession] = await systemDb.select({
+      active: sessions.isActive,
+      reason: sessions.terminationReason,
+    }).from(sessions).where(eq(sessions.id, activeSession.id)).limit(1);
+    assert.equal(revokedSession?.active, 0);
+    assert.equal(revokedSession?.reason, "Password reset");
+    const [consumedChallenge] = await systemDb.select({
+      consumedAt: loginChallenges.consumedAt,
+    }).from(loginChallenges).where(eq(loginChallenges.id, challenge!.id)).limit(1);
+    assert.ok(consumedChallenge?.consumedAt);
+    const [cancelledReset] = await systemDb.select({ status: passwordResets.status })
+      .from(passwordResets)
+      .where(eq(passwordResets.id, displacedReset!.id))
+      .limit(1);
+    assert.equal(cancelledReset?.status, "cancelled");
+
+    const replay = await apiPost(
+      "/api/auth/reset-password",
+      { email: seed.activeUser.email, code, newPassword: replacementPassword },
+      { "x-forwarded-for": "10.0.0.1, 198.51.100.236" },
+    );
+    assert.equal(replay.status, 400);
+
+    await systemDb.update(users)
+      .set({ passwordHash: await hashPassword(seed.password) })
+      .where(eq(users.id, seed.activeUser.id));
+  });
+
+  test("password change invalidates every pre-existing recovery credential", async () => {
+    const cookie = await loginAndGetCookie(
+      seed.activeUser.email,
+      seed.password,
+      "198.51.100.237",
+    );
+    assert.ok(cookie);
+
+    const code = "573920";
+    const [emailReset] = await systemDb.insert(emailVerificationCodes).values({
+      userId: seed.activeUser.id,
+      code,
+      purpose: "password_reset",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    }).returning({ id: emailVerificationCodes.id });
+    const token = `change-password-reset-${RUN_ID}-${"q".repeat(32)}`;
+    const [linkReset] = await systemDb.insert(passwordResets).values({
+      userId: seed.activeUser.id,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      resetType: "self_service",
+    }).returning({ id: passwordResets.id });
+    const changedPassword = `Changed-${RUN_ID}-Password!`;
+
+    const changed = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      method: "POST",
+      headers: {
+        authorization: bearerFromCookiePair(cookie),
+        "content-type": "application/json",
+        "x-forwarded-for": "10.0.0.1, 198.51.100.238",
+      },
+      body: JSON.stringify({
+        currentPassword: seed.password,
+        newPassword: changedPassword,
+      }),
+    });
+    assert.equal(changed.status, 200);
+
+    const [invalidatedCode] = await systemDb.select({ isUsed: emailVerificationCodes.isUsed })
+      .from(emailVerificationCodes)
+      .where(eq(emailVerificationCodes.id, emailReset!.id))
+      .limit(1);
+    assert.equal(invalidatedCode?.isUsed, 1);
+    const [cancelledLink] = await systemDb.select({ status: passwordResets.status })
+      .from(passwordResets)
+      .where(eq(passwordResets.id, linkReset!.id))
+      .limit(1);
+    assert.equal(cancelledLink?.status, "cancelled");
+
+    const codeReplay = await apiPost(
+      "/api/auth/reset-password",
+      { email: seed.activeUser.email, code, newPassword: `Replay-${RUN_ID}-Password!` },
+      { "x-forwarded-for": "10.0.0.1, 198.51.100.239" },
+    );
+    assert.equal(codeReplay.status, 400);
+    const linkReplay = await apiPost(
+      "/api/auth/reset-password-token",
+      { token, newPassword: `Replay-${RUN_ID}-Password!` },
+      { "x-forwarded-for": "10.0.0.1, 198.51.100.240" },
+    );
+    assert.equal(linkReplay.status, 400);
+
+    await systemDb.update(users)
+      .set({ passwordHash: await hashPassword(seed.password) })
+      .where(eq(users.id, seed.activeUser.id));
+  });
+
   test("self-service account deletion can remove the authenticated user", async () => {
     const fakeSubscriptionId = `sub_account_delete_guard_${RUN_ID}`;
     await systemDb
@@ -657,9 +921,29 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
     const cookie = await loginAndGetCookie(seed.activeUser.email, seed.password);
     assert.ok(cookie, "Active user login must succeed");
 
+    const rejected = await fetch(`${BASE_URL}/api/account/delete`, {
+      method: "POST",
+      headers: {
+        authorization: bearerFromCookiePair(cookie),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ currentPassword: "wrong-password" }),
+    });
+    assert.equal(rejected.status, 403);
+    const [stillPresent] = await systemDb
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, seed.activeUser.id))
+      .limit(1);
+    assert.ok(stillPresent, "Wrong password must not delete the account");
+
     const res = await fetch(`${BASE_URL}/api/account/delete`, {
       method: "POST",
-      headers: { authorization: bearerFromCookiePair(cookie) },
+      headers: {
+        authorization: bearerFromCookiePair(cookie),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ currentPassword: seed.password }),
     });
     const body: any = await res.json();
     assert.equal(
@@ -693,7 +977,7 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
 });
 
 describe("Google Authenticator step-up security", { concurrency: 1 }, () => {
-  test("setup and disable require password-bound step-up verification", async () => {
+  test("encrypted setup, one-time recovery, replay defense, and protected disable", async () => {
     const cookie = await loginAndGetCookie(seed.adminUser.email, seed.password);
     assert.ok(cookie, "Admin login must succeed");
     const authorization = bearerFromCookiePair(cookie);
@@ -717,9 +1001,20 @@ describe("Google Authenticator step-up security", { concurrency: 1 }, () => {
     const signedSetup = verifyTOTPSetupToken(setupBody.setupToken);
     assert.ok(signedSetup && signedSetup.userId === seed.adminUser.id);
 
+    // Use the previous accepted window so the later disable step can use a
+    // strictly newer counter. Avoid crossing a 30-second boundary between
+    // generation and verification, which would make the previous code two
+    // windows old and turn this security test into a clock-boundary flake.
+    const secondsIntoTotpWindow = Math.floor(Date.now() / 1000) % 30;
+    if (secondsIntoTotpWindow >= 25) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, (31 - secondsIntoTotpWindow) * 1000)
+      );
+    }
     const code = speakeasy.totp({
       secret: signedSetup.secret,
       encoding: "base32",
+      time: Math.floor(Date.now() / 1000) - 30,
     });
     const activate = await apiPost(
       "/api/auth/setup-totp",
@@ -727,13 +1022,67 @@ describe("Google Authenticator step-up security", { concurrency: 1 }, () => {
       { authorization }
     );
     assert.equal(activate.status, 200);
+    const activateBody: any = await activate.json();
+    assert.equal(activateBody.backupCodes.length, 10);
 
     const [enabled] = await systemDb.select({
       enabled: users.twoFactorEnabled,
       method: users.twoFactorMethod,
-    }).from(users).where(eq(users.id, seed.adminUser.id)).limit(1);
+      storedSecret: totpSecrets.secret,
+      ciphertext: totpSecrets.secretCiphertext,
+      keyVersion: totpSecrets.secretKeyVersion,
+      lastUsedCounter: totpSecrets.lastUsedCounter,
+    }).from(users)
+      .innerJoin(totpSecrets, eq(totpSecrets.userId, users.id))
+      .where(eq(users.id, seed.adminUser.id))
+      .limit(1);
     assert.equal(enabled?.enabled, 1);
     assert.equal(enabled?.method, "totp");
+    assert.equal(enabled?.storedSecret, "encrypted");
+    assert.ok(enabled?.ciphertext);
+    assert.equal(enabled?.keyVersion, "v1");
+    assert.equal(typeof enabled?.lastUsedCounter, "number");
+
+    const replaySetup = await apiPost(
+      "/api/auth/setup-totp",
+      { action: "verify", setupToken: setupBody.setupToken, verificationCode: code },
+      { authorization }
+    );
+    assert.equal(replaySetup.status, 409, "setup challenge must be single-use");
+
+    const recoveryLogin = await apiPost(
+      "/api/auth/login",
+      { email: seed.adminUser.email, password: seed.password },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.221" }
+    );
+    const recoveryLoginBody: any = await recoveryLogin.json();
+    assert.equal(recoveryLogin.status, 200);
+    assert.equal(recoveryLoginBody.requiresTwoFactor, true);
+    const recoveryVerify = await apiPost(
+      "/api/auth/verify-2fa",
+      {
+        challengeToken: recoveryLoginBody.challengeToken,
+        code: activateBody.backupCodes[0],
+      },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.222" }
+    );
+    assert.equal(recoveryVerify.status, 200, "a saved recovery code must complete login");
+
+    const replayLogin = await apiPost(
+      "/api/auth/login",
+      { email: seed.adminUser.email, password: seed.password },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.223" }
+    );
+    const replayLoginBody: any = await replayLogin.json();
+    const recoveryReplay = await apiPost(
+      "/api/auth/verify-2fa",
+      {
+        challengeToken: replayLoginBody.challengeToken,
+        code: activateBody.backupCodes[0],
+      },
+      { "x-forwarded-for": "10.0.0.1, 192.0.2.224" }
+    );
+    assert.equal(recoveryReplay.status, 401, "a recovery code must work exactly once");
 
     const unverifiedDisable = await apiPost(
       "/api/auth/disable-totp",

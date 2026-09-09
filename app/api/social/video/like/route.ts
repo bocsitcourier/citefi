@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { videoIdeas, campaigns } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { validateExternalUrl } from "@/lib/url-validation";
 import { z } from "zod";
 
@@ -60,7 +60,7 @@ const likeVideoSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const body = await request.json();
 
     const validationResult = likeVideoSchema.safeParse(body);
@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    });
   } catch (error: any) {
     if (error?.statusCode && error.statusCode < 500) {
       return NextResponse.json(
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const ideas = await db.select({
       id: videoIdeas.id,
@@ -200,6 +201,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ ideas });
 
+    });
   } catch (error: any) {
     console.error("Error fetching like video ideas:", error);
     return NextResponse.json(

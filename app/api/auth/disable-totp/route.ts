@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTxDb, systemDb } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { users, sessions, totpSecrets, activityLogs } from "@/shared/schema";
 import { verifyToken } from "@/lib/api/auth";
-import { verifyPassword, verifyTOTPToken } from "@/lib/auth";
+import { verifyPassword, verifyTOTPTokenCounter } from "@/lib/auth";
+import { decryptTOTPSecret } from "@/lib/totp-security";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,28 +32,57 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const [user] = await systemDb.select({
-      passwordHash: users.passwordHash,
-      twoFactorEnabled: users.twoFactorEnabled,
-      twoFactorMethod: users.twoFactorMethod,
-    }).from(users).where(eq(users.id, authResult.userId)).limit(1);
-    const [totp] = await systemDb.select({
-      secret: totpSecrets.secret,
-    }).from(totpSecrets).where(eq(totpSecrets.userId, authResult.userId)).limit(1);
-
-    const passwordOk = !!user?.passwordHash && !!body.currentPassword &&
-      await verifyPassword(String(body.currentPassword), user.passwordHash);
-    const totpOk = !!totp?.secret && verifyTOTPToken(String(body.verificationCode || ""), totp.secret);
-    if (!user || user.twoFactorEnabled !== 1 || user.twoFactorMethod !== "totp" || !passwordOk || !totpOk) {
-      return NextResponse.json(
-        { error: "Current password and a valid Google Authenticator code are required" },
-        { status: 401 }
-      );
-    }
-
     const now = new Date();
-    await getTxDb().transaction(async (tx) => {
-      await tx.delete(totpSecrets).where(eq(totpSecrets.userId, authResult.userId));
+    const outcome = await systemDb.transaction(async (tx) => {
+      const [user] = await tx.update(users)
+        .set({ updatedAt: sql`${users.updatedAt}` })
+        .where(and(eq(users.id, authResult.userId), eq(users.accountStatus, "active")))
+        .returning({
+          passwordHash: users.passwordHash,
+          role: users.role,
+          twoFactorEnabled: users.twoFactorEnabled,
+          twoFactorMethod: users.twoFactorMethod,
+          mfaEnrollmentDeadline: users.mfaEnrollmentDeadline,
+        });
+      if (!user?.passwordHash || user.twoFactorEnabled !== 1 || user.twoFactorMethod !== "totp") {
+        return "invalid" as const;
+      }
+      if (
+        user.role === "admin" &&
+        (
+          !user.mfaEnrollmentDeadline ||
+          user.mfaEnrollmentDeadline.getTime() <= now.getTime()
+        )
+      ) {
+        return "admin_policy" as const;
+      }
+      if (!body.currentPassword || !(await verifyPassword(String(body.currentPassword), user.passwordHash))) {
+        return "invalid" as const;
+      }
+
+      const [totp] = await tx.select().from(totpSecrets)
+        .where(eq(totpSecrets.userId, authResult.userId))
+        .limit(1);
+      if (!totp) return "invalid" as const;
+      const secret = decryptTOTPSecret(totp.secretCiphertext, totp.secretKeyVersion, totp.secret);
+      const counter = verifyTOTPTokenCounter(String(body.verificationCode || ""), secret);
+      if (counter === null || (totp.lastUsedCounter !== null && counter <= totp.lastUsedCounter)) {
+        return "invalid" as const;
+      }
+      const [consumed] = await tx.update(totpSecrets)
+        .set({ lastUsedAt: now, lastUsedCounter: counter })
+        .where(and(
+          eq(totpSecrets.userId, authResult.userId),
+          eq(totpSecrets.credentialVersion, totp.credentialVersion),
+          or(isNull(totpSecrets.lastUsedCounter), lt(totpSecrets.lastUsedCounter, counter)),
+        ))
+        .returning({ id: totpSecrets.id });
+      if (!consumed) return "invalid" as const;
+
+      await tx.delete(totpSecrets).where(and(
+        eq(totpSecrets.userId, authResult.userId),
+        eq(totpSecrets.credentialVersion, totp.credentialVersion),
+      ));
       await tx.update(users)
         .set({ twoFactorEnabled: 0, twoFactorMethod: null })
         .where(eq(users.id, authResult.userId));
@@ -64,6 +94,13 @@ export async function POST(req: NextRequest) {
         eq(sessions.userId, authResult.userId),
         ne(sessions.id, authResult.sessionId),
       ));
+      await tx.update(sessions).set({
+        authAssurance: "password",
+        mfaVerifiedAt: null,
+      }).where(and(
+        eq(sessions.id, authResult.sessionId),
+        eq(sessions.userId, authResult.userId),
+      ));
       await tx.insert(activityLogs).values({
         userId: authResult.userId,
         action: "totp_disabled",
@@ -74,7 +111,20 @@ export async function POST(req: NextRequest) {
         details: { otherSessionsRevoked: true, stepUpVerified: true },
         severity: "warning",
       });
+      return "ok" as const;
     });
+    if (outcome === "admin_policy") {
+      return NextResponse.json(
+        { error: "Administrator MFA is required by policy and cannot be disabled" },
+        { status: 409 },
+      );
+    }
+    if (outcome !== "ok") {
+      return NextResponse.json(
+        { error: "Current password and a new, valid Google Authenticator code are required" },
+        { status: 401 },
+      );
+    }
 
     return NextResponse.json({ message: "Two-factor authentication disabled" });
   } catch (error) {

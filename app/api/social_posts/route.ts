@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { socialPosts, socialPostVariants } from "@/shared/schema";
 import { desc, ne, and, eq } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
     console.log("📊 GET /api/social_posts - Starting...");
     
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     console.log(`📊 Authenticated with teamId: ${teamId}`);
 
     // Fetch variants with parent post data for dashboard display
@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`📊 Found ${variants.length} social post variants`);
     return NextResponse.json(variants);
+    });
   } catch (error: any) {
     console.error("Failed to fetch social posts:", error);
     console.error("Stack trace:", error?.stack);

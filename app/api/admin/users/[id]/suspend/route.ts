@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, sessions, activityLogs } from "@/shared/schema";
-import { requireAdmin } from "@/lib/api/auth";
+import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { eq, isNull } from "drizzle-orm";
+import { countActivePlatformAdmins, lockPlatformAdminState } from "@/lib/admin-invariant";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const adminUserId = await requireAdmin(req);
+    const adminUserId = await requireRecentAdminMfa(req);
     const { id } = await params;
     const userId = parseInt(id);
 
@@ -33,64 +34,71 @@ export async function POST(
       .where(eq(users.id, adminUserId))
       .limit(1);
 
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const outcome = await db.transaction(async (tx) => {
+      await lockPlatformAdminState(tx);
+      const [user] = await tx
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!user) {
+        const error: any = new Error("User not found");
+        error.statusCode = 404;
+        throw error;
+      }
+      if (user.accountStatus !== "active") {
+        const error: any = new Error(
+          `Cannot suspend an account with status ${user.accountStatus}`,
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+      if (user.role === "admin" && await countActivePlatformAdmins(tx) <= 1) {
+        const error: any = new Error(
+          "Cannot suspend the last active admin. At least one active admin must remain.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
 
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
-
-    await db
-      .update(users)
-      .set({
-        accountStatus: "suspended",
-      })
-      .where(eq(users.id, userId));
-
-    // Immediately invalidate all active sessions so the suspended user
-    // cannot remain logged in until their JWT expires naturally.
-    const terminatedSessions = await db
-      .update(sessions)
-      .set({
-        isActive: 0,
-        forceLogoutAt: new Date(),
-        terminationReason: "account_suspended",
-      })
-      .where(
-        eq(sessions.userId, userId)
-      )
-      .returning({ id: sessions.id });
-
-    await db.insert(activityLogs).values({
-      userId: adminUserId,
-      action: "user_suspended",
-      resource: "users",
-      resourceId: userId,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { 
-        suspendedEmail: user.email,
-        suspendedBy: adminUser?.email || 'unknown',
-        previousStatus: user.accountStatus,
-        sessionsTerminated: terminatedSessions.length,
-      },
-      severity: "warning",
+      await tx.update(users)
+        .set({ accountStatus: "suspended" })
+        .where(eq(users.id, userId));
+      const terminatedSessions = await tx
+        .update(sessions)
+        .set({
+          isActive: 0,
+          forceLogoutAt: new Date(),
+          terminationReason: "account_suspended",
+        })
+        .where(eq(sessions.userId, userId))
+        .returning({ id: sessions.id });
+      await tx.insert(activityLogs).values({
+        userId: adminUserId,
+        action: "user_suspended",
+        resource: "users",
+        resourceId: userId,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: {
+          suspendedEmail: user.email,
+          suspendedBy: adminUser?.email || "unknown",
+          previousStatus: user.accountStatus,
+          sessionsTerminated: terminatedSessions.length,
+        },
+        severity: "warning",
+      });
+      return { user, terminatedSessions: terminatedSessions.length };
     });
 
     return NextResponse.json({
       message: "User suspended successfully",
       user: {
-        id: user.id,
-        email: user.email,
+        id: outcome.user.id,
+        email: outcome.user.email,
         accountStatus: "suspended",
       },
-      sessionsTerminated: terminatedSessions.length,
+      sessionsTerminated: outcome.terminatedSessions,
     });
   } catch (error: unknown) {
     console.error("Suspend user error:", error);

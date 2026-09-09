@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addVideoGenerationJob } from "@/lib/queue";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { and, eq, sql } from "drizzle-orm";
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
   let capReservationId: number | null = null;
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
 
     const { checkTeamPaywall, paywallErrorBody } = await import("@/lib/billing/paywall");
     const paywallResult = await checkTeamPaywall(teamId);
@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
       videoStatus: "GENERATING",
       videoProgress: 0,
       videoStage: "queued",
+    });
     });
   } catch (error: any) {
     if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});

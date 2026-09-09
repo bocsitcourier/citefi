@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { factStore } from "@/lib/fact-store";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const createFactSchema = z.object({
   factText: z.string().min(1, "Fact text is required"),
@@ -19,7 +19,7 @@ const createFactSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const searchParams = request.nextUrl.searchParams;
 
     const query = {
@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: factPack,
     });
+    });
   } catch (error: any) {
     console.error("[Facts API] Error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const body = await request.json();
     const validated = createFactSchema.parse(body);
 
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: fact,
     }, { status: 201 });
+    });
   } catch (error: any) {
     console.error("[Facts API] Create error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {

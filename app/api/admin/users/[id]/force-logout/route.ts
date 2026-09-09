@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { sessions, adminActionLogs } from '@/shared/schema';
 import { requireAdmin } from '@/lib/api/auth';
 import { eq, and, isNull } from 'drizzle-orm';

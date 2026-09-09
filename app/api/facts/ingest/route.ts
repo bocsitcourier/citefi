@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { requireTeamMember, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
 import { ingestFactsFromResearch, extractFactsFromContent, getFactCoverageReport } from "@/lib/fact-validated-generators";
 
 export async function POST(req: NextRequest) {
-  let teamId: number, userId: number;
+  let auth: Awaited<ReturnType<typeof requireTeamMember>>;
   try {
-    const auth = await requireTeamMember(req);
-    teamId = auth.teamId;
-    userId = auth.userId;
+    auth = await requireTeamMember(req);
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
+  return await runWithAuthenticatedTeamContext(auth, async () => {
+    const { teamId, userId } = auth;
+    try {
     const body = await req.json();
     const { action } = body;
 
@@ -86,11 +86,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid action. Use: ingest, extract, or coverage" }, { status: 400 });
-  } catch (error: any) {
-    console.error("[API] /api/facts/ingest error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to process request" },
-      { status: error?.statusCode || 500 }
-    );
-  }
+    } catch (error: any) {
+      console.error("[API] /api/facts/ingest error:", error);
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Failed to process request" },
+        { status: error?.statusCode || 500 }
+      );
+    }
+  });
 }

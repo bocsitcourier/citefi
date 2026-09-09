@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, getTxDb } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { 
   users, 
   sessions, 
@@ -17,8 +17,9 @@ import {
   teamMembers,
 } from "@/shared/schema";
 import { eq, and, count } from "drizzle-orm";
-import { requireAdmin } from "@/lib/api/auth";
+import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { getStripeClient } from "@/lib/stripe";
+import { countActivePlatformAdmins, lockPlatformAdminState } from "@/lib/admin-invariant";
 
 export async function DELETE(
   req: NextRequest,
@@ -35,7 +36,7 @@ export async function DELETE(
       );
     }
 
-    const adminUserId = await requireAdmin(req);
+    const adminUserId = await requireRecentAdminMfa(req);
 
     if (adminUserId === userId) {
       return NextResponse.json(
@@ -55,27 +56,6 @@ export async function DELETE(
         { error: "User not found" },
         { status: 404 }
       );
-    }
-
-    if (targetUser.role === 'admin' && targetUser.accountStatus === 'active') {
-      const [result] = await db
-        .select({ count: count() })
-        .from(users)
-        .where(
-          and(
-            eq(users.role, 'admin'),
-            eq(users.accountStatus, 'active')
-          )
-        );
-
-      const activeAdminCount = result?.count || 0;
-
-      if (activeAdminCount <= 1) {
-        return NextResponse.json(
-          { error: 'Cannot delete the last active admin. At least one active admin must remain.' },
-          { status: 400 }
-        );
-      }
     }
 
     // Block deletion if user owns content or is referenced
@@ -98,31 +78,38 @@ export async function DELETE(
       );
     }
 
-    // Cancel Stripe subscription best-effort (outside transaction — external side-effect)
-    try {
-      const [teamMembership] = await db
-        .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
-        .from(teamMembers)
-        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-        .where(eq(teamMembers.userId, userId))
-        .limit(1);
-
-      if (teamMembership?.stripeSubscriptionId) {
-        const stripe = await getStripeClient();
-        await stripe.subscriptions.cancel(teamMembership.stripeSubscriptionId).catch((err: any) => {
-          console.error(`[delete-user] Stripe cancel failed for sub ${teamMembership.stripeSubscriptionId}:`, err.message);
-        });
-        await db
-          .update(teams)
-          .set({ billingStatus: "canceled", cancelAtPeriodEnd: false })
-          .where(eq(teams.id, teamMembership.teamId));
-      }
-    } catch (_stripeErr) {}
+    const [teamMembership] = await db
+      .select({ teamId: teams.id, stripeSubscriptionId: teams.stripeSubscriptionId })
+      .from(teamMembers)
+      .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+      .where(eq(teamMembers.userId, userId))
+      .limit(1);
 
     // Wrap all sequential deletes in a transaction so a mid-sequence failure
     // cannot leave the user record orphaned with auth data partially deleted.
-    const txDb = await getTxDb();
-    await txDb.transaction(async (tx) => {
+    await db.transaction(async (tx) => {
+      await lockPlatformAdminState(tx);
+      const [currentTarget] = await tx
+        .select({ role: users.role, accountStatus: users.accountStatus })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!currentTarget) {
+        const error: any = new Error("User not found");
+        error.statusCode = 404;
+        throw error;
+      }
+      if (
+        currentTarget.role === "admin" &&
+        currentTarget.accountStatus === "active" &&
+        await countActivePlatformAdmins(tx) <= 1
+      ) {
+        const error: any = new Error(
+          "Cannot delete the last active admin. At least one active admin must remain.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
       await tx.delete(sessions).where(eq(sessions.userId, userId));
       await tx.delete(activityLogs).where(eq(activityLogs.userId, userId));
       await tx.delete(totpSecrets).where(eq(totpSecrets.userId, userId));
@@ -137,6 +124,24 @@ export async function DELETE(
       // team_members has ON DELETE CASCADE — deleted automatically when user row is removed
       await tx.delete(users).where(eq(users.id, userId));
     });
+
+    // External cancellation happens only after the protected database mutation,
+    // so a rejected last-admin deletion cannot cancel billing by mistake.
+    if (teamMembership?.stripeSubscriptionId) {
+      try {
+        const stripe = await getStripeClient();
+        await stripe.subscriptions.cancel(teamMembership.stripeSubscriptionId);
+        await db
+          .update(teams)
+          .set({ billingStatus: "canceled", cancelAtPeriodEnd: false })
+          .where(eq(teams.id, teamMembership.teamId));
+      } catch (error) {
+        console.error("[delete-user] Stripe cancellation requires reconciliation", {
+          teamId: teamMembership.teamId,
+          error: error instanceof Error ? error.message : "Unknown Stripe error",
+        });
+      }
+    }
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 
                      req.headers.get('x-real-ip') || 

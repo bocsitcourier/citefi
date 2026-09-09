@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext, withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { decisionPolicies } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -15,13 +15,14 @@ const createPolicySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const policies = await db
       .select()
       .from(decisionPolicies)
       .where(eq(decisionPolicies.teamId, teamId))
       .orderBy(decisionPolicies.createdAt);
     return NextResponse.json({ policies });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {
@@ -34,17 +35,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const body = await req.json().catch(() => ({}));
-    const parsed = createPolicySchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid input", issues: parsed.error.issues },
-        { status: 400 }
-      );
-    }
-    const policy = await createPolicy({ teamId, ...parsed.data });
-    return NextResponse.json({ policy }, { status: 201 });
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const body = await req.json().catch(() => ({}));
+      const parsed = createPolicySchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Invalid input", issues: parsed.error.issues },
+          { status: 400 }
+        );
+      }
+      const policy = await createPolicy({ teamId, ...parsed.data });
+      return NextResponse.json({ policy }, { status: 201 });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {

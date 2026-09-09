@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, teamMembers } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
@@ -21,7 +21,7 @@ async function getAgencyTeam(teamId: number) {
 /** GET /api/agency/clients — list all client teams (active + archived) for the current agency */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
 
     const agencyTeam = await getAgencyTeam(teamId);
     if (!agencyTeam) return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -44,9 +44,10 @@ export async function GET(req: NextRequest) {
       .where(and(eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
       .orderBy(teams.createdAt);
 
-    return NextResponse.json({
-      clients,
-      agencyTeam: { id: agencyTeam.id, name: agencyTeam.name },
+      return NextResponse.json({
+        clients,
+        agencyTeam: { id: agencyTeam.id, name: agencyTeam.name },
+      });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
@@ -69,7 +70,7 @@ const createClientSchema = z.object({
 /** POST /api/agency/clients — create a new client team under the current agency */
 export async function POST(req: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId, userId }) => {
     const agencyTeam = await getAgencyTeam(teamId);
 
     if (!agencyTeam) return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -148,10 +149,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json(
-      { client: newTeam, intelligenceJobId },
-      { status: 201 }
-    );
+      return NextResponse.json(
+        { client: newTeam, intelligenceJobId },
+        { status: 201 }
+      );
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

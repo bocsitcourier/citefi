@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { factStore } from "@/lib/fact-store";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const bulkCreateFactSchema = z.object({
   facts: z.array(z.object({
@@ -21,7 +21,7 @@ const bulkCreateFactSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const body = await request.json();
     const validated = bulkCreateFactSchema.parse(body);
 
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
         facts: createdFacts,
       },
     }, { status: 201 });
+    });
   } catch (error: any) {
     console.error("[Facts API] Bulk create error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {

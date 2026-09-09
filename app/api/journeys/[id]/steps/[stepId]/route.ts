@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { journeys, journeySteps } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -19,7 +19,7 @@ export async function PATCH(
 ) {
   try {
     const { id, stepId: stepIdStr } = await params;
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const journeyId = parseInt(id);
     const stepId = parseInt(stepIdStr);
     if (isNaN(journeyId) || isNaN(stepId))
@@ -78,6 +78,7 @@ export async function PATCH(
     }
 
     return NextResponse.json({ step: updated });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

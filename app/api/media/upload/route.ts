@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import sharp from "sharp";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
@@ -14,7 +14,8 @@ const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/ogg", "video/quic
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const articleIdParam = formData.get("articleId") as string;
@@ -123,6 +124,7 @@ export async function POST(request: NextRequest) {
       metadata,
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Media upload error:", error);
     return NextResponse.json(

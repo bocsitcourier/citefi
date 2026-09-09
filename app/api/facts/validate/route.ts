@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { validateExistingContent } from "@/lib/verified-content-generator";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const validateContentSchema = z.object({
   contentType: z.enum(["article", "social", "video", "podcast"]),
@@ -14,7 +14,7 @@ const validateContentSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const body = await request.json();
     const validated = validateContentSchema.parse(body);
 
@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
           })),
         },
       },
+    });
     });
   } catch (error: any) {
     console.error("[Facts API] Validate error:", error);

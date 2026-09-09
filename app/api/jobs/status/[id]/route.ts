@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches, articles } from "@/shared/schema";
 import { and, eq } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    // CRITICAL: Use requireTeamMember (not requireAuth) for team isolation.
+    // CRITICAL: Use withAuthenticatedTeamContext (not requireAuth) for team isolation.
     // requireAuth only validates the user token; it does NOT scope by teamId.
     // Without teamId scoping, any authenticated user can poll any batch by ID.
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -101,6 +102,7 @@ export async function GET(
         progress: totalArticles > 0 ? Math.round((completedArticles / totalArticles) * 100) : 0,
       },
     });
+      });
   } catch (error: any) {
     console.error("❌ Job status error:", error);
     return NextResponse.json(

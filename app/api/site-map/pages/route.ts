@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sitePages } from "@/shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { searchParams } = new URL(request.url);
     const domain = searchParams.get("domain");
 
@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(sitePages.lastCrawledAt));
 
     return NextResponse.json(pages);
+    });
   } catch (error: any) {
     console.error("Error fetching site pages:", error);
     const statusCode = error?.statusCode || 500;
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { searchParams } = new URL(request.url);
     const pageId = searchParams.get("id");
     const domain = searchParams.get("domain");
@@ -48,6 +49,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ error: "Provide id or domain parameter" }, { status: 400 });
+    });
   } catch (error: any) {
     console.error("Error deleting site pages:", error);
     const statusCode = error?.statusCode || 500;

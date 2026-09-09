@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireAdmin } from "@/lib/api/auth";
 import { getCohortStrategy } from "@/lib/cohort-strategy-service";
 
 export async function GET(
@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ teamId: string }> }
 ) {
   try {
-    const { teamId: authTeamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId: authTeamId }) => {
     const resolvedParams = await params;
     const requestedTeamId = parseInt(resolvedParams.teamId);
 
@@ -44,6 +44,7 @@ export async function GET(
     });
 
     return NextResponse.json(result);
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

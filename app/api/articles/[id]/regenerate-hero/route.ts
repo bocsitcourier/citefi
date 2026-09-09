@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles, articleAssets, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { generateAndStoreHeroImage } from "@/lib/gemini-image-generator";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90; // 90 seconds for image generation
@@ -14,7 +14,8 @@ export async function POST(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const articleId = parseInt(id);
@@ -113,6 +114,7 @@ export async function POST(
       heroImageUrl,
       message: "Hero image regenerated successfully",
     });
+      });
   } catch (error: any) {
     console.error("[REGENERATE_HERO] Error:", error);
     return NextResponse.json(

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { teams, jobBatches, publishingConnections } from "@/shared/schema";
 import { eq, and, isNull, count } from "drizzle-orm";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 
 /**
  * GET /api/onboarding/status
@@ -11,7 +11,7 @@ import { requireTeamAdmin } from "@/lib/api/auth";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
 
     const [team] = await db
       .select({ billingPlan: teams.billingPlan })
@@ -52,13 +52,14 @@ export async function GET(req: NextRequest) {
     const isAgency = team.billingPlan === "agency";
     const isComplete = hasClients && hasPublishingConnection && hasContent;
 
-    return NextResponse.json({
-      isAgency,
-      hasClients,
-      hasPublishingConnection,
-      hasContent,
-      isComplete,
-      stepsComplete: [hasClients, hasPublishingConnection, hasContent].filter(Boolean).length,
+      return NextResponse.json({
+        isAgency,
+        hasClients,
+        hasPublishingConnection,
+        hasContent,
+        isComplete,
+        stepsComplete: [hasClients, hasPublishingConnection, hasContent].filter(Boolean).length,
+      });
     });
   } catch (err: any) {
     const s = err?.statusCode ?? err?.status;

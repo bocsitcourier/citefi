@@ -1,187 +1,180 @@
-# Enterprise Authentication Security Review
+# Enterprise Authentication and Security Review
 
 **Date:** September 9, 2026  
 **Perspective:** CTO and security architecture review for an enterprise marketing SaaS  
-**Scope:** Password login, Google Authenticator TOTP, recovery codes, remembered sessions, session validation/revocation, Replit Preview behavior, administrative access, auditability, and tenant context.
+**Scope:** Authentication, MFA, sessions, administrator controls, tenant isolation, account lifecycle, secret and PII handling, dependency security, backup/restore readiness, and release evidence.
 
 ## Executive assessment
 
-The authentication system has a solid base: password hashing, distributed rate limits, escalating account lockout, short-lived and one-time 2FA challenges, hashed session tokens, database-backed revocation, CSRF protection, and server-side role checks.
+The development codebase now has a materially stronger authentication and authorization foundation. No confirmed P0 vulnerability remains in the reviewed scope. Password, TOTP, recovery, session, CSRF, administrator, and tenant-database controls have adversarial regression coverage, and the latest dependency and SAST scans are clean.
 
-The reported one-minute logout was not caused by the database session lifetime. Every recent session inspected before remediation had an exact 24-hour lifetime. The more likely failure was Replit's cross-site Preview iframe dropping the HttpOnly cookie during page navigation while the Edge page gate could not read the development-only bearer fallback.
+Production remains **NO-GO**. The code changes and tests do not substitute for migration, deployment, restore, canary, rollback, high-availability, graceful-drain, email-delivery, and monitoring evidence from the target environment. The currently published deployment also predates pooled-worker fixes and still shows intermittent Neon HTTP failures.
 
-The immediate session defect and the highest-risk Google Authenticator setup/removal gaps have been remediated. The system is improved but is not yet at the target enterprise maturity level because TOTP secret encryption, recovery-code login, replay resistance, token rotation, centralized policy, and authentication-context containment still need work.
+## Controls completed in development
 
-## Implemented in this remediation
+### Sessions and credential selection
 
-### Session reliability and 90-day remembered login
+- Normal sessions expire after 24 hours.
+- “Keep me signed in” creates an explicit, revocable 90-day session.
+- JWT expiry, database expiry, and cookie lifetime use the same central policy.
+- Remembering a login does not bypass MFA during a later login.
+- Production authentication is HttpOnly-cookie-only.
+- Development adds a `sessionStorage` bearer fallback only for Replit Preview’s cross-site iframe behavior.
+- CSRF checks follow the credential actually selected. A bearer-shaped header cannot bypass CSRF when the cookie is the valid credential.
+- Session records contain hashed tokens and unique JWT IDs and are checked for revocation on authoritative API requests.
+- Password changes and both password-reset flows revoke affected sessions, consume pending login challenges, and invalidate every other email-code and link-token recovery credential under the same user-row lock.
 
-- The previously cosmetic “Remember me” control now creates a revocable 90-day session.
-- JWT expiry, database expiry, and cookie `Max-Age` use the same centralized policy.
-- The preference is cryptographically bound to the password-completed 2FA challenge, so a client cannot change a normal session into a remembered session during verification.
-- Session metadata records whether the user explicitly selected the remembered-session option.
-- Normal logins remain 24 hours.
-- Google Authenticator is still required for each new login; the 90-day option does not silently bypass MFA on another device.
-- In development only, the admin page-navigation gate allows the application shell to load when the cross-site Preview iframe drops the cookie. Protected APIs still require the development bearer credential and authoritative server guards. Production retains the full page gate.
+### Google Authenticator-compatible TOTP
 
-Runtime evidence:
+- Enrollment requires the current password or an existing factor.
+- Setup uses a signed, user-bound, method-bound, ten-minute challenge.
+- TOTP secrets use AES-256-GCM encrypted storage with a versioned application key.
+- Activation, replacement, disabling, and replay-counter updates are transactional.
+- Codes are six digits with one permitted 30-second drift step.
+- The last accepted TOTP counter is persisted and reused counters are rejected atomically.
+- Recovery codes are shown once, stored as hashes, accepted as an explicit login alternative, and consumed once.
+- Disabling TOTP requires the current password and a fresh authenticator code.
+- MFA state changes revoke other sessions.
+- Setup and verification responses use `Cache-Control: no-store`.
 
-- Remembered cookie `Max-Age`: 7,776,000 seconds.
-- Session remained valid after the reported one-minute boundary: HTTP 200 after 70 seconds.
-- Recent pre-change database sessions: 1,440-minute lifetime, with no one-minute records.
+### Administrator policy
 
-### Google Authenticator setup hardening
+- `users.role = "admin"` remains the platform-wide administrator role; team roles remain tenant-scoped.
+- Active administrators receive a seven-day MFA-enrollment deadline.
+- A missing administrator MFA deadline fails closed rather than creating an indefinite password-only bypass.
+- After the deadline, an unenrolled administrator cannot use privileged APIs.
+- Enrolled administrators need an MFA-assured session for administrator APIs.
+- Highly sensitive actions require MFA verified within the previous 15 minutes, including:
+  - role changes;
+  - administrator deletion and suspension;
+  - password and MFA reset;
+  - audit-log export;
+  - billing-charge review and refunds.
+- MFA reset remains reset-only. An administrator cannot remotely enable TOTP for another user.
+- Delete, demote, suspend, and self-delete operations share a transaction-scoped advisory lock and recount active administrators inside the transaction, preventing concurrent removal of the final active platform administrator.
 
-- Enabling TOTP requires the user's current password.
-- The generated setup is wrapped in a server-signed, user-bound, 10-minute setup challenge.
-- Activation only accepts the signed setup challenge and a valid six-digit TOTP.
-- Setup and account-state changes are committed atomically.
-- Enabling MFA revokes the user's other sessions.
-- Setup responses use `Cache-Control: no-store`.
-- TOTP input is restricted to six digits.
-- Clock-drift tolerance was reduced from two 30-second steps to one.
+### Callback-scoped database authority and tenant RLS
 
-### Google Authenticator removal hardening
+- Identity and session bootstrap uses bounded system callbacks.
+- Tenant work uses bounded tenant callbacks.
+- Authorization guards return claims; they no longer establish ambient database authority as an awaited side effect.
+- Team-member, team-admin, client-reviewer, brief, billing, agency, content, and mixed account-export routes execute database and service work inside explicit callback scopes.
+- Global administrator routes use an explicitly named `systemDb` client.
+- The Express middleware invokes downstream handlers from inside its tenant callback.
+- Unscoped or blocked access through the context-aware application database fails closed.
+- One-off pooled queries and interactive Drizzle `db.transaction()` calls both apply the tenant role and request GUCs.
+- Tenant execution context remains isolated across concurrent pooled connections and is restored after success or failure.
+- Client-reviewer RLS policies limit both visibility and writable columns.
 
-- Disabling TOTP requires both the current password and a live Google Authenticator code.
-- Per-IP and per-user rate limits apply.
-- Secret deletion, account-state changes, session revocation, and the audit event are committed atomically.
-- Other sessions are revoked when MFA is removed.
-- Audit details record that step-up verification occurred.
+### Password reset and account lifecycle
 
-## Existing controls that passed review
+- Token and email-code password resets claim the reset credential atomically.
+- Successful resets update the password, revoke sessions, consume login challenges, cancel other pending reset methods, and write an audit event in one transaction.
+- Password changes revalidate and lock the current session, then condition the password update on the previously verified password hash to prevent stale reauthentication from overwriting a concurrent reset.
+- Self-service deletion requires the current password.
+- MFA-enabled users need an MFA-assured session to delete their account.
+- Password, session, MFA, and final-administrator state are revalidated inside the deletion transaction.
+- Self-service deletion does not cancel a shared team subscription.
+- The endpoint truthfully describes deletion as removal of sign-in and personal authentication data; it does not claim that shared, financial, fraud-prevention, or legally retained records disappear.
 
-- Passwords use bcrypt with cost 12.
-- JWTs have unique IDs, preventing same-second token-hash collisions.
-- Server session rows store only SHA-256 token hashes.
-- Suspended and inactive users cannot complete login.
-- Password and 2FA verification have separate rate limits.
-- Login challenges are random, hashed at rest, method-bound, expire after five minutes, and are consumed atomically.
-- Concurrent verification of the same challenge creates only one session.
-- A suspension or MFA-policy change between password and 2FA steps blocks session issuance.
-- Admin authorization rechecks the live database role and account state.
-- Cookie-authenticated mutations require CSRF proof.
-- Session revocation is checked on every authoritative API request.
+This remains a safe account-removal endpoint, not a complete enterprise right-to-erasure workflow. Missing capabilities include durable deletion requests and outbox state, ownership transfer, full object/content/integration inventory, billing reconciliation, retention classes, legal holds, and an operator-visible completion record.
 
-## Remaining gaps
+### Email, logs, and credential handling
 
-### P0 — Authentication database context must be callback-scoped
+- Email bodies, OTPs, reset links, approval links, and bearer credentials are never printed as a fallback.
+- Production fails explicitly when SMTP is unavailable.
+- SMTP failures log only a bounded provider error code and rethrow a generic error.
+- Operational logs no longer include raw email addresses, IP addresses, generated article titles, or free-form error messages that may contain personal data.
+- Backup logs no longer print any portion of the database URI.
+- Backup files and directories are created under a restrictive umask and permissions.
+- Signed object-storage URLs are not written to durable error records.
 
-Session bootstrap currently enters ambient system database authority before awaited authorization work. A separate remediation task has been implemented but still requires merge/reconciliation and full regression validation in this working tree.
+### Backup and restore readiness controls
 
-Required outcome:
+- Backup success and restore verification are separate health controls.
+- Production readiness fails when restore evidence is missing, failed, or stale.
+- Restore verification refuses:
+  - the source database;
+  - a target on the source PostgreSQL server;
+  - a target without the `_restore_verify` marker;
+  - a non-empty target.
+- Verification restores only into an operator-provisioned disposable database on an isolated server.
+- Each backup contains a constrained tenant-role bootstrap and reconstructs the role's current table grants plus required schema, sequence, and RLS-helper privileges without exporting login roles or password hashes.
+- The verifier checks the compressed object, restored schema, user data, non-privileged tenant role, restore-owner membership, RLS-enabled tables, tenant row policies, and required tenant grants.
+- The backup installer now installs both the backup script and restore verifier.
+- Only successful, credential-free restore evidence is published.
 
-- Identity/session lookup runs inside a bounded system callback.
-- Tenant work runs inside a bounded tenant callback.
-- Admin work runs inside an explicit bounded admin callback.
-- No route can inherit system authority after an awaited guard returns.
+No real isolated restore run was performed during this review. Readiness must remain false until recent evidence exists.
 
-### P0 — TOTP secrets are plaintext at rest
+## Security scan triage
 
-The Base32 authenticator secret is stored directly in the database. A database disclosure would allow an attacker to generate current MFA codes.
+### Dependency audit
 
-Required outcome:
+- Critical: 0
+- High: 0
+- Moderate: 0
+- Low: 0
 
-- Encrypt secrets with an application-managed, rotatable key using authenticated encryption.
-- Store key version, nonce, authentication tag, and ciphertext.
-- Support staged migration of existing plaintext rows.
-- Never log or include secrets in audit details.
+Toolchain and dependency updates were type-checked and exercised through the relevant regression suites.
 
-### P0 — Recovery codes are generated but cannot complete login
+### Static application security scan
 
-Backup codes are hashed and shown once during setup, but the login verification route does not accept or atomically consume them.
+- Findings: 0
 
-Required outcome:
+Earlier alerts were verified as false positives for fixed SQL statements with positional parameters and URL credential-removal code. The fixed SQL sites are documented with narrow scanner suppressions.
 
-- Accept a recovery code as an explicit alternative to TOTP.
-- Verify its password hash and remove exactly one matching code atomically.
-- Alert the user and record a high-signal audit event.
-- Show remaining-code count and support step-up-protected regeneration.
+### Privacy-flow scan
 
-### P1 — TOTP replay prevention
+- Findings: 3
+  - 1 medium: possible income-related text sent to Google Gemini during article generation.
+  - 2 low: possible budget or address text sent to Google Gemini during critique and social generation.
 
-The system records `lastUsedAt` but does not record or reject an already accepted TOTP time-step. The same valid code could be reused during its acceptance window with a different login challenge.
+These are intentional product data flows: the user requests AI generation or critique and the corresponding prompt is sent to the configured model provider. They are not secret or logging leaks. Enterprise release still requires provider-contract, DPA, retention, regional-processing, privacy-notice, consent, and customer-content policy review. Sensitive-category minimization should be added where a content type does not require those fields.
 
-Required outcome:
+## Verification completed
 
-- Persist the last accepted TOTP counter, not only a timestamp.
-- Atomically reject counters less than or equal to the stored counter.
-- Account for the permitted clock-drift window.
-
-### P1 — Long-lived sessions need rotation and idle policy
-
-The explicit 90-day remembered session is database-revocable, but it remains one long-lived bearer JWT.
-
-Target enterprise design:
-
-- Short-lived access token.
-- Rotating, one-time refresh credential stored as a hash.
-- Refresh-token family reuse detection.
-- Absolute 90-day maximum for remembered sessions.
-- Configurable inactivity timeout.
-- Reauthentication for password, MFA, billing, API-key, export, and administrative security changes.
-
-### P1 — Admin MFA policy is optional
-
-Global administrators can currently operate without TOTP enabled.
-
-Development posture at review time:
-
-- Active global-administrator records: 37
-- Active global administrators enrolled in TOTP: 0
-
-Required outcome:
-
-- Require phishing-resistant MFA or TOTP for global administrators.
-- Provide a controlled enrollment grace period and break-glass process.
-- Prevent policy bypass through role changes, recovery, or pre-existing sessions.
-
-### P1 — Authentication changes need security notifications
-
-MFA enable/disable and new remembered-device events are audited, but the user is not consistently notified through a separate channel.
-
-Required outcome:
-
-- Notify on MFA enable, disable, reset, recovery-code use, password change, new remembered session, and suspicious login.
-- Include safe device/time/location context without secrets.
-- Provide a one-click session-revocation path.
-
-### P2 — SameSite and embedding policy should be environment-specific
-
-`SameSite=None` is required for Replit's embedded development Preview but expands ambient-cookie exposure. Production should use the strictest cookie mode compatible with the actual product embedding requirements.
-
-### P2 — Self-service session management
-
-Administrators can inspect and terminate sessions, but every user should be able to see active devices, last activity, and revoke individual or all other sessions.
-
-### P2 — Enterprise identity roadmap
-
-For enterprise customers, add SAML/OIDC SSO, SCIM lifecycle management, domain verification, enforced organization MFA policy, and WebAuthn/passkeys. TOTP should remain a supported fallback rather than the strongest available factor.
-
-## Verification
-
-- TypeScript check: pass.
+- TypeScript: pass.
 - Diff whitespace validation: pass.
-- Authentication integration suite after all changes: 30/30 passing.
-- Added coverage for:
-  - 90-day password login.
-  - 90-day session issuance after the 2FA challenge.
-  - Cookie/database lifetime alignment.
-  - One-time 2FA challenge concurrency.
-  - Suspension between password and 2FA.
-- A real Google Authenticator-compatible TOTP was generated and used to activate MFA.
-- MFA removal without step-up proof returned 401.
-- Password-plus-current-TOTP removal succeeded and removed the stored authenticator record.
+- Shell syntax for backup, restore, and installer scripts: pass.
+- Authentication integration suite: **35/35 pass**.
+- Tenant RLS and callback isolation suite: **8/8 pass**.
+- Health and CSRF controls: **18/18 pass**.
+- Agency/reviewer/profitability route contracts: **8/8 pass**.
+- Dependency audit: **0 findings**.
+- SAST: **0 findings**.
+- Privacy-flow scan: **3 intentional AI-provider flows; no log leak findings**.
+- Development workflow restarted successfully; Next.js and BullMQ workers reached ready state.
+
+## Remaining security and platform roadmap
+
+### P1
+
+1. Replace long-lived bearer sessions with short access tokens and rotating one-time refresh-token families, including family reuse detection, absolute lifetime, and inactivity policy.
+2. Add self-service session/device visibility and individual or “all other” revocation.
+3. Add security notifications for password changes, MFA enable/disable/reset, recovery-code use, new remembered sessions, and suspicious login.
+4. Build the durable deletion/retention/legal-hold workflow described above.
+5. Add WebAuthn/passkeys and controlled break-glass administration; retain TOTP as a fallback.
+
+### P2
+
+1. Add enterprise SAML/OIDC SSO, SCIM, domain verification, and organization-level authentication policy.
+2. Minimize or classify sensitive categories before AI-provider transmission when they are not required for the requested output.
+3. Add race-focused HTTP tests for concurrent administrator delete/demote/suspend operations, in addition to the transaction design and RLS tests.
+4. Add deployment smoke coverage for editor, charting, email, and storage paths affected by upgraded dependencies.
+
+## Production release blockers
+
+Production approval requires all of the following:
+
+1. Run the MFA hardening migration through the approved deployment process and verify encrypted legacy-secret conversion.
+2. Configure and prove real SMTP or another approved email-delivery path.
+3. Run an isolated restore verification against a disposable database on another PostgreSQL server and produce recent successful evidence.
+4. Deploy the pooled worker/database changes and confirm the intermittent Neon HTTP failures no longer appear.
+5. Collect staging and production evidence for canary accounting, rollback, graceful worker drain, queue recovery, high availability, alerting, and monitoring.
+6. Verify DO Spaces configuration and complete historical media parity before removing legacy Object Storage reads.
+7. Complete privacy and contractual review for customer content sent to model providers.
 
 ## Release recommendation
 
-The one-minute session reliability defect and immediate MFA setup/removal weaknesses are fixed in development.
-
-For an enterprise security claim, release remains conditional on:
-
-1. Callback-scoped authentication database context being merged and validated.
-2. TOTP secret encryption.
-3. Recovery-code login and TOTP replay prevention.
-4. Rotating refresh sessions and idle timeout policy.
-5. Mandatory MFA for global administrators.
-6. External staging, restore, rollback, canary, monitoring, and security certification evidence.
+**Development security posture:** conditional pass for the reviewed authentication and tenant-isolation scope.
+**Production readiness:** **NO-GO** until every blocker above has objective evidence from the target environment.

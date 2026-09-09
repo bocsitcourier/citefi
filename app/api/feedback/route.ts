@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import {
   contentFeedback,
   articles,
@@ -8,7 +8,7 @@ import {
   contentPerformanceMetrics,
 } from "@/shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireAdmin } from "@/lib/api/auth";
 import { recordContentFeedback } from "@/lib/learning-integration";
 import { z } from "zod";
 
@@ -31,7 +31,7 @@ const postSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId, userId }) => {
     const body = await req.json();
     const parsed = postSchema.safeParse(body);
     if (!parsed.success) {
@@ -193,6 +193,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true, id: row.id });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

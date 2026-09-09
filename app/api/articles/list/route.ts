@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, locales } from "@/shared/schema";
 import { eq, desc, and, isNull } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 /**
  * GET /api/articles/list
  * Returns all non-deleted articles scoped strictly to the authenticated user's team.
- * SECURITY: requireTeamMember enforces hard team isolation — no NULL-team fallback.
+ * SECURITY: withAuthenticatedTeamContext enforces hard team isolation — no NULL-team fallback.
  */
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const searchParams = request.nextUrl.searchParams;
     const limit = Math.min(parseInt(searchParams.get("limit") || "1000"), 1000);
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     return NextResponse.json(completedArticles);
+      });
   } catch (error: any) {
     console.error("Error fetching articles list:", error);
     return NextResponse.json(

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches, articles } from "@/shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getQueue, ARTICLE_GENERATION_QUEUE } from "@/lib/queue";
 
 export async function POST(
@@ -10,7 +10,8 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await context.params;
     const batchId = parseInt(id);
 
@@ -78,6 +79,7 @@ export async function POST(
       success: true,
       message: `Batch cancelled. ${cancelledJobs} queued job(s) stopped.`,
     });
+      });
   } catch (error: any) {
     console.error("Error cancelling batch:", error);
     return NextResponse.json({ error: "Failed to cancel batch" }, { status: error?.statusCode || 500 });

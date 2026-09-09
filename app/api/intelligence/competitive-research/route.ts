@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { z } from "zod";
 import { competitiveIntelligenceService, type ContentTypeCI } from "@/lib/competitive-intelligence-service";
 import { LearningService } from "@/lib/learning-service";
@@ -22,7 +22,7 @@ const bodySchema = z.object({
  */
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const body = await req.json().catch(() => ({}));
     const parsed = bodySchema.parse(body);
@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       patternsSkipped: seedResult.skipped,
       gaps,
       intelContext,
+    });
     });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });

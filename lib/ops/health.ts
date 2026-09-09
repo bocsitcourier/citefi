@@ -24,6 +24,7 @@ export interface HealthThresholds {
   queueFailedWarn: number;
   queueFailedFail: number;
   backupStaleMs: number;
+  restoreVerificationStaleMs: number;
   criticalErrorWarn: number;
   criticalErrorFail: number;
 }
@@ -63,6 +64,7 @@ export interface HealthDependencies {
   storage: () => Promise<{ configured: boolean; providers?: Record<string, boolean> }>;
   models: () => Promise<{ ready: boolean; message?: string; details?: unknown }>;
   backupStatus: () => Promise<StatusFile | null>;
+  restoreVerificationStatus: () => Promise<StatusFile | null>;
   deploymentStatus: () => Promise<StatusFile | null>;
   recentCriticalErrors: (since: Date) => Promise<number>;
 }
@@ -101,6 +103,7 @@ export const DEFAULT_HEALTH_THRESHOLDS: HealthThresholds = {
   queueFailedWarn: 25,
   queueFailedFail: 250,
   backupStaleMs: 36 * 60 * 60 * 1_000,
+  restoreVerificationStaleMs: 31 * 24 * 60 * 60 * 1_000,
   criticalErrorWarn: 1,
   criticalErrorFail: 10,
 };
@@ -121,6 +124,10 @@ export function healthThresholdsFromEnv(): HealthThresholds {
     queueFailedWarn: numberEnv("HEALTH_QUEUE_FAILED_WARN", DEFAULT_HEALTH_THRESHOLDS.queueFailedWarn),
     queueFailedFail: numberEnv("HEALTH_QUEUE_FAILED_FAIL", DEFAULT_HEALTH_THRESHOLDS.queueFailedFail),
     backupStaleMs: numberEnv("HEALTH_BACKUP_STALE_MS", DEFAULT_HEALTH_THRESHOLDS.backupStaleMs),
+    restoreVerificationStaleMs: numberEnv(
+      "HEALTH_RESTORE_VERIFICATION_STALE_MS",
+      DEFAULT_HEALTH_THRESHOLDS.restoreVerificationStaleMs,
+    ),
     criticalErrorWarn: numberEnv("HEALTH_CRITICAL_ERRORS_WARN", DEFAULT_HEALTH_THRESHOLDS.criticalErrorWarn),
     criticalErrorFail: numberEnv("HEALTH_CRITICAL_ERRORS_FAIL", DEFAULT_HEALTH_THRESHOLDS.criticalErrorFail),
   };
@@ -173,7 +180,8 @@ export async function collectHealth(
 ): Promise<HealthReport> {
   const now = deps.now?.() ?? Date.now();
   const timeout = thresholds.timeoutMs;
-  const [database, redis, heartbeat, readiness, queues, circuits, canary, storage, models, backup, deployment, errors] =
+  const [database, redis, heartbeat, readiness, queues, circuits, canary, storage, models, backup,
+    restoreVerification, deployment, errors] =
     await Promise.all([
       timed(deps.database, timeout, "database"),
       timed(deps.redis, timeout, "redis"),
@@ -185,6 +193,7 @@ export async function collectHealth(
       timed(deps.storage, timeout, "storage"),
       timed(deps.models, timeout, "models"),
       timed(deps.backupStatus, timeout, "backup status"),
+      timed(deps.restoreVerificationStatus, timeout, "restore verification status"),
       timed(deps.deploymentStatus, timeout, "deployment status"),
       timed(() => deps.recentCriticalErrors(new Date(now - 60 * 60 * 1_000)), timeout, "critical errors"),
     ]);
@@ -291,6 +300,30 @@ export async function collectHealth(
       ? { ok: !policy.backupRequired, status: policy.backupRequired ? "fail" : "skipped", configured: false }
       : { ok: backupOk, status: backupOk ? "ok" : "fail", state: backupState || "unknown", ageMs: Number.isFinite(backupAge) ? backupAge : null };
 
+  const restoreValue = restoreVerification.value;
+  const restoreState = (restoreValue?.state ?? restoreValue?.status ?? "").toLowerCase();
+  const restoreAge = restoreValue ? now - fileDate(restoreValue) : Number.NaN;
+  const restoreConfigured = restoreValue != null;
+  const restoreOk = restoreConfigured && restoreState === "success" &&
+    Number.isFinite(restoreAge) && restoreAge >= 0 &&
+    restoreAge <= thresholds.restoreVerificationStaleMs;
+  const restoreVerificationCheck: HealthCheck = restoreVerification.error
+    ? { ok: false, status: "fail", message: restoreVerification.error }
+    : !restoreConfigured
+      ? {
+          ok: !policy.backupRequired,
+          status: policy.backupRequired ? "fail" : "skipped",
+          configured: false,
+          message: policy.backupRequired ? "Successful restore verification evidence is missing" : undefined,
+        }
+      : {
+          ok: restoreOk,
+          status: restoreOk ? "ok" : "fail",
+          state: restoreState || "unknown",
+          ageMs: Number.isFinite(restoreAge) ? restoreAge : null,
+          maxAgeMs: thresholds.restoreVerificationStaleMs,
+        };
+
   const deploymentValue = deployment.value;
   const deployState = (deploymentValue?.state ?? deploymentValue?.status ?? "").toLowerCase();
   const deployOk = deploymentValue != null &&
@@ -320,7 +353,7 @@ export async function collectHealth(
       };
 
   const checks = [dbCheck, redisCheck, workerCheck, queueCheck, circuitCheck, canaryCheck,
-    storageCheck, modelsCheck, backupCheck, deploymentCheck, criticalCheck];
+    storageCheck, modelsCheck, backupCheck, restoreVerificationCheck, deploymentCheck, criticalCheck];
   const hasFailure = checks.some((check) => check.status === "fail");
   const hasDegraded = checks.some((check) => check.status === "degraded");
   return {
@@ -337,6 +370,7 @@ export async function collectHealth(
       storage: storageCheck,
       models: modelsCheck,
       backup: backupCheck,
+      restoreVerification: restoreVerificationCheck,
       deployment: deploymentCheck,
       recentCriticalErrors: criticalCheck,
     },

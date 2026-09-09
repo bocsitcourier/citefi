@@ -55,6 +55,10 @@ function healthyDeps(): HealthDependencies {
       state: "success",
       completedAt: new Date(NOW - 60_000).toISOString(),
     }),
+    restoreVerificationStatus: async () => ({
+      state: "success",
+      completedAt: new Date(NOW - 60_000).toISOString(),
+    }),
     deploymentStatus: async () => ({
       state: "success",
       timestamp: new Date(NOW - 60_000).toISOString(),
@@ -162,6 +166,55 @@ test("fails closed for missing required storage, models, backup, and worker regi
   for (const name of ["storage", "models", "backup", "worker"]) {
     assert.equal((report.services[name] as { status: string }).status, "fail");
   }
+});
+
+test("fails readiness when required restore verification evidence is missing", async () => {
+  const deps = healthyDeps();
+  deps.restoreVerificationStatus = async () => null;
+  const report = await collectHealth(deps);
+  const check = report.services.restoreVerification as { status: string; configured: boolean };
+  assert.equal(report.ok, false);
+  assert.equal(check.status, "fail");
+  assert.equal(check.configured, false);
+});
+
+test("fails readiness when restore verification evidence is stale", async () => {
+  const deps = healthyDeps();
+  deps.restoreVerificationStatus = async () => ({
+    state: "success",
+    completedAt: new Date(
+      NOW - DEFAULT_HEALTH_THRESHOLDS.restoreVerificationStaleMs - 1,
+    ).toISOString(),
+  });
+  const report = await collectHealth(deps);
+  const check = report.services.restoreVerification as { status: string; ageMs: number };
+  assert.equal(report.ok, false);
+  assert.equal(check.status, "fail");
+  assert.ok(check.ageMs > DEFAULT_HEALTH_THRESHOLDS.restoreVerificationStaleMs);
+});
+
+test("fails readiness when recent restore verification evidence records failure", async () => {
+  const deps = healthyDeps();
+  deps.restoreVerificationStatus = async () => ({
+    state: "failed",
+    completedAt: new Date(NOW - 60_000).toISOString(),
+  });
+  const report = await collectHealth(deps);
+  const check = report.services.restoreVerification as { status: string; state: string };
+  assert.equal(report.ok, false);
+  assert.equal(check.status, "fail");
+  assert.equal(check.state, "failed");
+});
+
+test("accepts fresh successful restore verification separately from backup success", async () => {
+  const deps = healthyDeps();
+  deps.backupStatus = async () => ({
+    state: "failed",
+    completedAt: new Date(NOW - 60_000).toISOString(),
+  });
+  const report = await collectHealth(deps);
+  assert.equal((report.services.backup as { status: string }).status, "fail");
+  assert.equal((report.services.restoreVerification as { status: string }).status, "ok");
 });
 
 test("disabled media is explicit and does not require storage", async () => {

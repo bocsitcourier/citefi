@@ -4,14 +4,15 @@ import { articleAssets } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { deleteFromStorage } from "@/lib/storage";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -55,6 +56,7 @@ export async function DELETE(
       message: "Asset deleted successfully",
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Media delete error:", error);
     return NextResponse.json(
@@ -72,7 +74,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -101,6 +104,7 @@ export async function GET(
       asset,
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Media get error:", error);
     return NextResponse.json(
@@ -123,7 +127,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id: idParam } = await params;
     const id = parseInt(idParam);
 
@@ -164,6 +169,7 @@ export async function PATCH(
       asset: updatedAsset,
     });
 
+      });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

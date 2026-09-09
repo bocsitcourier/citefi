@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
   getClientBrandProfile,
   updateManualOverrides,
@@ -12,9 +12,10 @@ import { z } from "zod";
 /** GET /api/intelligence — return the team's brand intelligence profile */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const profile = await getClientBrandProfile(teamId);
     return NextResponse.json({ profile });
+    });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     console.error("GET /api/intelligence error:", err);
@@ -39,7 +40,7 @@ const patchSchema = z.discriminatedUnion("action", [
 /** PATCH /api/intelligence — update manual overrides or add a seed exemplar */
 export async function PATCH(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = patchSchema.parse(body);
 
@@ -51,6 +52,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
+    });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });

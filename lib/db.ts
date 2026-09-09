@@ -86,8 +86,8 @@ async function applyTenantSessionContext(
   client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
   context: TenantExecutionContext
 ): Promise<void> {
-  await client.query("SET LOCAL ROLE citefi_tenant");
-  await client.query(
+  await client.query("SET LOCAL ROLE citefi_tenant"); // nosemgrep: javascript.express.db.pg-express.pg-express -- fixed SQL identifier
+  await client.query( // nosemgrep: javascript.express.db.pg-express.pg-express -- fixed SQL with positional parameters
     `SELECT
        set_config('citefi.actor_type', $1, true),
        set_config('citefi.user_id', $2, true),
@@ -183,6 +183,58 @@ function makePool(
         promise.then(
           (result) => (callback as Function)(null, result),
           (error) => (callback as Function)(error)
+        );
+        return;
+      }
+      return promise;
+    };
+
+    // Drizzle uses pool.connect() for interactive transactions. Enforce the
+    // same execution-context policy there; otherwise db.transaction() would
+    // receive the unrestricted login role and bypass tenant RLS.
+    (pool as any).connect = (callback?: Function) => {
+      const context = getDatabaseExecutionContext();
+      const promise = (async () => {
+        if (!context || context.scope === "blocked") {
+          throw new UnscopedDatabaseAccessError();
+        }
+        const client = await rawConnect();
+        if (context.scope === "system") return client;
+
+        const rawClientQuery = client.query.bind(client);
+        const rawRelease = client.release.bind(client);
+        let transactionScoped = false;
+        (client as any).query = async (queryConfig: unknown, values?: unknown) => {
+          const text = typeof queryConfig === "string"
+            ? queryConfig
+            : String((queryConfig as { text?: unknown })?.text ?? "");
+          if (!transactionScoped) {
+            if (!/^\s*begin\b/i.test(text)) {
+              throw new Error("Tenant pooled connections require an explicit transaction");
+            }
+            const result = values === undefined
+              ? await (rawClientQuery as any)(queryConfig)
+              : await (rawClientQuery as any)(queryConfig, values);
+            transactionScoped = true;
+            await applyTenantSessionContext(client, context);
+            return result;
+          }
+          return values === undefined
+            ? (rawClientQuery as any)(queryConfig)
+            : (rawClientQuery as any)(queryConfig, values);
+        };
+        (client as any).release = (...args: unknown[]) => {
+          (client as any).query = rawClientQuery;
+          (client as any).release = rawRelease;
+          return (rawRelease as any)(...args);
+        };
+        return client;
+      })();
+
+      if (typeof callback === "function") {
+        promise.then(
+          (client) => callback(null, client),
+          (error) => callback(error),
         );
         return;
       }

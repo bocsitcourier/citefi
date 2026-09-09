@@ -9,6 +9,9 @@ interface User {
   role: "admin" | "team_member";
   accountStatus: string;
   twoFactorEnabled: boolean;
+  mfaEnrollmentRequired?: boolean;
+  mfaEnrollmentDeadline?: string | null;
+  authAssurance?: string;
 }
 
 interface AuthContextType {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { siteCrawlJobs } from "@/shared/schema";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { addSiteCrawlJob } from "@/lib/queue";
 import { z } from "zod";
 
@@ -13,7 +13,7 @@ const crawlRequestSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const body = await request.json();
     const data = crawlRequestSchema.parse(body);
 
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
       domain,
       status: "PENDING",
       message: `Crawl queued for ${domain}. Up to ${data.maxPages} pages will be indexed.`,
+    });
     });
   } catch (error: any) {
     console.error("Error starting site crawl:", error);

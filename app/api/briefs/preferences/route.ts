@@ -1,31 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { dailyBriefPreferences, insertDailyBriefPreferenceSchema } from "@/shared/schema";
-import { requireAuth } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   try {
-    const { userId } = await requireAuth(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId }) => {
 
-    const [prefs] = await db
-      .select()
-      .from(dailyBriefPreferences)
-      .where(eq(dailyBriefPreferences.userId, userId))
-      .limit(1);
+      const [prefs] = await db
+        .select()
+        .from(dailyBriefPreferences)
+        .where(eq(dailyBriefPreferences.userId, userId))
+        .limit(1);
 
-    if (!prefs) {
-      // Return defaults if no preferences found
-      return NextResponse.json({
-        cadence: 'daily',
-        timezone: 'America/New_York',
-        sendHourLocal: 7,
-        emailEnabled: 1,
-        inAppEnabled: 1,
-      });
-    }
+      if (!prefs) {
+        // Return defaults if no preferences found
+        return NextResponse.json({
+          cadence: 'daily',
+          timezone: 'America/New_York',
+          sendHourLocal: 7,
+          emailEnabled: 1,
+          inAppEnabled: 1,
+        });
+      }
 
-    return NextResponse.json(prefs);
+      return NextResponse.json(prefs);
+    });
   } catch (error: any) {
     console.error("Failed to fetch brief preferences:", error);
     return NextResponse.json(
@@ -37,32 +38,32 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, teamId } = await requireAuth(req);
-    
-    if (!teamId) {
-       return NextResponse.json({ error: "User must be assigned to a team" }, { status: 403 });
-    }
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId }) => {
+      if (!teamId) {
+        return NextResponse.json({ error: "User must be assigned to a team" }, { status: 403 });
+      }
 
-    const body = await req.json();
-    const validated = insertDailyBriefPreferenceSchema.partial().parse(body);
+      const body = await req.json();
+      const validated = insertDailyBriefPreferenceSchema.partial().parse(body);
 
-    const [updated] = await db
-      .insert(dailyBriefPreferences)
-      .values({
-        ...validated,
-        userId,
-        teamId,
-      })
-      .onConflictDoUpdate({
-        target: dailyBriefPreferences.userId,
-        set: {
+      const [updated] = await db
+        .insert(dailyBriefPreferences)
+        .values({
           ...validated,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
+          userId,
+          teamId,
+        })
+        .onConflictDoUpdate({
+          target: dailyBriefPreferences.userId,
+          set: {
+            ...validated,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
 
-    return NextResponse.json(updated);
+      return NextResponse.json(updated);
+    });
   } catch (error: any) {
     console.error("Failed to update brief preferences:", error);
     if (error.name === "ZodError") {

@@ -22,10 +22,13 @@ DO_USER="${DO_USER:-root}"
 DO_PORT="${DO_PORT:-22}"
 SCRIPT_SRC="$(dirname "$0")/db-backup.sh"
 REMOTE_SCRIPT="/usr/local/bin/citefi-db-backup.sh"
+RESTORE_SCRIPT_SRC="$(dirname "$0")/db-restore-verify.sh"
+REMOTE_RESTORE_SCRIPT="/usr/local/bin/citefi-db-restore-verify.sh"
 CRON_FILE="/etc/cron.d/citefi-db-backup"
 LOG_FILE="/var/log/citefi-db-backup.log"
 
 [[ -f "$SCRIPT_SRC" ]] || { echo "ERROR: ${SCRIPT_SRC} not found"; exit 1; }
+[[ -f "$RESTORE_SCRIPT_SRC" ]] || { echo "ERROR: ${RESTORE_SCRIPT_SRC} not found"; exit 1; }
 
 # ── SSH key setup (same technique as deploy-to-do.sh) ────────────────────────
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
@@ -69,6 +72,11 @@ echo "  Uploading backup script to ${REMOTE_SCRIPT}..."
 ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" "cat > '${REMOTE_SCRIPT}'" < "$SCRIPT_SRC"
 ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" "chmod 755 '${REMOTE_SCRIPT}'"
 echo "  ✓ Backup script installed"
+
+echo "  Uploading restore verifier to ${REMOTE_RESTORE_SCRIPT}..."
+ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" "cat > '${REMOTE_RESTORE_SCRIPT}'" < "$RESTORE_SCRIPT_SRC"
+ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" "chmod 755 '${REMOTE_RESTORE_SCRIPT}'"
+echo "  ✓ Restore verifier installed"
 
 # ── Step 2: Server-side setup (AWS CLI, log file, cron, smoke-test) ──────────
 ssh "${SSH_OPTS[@]}" "${DO_USER}@${DO_HOST}" \

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches } from "@/shared/schema";
 import { eq, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     // CRITICAL: Fetch batches filtered by team_id
     const batches = await db
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         createdAt: batch.createdAt,
       }))
     );
+    });
   } catch (error: any) {
     console.error("Error fetching batches:", error);
     const statusCode = error?.statusCode || 500;

@@ -4,7 +4,7 @@ import { articles, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import archiver from "archiver";
 import { PassThrough } from "stream";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
@@ -12,7 +12,7 @@ export async function GET(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -85,6 +85,7 @@ export async function GET(
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="batch-${batchId}-export.zip"`,
       },
+    });
     });
 
   } catch (error: any) {

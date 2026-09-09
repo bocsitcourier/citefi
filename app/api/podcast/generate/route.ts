@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { generateArticlePodcast } from "@/lib/podcast-worker";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { debitCredits, refundCredits } from "@/lib/credits";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
@@ -12,7 +12,8 @@ import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
+    try {
     const body = await request.json();
     const { articleId, tone, duration } = body;
 
@@ -141,8 +142,12 @@ export async function POST(request: NextRequest) {
       articleId,
       status: "pending",
     });
+    } catch (error) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      throw error;
+    }
+    });
   } catch (error: any) {
-    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     console.error("Error starting podcast generation:", error);
     return NextResponse.json(
       { error: "Failed to start podcast generation" },

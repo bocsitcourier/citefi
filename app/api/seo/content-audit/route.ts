@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { auditArticle } from "@/lib/content-audit";
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
 
     const body = await request.json();
     const { articleId } = body;
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
     const auditResult = await auditArticle(articleId, teamId);
 
     return NextResponse.json(auditResult);
+    });
   } catch (error: any) {
     console.error("Content audit error:", error);
     return NextResponse.json(

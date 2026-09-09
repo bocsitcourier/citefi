@@ -52,13 +52,16 @@ const CARD = /\b(?:\d[ -]*?){13,19}\b/g;
 const PHONE = /(?<!\w)(?:\+?\d[\s().-]*){8,15}\d(?!\w)/g;
 const COOKIE = /\b(?:set-cookie|cookie)\s*:\s*[^\r\n]+/gi;
 const CREDENTIAL_ASSIGNMENT = /\b(pass(?:word)?|secret|token|authorization|api[-_]?key|private[-_]?key|session|credential|client[-_]?secret)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi;
+// URL parsing strips embedded userinfo and query credentials before storage.
+// This is a detector pattern, not a connection string or credential.
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
 
 export function sanitizeUrl(value: string): string {
   try {
     const url = new URL(value);
-    if (url.username) url.username = "[REDACTED]";
-    if (url.password) url.password = "[REDACTED]";
+    // Always clear URL userinfo rather than preserving even a redacted marker.
+    url.username = "";
+    url.password = "";
     // Query strings frequently contain OAuth credentials and object-storage
     // signatures. Keep only the non-sensitive location of the resource.
     if (url.search) url.search = "?[REDACTED_QUERY]";

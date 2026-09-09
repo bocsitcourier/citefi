@@ -11,7 +11,6 @@ export function validateSignature(req: Request, res: Response, next: NextFunctio
     logger.warn('Missing authentication headers', {
       hasSignature: !!signature,
       hasTimestamp: !!timestamp,
-      ip: req.ip,
     });
     res.status(401).json({
       success: false,
@@ -27,7 +26,6 @@ export function validateSignature(req: Request, res: Response, next: NextFunctio
   if (!result.valid) {
     logger.warn('Signature verification failed', {
       error: result.error,
-      ip: req.ip,
     });
     res.status(401).json({
       success: false,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getBucketBalance } from "@/lib/billing";
 import { db } from "@/lib/db";
 import { creditLedger } from "@/shared/schema";
@@ -13,7 +13,7 @@ import { eq, desc } from "drizzle-orm";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const [balance, recentLedger] = await Promise.all([
       getBucketBalance(teamId),
@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
       periodStart: balance.periodStart,
       periodEnd: balance.periodEnd,
       recentLedger,
+    });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

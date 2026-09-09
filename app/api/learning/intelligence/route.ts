@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import {
   aiLearningLedger,
@@ -36,7 +36,7 @@ const ERROR_LABEL: Record<string, string> = {
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -142,6 +142,7 @@ export async function GET(request: NextRequest) {
         costPerArticle: COST_PER_ARTICLE,
         costPerImage: COST_PER_HERO_IMAGE,
       },
+    });
     });
   } catch (error: any) {
     const status = error?.statusCode ?? 500;

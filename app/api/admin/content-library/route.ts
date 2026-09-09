@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, ilike, isNotNull, isNull, sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { requireAdmin } from "@/lib/api/auth";
 import {
   articleAssets,

@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { activityLogs, users } from "@/shared/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
-import { requireAdmin } from "@/lib/api/auth";
+import { requireAdmin, requireRecentAdminMfa } from "@/lib/api/auth";
 
 export async function GET(req: NextRequest) {
   try {
     await requireAdmin(req);
 
     const { searchParams } = new URL(req.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const includeSensitive = searchParams.get("includeSensitive") === "true";
+    if (includeSensitive) {
+      await requireRecentAdminMfa(req);
+    }
+    const parsedLimit = Number.parseInt(searchParams.get("limit") || "100", 10);
+    const parsedOffset = Number.parseInt(searchParams.get("offset") || "0", 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 100;
+    const offset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
     const action = searchParams.get("action");
     const severity = searchParams.get("severity");
     const startDate = searchParams.get("startDate");
@@ -25,10 +31,18 @@ export async function GET(req: NextRequest) {
       conditions.push(eq(activityLogs.severity, severity));
     }
     if (startDate) {
-      conditions.push(gte(activityLogs.createdAt, new Date(startDate)));
+      const parsed = new Date(startDate);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid startDate" }, { status: 400 });
+      }
+      conditions.push(gte(activityLogs.createdAt, parsed));
     }
     if (endDate) {
-      conditions.push(lte(activityLogs.createdAt, new Date(endDate)));
+      const parsed = new Date(endDate);
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "Invalid endDate" }, { status: 400 });
+      }
+      conditions.push(lte(activityLogs.createdAt, parsed));
     }
 
     const logs = await db
@@ -56,7 +70,18 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .offset(offset);
 
-    return NextResponse.json(logs);
+    const response = logs.map((entry) => ({
+      ...entry,
+      ipAddress: includeSensitive ? entry.ipAddress : null,
+      userAgent: includeSensitive ? entry.userAgent : null,
+      details: includeSensitive ? entry.details : null,
+    }));
+    return NextResponse.json(response, {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "X-Sensitive-Fields": includeSensitive ? "included" : "redacted",
+      },
+    });
   } catch (error: any) {
     console.error("Get activity logs error:", error);
     const message = error instanceof Error ? error.message : "Failed to fetch activity logs";

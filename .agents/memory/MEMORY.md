@@ -2,32 +2,34 @@
 - [Learning system loops](learning-system-loops.md) — PATTERN_DIMENSION single source of truth, mineCorpus routing, updatePatternDimension atomic upsert, podcast learning loop design.
 - [Auth token storage](auth-token-storage.md) — production is HttpOnly-cookie-only; development adds a sessionStorage bearer fallback for Replit’s cross-site preview iframe.
 - [Authentication session policy](auth-session-policy.md) — normal sessions are 24h; explicit “keep signed in” sessions are 90d and do not bypass MFA on a new login.
-- [Learning system design](learning-system-loops.md) — Thompson Sampling (not epsilon-greedy) drives pattern selection; METRIC_WEIGHTS per content type; isArchived filter excludes archived patterns; teamDataMaturity() gates prior strength.
+- [Learning system design](learning-system-loops.md) — Thompson Sampling, per-content metric weights, archive filtering, and data-maturity priors govern selection.
 - [Optimized content generator](optimized-content-generator.md) — 3-point injection orchestrator; reviewer wired at Stage 1.6 articles + Stage 1.5 social; exemplar retrieval is the last gap.
-- [T004 auth test patterns](t004-auth-tests.md) — node --env-file + tsx/esm runner; jti fix for concurrent logins; TEST-NET-1/2 IP separation; /api/auth/me nests under body.user; waitForServer() required.
+- [Authentication test patterns](t004-auth-tests.md) — use the direct-process runner, isolated test IPs, unique JWT IDs, and explicit server readiness.
 - [Public routes config](public-routes.md) — PUBLIC_ROUTES in components/navigation/nav-config.ts controls client-side auth redirect; add every marketing/public page here or it redirects to login.
-- [Journey orchestrator auth pattern](journey-orchestrator-auth.md) — requireTeamMember gives team-membership role; cross-team admin must call requireAdmin(req) separately; inline tx inserts in bootstrap; db.execute dual-driver row access.
+- [Journey orchestrator auth](journey-orchestrator-auth.md) — team membership is tenant-scoped; cross-team administrator access needs a separate global-admin check.
 - [Turbopack PostCSS ESM fix](turbopack-postcss-esm.md) — require() in tailwind.config.ts hangs Turbopack's ESM worker; use ESM imports + explicit config path in postcss.config.js.
-- [Brand intelligence pipeline](brand-intelligence-pipeline.md) — client_brand_profiles table (UNIQUE teamId); migration via scripts/ using neon() template literals; service in lib/client-brand-profile-service.ts; context injected into learning-service.ts buildOptimizationContext via Promise.all.
+- [Brand intelligence pipeline](brand-intelligence-pipeline.md) — one profile per team; inject brand context into optimization without serializing independent reads.
 - [Architect review findings T1-T17](architect-review-t1-t17.md) — IDOR media route, wrong field names content update, worker rethrow, queue names, persona join, guardrail gate, video metrics.
-- [T18 Journey Orchestrator](t18-journey-orchestrator.md) — 4 tables + journey-context.ts + 15-min pg-boss scheduler; terminalKpi NOT nullable (Gap L); locale/localeConfig for Gap P; migration via scripts/migrate-t018-journeys.ts.
-- [Admin panel audit findings](admin-panel-bugs.md) — 8 fixed bugs: toggle-2fa schema mismatch, Reddit crash, suspend no-session-kill, self-demotion, quota injection, error-log scope, credit idempotency, chatgpt paywall.
-- [Billing and team audit fixes](billing-team-audit.md) — past_due with 0 credits must block (paywall.ts); webhook fails closed on unknown Stripe price; seat limits enforced at invite-creation AND accept time; cancel invite route at DELETE /api/client/team/invite/[id]; external patterns capped to 1 exploration slot in learning-service.ts buildOptimizationContext.
-- [Critical security fixes](critical-security-fixes.md) — P0/P1 rules: invite role hardcode, worker checkpoint preservation, DEBIT_FAILED release guard, EMA teamId scoping, Bayesian null arm re-sample.
-- [Content approval + spending caps architecture](approval-caps-architecture.md) — approval columns on articles directly; spendingCaps+usageEvents tables; deliverEmail exported from lib/email.ts; checkUsageCap() in batch-submit after paywall gate; client_viewer role via requireClientReviewer() in lib/api/auth.ts.
-- [Security audit fixes T001-T005](security-audit-fixes.md) — atomic UPDATE for 2FA token consumption; preserve idempotencyKey on grant reversals (not null); pending-reservation-first for concurrent cap enforcement; 2h stale-expiry as safety net.
-- [Turbopack silent 404 from module-scope throw](turbopack-silent-404.md) — module-scope throw in any imported lib silently caches 404 for every route in its import chain; fix with lazy getters + clear .next + pre-warm all affected routes.
-- [Neon null rows shim](neon-null-rows-shim.md) — v0.10.x returns rows:null not [] for zero-row results; shim in lib/db.ts via neonConfig.fetchFunction; all worker errors must use logError() not db.insert(errorLogs) directly.
-- [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — fire-and-forget Neon HTTP tasks exhaust Node.js's 5-socket-per-host limit; always use getTxDb() (TCP pooled pg) for any async DB call that may run concurrently.
-- [BullMQ + Redis on Replit](bullmq-redis-replit.md) — Replit javascript_mem_db injects broken ediss:// URL; use local Redis with override:true dotenv + auto-start daemon; BullMQ cron/worker patterns vs old pg-boss.
-- [GitHub push script](github-push-script.md) — git pull/push are sandbox-blocked in main agent; use GitHub REST API (PATCH /git/refs/heads/main force:true) via curl; script is scripts/push-to-github.sh.
+- [Journey orchestrator](t18-journey-orchestrator.md) — preserve non-null terminal KPIs, locale configuration, and the scheduled journey cadence.
+- [Admin panel audit](admin-panel-bugs.md) — durable fixes cover MFA schemas, suspension, self-demotion, quotas, log scope, credits, and paywalls.
+- [Billing and team safety](billing-team-audit.md) — fail closed on unpaid/unknown billing state; enforce seats twice; cap external exploration.
+- [Critical security fixes](critical-security-fixes.md) — hardcode platform roles, preserve worker checkpoints, retain billed reservations, and scope learning writes.
+- [Approval and spending caps](approval-caps-architecture.md) — approvals, cap reservations, email delivery, and client-reviewer access share explicit boundaries.
+- [Security audit rules](security-audit-fixes.md) — atomically consume credentials, preserve idempotency keys, reserve caps first, and repeat ownership predicates.
+- [Turbopack module-scope failures](turbopack-silent-404.md) — module-scope throws can cache silent route 404s; prefer lazy validation and clear affected caches.
+- [Neon null rows](neon-null-rows-shim.md) — normalize zero-row results and route worker failures through the shared error logger.
+- [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — concurrent asynchronous database work must use the pooled TCP client.
+- [BullMQ and Redis](bullmq-redis-replit.md) — override the broken injected Redis URL and use the established local Redis/BullMQ lifecycle.
+- [GitHub push script](github-push-script.md) — main-agent git networking is sandboxed; use the repository's GitHub REST push path.
 - [DO deploy pitfalls](do-deploy-pitfalls.md) — service-account ownership, Redis, explicit env loading, swap/build safety, and isolated shared-host staging rules.
-- [Daily Marketing Brief architecture](daily-brief-architecture.md) — 4 tables + BullMQ daily-brief queue + lib/brief/ module; signup hook enqueues signup-competitor-intake; cadence enforcement + UTC date fix applied in scheduler + /today route; admin panel at /admin/briefs.
+- [Daily Marketing Brief](daily-brief-architecture.md) — preserve signup intake, BullMQ scheduling, UTC cadence enforcement, and admin visibility.
 - [Pipeline worker policy](pipeline-worker-policy.md) — all BullMQ workers register via createPipelineWorker; policy (classify/release/fatal) lives there once; budget gates stay in processors.
-- [Model resolver (Level 2 startup validation)](model-resolver.md) — RESOLVED_MODELS mutable object; validateAndResolveModels() before registerWorkers(); per-tier fallback chains; CRITICAL_TIERS throw on no live model.
+- [Model resolver](model-resolver.md) — validate tiered model fallback chains before registering workers; critical tiers fail startup when unavailable.
 - [Node test-runner IPC](node-test-runner-ipc.md) — Node 20 isolation can intermittently corrupt IPC for tsx + real-service suites; use a deterministic direct-process harness.
-- [Reservation state machine](reservation-state-machine.md) — credit_ledger reserve rows enforce RESERVED→DEBITED|RELEASED; full vs partial rules, sweeper per-reservation remaining calc, jobId two-layer idempotency.
-- [PostgreSQL tenant RLS](postgres-tenant-rls.md) — tenant transactions must switch roles on one connection; policy recursion uses definer helpers; row policies need separate column guards.
+- [Reservation state machine](reservation-state-machine.md) — enforce one-way reserve settlement, correct partial release, and job-level idempotency.
+- [PostgreSQL tenant RLS](postgres-tenant-rls.md) — guards return claims only; tenant callbacks and connection-scoped transactions enforce role/GUC context.
+- [Identity lifecycle invariants](identity-lifecycle-invariants.md) — serialize final-admin changes; every password mutation invalidates all recovery stores under the user lock.
+- [Restore security evidence](restore-security-evidence.md) — a usable backup must recreate constrained roles and grants; readiness verifies RLS behavior, not only restored rows.
 - [Campaign client boundaries](campaign-client-boundaries.md) — campaign deliverables must use immutable campaign Brand snapshots, never a team's mutable live profile.
 - [Ads export governance](ads-export-governance.md) — Ads Lab is export-only; finalized manifests, artifact hashes, pinned landing checks, approvals, and retained debit settlement are mandatory.
 - [Provider COGS ledger](provider-cogs-ledger.md) — actual COGS uses locked rates only; unpriced usage is zero-valued, and paid provider results fail closed if accounting fails.

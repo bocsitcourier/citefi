@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { calculateArticleCost, calculateBatchCost, formatCost, API_COSTS, OPERATION_ESTIMATES } from "@/lib/monitoring";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const body = await request.json();
     const { numArticles = 50, includeImages = true, includePodcasts = false } = body;
     
@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
     };
     
     return NextResponse.json(breakdown);
+    });
   } catch (error: any) {
     console.error("Error calculating costs:", error);
     return NextResponse.json(

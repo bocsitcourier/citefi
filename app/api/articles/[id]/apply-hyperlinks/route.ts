@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "@/lib/slug-map-injector";
 import { auditArticle } from "@/lib/guardian-agent";
 import { applySurgicalFix } from "@/lib/surgical-fix";
@@ -165,7 +165,8 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await context.params;
     const articleId = parseInt(id);
 
@@ -405,6 +406,7 @@ export async function POST(
       },
     });
 
+      });
   } catch (error: any) {
     console.error("❌ Heal error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;

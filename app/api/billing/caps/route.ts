@@ -2,20 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { spendingCaps } from "@/shared/schema";
 import { eq } from "drizzle-orm";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { getCapStatus } from "@/lib/usage-caps";
 import { z } from "zod";
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const status = await getCapStatus(teamId);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const status = await getCapStatus(teamId);
 
     const [cap] = await db.select().from(spendingCaps).where(eq(spendingCaps.teamId, teamId)).limit(1);
 
-    return NextResponse.json({
-      cap: cap ?? null,
-      status,
+      return NextResponse.json({
+        cap: cap ?? null,
+        status,
+      });
     });
   } catch (err: any) {
     const s = err?.statusCode ?? err?.status;
@@ -33,10 +34,10 @@ const updateCapSchema = z.object({
 
 export async function PUT(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const body = await req.json();
-    const parsed = updateCapSchema.safeParse(body);
-    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const body = await req.json();
+      const parsed = updateCapSchema.safeParse(body);
+      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
     const { monthlyCapCents, alertThresholdPct, hardStop } = parsed.data;
 
@@ -48,8 +49,9 @@ export async function PUT(req: NextRequest) {
         set: { monthlyCapCents, alertThresholdPct, hardStop, updatedAt: new Date() },
       });
 
-    const status = await getCapStatus(teamId);
-    return NextResponse.json({ success: true, status });
+      const status = await getCapStatus(teamId);
+      return NextResponse.json({ success: true, status });
+    });
   } catch (err: any) {
     const s = err?.statusCode ?? err?.status;
     if (s === 401 || s === 403) return NextResponse.json({ error: err.message }, { status: s });

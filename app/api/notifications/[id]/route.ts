@@ -1,23 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { markNotificationAsRead, dismissNotification } from "@/lib/notification-service";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { requireTeamMember, requireAdmin, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
+import { runWithSystemContext } from "@/lib/tenant-context";
 
 /**
  * Resolve auth context for per-notification endpoints.
  * Same two-path strategy as the collection route: full requireTeamMember for team users,
  * requireAdmin fallback (userId only, teamId = null) for global admins with no team.
  */
-async function resolveNotificationAuth(request: NextRequest): Promise<{ userId: number; teamId: number | null; role: string }> {
+async function withNotificationAuth<T>(
+  request: NextRequest,
+  fn: (auth: { userId: number; teamId: number | null; role: string }) => Promise<T>,
+): Promise<T> {
+  let auth: { userId: number; teamId: number; role: string };
   try {
-    const auth = await requireTeamMember(request);
-    return auth;
+    auth = await requireTeamMember(request);
   } catch (err: any) {
     if (err.statusCode === 403 && err.message === "Access denied: User must be assigned to a team") {
       const userId = await requireAdmin(request);
-      return { userId, teamId: null, role: "admin" };
+      return await runWithSystemContext(
+        `team-less platform admin notification request by user ${userId}`,
+        () => fn({ userId, teamId: null, role: "admin" }),
+      );
     }
     throw err;
   }
+  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
 }
 
 export async function PATCH(
@@ -25,7 +33,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await resolveNotificationAuth(request);
+    return await withNotificationAuth(request, async (auth) => {
 
     const { id } = await params;
     const notificationId = parseInt(id, 10);
@@ -52,6 +60,7 @@ export async function PATCH(
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    });
   } catch (error: any) {
     console.error("Failed to update notification:", error);
     if (error.statusCode === 401) {

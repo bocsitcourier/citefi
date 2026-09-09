@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { creditLedger, providerUsageLedger, teams } from "@/shared/schema";
 import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
@@ -12,7 +12,7 @@ import { microusdToUsd } from "@/lib/cost-telemetry";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
     const [agency] = await db.select({ billingPlan: teams.billingPlan })
       .from(teams).where(and(eq(teams.id, teamId), isNull(teams.deletedAt))).limit(1);
     if (!agency) return NextResponse.json({ error: "Agency team not found" }, { status: 404 });
@@ -33,18 +33,19 @@ export async function GET(req: NextRequest) {
     ]);
     const costsByTeam = new Map(costs.map((row) => [row.teamId, Number(row.costMicrousd)]));
     const creditsByTeam = new Map(debits.map((row) => [row.teamId, Number(row.credits)]));
-    return NextResponse.json({
-      periodDays: days,
-      clients: clients.map((client) => ({
-        id: client.id,
-        name: client.name,
-        providerCogsUsd: microusdToUsd(costsByTeam.get(client.id) ?? 0),
-        creditsConsumed: creditsByTeam.get(client.id) ?? 0,
-        // No markup/rebilling configuration table exists.  Do not infer one.
-        revenueConfigured: false,
-        approvedRebilling: null,
-        margin: null,
-      })),
+      return NextResponse.json({
+        periodDays: days,
+        clients: clients.map((client) => ({
+          id: client.id,
+          name: client.name,
+          providerCogsUsd: microusdToUsd(costsByTeam.get(client.id) ?? 0),
+          creditsConsumed: creditsByTeam.get(client.id) ?? 0,
+          // No markup/rebilling configuration table exists.  Do not infer one.
+          revenueConfigured: false,
+          approvedRebilling: null,
+          margin: null,
+        })),
+      });
     });
   } catch (error: any) {
     const status = error?.statusCode ?? 500;

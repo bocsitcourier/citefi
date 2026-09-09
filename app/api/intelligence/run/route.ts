@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { upsertClientBrandProfile, getClientBrandProfile } from "@/lib/client-brand-profile-service";
 import { addIntelligenceResearchJob } from "@/lib/queue";
 import { z } from "zod";
@@ -20,7 +20,7 @@ const runSchema = z.object({
  */
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const body = await req.json().catch(() => ({}));
     const { websiteUrl, companyName, force, campaignId } = runSchema.parse(body);
 
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, jobId, message: "Brand intelligence research started" });
+    });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     if (err.name === "ZodError") return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });

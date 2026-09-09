@@ -115,6 +115,12 @@ export async function GET(_request: NextRequest) {
       process.env.BACKUP_STATUS_FILE ??
       (process.env.NODE_ENV === "production" ? "/var/backups/citefi-db/status.json" : undefined)
     ),
+    restoreVerificationStatus: () => readStatusFile(
+      process.env.RESTORE_VERIFICATION_STATUS_FILE ??
+      (process.env.NODE_ENV === "production"
+        ? "/var/backups/citefi-db/restore-verification-status.json"
+        : undefined)
+    ),
     deploymentStatus: () => readStatusFile(
       process.env.DEPLOYMENT_STATUS_FILE ??
       (process.env.NODE_ENV === "production" ? `${process.cwd()}/.deploy/release-status.json` : undefined)

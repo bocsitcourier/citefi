@@ -25,6 +25,7 @@ function Verify2FAContent() {
   const { verify2FA } = useAuth();
   const { toast } = useToast();
   const [code, setCode] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -81,28 +82,35 @@ function Verify2FAContent() {
           <CardDescription className="text-center">
             {method === "email"
               ? "We sent a six-digit verification code to your email address."
-              : "Enter the six-digit code from your authenticator app."}
+              : useRecoveryCode
+                ? "Enter one of the one-time recovery codes you saved during setup."
+                : "Enter the six-digit code from your authenticator app."}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Verification Code</Label>
+              <Label htmlFor="code">{useRecoveryCode ? "Recovery Code" : "Verification Code"}</Label>
               <Input
                 id="code"
                 type="text"
-                placeholder="000000"
+                placeholder={useRecoveryCode ? "Recovery code" : "000000"}
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) => setCode(
+                  useRecoveryCode
+                    ? e.target.value.trim().slice(0, 64)
+                    : e.target.value.replace(/\D/g, "").slice(0, 6)
+                )}
                 required
-                maxLength={6}
+                maxLength={useRecoveryCode ? 64 : 6}
+                autoComplete="one-time-code"
                 className="text-center text-2xl tracking-widest font-mono"
                 disabled={isLoading}
                 autoFocus
                 data-testid="input-2fa-code"
               />
               <p className="text-xs text-muted-foreground text-center">
-                Enter the 6-digit code
+                {useRecoveryCode ? "Each recovery code works only once" : "Enter the 6-digit code"}
               </p>
             </div>
           </CardContent>
@@ -110,7 +118,7 @@ function Verify2FAContent() {
             <Button
               type="submit"
               className="w-full"
-              disabled={isLoading || code.length !== 6}
+              disabled={isLoading || (useRecoveryCode ? code.length < 8 : code.length !== 6)}
               data-testid="button-verify"
             >
               {isLoading ? (
@@ -122,6 +130,18 @@ function Verify2FAContent() {
                 "Verify"
               )}
             </Button>
+            {method === "totp" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setUseRecoveryCode((value) => !value);
+                  setCode("");
+                }}
+                className="text-sm text-primary hover:underline font-medium"
+              >
+                {useRecoveryCode ? "Use authenticator code instead" : "Use a recovery code"}
+              </button>
+            ) : null}
             <div className="text-sm text-center text-muted-foreground">
               <button
                 type="button"

@@ -16,6 +16,19 @@ continues executing as that role.
 read the validated async tenant context, then use `BEGIN`, `SET LOCAL ROLE`, and
 transaction-local identity settings before executing tenant statements.
 
+Authorization guards must return validated claims only. They must not establish
+tenant or system authority as an awaited side effect; the protected operation
+must execute inside the callback that owns the authority scope.
+
+**Why:** Awaited guard side effects leave authority active for the rest of a
+request and are easy to lose across framework, middleware, or service
+boundaries. Callback scope makes the exact privileged work structurally
+bounded.
+
+**How to apply:** Use authenticated tenant/admin/reviewer callback helpers for
+all database and downstream service work. Use a visibly named system client for
+the smallest inherently cross-tenant operation, never as a guard side effect.
+
 Unscoped application database access must fail closed. Bootstrap, maintenance,
 webhook, and identity-lifecycle operations use a visibly named privileged
 client or a system context with a concrete audit reason.

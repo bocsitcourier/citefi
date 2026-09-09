@@ -165,10 +165,9 @@ export async function POST(req: Request) {
               approveUrl,
               rejectUrl,
             }).catch((err) =>
-              console.error(
-                `Failed to notify admin ${admin.email} of new signup:`,
-                err
-              )
+              console.error("New-signup administrator notification failed", {
+                error: err instanceof Error ? err.message : "Unknown delivery error",
+              })
             )
           )
         );

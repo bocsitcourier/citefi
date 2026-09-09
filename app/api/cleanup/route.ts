@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { cleanupJobs, cleanupConfig } from "@/shared/schema";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { articles, teams } from "@/shared/schema";
 import { sql, gte, eq } from "drizzle-orm";
 import { subDays } from "date-fns";

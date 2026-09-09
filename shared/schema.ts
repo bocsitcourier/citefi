@@ -73,6 +73,7 @@ export const users = pgTable("users", {
   // 2FA Configuration
   twoFactorEnabled: integer("two_factor_enabled").notNull().default(0), // Boolean as 0/1
   twoFactorMethod: varchar("two_factor_method", { length: 20 }), // email, totp (Google Authenticator)
+  mfaEnrollmentDeadline: timestamp("mfa_enrollment_deadline"),
   emailVerified: integer("email_verified").notNull().default(0), // Boolean as 0/1
   
   // OAuth Integration
@@ -124,6 +125,8 @@ export const sessions = pgTable("sessions", {
   forceLogoutAt: timestamp("force_logout_at"), // When session was forcefully terminated
   terminatedBy: integer("terminated_by").references(() => users.id), // Admin who terminated session
   terminationReason: varchar("termination_reason", { length: 255 }), // Reason for termination
+  authAssurance: varchar("auth_assurance", { length: 20 }).notNull().default("password"),
+  mfaVerifiedAt: timestamp("mfa_verified_at"),
   
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -174,11 +177,15 @@ export const totpSecrets = pgTable("totp_secrets", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id).unique(),
   secret: varchar("secret", { length: 64 }).notNull(), // Base32-encoded TOTP secret
+  secretCiphertext: text("secret_ciphertext"),
+  secretKeyVersion: varchar("secret_key_version", { length: 32 }),
   backupCodes: jsonb("backup_codes"), // Array of one-time backup codes (hashed)
+  credentialVersion: integer("credential_version").notNull().default(1),
   
   // Timestamps
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastUsedAt: timestamp("last_used_at"),
+  lastUsedCounter: integer("last_used_counter"),
 }, (table) => ({
   userIdIdx: index("totp_secrets_user_id_idx").on(table.userId),
 }));

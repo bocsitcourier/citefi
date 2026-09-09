@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, creditBalances, creditLedger, articles } from "@/shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { BILLING_PLANS } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const periodStart = new Date();
     periodStart.setDate(1);
@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       articlesThisPeriod: Number(articleCount[0]?.count ?? 0),
       currentPeriodEnd: team?.currentPeriodEnd ?? null,
       planName: plan?.name ?? "Free",
+    });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

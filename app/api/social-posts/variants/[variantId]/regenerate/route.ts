@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { socialPosts, socialPostVariants, socialPostLogs, ContentType } from "@/shared/schema";
 import { eq } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated, getPromptEnhancement } from "@/lib/learning-integration";
 
@@ -27,7 +27,8 @@ export async function POST(
       return NextResponse.json({ error: "Invalid variant ID" }, { status: 400 });
     }
 
-    const auth = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+    try {
     if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -189,6 +190,26 @@ export async function POST(
         status: "READY",
       },
     });
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isAuthError =
+        error?.statusCode === 401 || error?.statusCode === 403 ||
+        errorMessage === "Authentication required" ||
+        errorMessage === "Unauthorized" ||
+        errorMessage === "Admin access required";
+      if (!isAuthError) {
+        const { variantId } = await params;
+        const variantIdNum = parseInt(variantId, 10);
+        if (!isNaN(variantIdNum)) {
+          await db
+            .update(socialPostVariants)
+            .set({ status: "FAILED", errorMessage: errorMessage.slice(0, 500) })
+            .where(eq(socialPostVariants.id, variantIdNum));
+        }
+      }
+      throw error;
+    }
+    });
   } catch (error: any) {
     console.error("❌ Variant regeneration failed:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -201,21 +222,6 @@ export async function POST(
       errorMessage === "Authentication required" ||
       errorMessage === "Unauthorized" ||
       errorMessage === "Admin access required";
-
-    if (!isAuthError) {
-      const { variantId } = await params;
-      const variantIdNum = parseInt(variantId, 10);
-
-      if (!isNaN(variantIdNum)) {
-        await db
-          .update(socialPostVariants)
-          .set({
-            status: "FAILED",
-            errorMessage: errorMessage.slice(0, 500),
-          })
-          .where(eq(socialPostVariants.id, variantIdNum));
-      }
-    }
 
     return NextResponse.json(
       { error: "Regeneration failed", message: errorMessage },

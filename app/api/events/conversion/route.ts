@@ -14,7 +14,7 @@ import { db, systemDb } from "@/lib/db";
 import { runWithTenantContext } from "@/lib/tenant-context";
 import { contentEvents, teams, articles, socialPosts } from "@/shared/schema";
 import { eq, and, count, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 
@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const contentType = url.searchParams.get("contentType");
     const contentId = parseInt(url.searchParams.get("contentId") ?? "0");
@@ -303,6 +303,7 @@ export async function GET(req: NextRequest) {
       .where(and(eq(contentEvents.teamId, teamId), eq(contentEvents.eventType, "conversion"), idCondition));
 
     return NextResponse.json({ conversions: result?.total ?? 0 });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {

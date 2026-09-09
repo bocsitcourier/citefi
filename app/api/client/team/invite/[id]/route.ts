@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { userInvites } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -9,7 +9,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId, role: callerRole } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId, role: callerRole }) => {
 
     if (callerRole !== "admin") {
       return NextResponse.json(
@@ -58,6 +58,7 @@ export async function DELETE(
       );
 
     return NextResponse.json({ success: true, message: "Invite cancelled" });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

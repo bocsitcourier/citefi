@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const { id: idParam } = await params;
     const articleId = parseInt(idParam);
     
@@ -47,6 +47,7 @@ export async function GET(
       duration: article.podcastDuration,
       generatedAt: article.podcastGeneratedAt,
       script: article.podcastScriptJson,
+    });
     });
   } catch (error: any) {
     console.error("Error fetching podcast status:", error);

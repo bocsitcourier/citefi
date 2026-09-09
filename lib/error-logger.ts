@@ -145,9 +145,12 @@ export async function logError(params: LogErrorParams): Promise<void> {
     console.error("[ERROR_LOG] Failed to persist error to database");
   }
 
-  console.error(
-    `[ERROR_LOG] ${severity.toUpperCase()} ${params.errorType}: ${enrichedMessage}`
-  );
+  console.error("[ERROR_LOG] Application error recorded", {
+    severity,
+    errorType: params.errorType,
+    fingerprint: params.fingerprint ?? null,
+    requestId: params.requestId ?? null,
+  });
 
   // Durable structured store is additive: legacy error_logs and callers remain
   // fully compatible while incident consumers migrate independently.

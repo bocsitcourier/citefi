@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, systemDb } from "@/lib/db";
 import {
   users,
   teams,
@@ -11,17 +11,14 @@ import {
   socialPosts,
 } from "@/shared/schema";
 import { eq, desc } from "drizzle-orm";
-import { requireAuth } from "@/lib/api/auth";
+import { requireAuth, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
 import { rateLimitDb } from "@/lib/db-rate-limit";
-import { enterSystemContext } from "@/lib/tenant-context";
 
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    const { userId, teamId } = await requireAuth(req);
-    if (!teamId) {
-      enterSystemContext(`account export for teamless user ${userId}`);
-    }
+    const auth = await requireAuth(req);
+    const { userId, teamId } = auth;
 
     const rlResult = await rateLimitDb(`export:${userId}`, 3, 60 * 60 * 1000);
     if (!rlResult.allowed) {
@@ -31,7 +28,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const [user] = await db
+    const [user] = await systemDb
       .select({
         id: users.id,
         email: users.email,
@@ -49,60 +46,60 @@ export async function POST(req: NextRequest) {
 
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    const teamData = teamId
-      ? await db
-          .select({ id: teams.id, name: teams.name, billingPlan: teams.billingPlan, createdAt: teams.createdAt })
-          .from(teams)
-          .where(eq(teams.id, teamId))
-          .limit(1)
-      : [];
-
-    const teamMemberships = await db
+    const teamMemberships = await systemDb
       .select({ teamId: teamMembers.teamId, role: teamMembers.role, joinedAt: teamMembers.joinedAt })
       .from(teamMembers)
       .where(eq(teamMembers.userId, userId));
 
-    const recentActivity = await db
+    const recentActivity = await systemDb
       .select({ action: activityLogs.action, resource: activityLogs.resource, createdAt: activityLogs.createdAt })
       .from(activityLogs)
       .where(eq(activityLogs.userId, userId))
       .orderBy(desc(activityLogs.createdAt))
       .limit(100);
 
-    const recentLogins = await db
+    const recentLogins = await systemDb
       .select({ ipAddress: loginHistory.ipAddress, success: loginHistory.success, createdAt: loginHistory.createdAt })
       .from(loginHistory)
       .where(eq(loginHistory.userId, userId))
       .orderBy(desc(loginHistory.createdAt))
       .limit(50);
 
-    const batches = teamId
-      ? await db
-          .select({ id: jobBatches.id, coreTopic: jobBatches.coreTopic, status: jobBatches.status, createdAt: jobBatches.createdAt })
-          .from(jobBatches)
-          .where(eq(jobBatches.teamId, teamId))
-          .orderBy(desc(jobBatches.createdAt))
-          .limit(200)
-      : [];
+    const tenantData = teamId
+      ? await runWithAuthenticatedTeamContext(
+          { userId, teamId, role: auth.role },
+          async () => {
+            const teamData = await db
+              .select({ id: teams.id, name: teams.name, billingPlan: teams.billingPlan, createdAt: teams.createdAt })
+              .from(teams)
+              .where(eq(teams.id, teamId))
+              .limit(1);
+            const batches = await db
+              .select({ id: jobBatches.id, coreTopic: jobBatches.coreTopic, status: jobBatches.status, createdAt: jobBatches.createdAt })
+              .from(jobBatches)
+              .where(eq(jobBatches.teamId, teamId))
+              .orderBy(desc(jobBatches.createdAt))
+              .limit(200);
+            const userArticles = await db
+              .select({
+                id: articles.id,
+                chosenTitle: articles.chosenTitle,
+                slug: articles.slug,
+                articleStatus: articles.articleStatus,
+                approvalStatus: articles.approvalStatus,
+                wordCount: articles.wordCount,
+                createdAt: articles.createdAt,
+              })
+              .from(articles)
+              .where(eq(articles.teamId, teamId))
+              .orderBy(desc(articles.createdAt))
+              .limit(500);
+            return { teamData, batches, userArticles };
+          },
+        )
+      : { teamData: [], batches: [], userArticles: [] };
 
-    const userArticles = teamId
-      ? await db
-          .select({
-            id: articles.id,
-            chosenTitle: articles.chosenTitle,
-            slug: articles.slug,
-            articleStatus: articles.articleStatus,
-            approvalStatus: articles.approvalStatus,
-            wordCount: articles.wordCount,
-            createdAt: articles.createdAt,
-          })
-          .from(articles)
-          .where(eq(articles.teamId, teamId))
-          .orderBy(desc(articles.createdAt))
-          .limit(500)
-      : [];
-
-    await db.insert(activityLogs).values({
+    await systemDb.insert(activityLogs).values({
       userId,
       action: "account_data_export",
       resource: "account",
@@ -114,12 +111,12 @@ export async function POST(req: NextRequest) {
       exportVersion: "1.0",
       notice: "This export contains your personal account data. Secrets, passwords, tokens, and OAuth credentials are excluded.",
       profile: user,
-      team: teamData[0] ?? null,
+      team: tenantData.teamData[0] ?? null,
       memberships: teamMemberships,
       recentActivity,
       recentLogins,
-      contentBatches: batches,
-      articles: userArticles,
+      contentBatches: tenantData.batches,
+      articles: tenantData.userArticles,
     };
 
     const json = JSON.stringify(exportPayload, null, 2);

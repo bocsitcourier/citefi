@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { psychographicService } from "@/lib/psychographic-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     await psychographicService.initializeDefaultPersonas(teamId);
 
@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       success: true,
       message: "Default personas initialized",
       personas,
+    });
     });
   } catch (error: any) {
     console.error("Failed to initialize personas:", error);

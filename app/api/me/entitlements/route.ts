@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getUserEntitlements } from "@/lib/user-gate";
 
 /**
@@ -18,9 +18,10 @@ import { getUserEntitlements } from "@/lib/user-gate";
  */
 export async function GET(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const entitlements = await getUserEntitlements(userId, teamId);
     return NextResponse.json(entitlements);
+    });
   } catch (error: unknown) {
     if (error instanceof Error && "statusCode" in error) {
       const e = error as Error & { statusCode: number };

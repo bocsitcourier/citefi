@@ -4,7 +4,7 @@ import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { deliverEmail, hasConfiguredEmailDelivery } from "@/lib/email";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
@@ -55,37 +55,46 @@ export async function POST(req: Request) {
 
     const code = generateEmailCode();
 
-    // Expire existing reset codes for this user
-    await db
-      .update(emailVerificationCodes)
-      .set({ isUsed: 1 })
-      .where(
-        and(
-          eq(emailVerificationCodes.userId, user.id),
-          eq(emailVerificationCodes.purpose, "password_reset")
-        )
-      );
+    const issued = await db.transaction(async (tx) => {
+      const [lockedUser] = await tx
+        .update(users)
+        .set({ passwordHash: sql`${users.passwordHash}` })
+        .where(eq(users.id, user.id))
+        .returning({ accountStatus: users.accountStatus });
+      if (!lockedUser || lockedUser.accountStatus === "suspended") return false;
 
-    // Create new code (expires in 15 minutes)
-    await db.insert(emailVerificationCodes).values({
-      userId: user.id,
-      code,
-      purpose: "password_reset",
-      attempts: 0,
-      isUsed: 0,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-    });
+      await tx
+        .update(emailVerificationCodes)
+        .set({ isUsed: 1 })
+        .where(
+          and(
+            eq(emailVerificationCodes.userId, user.id),
+            eq(emailVerificationCodes.purpose, "password_reset")
+          )
+        );
 
-    await db.insert(activityLogs).values({
-      userId: user.id,
-      action: "password_reset_requested",
-      resource: "users",
-      resourceId: user.id,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { email: user.email },
-      severity: "info",
+      await tx.insert(emailVerificationCodes).values({
+        userId: user.id,
+        code,
+        purpose: "password_reset",
+        attempts: 0,
+        isUsed: 0,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      });
+
+      await tx.insert(activityLogs).values({
+        userId: user.id,
+        action: "password_reset_requested",
+        resource: "users",
+        resourceId: user.id,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: {},
+        severity: "info",
+      });
+      return true;
     });
+    if (!issued) return NextResponse.json(genericResponse);
 
     await deliverEmail({
       to: user.email,

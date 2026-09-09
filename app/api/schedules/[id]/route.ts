@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { contentSchedules, scheduleRuns } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const updateScheduleSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -31,7 +31,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     const scheduleId = parseInt(id);
 
@@ -58,6 +58,7 @@ export async function GET(
       .limit(10);
 
     return NextResponse.json({ success: true, data: { schedule, runs } });
+    });
   } catch (error: any) {
     console.error("Error fetching schedule:", error);
     return NextResponse.json(
@@ -72,7 +73,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     const scheduleId = parseInt(id);
 
@@ -113,6 +114,7 @@ export async function PATCH(
     console.log(`📅 Updated schedule "${updated.name}" (ID: ${updated.id})`);
 
     return NextResponse.json({ success: true, data: updated });
+    });
   } catch (error: any) {
     console.error("Error updating schedule:", error);
     
@@ -135,7 +137,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await context.params;
     const scheduleId = parseInt(id);
 
@@ -162,6 +164,7 @@ export async function DELETE(
     console.log(`🗑️ Deleted schedule "${existing.name}" (ID: ${scheduleId})`);
 
     return NextResponse.json({ success: true });
+    });
   } catch (error: any) {
     console.error("Error deleting schedule:", error);
     return NextResponse.json(

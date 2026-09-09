@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext, withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { variantArms } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -20,7 +20,7 @@ const updateArmSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const contentType = url.searchParams.get("contentType");
 
@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
       .orderBy(variantArms.createdAt);
 
     return NextResponse.json({ arms });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {
@@ -47,19 +48,20 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const body = await req.json().catch(() => ({}));
-    const parsed = createArmSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid input", issues: parsed.error.issues }, { status: 400 });
-    }
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const body = await req.json().catch(() => ({}));
+      const parsed = createArmSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json({ error: "Invalid input", issues: parsed.error.issues }, { status: 400 });
+      }
 
     const [arm] = await db
       .insert(variantArms)
       .values({ teamId, ...parsed.data })
       .returning();
 
-    return NextResponse.json({ arm }, { status: 201 });
+      return NextResponse.json({ arm }, { status: 201 });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {
@@ -72,13 +74,13 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
-    const url = new URL(req.url);
-    const idStr = url.searchParams.get("id");
-    const armId = idStr ? parseInt(idStr) : NaN;
-    if (isNaN(armId)) {
-      return NextResponse.json({ error: "id query param required" }, { status: 400 });
-    }
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
+      const url = new URL(req.url);
+      const idStr = url.searchParams.get("id");
+      const armId = idStr ? parseInt(idStr) : NaN;
+      if (isNaN(armId)) {
+        return NextResponse.json({ error: "id query param required" }, { status: 400 });
+      }
 
     const body = await req.json().catch(() => ({}));
     const parsed = updateArmSchema.safeParse(body);
@@ -102,7 +104,8 @@ export async function PATCH(req: NextRequest) {
       .where(and(eq(variantArms.id, armId), eq(variantArms.teamId, teamId)))
       .returning();
 
-    return NextResponse.json({ arm: updated });
+      return NextResponse.json({ arm: updated });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403) {

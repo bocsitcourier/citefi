@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, activityLogs } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq, and } from "drizzle-orm";
@@ -88,7 +88,9 @@ export async function POST(
           approveUrl,
           rejectUrl,
         }).catch((err) =>
-          console.error(`Failed to resend approval email to admin ${admin.email}:`, err)
+          console.error("Approval email resend to administrator failed", {
+            error: err instanceof Error ? err.message : "Unknown delivery error",
+          })
         )
       )
     );
@@ -97,7 +99,9 @@ export async function POST(
       to: targetUser.email,
       fullName: targetUser.fullName,
     }).catch((err) =>
-      console.error(`Failed to send review reminder to user ${targetUser.email}:`, err)
+      console.error("Pending-review reminder delivery failed", {
+        error: err instanceof Error ? err.message : "Unknown delivery error",
+      })
     );
 
     await db

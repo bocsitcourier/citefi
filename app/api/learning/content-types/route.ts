@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ContentType } from "@/shared/schema";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async () => {
 
     return NextResponse.json({
       success: true,
       contentTypes: Object.values(ContentType),
+    });
     });
   } catch (error: any) {
     console.error("Failed to get content types:", error);

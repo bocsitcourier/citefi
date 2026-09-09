@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { jobBatches } from "@/shared/schema";
 import { generateTitlePool } from "@/lib/gemini";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
 
     // Paywall gate — check plan + trial expiry before spending any AI tokens
     const paywallResult = await checkTeamPaywall(teamId);
@@ -164,6 +164,7 @@ export async function POST(request: NextRequest) {
       batchId: batch!.id,
       titleCount: titlePoolResult.titles.length,
       message: `Title pool generated with ${titlePoolResult.titles.length} titles. Select titles and configure generation settings to proceed.`,
+    });
     });
   } catch (error: any) {
     console.error("❌ SEO article creation error:", error);

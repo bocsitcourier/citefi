@@ -43,6 +43,7 @@ export interface JWTPayload {
   email: string;
   role: string;
   sessionId?: number;
+  tokenPurpose?: "access";
 }
 
 export function generateAccessToken(
@@ -52,7 +53,7 @@ export function generateAccessToken(
   // jti (JWT ID) ensures each token is unique even when two are issued for the
   // same user within the same second, preventing tokenHash unique-key collisions.
   return jwt.sign(
-    { ...payload, jti: crypto.randomBytes(16).toString("hex") },
+    { ...payload, tokenPurpose: "access", jti: crypto.randomBytes(16).toString("hex") },
     getJwtSecret(),
     { expiresIn: expiresInSeconds }
   );
@@ -68,7 +69,8 @@ export function generateRefreshToken(payload: JWTPayload): string {
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as JWTPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JWTPayload & { purpose?: string };
+    if (decoded.purpose || (decoded.tokenPurpose && decoded.tokenPurpose !== "access")) return null;
     return decoded;
   } catch (error) {
     return null;
@@ -93,11 +95,28 @@ interface TOTPSetupTokenPayload {
   purpose: "totp_setup";
   userId: number;
   secret: string;
+  sessionId: number;
+  factorVersion: number;
+  passwordBinding: string;
 }
 
-export function generateTOTPSetupToken(userId: number, secret: string): string {
+export function generateTOTPSetupToken(
+  userId: number,
+  secret: string,
+  sessionId: number,
+  factorVersion: number,
+  passwordHash: string,
+): string {
   return jwt.sign(
-    { purpose: "totp_setup", userId, secret },
+    {
+      purpose: "totp_setup",
+      userId,
+      secret,
+      sessionId,
+      factorVersion,
+      passwordBinding: hashToken(passwordHash),
+      jti: crypto.randomBytes(16).toString("hex"),
+    },
     getJwtSecret(),
     { expiresIn: 10 * 60 },
   );
@@ -106,7 +125,14 @@ export function generateTOTPSetupToken(userId: number, secret: string): string {
 export function verifyTOTPSetupToken(token: string): TOTPSetupTokenPayload | null {
   try {
     const payload = jwt.verify(token, getJwtSecret()) as TOTPSetupTokenPayload;
-    if (payload.purpose !== "totp_setup" || !payload.userId || !payload.secret) return null;
+    if (
+      payload.purpose !== "totp_setup" ||
+      !payload.userId ||
+      !payload.secret ||
+      !payload.sessionId ||
+      !Number.isInteger(payload.factorVersion) ||
+      !payload.passwordBinding
+    ) return null;
     return payload;
   } catch {
     return null;
@@ -130,13 +156,26 @@ export async function generateTOTPSecret(userEmail: string, appName: string = "C
 }
 
 export function verifyTOTPToken(token: string, secret: string): boolean {
-  if (!/^\d{6}$/.test(token)) return false;
-  return speakeasy.totp.verify({
+  return verifyTOTPTokenCounter(token, secret) !== null;
+}
+
+export function verifyTOTPTokenCounter(
+  token: string,
+  secret: string,
+  nowMs: number = Date.now(),
+): number | null {
+  if (!/^\d{6}$/.test(token)) return null;
+  const stepSeconds = 30;
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const match = speakeasy.totp.verifyDelta({
     secret,
     encoding: "base32",
     token,
     window: 1, // Allow one 30-second step of clock drift in either direction
+    step: stepSeconds,
+    time: nowSeconds,
   });
+  return match ? Math.floor(nowSeconds / stepSeconds) + match.delta : null;
 }
 
 // ============================================================================
@@ -144,7 +183,7 @@ export function verifyTOTPToken(token: string, secret: string): boolean {
 // ============================================================================
 
 export function generateEmailCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1_000_000).toString();
 }
 
 // ============================================================================
@@ -164,12 +203,16 @@ export async function hashBackupCodes(codes: string[]): Promise<string[]> {
 }
 
 export async function verifyBackupCode(code: string, hashedCodes: string[]): Promise<boolean> {
+  return (await findBackupCodeIndex(code, hashedCodes)) !== null;
+}
+
+export async function findBackupCodeIndex(code: string, hashedCodes: string[]): Promise<number | null> {
   for (const hashedCode of hashedCodes) {
     if (await verifyPassword(code, hashedCode)) {
-      return true;
+      return hashedCodes.indexOf(hashedCode);
     }
   }
-  return false;
+  return null;
 }
 
 // ============================================================================

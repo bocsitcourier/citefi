@@ -3,7 +3,7 @@ import { systemDb as db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { sendEmailVerificationCode } from "@/lib/email";
 
 export async function POST(req: Request) {
@@ -66,40 +66,53 @@ export async function POST(req: Request) {
     // Generate 6-digit code
     const code = generateEmailCode();
 
-    // Expire any existing codes for this user and purpose
-    await db
-      .update(emailVerificationCodes)
-      .set({ isUsed: 1 })
-      .where(
-        and(
-          eq(emailVerificationCodes.userId, userId),
-          eq(emailVerificationCodes.purpose, purpose)
-        )
-      );
+    const issued = await db.transaction(async (tx) => {
+      const [lockedUser] = await tx
+        .update(users)
+        .set({ passwordHash: sql`${users.passwordHash}` })
+        .where(eq(users.id, userId))
+        .returning({ id: users.id });
+      if (!lockedUser) return false;
 
-    // Create new code (expires in 10 minutes)
-    await db
-      .insert(emailVerificationCodes)
-      .values({
+      await tx
+        .update(emailVerificationCodes)
+        .set({ isUsed: 1 })
+        .where(
+          and(
+            eq(emailVerificationCodes.userId, userId),
+            eq(emailVerificationCodes.purpose, purpose)
+          )
+        );
+
+      await tx
+        .insert(emailVerificationCodes)
+        .values({
+          userId,
+          code,
+          purpose,
+          attempts: 0,
+          isUsed: 0,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        });
+
+      await tx.insert(activityLogs).values({
         userId,
-        code,
-        purpose,
-        attempts: 0,
-        isUsed: 0,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        action: "email_code_sent",
+        resource: "users",
+        resourceId: userId,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: { purpose },
+        severity: "info",
       });
-
-    // Log activity
-    await db.insert(activityLogs).values({
-      userId,
-      action: "email_code_sent",
-      resource: "users",
-      resourceId: userId,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { purpose },
-      severity: "info",
+      return true;
     });
+    if (!issued) {
+      return NextResponse.json({
+        message: "Verification code sent successfully",
+        expiresIn: 600,
+      });
+    }
 
     // Send the code via email. Errors are caught so a transient delivery failure
     // doesn't block the user — they can re-request a new code.
@@ -111,7 +124,10 @@ export async function POST(req: Request) {
         fullName: user.fullName,
       });
     } catch (emailErr) {
-      console.error(`Failed to send ${purpose} code to ${user.email}:`, emailErr);
+      console.error("Verification email delivery failed", {
+        purpose,
+        error: emailErr instanceof Error ? emailErr.message : "Unknown delivery error",
+      });
       // In development fall through — the code is still in the DB so the caller
       // can use the returned code field to test without a real SMTP server.
       if (process.env.NODE_ENV !== "development") {

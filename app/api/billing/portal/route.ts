@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { getStripeClient } from "@/lib/stripe";
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
 
     const [team] = await db
       .select({ stripeCustomerId: teams.stripeCustomerId })
@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
       return_url: `${appOrigin}/settings/billing`,
     });
 
-    return NextResponse.json({ url: portalSession.url });
+      return NextResponse.json({ url: portalSession.url });
+    });
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {
       return NextResponse.json({ error: err.message }, { status: err.status });

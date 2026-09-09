@@ -16,7 +16,7 @@ import {
   batchSeoCache 
 } from "@/shared/schema";
 import { eq, inArray, and } from "drizzle-orm";
-import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
@@ -24,7 +24,8 @@ export async function GET(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -129,6 +130,7 @@ export async function GET(
         failed: batchArticles.filter(a => a.articleStatus === "FAILED").length,
       },
     });
+      });
   } catch (error: any) {
     console.error("Error fetching batch:", error);
     return NextResponse.json(
@@ -144,7 +146,8 @@ export async function PATCH(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -228,6 +231,7 @@ export async function PATCH(
       success: true,
       batch: updatedBatch,
     });
+      });
   } catch (error: any) {
     console.error("❌ Error updating batch:", error);
     return NextResponse.json(
@@ -246,7 +250,8 @@ export async function DELETE(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -346,6 +351,7 @@ export async function DELETE(
       deletedBatchId: batchId,
       deletedArticlesCount: articleIds.length,
     });
+      });
   } catch (error: any) {
     console.error("Error deleting batch:", error);
     return NextResponse.json(

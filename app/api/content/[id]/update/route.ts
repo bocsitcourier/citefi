@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function PATCH(
   request: NextRequest,
@@ -10,7 +10,8 @@ export async function PATCH(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const resolvedParams = await params;
     const articleId = parseInt(resolvedParams.id);
@@ -66,6 +67,7 @@ export async function PATCH(
       success: true, 
       article: updated 
     });
+      });
   } catch (error: any) {
     console.error("Error updating article:", error);
     return NextResponse.json(

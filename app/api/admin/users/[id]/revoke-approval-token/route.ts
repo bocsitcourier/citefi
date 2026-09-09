@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, activityLogs, revokedApprovalTokens } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq } from "drizzle-orm";

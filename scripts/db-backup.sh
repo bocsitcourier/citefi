@@ -6,7 +6,7 @@
 #   5 2 * * * root /usr/local/bin/citefi-db-backup.sh >> /var/log/citefi-db-backup.log 2>&1
 #
 # All credentials are read from the app's .env.local (single source of truth):
-#   DATABASE_URL       — pg_dump connection target (postgresql://user:pass@host:port/db)
+#   DATABASE_URL       — pg_dump connection target (standard PostgreSQL URI)
 #   DO_SPACES_KEY      — DO Spaces / S3-compatible access key
 #   DO_SPACES_SECRET   — DO Spaces / S3-compatible secret key
 #   DO_SPACES_ENDPOINT — e.g. https://nyc3.digitaloceanspaces.com
@@ -21,6 +21,7 @@
 #   - Delete everything else.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+umask 077
 
 ENV_FILE="${BACKUP_ENV_FILE:-/var/www/citefi/.env.local}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/citefi-db}"
@@ -88,18 +89,68 @@ FILENAME="citefi_${TIMESTAMP}.sql.gz"
 LOCAL_PATH="${BACKUP_DIR}/${FILENAME}"
 
 mkdir -p "$BACKUP_DIR"
+chmod 0700 "$BACKUP_DIR"
 write_status "running" "Backup in progress"
 
-echo "${LOG_PREFIX} Starting pg_dump (target: ${DATABASE_URL%%@*}@...)..."
+echo "${LOG_PREFIX} Starting pg_dump..."
 
-# pg_dump accepts a full libpq connection URI via --dbname.
-# The password is embedded in DATABASE_URL; no PGPASSWORD needed.
-pg_dump \
-  --dbname="$DATABASE_URL" \
-  --no-owner \
-  --no-acl \
-  --compress=0 \
-  | gzip -9 > "$LOCAL_PATH"
+# Plain pg_dump output cannot create cluster roles, while --no-acl omits the
+# tenant grants needed after a disaster restore. Build one self-contained SQL
+# stream: bootstrap the constrained role, restore schema/data/policies, then
+# replay the role's current table grants plus its fixed schema/sequence/function
+# privileges. Never export login roles or password hashes.
+TENANT_TABLE_GRANT_COUNT="$(psql "$DATABASE_URL" -XAtqc \
+  "SELECT count(*) FROM information_schema.role_table_grants WHERE grantee = 'citefi_tenant'")"
+[[ "$TENANT_TABLE_GRANT_COUNT" =~ ^[0-9]+$ && "$TENANT_TABLE_GRANT_COUNT" -gt 0 ]] || {
+  echo "${LOG_PREFIX} ERROR: citefi_tenant table grants are missing" >&2
+  exit 1
+}
+
+{
+  cat <<'SQL'
+DO $citefi_role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'citefi_tenant') THEN
+    CREATE ROLE citefi_tenant
+      NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+      INHERIT NOREPLICATION NOBYPASSRLS;
+  ELSIF EXISTS (
+    SELECT 1 FROM pg_roles
+     WHERE rolname = 'citefi_tenant'
+       AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolcanlogin)
+  ) THEN
+    RAISE EXCEPTION 'existing citefi_tenant role has unsafe attributes';
+  END IF;
+END
+$citefi_role$;
+GRANT citefi_tenant TO CURRENT_USER;
+SQL
+
+  pg_dump \
+    --dbname="$DATABASE_URL" \
+    --no-owner \
+    --no-acl \
+    --compress=0
+
+  psql "$DATABASE_URL" -XAtq -v ON_ERROR_STOP=1 <<'SQL'
+SELECT format(
+  'GRANT %s ON TABLE %I.%I TO citefi_tenant;',
+  string_agg(privilege_type, ', ' ORDER BY privilege_type),
+  table_schema,
+  table_name
+)
+FROM information_schema.role_table_grants
+WHERE grantee = 'citefi_tenant'
+GROUP BY table_schema, table_name
+ORDER BY table_schema, table_name;
+SELECT 'GRANT USAGE ON SCHEMA public TO citefi_tenant;';
+SELECT 'GRANT USAGE ON SCHEMA citefi_rls TO citefi_tenant;'
+WHERE to_regnamespace('citefi_rls') IS NOT NULL;
+SELECT 'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO citefi_tenant;';
+SELECT 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA citefi_rls TO citefi_tenant;'
+WHERE to_regnamespace('citefi_rls') IS NOT NULL;
+SQL
+} | gzip -9 > "$LOCAL_PATH"
 
 DUMP_SIZE="$(du -sh "$LOCAL_PATH" | cut -f1)"
 echo "  Dump written: ${LOCAL_PATH} (${DUMP_SIZE})"
@@ -128,7 +179,7 @@ ALL_BACKUPS="$(aws s3 ls "s3://${DO_SPACES_BUCKET}/${SPACES_PREFIX}/" \
 if [[ -z "$ALL_BACKUPS" ]]; then
   echo "  No backups found to prune (unexpected — just uploaded one)."
   echo "${LOG_PREFIX} Backup complete: ${FILENAME}"
-  write_status "success" "Backup uploaded successfully"
+  write_status "success" "Backup uploaded; restore verification is recorded separately"
   exit 0
 fi
 
@@ -207,4 +258,4 @@ done < <(echo "$ALL_BACKUPS")
 
 echo "  Retention: kept ${#KEEP[@]} (${DAILY_KEPT} daily + ${#EXTRA_WEEKS[@]} extra weekly), pruned ${DELETED}."
 echo "${LOG_PREFIX} Backup complete: ${FILENAME}"
-write_status "success" "Backup uploaded successfully"
+write_status "success" "Backup uploaded; restore verification is recorded separately"

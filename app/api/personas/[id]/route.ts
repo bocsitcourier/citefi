@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { psychographicService } from "@/lib/psychographic-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await params;
 
     const persona = await psychographicService.getPersona(teamId, parseInt(id));
@@ -26,6 +26,7 @@ export async function GET(
       persona,
       guidelines,
     });
+    });
   } catch (error: any) {
     console.error("Failed to get persona:", error);
     return NextResponse.json(
@@ -40,7 +41,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await params;
     const body = await request.json();
 
@@ -57,6 +58,7 @@ export async function PUT(
       success: true,
       persona,
     });
+    });
   } catch (error: any) {
     console.error("Failed to update persona:", error);
     return NextResponse.json(
@@ -71,7 +73,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await params;
 
     const deleted = await psychographicService.deletePersona(teamId, parseInt(id));
@@ -86,6 +88,7 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: "Persona deleted",
+    });
     });
   } catch (error: any) {
     console.error("Failed to delete persona:", error);

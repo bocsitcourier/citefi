@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { addVideoIdeaJob } from "@/lib/queue";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
@@ -39,7 +39,8 @@ export async function POST(
   let capReservationId: number | null = null;
 
   try {
-    const auth = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+    try {
     teamId = auth.teamId;
     const userId = auth.userId;
 
@@ -178,13 +179,16 @@ export async function POST(
       message: "Like Video generation started. The style from your reference video will be applied.",
       estimatedTime: "60-80 minutes",
     });
-
-  } catch (error: any) {
-    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-    if (creditRunId && teamId) {
-      await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in like-video route" })
-        .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
+    } catch (error) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      if (creditRunId && teamId) {
+        await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in like-video route" })
+          .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
+      }
+      throw error;
     }
+    });
+  } catch (error: any) {
     console.error("Error starting like video generation:", error);
     return NextResponse.json(
       { error: "Failed to start like video generation" },

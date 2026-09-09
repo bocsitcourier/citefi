@@ -9,7 +9,7 @@ import {
 } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { requireTeamMember, requireTeamResource } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
 
 const updateSocialPostSchema = z.object({
   topic: z.string().optional(),
@@ -35,7 +35,7 @@ export async function GET(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await params;
     const postId = parseInt(id);
@@ -69,6 +69,7 @@ export async function GET(
       .where(eq(socialPostVariants.socialPostId, postId));
 
     return NextResponse.json({ ...post, variants });
+    });
   } catch (error: any) {
     console.error("Error fetching social post:", error);
     return NextResponse.json(
@@ -84,7 +85,7 @@ export async function PUT(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await params;
     const postId = parseInt(id);
@@ -142,6 +143,7 @@ export async function PUT(
     });
 
     return NextResponse.json({ success: true, post: updatedPost });
+    });
   } catch (error: any) {
     console.error("Error updating social post:", error);
 
@@ -165,7 +167,7 @@ export async function PATCH(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await params;
     const postId = parseInt(id);
@@ -214,6 +216,7 @@ export async function PATCH(
     });
 
     return NextResponse.json({ success: true, post: updatedPost });
+    });
   } catch (error: any) {
     console.error("Error scheduling social post:", error);
 
@@ -237,7 +240,7 @@ export async function DELETE(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { id } = await params;
     const postId = parseInt(id);
@@ -286,6 +289,7 @@ export async function DELETE(
     return NextResponse.json({ 
       success: true,
       message: "Post and all related data deleted",
+    });
     });
   } catch (error: any) {
     console.error("Error deleting social post:", error);

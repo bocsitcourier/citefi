@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { dailyBriefs, dailyBriefDeliveries, dailyBriefPreferences, users, teamMembers } from "@/shared/schema";
 import { requireAdmin } from "@/lib/api/auth";
 import { eq, and, desc, inArray } from "drizzle-orm";

@@ -3,14 +3,15 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { regenerateHashtags } from "@/lib/seo-regenerator";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await params;
     const articleId = parseInt(id);
 
@@ -53,6 +54,7 @@ export async function POST(
       success: true,
       hashtags: newHashtags,
     });
+      });
   } catch (error: any) {
     console.error("Failed to regenerate hashtags:", error);
     return NextResponse.json(

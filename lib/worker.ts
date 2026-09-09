@@ -5103,8 +5103,8 @@ export async function registerWorkers() {
   console.log("🤝 Registering signup competitor intake worker for queue:", SIGNUP_COMPETITOR_INTAKE_QUEUE);
   try {
     createPipelineWorker<SignupCompetitorIntakeJobData>(SIGNUP_COMPETITOR_INTAKE_QUEUE, async (job) => {
-      const { intakeId, email, companyName, websiteUrl, teamId } = job.data;
-      console.log(`🤝 Processing signup competitor intake job ${job.id}: ${email}`);
+      const { intakeId, companyName, websiteUrl, teamId } = job.data;
+      console.log(`🤝 Processing signup competitor intake job ${job.id}`);
 
       try {
         // 1. Load intake row
@@ -5134,7 +5134,7 @@ export async function registerWorkers() {
             .set({ status: 'resolved', updatedAt: new Date() })
             .where(eq(signupCompetitorIntake.id, intakeId));
           
-          console.log(`✅ Signup competitor intake job ${job.id} resolved for ${email}`);
+          console.log(`✅ Signup competitor intake job ${job.id} resolved`);
         } else {
           await db.update(signupCompetitorIntake)
             .set({ status: 'pending_team', updatedAt: new Date() })

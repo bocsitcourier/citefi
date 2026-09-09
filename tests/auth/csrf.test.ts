@@ -38,12 +38,15 @@ describe("cookie authentication CSRF", () => {
     assert.doesNotThrow(() => requireCookieCsrf(request));
   });
 
-  test("does not require CSRF for bearer clients", () => {
+  test("a bearer-shaped header cannot bypass cookie CSRF proof", () => {
     const request = new Request("https://app.example/api/admin/mutation", {
       method: "DELETE",
-      headers: { authorization: "Bearer api-token" },
+      headers: {
+        authorization: "Bearer stale-or-invalid-token",
+        cookie: "auth_token=valid-cookie-session",
+      },
     });
-    assert.doesNotThrow(() => requireCookieCsrf(request));
+    assert.throws(() => requireCookieCsrf(request), (error: any) => error.statusCode === 403);
   });
 
   test("rejects unsigned or mismatched tokens", () => {

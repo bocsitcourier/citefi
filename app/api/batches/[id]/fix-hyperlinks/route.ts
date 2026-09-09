@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { buildSlugMap, injectLinksWithIntent, buildFallbackTerms } from "@/lib/slug-map-injector";
 
 /**
@@ -22,7 +22,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await params;
     const batchId = parseInt(id);
     // ?force=true strips existing hyperlinks and re-injects via quality-filtered pipeline.
@@ -206,6 +207,7 @@ export async function POST(
       },
       results,
     });
+      });
   } catch (error: any) {
     console.error("Fix hyperlinks error:", error);
     const statusCode = (error as any)?.statusCode ?? 500;

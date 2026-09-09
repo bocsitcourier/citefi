@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articleAssets, articles, socialPostAssets, socialPosts } from "@/shared/schema";
 import { eq, desc, and, isNull } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 // Helper: Convert any absolute URL to a relative /api/public-objects/ path.
 function normalizeMediaUrl(url: string | null): string | null {
@@ -28,7 +28,8 @@ function normalizeMediaUrl(url: string | null): string | null {
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const searchParams = request.nextUrl.searchParams;
     const articleId = searchParams.get('articleId');
     const assetType = searchParams.get('type') as 'image' | 'audio' | 'video' | null;
@@ -185,6 +186,7 @@ export async function GET(request: NextRequest) {
       count: assets.length,
     });
 
+      });
   } catch (error: any) {
     const status = error?.statusCode ?? 500;
     if (status !== 500) {

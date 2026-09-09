@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireAdmin } from "@/lib/api/auth";
 import { computeIntelligence, getIntelligence } from "@/lib/client-intelligence-service";
 import { z } from "zod";
 
@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: Promise<{ teamId: string }> }
 ) {
   try {
-    const { teamId: authTeamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId: authTeamId }) => {
     const resolvedParams = await params;
     const requestedTeamId = parseInt(resolvedParams.teamId);
 
@@ -48,6 +48,7 @@ export async function GET(
     });
 
     return NextResponse.json({ intelligence: rows, count: rows.length, windowDays });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {
@@ -63,7 +64,7 @@ export async function POST(
   { params }: { params: Promise<{ teamId: string }> }
 ) {
   try {
-    const { teamId: authTeamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId: authTeamId }) => {
     const resolvedParams = await params;
     const requestedTeamId = parseInt(resolvedParams.teamId);
 
@@ -89,6 +90,7 @@ export async function POST(
       ok: true,
       processed: result.processed,
       windowDays,
+    });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

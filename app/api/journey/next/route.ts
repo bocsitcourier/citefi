@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireAdmin } from "@/lib/api/auth";
 import { getNextContent } from "@/lib/journey-orchestrator-service";
 
 const bodySchema = z.object({
@@ -22,7 +22,7 @@ const bodySchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId: authTeamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId: authTeamId }) => {
 
     const body = await req.json().catch(() => null);
     const parsed = bodySchema.safeParse(body);
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(result);
+    });
   } catch (err: any) {
     const status = err?.statusCode ?? err?.status ?? 500;
     return NextResponse.json(

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { articles, jobBatches, creditBalances, teams } from "@/shared/schema";
 import { eq, and, isNull, count, desc, sql } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { eq, and, isNull, count, desc, sql } from "drizzle-orm";
 /** GET /api/client/dashboard — read-only summary for client teams */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const [[team], [balanceRow], articleStats, recentBatches] = await Promise.all([
       db.select({ id: teams.id, name: teams.name, parentTeamId: teams.parentTeamId, billingPlan: teams.billingPlan })
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
         draft: articleStats[0]?.draft ?? 0,
       },
       recentBatches,
+    });
     });
   } catch (err: any) {
     const httpStatus = err.status ?? err.statusCode;

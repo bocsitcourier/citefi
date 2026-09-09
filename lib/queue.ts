@@ -768,9 +768,7 @@ export async function addSignupCompetitorIntakeJob(
     }
   );
 
-  console.log(
-    `🤝 Signup competitor intake job queued: ${job.id} for ${data.email}`
-  );
+  console.log(`🤝 Signup competitor intake job queued: ${job.id}`);
   return job.id ?? null;
 }
 

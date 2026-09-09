@@ -6,7 +6,7 @@ import { z } from "zod";
 import { generateSingleImage } from "@/lib/gemini-image-generator";
 import { uploadMedia } from "@/lib/storage";
 import { createImageBrandLockPromptSegment } from "@/lib/branding";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const regenerateSchema = z.object({
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
@@ -17,7 +17,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await params;
     const assetId = parseInt(id);
 
@@ -194,6 +195,7 @@ export async function POST(
       message: "Image regenerated successfully",
     });
 
+      });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

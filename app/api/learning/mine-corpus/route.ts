@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { contentReviewService } from "@/lib/content-review-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const body = await req.json();
     const { contentType, limit, judgeSampleRate } = body;
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, ...result });
+    });
   } catch (error: any) {
     console.error("Mine corpus error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {

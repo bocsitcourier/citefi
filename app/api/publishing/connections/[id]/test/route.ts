@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { testConnection } from '@/lib/publishing';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
 
     const connectionId = parseInt(id, 10);
@@ -28,6 +29,7 @@ export async function POST(
       success: false,
       error: result.error,
     }, { status: 400 });
+      });
   } catch (error: any) {
     console.error('Error testing connection:', error);
     return NextResponse.json(

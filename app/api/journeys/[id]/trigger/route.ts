@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { journeys, journeySteps, articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -12,7 +12,7 @@ const triggerSchema = z.object({
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const journeyId = parseInt(id);
     if (isNaN(journeyId)) return NextResponse.json({ error: "Invalid journey id" }, { status: 400 });
 
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .orderBy(journeySteps.stepIndex);
 
     return NextResponse.json({ journey: updated, steps: scheduledSteps });
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403)

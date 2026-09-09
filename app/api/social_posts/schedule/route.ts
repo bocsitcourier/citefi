@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { socialPosts, socialPostLogs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const scheduleSchema = z.object({
   socialPostId: z.number(),
@@ -13,7 +13,7 @@ const scheduleSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const body = await request.json();
     const { socialPostId, scheduleAt } = scheduleSchema.parse(body);
@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       success: true, 
       post: updatedPost,
       message: `Post scheduled for ${scheduleAt}`
+    });
     });
   } catch (error: any) {
     console.error("Error scheduling social post:", error);

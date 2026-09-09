@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, clientBrandProfiles } from "@/shared/schema";
 import { eq, and, isNull, inArray } from "drizzle-orm";
@@ -12,7 +12,7 @@ import { eq, and, isNull, inArray } from "drizzle-orm";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
 
     // Fetch all client teams under this agency
     const clientTeams = await db
@@ -61,7 +61,8 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    return NextResponse.json({ statuses });
+      return NextResponse.json({ statuses });
+    });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     console.error("GET /api/intelligence/agency error:", err);

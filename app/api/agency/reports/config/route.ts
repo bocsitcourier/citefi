@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { requireTeamAdmin, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { upsertAgencyReportConfig } from "@/lib/agency-report-service";
 
 export async function PUT(request: NextRequest) {
   try {
-    const auth = await requireTeamAdmin(request);
-    const input = await request.json();
-    return await runWithAuthenticatedTeamContext(auth, async () => {
+    return await withAuthenticatedTeamAdminContext(request, async () => {
+      const input = await request.json();
       const config = await upsertAgencyReportConfig(input);
       return NextResponse.json({ config });
     });

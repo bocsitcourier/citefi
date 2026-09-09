@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { systemDb as db } from "@/lib/db";
-import { users, passwordResets, activityLogs } from "@/shared/schema";
+import {
+  users,
+  passwordResets,
+  emailVerificationCodes,
+  sessions,
+  loginChallenges,
+  activityLogs,
+} from "@/shared/schema";
 import { hashToken, hashPassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and, lt, ne, gt } from "drizzle-orm";
+import { eq, and, ne, gt, isNull, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   try {
@@ -88,56 +95,101 @@ export async function POST(req: NextRequest) {
     const tokenHash = hashToken(token);
     const now = new Date();
 
-    // Atomically consume the reset token in a single conditional UPDATE.
-    // A two-step SELECT → UPDATE pattern allows two concurrent requests to both
-    // read status='pending' before either marks it used, enabling a race where
-    // both requests successfully reset the password to different values.
-    // A single UPDATE with all predicates in the WHERE clause ensures only one
-    // concurrent request can win; the other gets 0 rows back.
-    const [consumed] = await db
-      .update(passwordResets)
-      .set({ status: "used", usedAt: now })
-      .where(
-        and(
+    const passwordHash = await hashPassword(newPassword);
+    const resetApplied = await db.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ id: passwordResets.id, userId: passwordResets.userId })
+        .from(passwordResets)
+        .where(and(
           eq(passwordResets.tokenHash, tokenHash),
           eq(passwordResets.status, "pending"),
-          gt(passwordResets.expiresAt, now)
-        )
-      )
-      .returning({ userId: passwordResets.userId, id: passwordResets.id });
+          gt(passwordResets.expiresAt, now),
+        ))
+        .limit(1);
+      if (!candidate) return false;
 
-    if (!consumed) {
-      return NextResponse.json({ error: "Invalid or expired link. Please request a new one." }, { status: 400 });
-    }
+      const [lockedUser] = await tx
+        .update(users)
+        .set({ passwordHash: sql`${users.passwordHash}` })
+        .where(eq(users.id, candidate.userId))
+        .returning({ id: users.id });
+      if (!lockedUser) return false;
 
-    const passwordHash = await hashPassword(newPassword);
+      const [consumed] = await tx
+        .update(passwordResets)
+        .set({ status: "used", usedAt: now })
+        .where(and(
+          eq(passwordResets.id, candidate.id),
+          eq(passwordResets.tokenHash, tokenHash),
+          eq(passwordResets.status, "pending"),
+          gt(passwordResets.expiresAt, now),
+        ))
+        .returning({ userId: passwordResets.userId, id: passwordResets.id });
+      if (!consumed) return false;
 
-    await db.update(users).set({ passwordHash }).where(eq(users.id, consumed.userId));
+      const [updatedUser] = await tx.update(users)
+        .set({
+          passwordHash,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        })
+        .where(eq(users.id, consumed.userId))
+        .returning({ id: users.id });
+      if (!updatedUser) throw new Error("Password reset user no longer exists");
 
-    // Cancel any other pending resets for this user (e.g. multiple forgot-password clicks)
-    await db
-      .update(passwordResets)
-      .set({ status: "cancelled" })
-      .where(
-        and(
+      await tx.update(passwordResets)
+        .set({ status: "cancelled" })
+        .where(and(
           eq(passwordResets.userId, consumed.userId),
           eq(passwordResets.status, "pending"),
-          ne(passwordResets.id, consumed.id)
-        )
-      );
-
-    await db.insert(activityLogs).values({
-      userId: consumed.userId,
-      action: "password_reset_completed",
-      resource: "users",
-      resourceId: consumed.userId,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { resetType: "token_link" },
-      severity: "info",
+          ne(passwordResets.id, consumed.id),
+        ));
+      await tx.update(emailVerificationCodes)
+        .set({ isUsed: 1 })
+        .where(and(
+          eq(emailVerificationCodes.userId, consumed.userId),
+          eq(emailVerificationCodes.purpose, "password_reset"),
+          eq(emailVerificationCodes.isUsed, 0),
+        ));
+      await tx.update(sessions)
+        .set({
+          isActive: 0,
+          forceLogoutAt: now,
+          terminationReason: "Password reset completed",
+        })
+        .where(and(
+          eq(sessions.userId, consumed.userId),
+          eq(sessions.isActive, 1),
+        ));
+      await tx.update(loginChallenges)
+        .set({ consumedAt: now })
+        .where(and(
+          eq(loginChallenges.userId, consumed.userId),
+          isNull(loginChallenges.consumedAt),
+        ));
+      await tx.insert(activityLogs).values({
+        userId: consumed.userId,
+        action: "password_reset_completed",
+        resource: "users",
+        resourceId: consumed.userId,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: { resetType: "token_link", allSessionsRevoked: true },
+        severity: "warning",
+      });
+      return true;
     });
+    if (!resetApplied) {
+      return NextResponse.json(
+        { error: "Invalid or expired link. Please request a new one." },
+        { status: 400 },
+      );
+    }
 
-    return NextResponse.json({ success: true, message: "Password updated successfully" });
+    return NextResponse.json(
+      { success: true, message: "Password updated successfully. Sign in again on every device." },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("[reset-password-token POST]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

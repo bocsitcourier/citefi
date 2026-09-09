@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
   CAMPAIGN_GOALS,
   createOrReuseCampaign,
@@ -43,7 +43,7 @@ const createSchema = z.object({
  */
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const summaries = await listCampaigns(teamId);
     return NextResponse.json({
       success: true,
@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         ...campaign,
         counts,
       })),
+    });
     });
   } catch (err: any) {
     if (err.statusCode)
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const body = await request.json().catch(() => ({}));
     const parsed = createSchema.parse(body);
 
@@ -133,6 +134,7 @@ export async function POST(request: NextRequest) {
       reused,
       campaign: current,
       research,
+    });
     });
   } catch (err: any) {
     if (err.statusCode)

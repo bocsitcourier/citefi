@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { sessions, users } from '@/shared/schema';
-import { requireAdminById, verifyToken } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 import { eq, and, isNull, gt, desc } from 'drizzle-orm';
 
 export async function GET(
@@ -9,12 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await verifyToken(req);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    await requireAdminById(auth.userId);
+    await requireAdmin(req);
 
     const { id } = await params;
     const userId = parseInt(id);

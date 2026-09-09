@@ -3,15 +3,21 @@ import { db } from "@/lib/db";
 import { jobBatches, jobEvents } from "@/shared/schema";
 import { generateTitlePool, generateTitlePoolForMultipleCities, parseMultipleCities } from "@/lib/gemini";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import {
+  runWithAuthenticatedTeamContext,
+  withAuthenticatedTeamContext,
+} from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  let authenticatedAuth: { userId: number; teamId: number; role: string } | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      authenticatedAuth = auth;
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const batchId = parseInt(id);
@@ -164,16 +170,24 @@ export async function POST(
       primaryKeywords: allKeywords,
       contentStrategy: strategy,
     });
+      });
   } catch (error: any) {
     console.error("❌ Title regeneration error:", error);
-    
-    await db.insert(jobEvents).values({
-      batchId: parseInt((await context.params).id),
-      eventType: "TITLE_POOL_REGENERATION_FAILED",
-      stage: "GEMINI",
-      message: `Failed to regenerate titles: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      severity: "error",
-    });
+
+    const recordFailure = async () => {
+      await db.insert(jobEvents).values({
+        batchId: parseInt((await context.params).id),
+        eventType: "TITLE_POOL_REGENERATION_FAILED",
+        stage: "GEMINI",
+        message: `Failed to regenerate titles: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        severity: "error",
+      });
+    };
+    if (authenticatedAuth) {
+      await runWithAuthenticatedTeamContext(authenticatedAuth, recordFailure);
+    } else {
+      await recordFailure();
+    }
 
     return NextResponse.json(
       { 

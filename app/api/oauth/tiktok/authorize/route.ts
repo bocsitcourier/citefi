@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 import { db } from '@/lib/db';
 import { publishingConnections } from '@/shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
@@ -16,7 +16,7 @@ const TIKTOK_SCOPES = [
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     
     const { searchParams } = new URL(request.url);
     const connectionId = searchParams.get('connectionId');
@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       authorizationUrl: authUrl.toString(),
+    });
     });
   } catch (error: any) {
     console.error('TikTok OAuth authorize error:', error);

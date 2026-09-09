@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember, requireAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext, requireAdmin } from "@/lib/api/auth";
 import { getJourneyStats } from "@/lib/journey-orchestrator-service";
 
 export async function GET(
@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: Promise<{ teamId: string }> }
 ) {
   try {
-    const { teamId: authTeamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId: authTeamId }) => {
 
     const { teamId: teamIdStr } = await params;
     const teamId = parseInt(teamIdStr, 10);
@@ -31,6 +31,7 @@ export async function GET(
 
     const stats = await getJourneyStats(teamId);
     return NextResponse.json(stats);
+    });
   } catch (err: any) {
     const status = err?.statusCode ?? err?.status ?? 500;
     return NextResponse.json(

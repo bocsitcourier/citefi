@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { LearningService } from "@/lib/learning-service";
 
 /**
@@ -9,13 +9,14 @@ import { LearningService } from "@/lib/learning-service";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const contentType = req.nextUrl.searchParams.get("contentType") || "social";
 
     const learningService = LearningService.getInstance();
     const patterns = await learningService.getExternalPatterns(teamId, contentType);
 
     return NextResponse.json({ patterns });
+    });
   } catch (err: any) {
     if (err.statusCode) return NextResponse.json({ error: err.message }, { status: err.statusCode });
     console.error("GET /api/intelligence/competitive-patterns error:", err);

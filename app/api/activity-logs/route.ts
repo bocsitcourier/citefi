@@ -3,12 +3,12 @@ import { db } from "@/lib/db";
 import { activityLogs, teamMembers } from "@/shared/schema";
 import { desc, eq, and, or, sql, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 // GET /api/activity-logs - Query activity logs with team filtering
 export async function GET(request: NextRequest) {
   try {
-    const { userId: authUserId, teamId: authTeamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId: authUserId, teamId: authTeamId }) => {
     const { searchParams } = new URL(request.url);
     
     // Parse query parameters
@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
         offset,
         hasMore: offset + limit < (countResult?.count ?? 0),
       },
+    });
     });
   } catch (error: any) {
     console.error("Failed to fetch activity logs:", error);

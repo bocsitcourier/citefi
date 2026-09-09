@@ -17,8 +17,10 @@ const agencyRoutes = [
   "app/api/agency/reports/[id]/send/route.ts",
 ];
 
-test("all agency report routes require agency admin authentication", () => {
-  for (const route of agencyRoutes) assert.match(read(route), /requireTeamAdmin\(request\)/, route);
+test("all agency report routes use callback-scoped agency admin authentication", () => {
+  for (const route of agencyRoutes) {
+    assert.match(read(route), /withAuthenticatedTeamAdminContext\(request/, route);
+  }
 });
 
 test("client routes require reviewer auth and never reference agency-only projections", () => {
@@ -27,7 +29,7 @@ test("client routes require reviewer auth and never reference agency-only projec
     "app/api/client/reports/[id]/download/route.ts",
   ]) {
     const source = read(route);
-    assert.match(source, /requireClientReviewer\(request\)/);
+    assert.match(source, /withAuthenticatedClientReviewerContext\(request/);
     assert.doesNotMatch(source, /agencyRebilling|markup|prompt|provider|model|cost|internalError/i);
   }
 });

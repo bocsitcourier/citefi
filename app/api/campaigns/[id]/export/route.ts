@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import archiver from "archiver";
 import { PassThrough } from "stream";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
   getCampaignByPublicId,
   loadCampaignExportContent,
@@ -25,7 +25,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const { id } = await context.params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json({ error: "Invalid campaign ID" }, { status: 400 });
@@ -165,6 +165,7 @@ export async function GET(
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="campaign-${campaign.publicId}-export.zip"`,
       },
+    });
     });
   } catch (err: any) {
     if (err.statusCode)

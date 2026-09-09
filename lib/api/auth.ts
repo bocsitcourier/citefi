@@ -4,10 +4,8 @@ import { users, sessions, teamMembers, teams } from "@/shared/schema";
 import { verifyToken as verifyJWT, hashToken } from "@/lib/auth";
 import { eq, and, isNull, gt, ne } from "drizzle-orm";
 import {
-  enterBlockedDatabaseContext,
-  enterSystemContext,
-  enterTenantContext,
   runWithTenantContext,
+  runWithSystemContext,
 } from "@/lib/tenant-context";
 import { requireCookieCsrf } from "@/lib/csrf";
 
@@ -28,6 +26,16 @@ export interface AuthenticatedUser {
   teamId: number | null; // Multi-tenant team context
 }
 
+export interface VerifiedSession {
+  userId: number;
+  email: string;
+  role: string;
+  sessionId: number;
+  teamContextId: number | null;
+  authAssurance: string;
+  mfaVerifiedAt: Date | null;
+}
+
 export const AUTH_COOKIE_NAME = "auth_token";
 
 type TeamAuthResult = { userId: number; teamId: number; role: string };
@@ -44,13 +52,34 @@ export function runWithAuthenticatedTeamContext<T>(
   }, fn);
 }
 
+export async function withAuthenticatedTeamContext<T>(
+  req: NextRequest,
+  fn: (auth: TeamAuthResult) => T,
+): Promise<Awaited<T>> {
+  const auth = await requireTeamMember(req);
+  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+}
+
+export async function withAuthenticatedTeamAdminContext<T>(
+  req: NextRequest,
+  fn: (auth: TeamAuthResult) => T,
+): Promise<Awaited<T>> {
+  const auth = await requireTeamAdmin(req);
+  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+}
+
+export async function withAuthenticatedClientReviewerContext<T>(
+  req: NextRequest,
+  fn: (auth: TeamAuthResult) => T,
+): Promise<Awaited<T>> {
+  const auth = await requireClientReviewer(req);
+  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+}
+
 function activateTenantContext(result: TeamAuthResult): TeamAuthResult {
-  enterTenantContext({
-    actorType: "web",
-    userId: result.userId,
-    teamId: result.teamId,
-    role: result.role,
-  });
+  // Authorization guards return claims only. Database authority is established
+  // by the bounded withAuthenticated* callbacks above, never as an ambient
+  // side effect of an awaited guard.
   return result;
 }
 
@@ -170,12 +199,6 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
       teamId: teamMembership.teamId,
       role: teamMembership.role,
     });
-  } else {
-    // verifyTokenFromRequestImpl performs session verification in a temporary
-    // system scope. A user with no valid team must never inherit that privilege.
-    enterBlockedDatabaseContext(
-      `authenticated user ${user.id} has no validated tenant context`
-    );
   }
 
   return {
@@ -234,7 +257,13 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
   // Re-fetch role and accountStatus from DB — JWT role may be stale if the user
   // was demoted or suspended after their last login.
   const [user] = await db
-    .select({ role: users.role, accountStatus: users.accountStatus })
+    .select({
+      role: users.role,
+      accountStatus: users.accountStatus,
+      twoFactorEnabled: users.twoFactorEnabled,
+      twoFactorMethod: users.twoFactorMethod,
+      mfaEnrollmentDeadline: users.mfaEnrollmentDeadline,
+    })
     .from(users)
     .where(eq(users.id, authResult.userId))
     .limit(1);
@@ -250,9 +279,50 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
     error.statusCode = 403;
     throw error;
   }
+  if (
+    user.twoFactorEnabled === 1 &&
+    (user.twoFactorMethod !== "totp" || authResult.authAssurance !== "mfa")
+  ) {
+    const error: any = new Error("Administrator MFA verification required");
+    error.statusCode = 403;
+    error.code = "ADMIN_MFA_REQUIRED";
+    throw error;
+  }
+  if (
+    user.twoFactorEnabled !== 1 &&
+    (
+      !user.mfaEnrollmentDeadline ||
+      user.mfaEnrollmentDeadline.getTime() <= Date.now()
+    )
+  ) {
+    const error: any = new Error("Administrator MFA enrollment required");
+    error.statusCode = 403;
+    error.code = "ADMIN_MFA_ENROLLMENT_REQUIRED";
+    throw error;
+  }
 
-  enterSystemContext(`platform admin request by user ${authResult.userId}`);
   return authResult.userId;
+}
+
+export async function requireRecentAdminMfa(
+  req: NextRequest,
+  maxAgeMs: number = 15 * 60 * 1000,
+): Promise<number> {
+  const userId = await requireAdmin(req);
+  const authResult = await verifyTokenFromRequestImpl(req);
+  if (
+    !authResult ||
+    authResult.userId !== userId ||
+    authResult.authAssurance !== "mfa" ||
+    !authResult.mfaVerifiedAt ||
+    Date.now() - authResult.mfaVerifiedAt.getTime() > maxAgeMs
+  ) {
+    const error: any = new Error("Recent administrator MFA verification required");
+    error.statusCode = 403;
+    error.code = "RECENT_ADMIN_MFA_REQUIRED";
+    throw error;
+  }
+  return userId;
 }
 
 /**
@@ -260,11 +330,17 @@ export async function requireAdmin(req: NextRequest): Promise<number> {
  * Returns null if token is invalid or session is terminated
  * Exported as both verifyTokenFromRequest and as an alias verifyToken for backwards compatibility
  */
-async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: number; email: string; role: string; sessionId: number; teamContextId: number | null } | null> {
+async function verifyTokenFromRequestImpl(req: NextRequest): Promise<VerifiedSession | null> {
+  return runWithSystemContext(
+    "authenticated session bootstrap",
+    () => verifyTokenInSystemScope(req),
+  );
+}
+
+async function verifyTokenInSystemScope(req: NextRequest): Promise<VerifiedSession | null> {
   // Session and identity lookup is a deliberate pre-tenant bootstrap phase.
-  // Team-scoped guards replace this with a validated tenant context before
-  // returning to their route; identity/admin callers remain explicitly system.
-  enterSystemContext("authenticated session bootstrap");
+  // Callback scoping prevents rejected authentication attempts from leaving
+  // ambient system authority in the caller's async continuation.
 
   // Build ordered candidate list: Bearer header first, then HttpOnly cookie.
   // If Bearer holds a stale/revoked token (e.g. localStorage legacy token), we
@@ -341,6 +417,8 @@ async function verifyTokenFromRequestImpl(req: NextRequest): Promise<{ userId: n
       role: payload.role,
       sessionId: session.id,
       teamContextId: session.teamContextId ?? null,
+      authAssurance: session.authAssurance,
+      mfaVerifiedAt: session.mfaVerifiedAt,
     };
   }
 
@@ -609,7 +687,14 @@ export async function requireTeamAdmin(req: NextRequest): Promise<TeamAuthResult
  * Useful for routes that should work for users even if not in a team
  * Uses session-aware token verification to prevent false token expiry errors
  */
-export async function requireAuth(req: NextRequest): Promise<{ userId: number; teamId: number | null; role: string }> {
+export async function requireAuth(req: NextRequest): Promise<{
+  userId: number;
+  sessionId: number;
+  teamId: number | null;
+  role: string;
+  authAssurance: string;
+  mfaVerifiedAt: Date | null;
+}> {
   // Use session-aware verification instead of direct JWT validation
   const authResult = await verifyTokenFromRequestImpl(req);
   
@@ -642,22 +727,13 @@ export async function requireAuth(req: NextRequest): Promise<{ userId: number; t
     user.id,
     authResult.teamContextId ?? user.defaultTeamId
   );
-  if (teamMembership) {
-    activateTenantContext({
-      userId: user.id,
-      teamId: teamMembership.teamId,
-      role: teamMembership.role,
-    });
-  } else {
-    enterBlockedDatabaseContext(
-      `authenticated user ${user.id} has no validated tenant context`
-    );
-  }
-  
   return {
     userId: user.id,
+    sessionId: authResult.sessionId,
     teamId: teamMembership?.teamId ?? null,
     role: teamMembership?.role ?? authResult.role,
+    authAssurance: authResult.authAssurance,
+    mfaVerifiedAt: authResult.mfaVerifiedAt,
   };
 }
 

@@ -4,7 +4,7 @@ import {
   getConnectionsForTeam, 
   createConnection 
 } from '@/lib/publishing';
-import { requireTeamMember } from '@/lib/api/auth';
+import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 const createConnectionSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -14,7 +14,8 @@ const createConnectionSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const connections = await getConnectionsForTeam(teamId);
     
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
       success: true, 
       data: safeConnections 
     });
+      });
   } catch (error: any) {
     console.error('Error fetching connections:', error);
     return NextResponse.json(
@@ -38,7 +40,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const body = await request.json();
     const parsed = createConnectionSchema.safeParse(body);
@@ -78,6 +81,7 @@ export async function POST(request: NextRequest) {
         ? 'Connection created. Save the API key - it will only be shown once!'
         : 'Connection created',
     });
+      });
   } catch (error: any) {
     console.error('Error creating connection:', error);
     return NextResponse.json(

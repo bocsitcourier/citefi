@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireClientReviewer, runWithAuthenticatedTeamContext } from "@/lib/api/auth";
+import { withAuthenticatedClientReviewerContext } from "@/lib/api/auth";
 import { getApprovedClientSafeReport, renderClientSafeReportHtml } from "@/lib/agency-report-service";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await requireClientReviewer(request);
-    const id = Number((await context.params).id);
-    if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: "Report not found" }, { status: 404 });
-    return await runWithAuthenticatedTeamContext(auth, async () => {
+    return await withAuthenticatedClientReviewerContext(request, async (auth) => {
+      const id = Number((await context.params).id);
+      if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: "Report not found" }, { status: 404 });
       const report = await getApprovedClientSafeReport(auth.teamId, id);
       if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
       return new NextResponse(renderClientSafeReportHtml(report.clientSafeSnapshot), { headers: {

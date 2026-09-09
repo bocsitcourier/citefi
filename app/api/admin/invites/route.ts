@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { systemDb as db } from '@/lib/db';
 import { userInvites, users } from '@/shared/schema';
-import { requireAdminById, verifyToken } from '@/lib/api/auth';
+import { requireAdmin } from '@/lib/api/auth';
 import { eq, and, gt } from 'drizzle-orm';
 import crypto from 'crypto';
 
@@ -16,12 +16,7 @@ async function getAdminTeamId(userId: number): Promise<number | null> {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await verifyToken(req);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    await requireAdminById(auth.userId);
+    await requireAdmin(req);
 
     const invites = await db
       .select({
@@ -51,12 +46,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await verifyToken(req);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    await requireAdminById(auth.userId);
+    const adminUserId = await requireAdmin(req);
 
     const body = await req.json();
     const { email, role = 'team_member', message } = body;
@@ -115,7 +105,7 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const adminTeamId = await getAdminTeamId(auth.userId);
+    const adminTeamId = await getAdminTeamId(adminUserId);
 
     if (!adminTeamId) {
       return NextResponse.json(
@@ -128,7 +118,7 @@ export async function POST(req: NextRequest) {
       .insert(userInvites)
       .values({
         email: email.toLowerCase(),
-        invitedBy: auth.userId,
+        invitedBy: adminUserId,
         teamId: adminTeamId,
         role,
         tokenHash,
@@ -148,13 +138,10 @@ export async function POST(req: NextRequest) {
 
     const inviteUrl = `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/accept-invite/${token}`;
 
-    const [local, domain] = email.toLowerCase().split("@");
-    const redactedEmail = `${local.slice(0, 2)}***@${domain}`;
     console.info("User invite created", {
       inviteId: invite.id,
       teamId: adminTeamId,
       expiresAt: expiresAt.toISOString(),
-      email: redactedEmail,
     });
 
     return NextResponse.json({

@@ -80,6 +80,7 @@ export default function AccountSettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
 
   const [totpStep, setTotpStep] = useState<TotpStep>("idle");
   const [totpSetupData, setTotpSetupData] = useState<TotpSetupData | null>(null);
@@ -180,10 +181,14 @@ export default function AccountSettingsPage() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("/api/account/delete", { method: "POST" });
+      return apiRequest("/api/account/delete", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: deletePassword }),
+      });
     },
     onSuccess: () => {
-      toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
+      setDeletePassword("");
+      toast({ title: "Account deleted", description: "Your sign-in account has been deleted." });
       window.location.href = "/login";
     },
     onError: (err: Error) => {
@@ -221,6 +226,24 @@ export default function AccountSettingsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your profile and security preferences</p>
       </div>
+
+      {user?.mfaEnrollmentRequired && !user.twoFactorEnabled ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-medium">Administrator two-factor authentication is required</p>
+              <p className="mt-1 text-sm">
+                Set up Google Authenticator
+                {user.mfaEnrollmentDeadline
+                  ? ` before ${new Date(user.mfaEnrollmentDeadline).toLocaleString()}`
+                  : ""}
+                . Administrator actions will be blocked after the enrollment deadline.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Account Overview */}
       <Card>
@@ -506,7 +529,7 @@ export default function AccountSettingsPage() {
             Danger Zone
           </CardTitle>
           <CardDescription>
-            Permanently delete your account and all associated data. This cannot be undone.
+            Permanently delete your sign-in account and personal authentication data. This cannot be undone.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -514,8 +537,9 @@ export default function AccountSettingsPage() {
             <div className="space-y-1">
               <p className="text-sm font-medium">Delete account</p>
               <p className="text-xs text-muted-foreground">
-                Cancels any active subscription, removes all your data, and signs you out permanently.
-                Accounts that own content (batches, posts, teams) must delete that content first.
+                Signs you out and removes your sign-in account. Shared team content and records
+                subject to legal, fraud-prevention, or financial retention requirements may remain.
+                Accounts that own content or teams must delete or reassign them first.
               </p>
             </div>
             <Button
@@ -536,17 +560,29 @@ export default function AccountSettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will immediately cancel any active subscription, delete all your data, and sign you
-              out. <strong>This action cannot be undone.</strong>
+              This permanently deletes your sign-in account and personal authentication data, then
+              signs you out. Shared team content and legally required records may remain.
+              <strong> This action cannot be undone.</strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-account-password">Current password</Label>
+            <Input
+              id="delete-account-password"
+              type="password"
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(event) => setDeletePassword(event.target.value)}
+              placeholder="Enter your current password"
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete-account">
               Keep Account
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteAccountMutation.mutate()}
-              disabled={deleteAccountMutation.isPending}
+              disabled={deleteAccountMutation.isPending || deletePassword.length === 0}
               className="bg-destructive text-destructive-foreground"
               data-testid="button-confirm-delete-account"
             >

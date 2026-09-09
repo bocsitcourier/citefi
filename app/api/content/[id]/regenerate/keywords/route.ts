@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { regenerateKeywords } from "@/lib/seo-regenerator";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
@@ -11,7 +11,8 @@ export async function POST(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await params;
     const articleId = parseInt(id);
@@ -66,6 +67,7 @@ export async function POST(
       success: true,
       keywords: newKeywords,
     });
+      });
   } catch (error: any) {
     console.error("Failed to regenerate keywords:", error);
     return NextResponse.json(

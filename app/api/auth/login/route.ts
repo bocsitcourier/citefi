@@ -7,7 +7,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { issueCsrfCookie } from "@/lib/csrf";
 import { sendEmailVerificationCode } from "@/lib/email";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { enterSystemContext } from "@/lib/tenant-context";
 import { sessionExpiry, sessionLifetimeSeconds } from "@/lib/session-policy";
 
@@ -115,19 +115,25 @@ export async function POST(req: Request) {
     }
 
     // Verify password
-    if (!user.passwordHash || !(await verifyPassword(password, user.passwordHash))) {
+    const observedPasswordHash = user.passwordHash;
+    if (!observedPasswordHash || !(await verifyPassword(password, observedPasswordHash))) {
       // Increment failed login attempts
-      const newFailedAttempts = (user.failedLoginAttempts || 0) + 1;
+      const [failed] = observedPasswordHash
+        ? await getTxDb()
+            .update(users)
+            .set({ failedLoginAttempts: sql`${users.failedLoginAttempts} + 1` })
+            .where(and(eq(users.id, user.id), eq(users.passwordHash, observedPasswordHash)))
+            .returning({ failedLoginAttempts: users.failedLoginAttempts })
+        : [];
+      const newFailedAttempts = failed?.failedLoginAttempts ?? (user.failedLoginAttempts || 0) + 1;
       const lockoutDuration = calculateLockoutDuration(newFailedAttempts);
       const lockedUntil = lockoutDuration > 0 ? new Date(Date.now() + lockoutDuration) : null;
-
-      await getTxDb()
-        .update(users)
-        .set({
-          failedLoginAttempts: newFailedAttempts,
-          lockedUntil,
-        })
-        .where(eq(users.id, user.id));
+      if (lockedUntil && observedPasswordHash) {
+        await getTxDb().update(users).set({ lockedUntil }).where(and(
+          eq(users.id, user.id),
+          eq(users.passwordHash, observedPasswordHash),
+        ));
+      }
 
       await getTxDb().insert(activityLogs).values({
         userId: user.id,
@@ -153,6 +159,7 @@ export async function POST(req: Request) {
         { status: 401 }
       );
     }
+    const passwordHash = observedPasswordHash;
 
     // Check if 2FA is enabled
     if (user.twoFactorEnabled) {
@@ -164,7 +171,18 @@ export async function POST(req: Request) {
       // Any client modification changes the stored hash and invalidates it.
       const challengeToken = `${crypto.randomBytes(32).toString("base64url")}.${rememberMe ? "1" : "0"}`;
       const emailCode = method === "email" ? generateEmailCode() : null;
-      await getTxDb().transaction(async (tx) => {
+      const challengeCreated = await getTxDb().transaction(async (tx) => {
+        const [stillEligible] = await tx.update(users)
+          .set({ updatedAt: sql`${users.updatedAt}` })
+          .where(and(
+            eq(users.id, user.id),
+            eq(users.passwordHash, passwordHash),
+            eq(users.accountStatus, "active"),
+            eq(users.twoFactorEnabled, 1),
+            eq(users.twoFactorMethod, method),
+          ))
+          .returning({ id: users.id });
+        if (!stillEligible) return false;
         // A new completed password step supersedes older outstanding attempts.
         await tx.update(loginChallenges).set({ consumedAt: new Date() }).where(and(
           eq(loginChallenges.userId, user.id),
@@ -177,7 +195,14 @@ export async function POST(req: Request) {
           emailCodeHash: emailCode ? hashToken(emailCode) : null,
           expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5-minute window
         });
+        return true;
       });
+      if (!challengeCreated) {
+        return NextResponse.json(
+          { error: "Security settings changed during login. Please try again." },
+          { status: 409 },
+        );
+      }
 
       if (emailCode) {
         try {
@@ -211,10 +236,23 @@ export async function POST(req: Request) {
 
     const tokenHash = hashToken(accessToken);
 
-    // Create session
-    const [session] = await getTxDb()
-      .insert(sessions)
-      .values({
+    const now = new Date();
+    const sessionCreated = await getTxDb().transaction(async (tx) => {
+      const [stillEligible] = await tx.update(users)
+        .set({
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          lastLoginAt: now,
+        })
+        .where(and(
+          eq(users.id, user.id),
+          eq(users.passwordHash, passwordHash),
+          eq(users.accountStatus, "active"),
+          eq(users.twoFactorEnabled, 0),
+        ))
+        .returning({ id: users.id });
+      if (!stillEligible) return false;
+      await tx.insert(sessions).values({
         userId: user.id,
         tokenHash,
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
@@ -223,30 +261,27 @@ export async function POST(req: Request) {
         teamContextId: user.defaultTeamId,
         expiresAt: sessionExpiry(rememberMe),
         deviceInfo: { rememberedSession: rememberMe },
-      })
-      .returning();
-
-    // Reset failed login attempts and update last login
-    await getTxDb()
-      .update(users)
-      .set({
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lastLoginAt: new Date(),
-      })
-      .where(eq(users.id, user.id));
-
-    // Log successful login
-    await getTxDb().insert(activityLogs).values({
-      userId: user.id,
-      action: "login_success",
-      resource: "users",
-      resourceId: user.id,
-      ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-      userAgent: req.headers.get("user-agent") || null,
-      details: { email, rememberedSession: rememberMe },
-      severity: "info",
+        authAssurance: "password",
+        mfaVerifiedAt: null,
+      });
+      await tx.insert(activityLogs).values({
+        userId: user.id,
+        action: "login_success",
+        resource: "users",
+        resourceId: user.id,
+        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+        userAgent: req.headers.get("user-agent") || null,
+        details: { email, rememberedSession: rememberMe },
+        severity: "info",
+      });
+      return true;
     });
+    if (!sessionCreated) {
+      return NextResponse.json(
+        { error: "Security settings changed during login. Please try again." },
+        { status: 409 },
+      );
+    }
 
     const response = NextResponse.json({
       message: "Login successful",
@@ -271,7 +306,7 @@ export async function POST(req: Request) {
       path: "/",
       maxAge: lifetimeSeconds,
     });
-    issueCsrfCookie(response);
+    issueCsrfCookie(response, lifetimeSeconds);
 
     return response;
 

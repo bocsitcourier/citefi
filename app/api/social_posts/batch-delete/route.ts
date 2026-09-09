@@ -9,7 +9,7 @@ import {
   socialPostJobs 
 } from "@/shared/schema";
 import { inArray, and, eq } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const batchDeleteSchema = z.object({
   postIds: z.array(z.number()).min(1),
@@ -18,7 +18,7 @@ const batchDeleteSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const body = await request.json();
     const { postIds } = batchDeleteSchema.parse(body);
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true,
       deletedCount: verifiedPostIds.length
+    });
     });
   } catch (error: any) {
     console.error("Error batch deleting social posts:", error);

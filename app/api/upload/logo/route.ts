@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { objectStorageClient } from "@/lib/storage";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const formData = await request.formData();
     const file = formData.get("logo") as File;
     
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
       url: publicUrl,
       filename,
     });
+      });
   } catch (error: any) {
     console.error("❌ Logo upload failed:", error);
     return NextResponse.json(

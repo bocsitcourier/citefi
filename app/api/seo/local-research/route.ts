@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { researchLocalSEO } from "@/lib/seo-intelligence";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId }) => {
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
         { error: "GEMINI_API_KEY is not configured. Please set up your API key." },
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(research);
+    });
   } catch (error: any) {
     console.error("Local SEO research error:", error);
     return NextResponse.json(

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeCompetitor } from "@/lib/seo-intelligence";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ userId, teamId }) => {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "OPENAI_API_KEY is not configured. Please set up your API key." },
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(analysis);
+    });
   } catch (error: any) {
     console.error("Competitor analysis error:", error);
     return NextResponse.json(

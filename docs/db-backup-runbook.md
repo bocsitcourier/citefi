@@ -21,6 +21,7 @@ Dumps are compressed with gzip and uploaded via the AWS CLI.
 | Item | Path |
 |---|---|
 | Backup script | `/usr/local/bin/citefi-db-backup.sh` |
+| Restore verification script | `/usr/local/bin/citefi-db-restore-verify.sh` |
 | Cron definition | `/etc/cron.d/citefi-db-backup` |
 | Backup log | `/var/log/citefi-db-backup.log` |
 | DO Spaces prefix | `db-backups/` inside `DO_SPACES_BUCKET` |
@@ -41,6 +42,11 @@ DO_SPACES_BUCKET=<bucket-name>
 
 These are the same values the application uses for its DB connection and media
 uploads, so they should already be present.
+
+Restore verification additionally requires `RESTORE_VERIFY_DATABASE_URL`, pointing
+to an already-created, empty, disposable database on an isolated PostgreSQL
+server whose name contains `_restore_verify`. It must never point to the
+application database or its PostgreSQL server.
 
 ---
 
@@ -196,6 +202,41 @@ pm2 startOrReload ecosystem.config.cjs --update-env
 ```
 
 Then verify at `http://<DO_HOST>/api/health` — confirm `database.ok === true`.
+
+---
+
+## Generating restore-verification evidence
+
+A successful upload proves only that a backup object exists. Readiness separately
+requires evidence that a backup restored successfully within the last 31 days
+(configurable with `HEALTH_RESTORE_VERIFICATION_STALE_MS`).
+
+Provision a fresh database on an isolated PostgreSQL server with
+`_restore_verify` in its name. The restore connection must be able to create the
+non-login `citefi_tenant` role, or that role must already exist without login,
+superuser, bypass-RLS, create-role, or create-database privileges. Set
+`RESTORE_VERIFY_DATABASE_URL` in `.env.local`, then run:
+
+```bash
+/usr/local/bin/citefi-db-restore-verify.sh
+```
+
+The script selects the latest backup. To select one explicitly, set
+`RESTORE_VERIFY_BACKUP_KEY=db-backups/citefi_YYYYMMDD_HHMMSS.sql.gz`. It refuses
+the source database and non-marker targets, requires the target to have no user
+tables, validates gzip, restores with errors fatal, and checks restored tables
+and `users`. It never drops or truncates a database. Use a newly provisioned
+empty target for each run and destroy that target through your normal database
+administration process afterward. Each backup includes a constrained
+`citefi_tenant` role bootstrap and the role's current table grants, plus required
+schema, sequence, and RLS-helper privileges; it never exports login roles or role
+passwords.
+
+Only after all checks succeed, it atomically writes credential-free evidence to
+`/var/backups/citefi-db/restore-verification-status.json` (override with
+`RESTORE_VERIFICATION_STATUS_FILE`). Failed attempts do not replace the last
+successful evidence. Schedule this verification at least monthly on an isolated
+host/cluster, separately from nightly backups.
 
 ---
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, teams, teamMembers } from "@/shared/schema";
 import { verifyToken, AUTH_COOKIE_NAME } from "@/lib/api/auth";
 import { clearCsrfCookie } from "@/lib/csrf";
@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
         defaultTeamId: users.defaultTeamId,
+        mfaEnrollmentDeadline: users.mfaEnrollmentDeadline,
       })
       .from(users)
       .where(eq(users.id, authResult.userId))
@@ -115,6 +116,12 @@ export async function GET(req: NextRequest) {
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         defaultTeamId: user.defaultTeamId,
+        mfaEnrollmentDeadline: user.mfaEnrollmentDeadline,
+        mfaEnrollmentRequired:
+          user.role === "admin" &&
+          user.twoFactorEnabled !== 1 &&
+          !!user.mfaEnrollmentDeadline,
+        authAssurance: authResult.authAssurance,
       },
       activeTeamId,
       teams: directMemberships.map((m) => ({

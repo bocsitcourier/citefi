@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 /**
  * POST /api/batches/[id]/fix-image-captions
@@ -17,7 +17,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const { id } = await params;
     const batchId = parseInt(id);
 
@@ -157,6 +158,7 @@ export async function POST(
         baseUrl: baseUrl || "(not set - relative URLs preserved)",
       },
     });
+      });
   } catch (error: any) {
     console.error("Fix image captions error:", error);
     return NextResponse.json(

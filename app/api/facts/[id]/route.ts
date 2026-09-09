@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { factStore } from "@/lib/fact-store";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 const updateFactSchema = z.object({
   factText: z.string().optional(),
@@ -24,7 +24,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { id } = await params;
     const factId = parseInt(id, 10);
 
@@ -47,6 +47,7 @@ export async function GET(
         history,
       },
     });
+    });
   } catch (error: any) {
     console.error("[Facts API] Get error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
@@ -64,7 +65,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const { id } = await params;
     const factId = parseInt(id, 10);
 
@@ -89,6 +90,7 @@ export async function PUT(
       success: true,
       data: updatedFact,
     });
+    });
   } catch (error: any) {
     console.error("[Facts API] Update error:", error);
     if (error instanceof Error && error.message.includes("Unauthorized")) {
@@ -112,7 +114,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const { id } = await params;
     const factId = parseInt(id, 10);
 
@@ -137,6 +139,7 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: "Fact revoked successfully",
+    });
     });
   } catch (error: any) {
     console.error("[Facts API] Revoke error:", error);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, users } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -30,12 +30,12 @@ function getStripePriceId(kind: "subscription" | "topup", id: string, annual?: b
 
 export async function POST(req: NextRequest) {
   try {
-    const { teamId, userId } = await requireTeamAdmin(req);
-    const body = await req.json();
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    }
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId, userId }) => {
+      const body = await req.json();
+      const parsed = schema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      }
 
     const data = parsed.data;
 
@@ -137,8 +137,9 @@ export async function POST(req: NextRequest) {
       }),
     };
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
-    return NextResponse.json({ url: session.url, sessionId: session.id });
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      return NextResponse.json({ url: session.url, sessionId: session.id });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

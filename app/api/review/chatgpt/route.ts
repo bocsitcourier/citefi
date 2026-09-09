@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { generateHyperlinks } from "@/lib/chatgpt-review/hyperlinker";
 import { analyzeSEO } from "@/lib/chatgpt-review/seo-analyzer";
 import { generateHashtags } from "@/lib/chatgpt-review/hashtag-enrichment";
@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { userId, teamId } = auth;
     const body = (await request.json()) as ChatGPTReviewRequest;
 
     const {
@@ -226,6 +227,7 @@ export async function POST(request: NextRequest) {
     console.log(`[ChatGPT Review] Completed in ${processingTime}ms`);
 
     return NextResponse.json(response);
+      });
   } catch (error: any) {
     console.error("[ChatGPT Review] Error:", error);
     return NextResponse.json(

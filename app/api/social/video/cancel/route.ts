@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { socialPosts } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
     const { socialPostId } = await request.json();
 
     if (!socialPostId || typeof socialPostId !== "number") {
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     console.log(`🛑 Video generation cancelled by user for social post ${socialPostId}`);
 
     return NextResponse.json({ success: true, message: "Video generation cancelled" });
+    });
   } catch (error: any) {
     console.error("❌ Failed to cancel video generation:", error);
     return NextResponse.json({ error: "Failed to cancel" }, { status: error?.statusCode || 500 });

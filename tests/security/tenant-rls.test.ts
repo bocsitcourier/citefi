@@ -10,9 +10,11 @@ import {
 } from "../../lib/db";
 import {
   enterBlockedDatabaseContext,
+  getDatabaseExecutionContext,
   runWithSystemContext,
   runWithTenantContext,
 } from "../../lib/tenant-context";
+import { runWithAuthenticatedTeamContext } from "../../lib/api/auth";
 import { teams } from "../../shared/schema";
 
 const connectionString =
@@ -26,6 +28,15 @@ interface MembershipFixture {
   userId: number;
   teamId: number;
   role: string;
+}
+
+function isUnscopedAccessError(error: unknown): boolean {
+  return error instanceof UnscopedDatabaseAccessError ||
+    (
+      error instanceof Error &&
+      "cause" in error &&
+      error.cause instanceof UnscopedDatabaseAccessError
+    );
 }
 
 let owner: Client;
@@ -129,19 +140,63 @@ after(async () => {
 test("unscoped application database access fails closed", async () => {
   assert.throws(
     () => getTxDb(),
-    (error: unknown) => error instanceof UnscopedDatabaseAccessError
+    isUnscopedAccessError
   );
   await assert.rejects(
     db.execute(sql`SELECT 1`),
-    (error: unknown) => error instanceof UnscopedDatabaseAccessError
+    isUnscopedAccessError
+  );
+  await assert.rejects(
+    db.transaction(async (tx) => tx.execute(sql`SELECT 1`)),
+    isUnscopedAccessError,
   );
   await runWithSystemContext("blocked-context regression test", async () => {
     enterBlockedDatabaseContext("authenticated user has no validated team");
     await assert.rejects(
       db.execute(sql`SELECT 1`),
-      (error: unknown) => error instanceof UnscopedDatabaseAccessError
+      isUnscopedAccessError
     );
   });
+});
+
+test("callback-scoped system authority is restored after awaits and errors", async () => {
+  assert.equal(getDatabaseExecutionContext(), undefined);
+  await assert.rejects(
+    runWithSystemContext("scope restoration regression", async () => {
+      assert.equal(getDatabaseExecutionContext()?.scope, "system");
+      await Promise.resolve();
+      assert.equal(getDatabaseExecutionContext()?.scope, "system");
+      throw new Error("expected test error");
+    }),
+    /expected test error/,
+  );
+  assert.equal(getDatabaseExecutionContext(), undefined);
+  await assert.rejects(
+    db.execute(sql`SELECT 1`),
+    isUnscopedAccessError,
+  );
+});
+
+test("authenticated team context remains active across awaits and is restored afterward", async () => {
+  assert.equal(getDatabaseExecutionContext(), undefined);
+  const auth = { userId: 41, teamId: 73, role: "member" };
+
+  const observed = await runWithAuthenticatedTeamContext(auth, async () => {
+    assert.deepEqual(getDatabaseExecutionContext(), {
+      scope: "tenant",
+      actorType: "web",
+      ...auth,
+    });
+    await Promise.resolve();
+    return getDatabaseExecutionContext();
+  });
+
+  assert.deepEqual(observed, {
+    scope: "tenant",
+    actorType: "web",
+    ...auth,
+  });
+  assert.equal(getDatabaseExecutionContext(), undefined);
 });
 
 test("tenant role cannot read or update another team's rows", async (t) => {
@@ -320,6 +375,24 @@ test("legacy getTxDb statements and transactions cannot bypass tenant RLS", asyn
         transactional.length,
         0,
         "legacy interactive transactions must use the tenant role"
+      );
+
+      const directDbTransaction = await db.transaction(async (tx) => {
+        const own = await tx
+          .select({ id: teams.id })
+          .from(teams)
+          .where(eq(teams.id, tenantA.teamId));
+        const foreign = await tx
+          .select({ id: teams.id })
+          .from(teams)
+          .where(eq(teams.id, tenantB.teamId));
+        return { own, foreign };
+      });
+      assert.equal(directDbTransaction.own.length, 1);
+      assert.equal(
+        directDbTransaction.foreign.length,
+        0,
+        "direct db.transaction calls must apply tenant RLS",
       );
     }
   );

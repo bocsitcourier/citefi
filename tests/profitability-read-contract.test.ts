@@ -17,7 +17,7 @@ test("platform profitability read uses immutable ledger and reconciliation recor
 
 test("agency profitability read is team-admin guarded and excludes unconfigured margin", () => {
   const route = readFileSync("app/api/agency/profitability/route.ts", "utf8");
-  assert.match(route, /requireTeamAdmin\(req\)/);
+  assert.match(route, /withAuthenticatedTeamAdminContext\(req/);
   assert.match(route, /eq\(teams\.parentTeamId, teamId\)/);
   assert.match(route, /revenueConfigured: false/);
   assert.match(route, /margin: null/);

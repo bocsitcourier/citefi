@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { learningService } from "@/lib/learning-service";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     await learningService.initializeDefaultAgents(teamId);
     const stats = await learningService.getAgentStats(teamId);
@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       agents: stats.agents,
+    });
     });
   } catch (error: any) {
     const status = error?.statusCode ?? 500;

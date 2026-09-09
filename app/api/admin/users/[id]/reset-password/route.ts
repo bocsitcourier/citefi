@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { users, passwordResets, adminActionLogs } from "@/shared/schema";
-import { eq, and } from "drizzle-orm";
-import { requireAdmin } from "@/lib/api/auth";
+import { eq, and, sql } from "drizzle-orm";
+import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { deliverEmail } from "@/lib/email";
 import crypto from "crypto";
 import { hashToken } from "@/lib/auth";
@@ -30,7 +30,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid user ID" }, { status: 400 });
     }
 
-    const adminUserId = await requireAdmin(req);
+    const adminUserId = await requireRecentAdminMfa(req);
 
     const [targetUser] = await db
       .select({ id: users.id, email: users.email, role: users.role })
@@ -42,45 +42,57 @@ export async function POST(
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    await db
-      .update(passwordResets)
-      .set({ status: "cancelled" })
-      .where(
-        and(
-          eq(passwordResets.userId, userId),
-          eq(passwordResets.status, "pending")
-        )
-      );
-
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    await db.insert(passwordResets).values({
-      userId,
-      tokenHash,
-      expiresAt,
-      initiatedBy: adminUserId,
-      resetType: "admin_override",
-    });
 
     const clientIp =
       req.headers.get("x-forwarded-for")?.split(",")[0] ||
       req.headers.get("x-real-ip") ||
       "unknown";
 
-    await db.insert(adminActionLogs).values({
-      userId: adminUserId,
-      action: "password_reset_override",
-      targetType: "user",
-      targetId: userId,
-      details: JSON.stringify({
-        targetUserEmail: targetUser.email,
-        targetUserRole: targetUser.role,
-        expiresAt: expiresAt.toISOString(),
-        ipAddress: clientIp,
-      }),
+    const issued = await db.transaction(async (tx) => {
+      const [lockedUser] = await tx
+        .update(users)
+        .set({ passwordHash: sql`${users.passwordHash}` })
+        .where(eq(users.id, userId))
+        .returning({ id: users.id });
+      if (!lockedUser) return false;
+
+      await tx
+        .update(passwordResets)
+        .set({ status: "cancelled" })
+        .where(
+          and(
+            eq(passwordResets.userId, userId),
+            eq(passwordResets.status, "pending")
+          )
+        );
+
+      await tx.insert(passwordResets).values({
+        userId,
+        tokenHash,
+        expiresAt,
+        initiatedBy: adminUserId,
+        resetType: "admin_override",
+      });
+
+      await tx.insert(adminActionLogs).values({
+        userId: adminUserId,
+        action: "password_reset_override",
+        targetType: "user",
+        targetId: userId,
+        details: JSON.stringify({
+          targetUserRole: targetUser.role,
+          expiresAt: expiresAt.toISOString(),
+          ipAddress: clientIp,
+        }),
+      });
+      return true;
     });
+    if (!issued) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
     const appOrigin = deriveAppOrigin(req);
     const resetUrl = `${appOrigin}/reset-password/${token}`;
@@ -102,10 +114,9 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      resetUrl,
       expiresAt,
       message: "Password reset link generated and emailed successfully",
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
     console.error("Admin password reset error:", error);
     return NextResponse.json(

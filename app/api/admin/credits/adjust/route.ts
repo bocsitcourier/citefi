@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api/auth";
 import { adminAdjust } from "@/lib/billing";
+import { runWithSystemContext } from "@/lib/tenant-context";
 import { z } from "zod";
 
 const adjustSchema = z.object({
@@ -33,7 +34,10 @@ export async function POST(request: NextRequest) {
 
     const { teamId, bucket, amount, reason } = parsed.data;
 
-    const newBalance = await adminAdjust({ teamId, bucket, amount, adminUserId, reason });
+    const newBalance = await runWithSystemContext(
+      `admin credit adjustment by user ${adminUserId}`,
+      () => adminAdjust({ teamId, bucket, amount, adminUserId, reason }),
+    );
 
     return NextResponse.json({
       success: true,

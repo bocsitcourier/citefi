@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, socialPosts, socialPostVariants, socialPostAssets } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
     const { id } = await params;
     const articleId = parseInt(id);
 
@@ -54,6 +55,7 @@ export async function GET(
       posts,
       count: posts.length,
     });
+      });
   } catch (error: any) {
     console.error("Error fetching social posts for article:", error);
     return NextResponse.json(

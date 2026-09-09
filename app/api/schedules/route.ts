@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { contentSchedules } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import cronParser from "cron-parser";
 
 const createScheduleSchema = z.object({
@@ -44,7 +44,7 @@ function calculateNextRun(cronExpression: string, timezone: string): Date {
 
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const schedules = await db
       .select()
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(contentSchedules.createdAt));
 
     return NextResponse.json({ success: true, data: schedules });
+    });
   } catch (error: any) {
     console.error("Error fetching schedules:", error);
     return NextResponse.json(
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
 
     const body = await request.json();
     const validatedData = createScheduleSchema.parse(body);
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
     console.log(`📅 Created schedule "${schedule!.name}" (ID: ${schedule!.id}), next run: ${nextRunAt.toISOString()}`);
 
     return NextResponse.json({ success: true, data: schedule }, { status: 201 });
+    });
   } catch (error: any) {
     console.error("Error creating schedule:", error);
     

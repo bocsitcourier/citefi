@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLiveBatchStatus, getBatchPerformanceMetrics } from "@/lib/monitoring";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { jobBatches } from "@/shared/schema";
 import { and, eq } from "drizzle-orm";
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     const { id } = await params;
     const batchId = parseInt(id);
     
@@ -40,6 +40,7 @@ export async function GET(
     return NextResponse.json({
       liveStatus,
       performanceMetrics,
+    });
     });
   } catch (error: any) {
     console.error("Error fetching batch monitoring data:", error);

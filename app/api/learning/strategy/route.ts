@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { cohortInsights } from "@/shared/schema";
 import { eq, desc } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { getNextBestActions } from "@/lib/next-best-action";
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const url = new URL(req.url);
     const limitParam = parseInt(url.searchParams.get("limit") ?? "100");
     const limit = isNaN(limitParam) ? 100 : Math.min(limitParam, 300);
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
       primers,
       untapped,
       nextBestActions,
+    });
     });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;

@@ -5,7 +5,7 @@ import { socialPosts, articles, jobBatches, campaigns } from "@/shared/schema";
 import { addSocialPostJob } from "@/lib/queue";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { eq, and, or, isNull } from "drizzle-orm";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 const UUID_RE =
@@ -70,7 +70,8 @@ export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
-    const { userId, teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
+    try {
 
     // Paywall gate — plan-level check before any DB work or idempotency logic
     const { checkTeamPaywall, paywallErrorBody } = await import("@/lib/billing/paywall");
@@ -471,8 +472,12 @@ export async function POST(request: NextRequest) {
       message: `Social posts queued for ${validatedData.platforms.length} platform(s)`,
       platforms: validatedData.platforms,
     });
+    } catch (error) {
+      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      throw error;
+    }
+    });
   } catch (error: any) {
-    if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
     console.error("Social post generation error:", error);
 
     if (error instanceof z.ZodError) {

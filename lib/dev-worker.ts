@@ -25,7 +25,7 @@ class DevWorker {
 
   enqueue(job: GenerationJob) {
     this.queue.push(job);
-    console.log(`📋 Enqueued article: "${job.title}" (queue length: ${this.queue.length})`);
+    console.log(`📋 Enqueued article ${job.articleId} (queue length: ${this.queue.length})`);
   }
   
   startProcessing() {
@@ -91,7 +91,7 @@ class DevWorker {
     const { batchId, articleId, title, targetUrl, wordCountMin, wordCountMax, tone, geographicFocus, audience } = job;
     
     try {
-      console.log(`📝 Generating: "${title}" (article ${articleId})`);
+      console.log(`📝 Generating article ${articleId}`);
       
       await db.update(articles)
         .set({ articleStatus: "IN_PROGRESS", updatedAt: new Date() })
@@ -147,7 +147,7 @@ class DevWorker {
         })
         .where(eq(articles.id, articleId));
 
-      console.log(`✅ Complete: "${title}" (article ${articleId})`);
+      console.log(`✅ Complete: article ${articleId}`);
 
       const allArticles = await db.select().from(articles).where(eq(articles.batchId, batchId));
       const completed = allArticles.filter(a => a.articleStatus === "COMPLETE").length;
@@ -160,7 +160,9 @@ class DevWorker {
         console.log(`🎉 Batch ${batchId} complete: ${completed}/${total} articles`);
       }
     } catch (error) {
-      console.error(`❌ Failed to generate article "${title}":`, error);
+      console.error(`❌ Failed to generate article ${articleId}`, {
+        error: error instanceof Error ? error.message : "Unknown generation error",
+      });
       
       await db.update(articles)
         .set({ 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, creditBalances, creditLedger } from "@/shared/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { BILLING_PLANS } from "@/lib/billing/plans";
 
 export async function GET(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
 
     const [team] = await db
       .select({
@@ -98,6 +98,7 @@ export async function GET(req: NextRequest) {
         periodEnd: balance?.periodEnd ?? null,
       },
       purchases,
+    });
     });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;

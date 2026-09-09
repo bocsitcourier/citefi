@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { systemDb as db } from "@/lib/db";
 import { adminActionLogs, users, loginHistory } from "@/shared/schema";
 import { eq, desc, gte, lte, and } from "drizzle-orm";
-import { requireAdmin } from "@/lib/api/auth";
+import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { format } from "date-fns";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    await requireRecentAdminMfa(req);
 
     const { searchParams } = new URL(req.url);
     const exportFormat = searchParams.get("format") || "csv";

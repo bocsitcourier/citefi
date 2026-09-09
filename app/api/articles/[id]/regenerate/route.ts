@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { articles, jobBatches, jobEvents } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { addArticleJob } from "@/lib/queue";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(
   request: NextRequest,
@@ -11,7 +11,8 @@ export async function POST(
 ) {
   try {
     // CRITICAL: Verify authentication and get team context
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async (auth) => {
+      const { teamId } = auth;
 
     const { id } = await context.params;
     const articleId = parseInt(id);
@@ -161,6 +162,7 @@ export async function POST(
         ? "Article regeneration started with your custom instructions"
         : "Article regeneration started",
     });
+      });
   } catch (error: any) {
     console.error("❌ Article regeneration error:", error);
     return NextResponse.json(

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
@@ -13,7 +13,7 @@ const updateSchema = z.object({
 /** PATCH /api/agency/clients/[id] — rename or archive a client team */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ teamId }) => {
     const { id } = await params;
     const clientId = parseInt(id, 10);
     if (isNaN(clientId)) return NextResponse.json({ error: "Invalid client ID" }, { status: 400 });
@@ -47,7 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .where(and(eq(teams.id, clientId), eq(teams.parentTeamId, teamId), isNull(teams.deletedAt)))
       .returning({ id: teams.id, name: teams.name, clientStatus: teams.clientStatus });
 
-    return NextResponse.json({ client: updated });
+      return NextResponse.json({ client: updated });
+    });
   } catch (err: any) {
     const httpStatus = err.statusCode ?? err.status;
     if (httpStatus === 401 || httpStatus === 403) {

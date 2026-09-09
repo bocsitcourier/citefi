@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getCreditBalance, CREDIT_COSTS, type ProductType } from "@/lib/credits";
 
 /**
@@ -14,7 +14,7 @@ import { getCreditBalance, CREDIT_COSTS, type ProductType } from "@/lib/credits"
  */
 export async function GET(request: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId }) => {
 
     const { searchParams } = new URL(request.url);
     const product = searchParams.get("product") as ProductType | null;
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
       currentBalance,
       canAfford: currentBalance >= creditCost,
       deficit: currentBalance < creditCost ? creditCost - currentBalance : 0,
+    });
     });
   } catch (err: any) {
     const msg = err?.message ?? "Unknown error";

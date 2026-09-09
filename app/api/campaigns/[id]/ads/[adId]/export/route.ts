@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import archiver from "archiver";
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getCampaignByPublicId, recordCampaignExport } from "@/lib/campaign-service";
 import { AD_EXPORT_NOTICE, buildAdExportRowsFromManifest, canonicalAdManifestJson, getCampaignAdForExport } from "@/lib/campaign-ads-service";
 
@@ -11,7 +11,7 @@ const ZIP_ENTRY_DATE = new Date("1980-01-01T00:00:00.000Z");
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string; adId: string }> }) {
   try {
-    const { teamId, userId } = await requireTeamMember(request);
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const { id, adId } = await context.params;
     if (!UUID_RE.test(id) || !UUID_RE.test(adId)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     const campaign = await getCampaignByPublicId(teamId, id);
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       "X-Manifest-SHA256": ad.manifestSha256!,
       "X-Artifact-SHA256": artifactSha256,
     } });
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Failed to export ads" }, { status: err.statusCode ?? 500 });
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamMember } from "@/lib/api/auth";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { decisionPolicies } from "@/shared/schema";
 import { and, eq } from "drizzle-orm";
@@ -20,7 +20,7 @@ const selectSchema = z.object({
  */
 export async function POST(req: NextRequest) {
   try {
-    const { teamId } = await requireTeamMember(req);
+    return await withAuthenticatedTeamContext(req, async ({ teamId }) => {
     const body = await req.json().catch(() => ({}));
     const parsed = selectSchema.safeParse(body);
     if (!parsed.success) {
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
 
     const result = await selectArm(policyId, visitorId);
     return NextResponse.json(result);
+    });
   } catch (err: any) {
     const status = err.statusCode ?? err.status;
     if (status === 401 || status === 403 || status === 404 || status === 422) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamAdmin } from "@/lib/api/auth";
+import { withAuthenticatedTeamAdminContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teams, activityLogs, users } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -8,7 +8,7 @@ import { deliverEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, teamId } = await requireTeamAdmin(req);
+    return await withAuthenticatedTeamAdminContext(req, async ({ userId, teamId }) => {
 
     const [team] = await db
       .select({
@@ -82,10 +82,11 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     }
 
-    return NextResponse.json({
-      success: true,
-      cancelAtPeriodEnd: true,
-      currentPeriodEnd: periodEndDate?.toISOString() ?? team.currentPeriodEnd,
+      return NextResponse.json({
+        success: true,
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: periodEndDate?.toISOString() ?? team.currentPeriodEnd,
+      });
     });
   } catch (err: any) {
     if (err.status === 401 || err.status === 403) {

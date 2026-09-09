@@ -14,6 +14,7 @@ import {
   activityLogs,
   emailVerificationCodes,
   loginChallenges,
+  passwordResets,
 } from "../../shared/schema.js";
 import { hashPassword } from "../../lib/auth.js";
 import { eq, inArray } from "drizzle-orm";
@@ -40,6 +41,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
       passwordHash,
       role: "admin",
       accountStatus: "active",
+      mfaEnrollmentDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     })
     .returning({ id: users.id, email: users.email });
   if (!adminRow) throw new Error("Failed to seed admin user");
@@ -123,6 +125,7 @@ export async function cleanupSignupUsers(userIds: number[]): Promise<void> {
   try {
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
     await db.delete(loginChallenges).where(inArray(loginChallenges.userId, userIds));
+    await db.delete(passwordResets).where(inArray(passwordResets.userId, userIds));
     await db
       .delete(emailVerificationCodes)
       .where(inArray(emailVerificationCodes.userId, userIds));
@@ -147,6 +150,7 @@ export async function cleanupAuthUsers(seed: SeedResult): Promise<void> {
     // Delete child rows that reference users.id with RESTRICT (no cascade)
     await db.delete(sessions).where(inArray(sessions.userId, userIds));
     await db.delete(loginChallenges).where(inArray(loginChallenges.userId, userIds));
+    await db.delete(passwordResets).where(inArray(passwordResets.userId, userIds));
     await db
       .delete(emailVerificationCodes)
       .where(inArray(emailVerificationCodes.userId, userIds));
