@@ -18,7 +18,7 @@ function getJwtSecret(): string {
   return secret;
 }
 
-const JWT_EXPIRES_IN = "24h"; // 24 hours - prevents frequent re-login
+const JWT_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 const REFRESH_TOKEN_EXPIRES_IN = "7d"; // 7 days
 
 // ============================================================================
@@ -45,13 +45,16 @@ export interface JWTPayload {
   sessionId?: number;
 }
 
-export function generateAccessToken(payload: JWTPayload): string {
+export function generateAccessToken(
+  payload: JWTPayload,
+  expiresInSeconds: number = JWT_EXPIRES_IN_SECONDS,
+): string {
   // jti (JWT ID) ensures each token is unique even when two are issued for the
   // same user within the same second, preventing tokenHash unique-key collisions.
   return jwt.sign(
     { ...payload, jti: crypto.randomBytes(16).toString("hex") },
     getJwtSecret(),
-    { expiresIn: JWT_EXPIRES_IN }
+    { expiresIn: expiresInSeconds }
   );
 }
 
@@ -86,6 +89,30 @@ export interface TOTPSetup {
   manualEntryKey: string;
 }
 
+interface TOTPSetupTokenPayload {
+  purpose: "totp_setup";
+  userId: number;
+  secret: string;
+}
+
+export function generateTOTPSetupToken(userId: number, secret: string): string {
+  return jwt.sign(
+    { purpose: "totp_setup", userId, secret },
+    getJwtSecret(),
+    { expiresIn: 10 * 60 },
+  );
+}
+
+export function verifyTOTPSetupToken(token: string): TOTPSetupTokenPayload | null {
+  try {
+    const payload = jwt.verify(token, getJwtSecret()) as TOTPSetupTokenPayload;
+    if (payload.purpose !== "totp_setup" || !payload.userId || !payload.secret) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateTOTPSecret(userEmail: string, appName: string = "Citefi"): Promise<TOTPSetup> {
   const secret = speakeasy.generateSecret({
     name: `${appName} (${userEmail})`,
@@ -103,11 +130,12 @@ export async function generateTOTPSecret(userEmail: string, appName: string = "C
 }
 
 export function verifyTOTPToken(token: string, secret: string): boolean {
+  if (!/^\d{6}$/.test(token)) return false;
   return speakeasy.totp.verify({
     secret,
     encoding: "base32",
     token,
-    window: 2, // Allow 2 steps before/after for clock drift
+    window: 1, // Allow one 30-second step of clock drift in either direction
   });
 }
 

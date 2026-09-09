@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { objectStorageClient } from "@/lib/storage";
-import { requireTeamMember } from "@/lib/api/auth";
+import { getStorageReadCandidates } from "@/lib/storage";
+import { requireAdmin, requireTeamMember } from "@/lib/api/auth";
 import { systemDb } from "@/lib/db";
 import {
   articleAssets,
@@ -29,7 +29,7 @@ export async function GET(
       return NextResponse.json({ error: "Invalid object path" }, { status: 400 });
     }
 
-    if (!process.env.DO_SPACES_BUCKET) {
+    if (getStorageReadCandidates("health-check").length === 0) {
       return NextResponse.json({ error: "Object storage not configured" }, { status: 500 });
     }
 
@@ -76,12 +76,18 @@ export async function GET(
     }
 
     if (!publiclyPublished) {
+      let authorized = false;
       try {
         const auth = await requireTeamMember(request);
-        if (auth.teamId !== owner.teamId) {
-          return NextResponse.json({ error: "File not found" }, { status: 404 });
-        }
-      } catch {
+        authorized = auth.teamId === owner.teamId;
+      } catch {}
+      if (!authorized) {
+        try {
+          await requireAdmin(request);
+          authorized = true;
+        } catch {}
+      }
+      if (!authorized) {
         return NextResponse.json({ error: "Authentication required" }, { status: 401 });
       }
     }
@@ -89,21 +95,30 @@ export async function GET(
       ? "public, max-age=31536000, immutable"
       : "private, no-store";
 
-    const bucket   = objectStorageClient.bucket(process.env.DO_SPACES_BUCKET);
     const fullPath = filePath.startsWith("private/") ? filePath : `public/${filePath}`;
-    const file     = bucket.file(fullPath);
-
-    let metadata: { contentType: string; size: number; md5Hash?: string };
-    try {
-      const [meta] = await file.getMetadata();
-      metadata = meta;
-    } catch (err: any) {
-      const code = err?.code ?? err?.$metadata?.httpStatusCode ?? err?.response?.statusCode;
-      if (code === 404 || code === "404" || err?.name === "NotFound") {
-        console.error(`[PUBLIC_OBJECTS] File not found: ${fullPath}`);
-        return NextResponse.json({ error: "File not found" }, { status: 404 });
+    let file: any = null;
+    let metadata: { contentType: string; size: number; md5Hash?: string } | null = null;
+    let lastReadError: any = null;
+    for (const candidate of getStorageReadCandidates(fullPath)) {
+      try {
+        const [meta] = await candidate.getMetadata();
+        file = candidate;
+        metadata = {
+          contentType: meta.contentType || "application/octet-stream",
+          size: Number(meta.size ?? 0),
+          md5Hash: meta.md5Hash,
+        };
+        break;
+      } catch (err: any) {
+        const code = err?.code ?? err?.$metadata?.httpStatusCode ?? err?.response?.statusCode;
+        const notFound = code === 404 || code === "404" || err?.name === "NotFound" || err?.name === "NoSuchKey";
+        if (!notFound) lastReadError = err;
       }
-      throw err;
+    }
+    if (!file || !metadata) {
+      if (lastReadError) throw lastReadError;
+      console.error(`[PUBLIC_OBJECTS] File not found: ${fullPath}`);
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
     const contentType = metadata.contentType || "application/octet-stream";

@@ -57,7 +57,7 @@ export default function ContentLibrary() {
     refetchIntervalInBackground: false,
   });
 
-  const { data: allArticles, isLoading: articlesLoading } = useQuery<ArticleResult[]>({
+  const { data: allArticles, isLoading: articlesLoading, error: articlesError, refetch: refetchArticles } = useQuery<ArticleResult[]>({
     queryKey: ["/api/articles/list"],
     staleTime: 60_000,
   });
@@ -68,7 +68,7 @@ export default function ContentLibrary() {
     (error as any)?.message?.includes("Authentication");
 
   const handleRefresh = async () => {
-    await refetch();
+    await Promise.all([refetch(), refetchArticles()]);
     toast({
       title: "Refreshed",
       description: "Article list updated with latest statuses",
@@ -223,12 +223,18 @@ export default function ContentLibrary() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isAuthError ? (
+              {isAuthError || articlesError ? (
                 <div className="text-center py-12">
                   <LogIn className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold mb-2">Session expired</h3>
+                   <h3 className="text-lg font-semibold mb-2">
+                     {isAuthError ? "Session expired" : "Content could not be loaded"}
+                   </h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Your login session has ended. Please sign back in — your articles are all still here.
+                     {isAuthError
+                       ? "Your login session has ended. Please sign back in — your articles are all still here."
+                       : articlesError instanceof Error
+                         ? articlesError.message
+                         : "Refresh the page to try again."}
                   </p>
                   <Link href="/login">
                     <Button data-testid="button-goto-login">

@@ -14,7 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string; role?: User["role"] }>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string; role?: User["role"] }>;
   verify2FA: (code: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string, fullName?: string, teamName?: string) => Promise<void>;
@@ -51,10 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, rememberMe = false) => {
     const response = await apiRequest("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, rememberMe }),
     });
 
     if (response.requiresTwoFactor) {

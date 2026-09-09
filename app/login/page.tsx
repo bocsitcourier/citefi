@@ -36,7 +36,7 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
-      const result = await login(email, password);
+      const result = await login(email, password, rememberMe);
 
       if (result.requiresTwoFactor) {
         router.replace(`/verify-2fa?method=${result.twoFactorMethod}`);
@@ -95,6 +95,7 @@ function LoginForm() {
               <Input
                 id="email"
                 type="email"
+                 autoComplete="email"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -113,6 +114,7 @@ function LoginForm() {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
                   placeholder="••••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -148,7 +150,7 @@ function LoginForm() {
                   htmlFor="remember"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                 >
-                  Remember me
+                  Keep me signed in for 90 days
                 </label>
               </div>
               <Link

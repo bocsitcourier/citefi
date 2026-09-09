@@ -9,11 +9,12 @@
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import speakeasy from "speakeasy";
 import { seedAuthUsers, cleanupAuthUsers, cleanupSignupUsers, type SeedResult } from "./seed-auth.js";
 import { closeDb, systemDb } from "../../lib/db.js";
-import { errorLogs, teams, users, sessions, loginChallenges } from "../../shared/schema.js";
-import { eq, and, isNull, count } from "drizzle-orm";
-import { hashToken } from "../../lib/auth.js";
+import { errorLogs, teams, users, sessions, loginChallenges, totpSecrets } from "../../shared/schema.js";
+import { eq, and, isNull, count, desc } from "drizzle-orm";
+import { hashToken, verifyTOTPSetupToken } from "../../lib/auth.js";
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
 const COOKIE_NAME = "auth_token";
@@ -182,6 +183,31 @@ describe("Login — success paths", { concurrency: 1 }, () => {
     assert.ok(hasData, `Body must contain token, user, or requiresTwoFactor — got: ${JSON.stringify(body)}`);
   });
 
+  test("remember me creates a revocable 90-day session and aligned cookie", async () => {
+    const res = await apiPost("/api/auth/login", {
+      email: seed.activeUser.email,
+      password: seed.password,
+      rememberMe: true,
+    });
+    assert.equal(res.status, 200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    assert.match(setCookie, /auth_token=[^;]+/);
+    assert.match(setCookie, /Max-Age=7776000/i);
+
+    const [session] = await systemDb.select({
+      createdAt: sessions.createdAt,
+      expiresAt: sessions.expiresAt,
+      deviceInfo: sessions.deviceInfo,
+    }).from(sessions)
+      .where(eq(sessions.userId, seed.activeUser.id))
+      .orderBy(desc(sessions.id))
+      .limit(1);
+    assert.ok(session);
+    const lifetimeDays = (session.expiresAt.getTime() - session.createdAt.getTime()) / 86_400_000;
+    assert.ok(lifetimeDays >= 89.9 && lifetimeDays <= 90.1, `expected 90-day lifetime, got ${lifetimeDays}`);
+    assert.equal((session.deviceInfo as any)?.rememberedSession, true);
+  });
+
   test("2FA-enabled user login returns requiresTwoFactor=true without session cookie", async () => {
     const res = await apiPost("/api/auth/login", {
       email: seed.twoFaUser.email,
@@ -336,6 +362,7 @@ describe("2FA — method-bound challenge concurrency", { concurrency: 1 }, () =>
     const login = await apiPost("/api/auth/login", {
       email: seed.twoFaUser.email,
       password: seed.password,
+      rememberMe: true,
     }, { "x-forwarded-for": "10.0.0.1, 198.51.100.201" });
     assert.equal(login.status, 200);
     const loginBody: any = await login.json();
@@ -373,6 +400,18 @@ describe("2FA — method-bound challenge concurrency", { concurrency: 1 }, () =>
       .select({ n: count() }).from(sessions)
       .where(eq(sessions.userId, seed.twoFaUser.id));
     assert.equal(sessionsAfter - sessionsBefore, 1);
+    const [session] = await systemDb.select({
+      createdAt: sessions.createdAt,
+      expiresAt: sessions.expiresAt,
+      deviceInfo: sessions.deviceInfo,
+    }).from(sessions)
+      .where(eq(sessions.userId, seed.twoFaUser.id))
+      .orderBy(desc(sessions.id))
+      .limit(1);
+    assert.ok(session);
+    const lifetimeDays = (session.expiresAt.getTime() - session.createdAt.getTime()) / 86_400_000;
+    assert.ok(lifetimeDays >= 89.9 && lifetimeDays <= 90.1, `expected 90-day 2FA session, got ${lifetimeDays}`);
+    assert.equal((session.deviceInfo as any)?.rememberedSession, true);
   });
 
   test("suspension after password challenge prevents session issuance", async () => {
@@ -650,5 +689,79 @@ describe("Explicit system-scoped lifecycle routes", { concurrency: 1 }, () => {
       "A member deleting their account must not cancel the shared subscription"
     );
     assert.equal(sharedTeam.billingStatus, "active");
+  });
+});
+
+describe("Google Authenticator step-up security", { concurrency: 1 }, () => {
+  test("setup and disable require password-bound step-up verification", async () => {
+    const cookie = await loginAndGetCookie(seed.adminUser.email, seed.password);
+    assert.ok(cookie, "Admin login must succeed");
+    const authorization = bearerFromCookiePair(cookie);
+
+    const unverifiedSetup = await apiPost(
+      "/api/auth/setup-totp",
+      { action: "generate" },
+      { authorization }
+    );
+    assert.equal(unverifiedSetup.status, 401);
+
+    const setup = await apiPost(
+      "/api/auth/setup-totp",
+      { action: "generate", currentPassword: seed.password },
+      { authorization }
+    );
+    assert.equal(setup.status, 200);
+    const setupBody: any = await setup.json();
+    assert.ok(setupBody.setupToken);
+    assert.equal(setupBody.secret, undefined, "raw secret must not be accepted back from the client");
+    const signedSetup = verifyTOTPSetupToken(setupBody.setupToken);
+    assert.ok(signedSetup && signedSetup.userId === seed.adminUser.id);
+
+    const code = speakeasy.totp({
+      secret: signedSetup.secret,
+      encoding: "base32",
+    });
+    const activate = await apiPost(
+      "/api/auth/setup-totp",
+      { action: "verify", setupToken: setupBody.setupToken, verificationCode: code },
+      { authorization }
+    );
+    assert.equal(activate.status, 200);
+
+    const [enabled] = await systemDb.select({
+      enabled: users.twoFactorEnabled,
+      method: users.twoFactorMethod,
+    }).from(users).where(eq(users.id, seed.adminUser.id)).limit(1);
+    assert.equal(enabled?.enabled, 1);
+    assert.equal(enabled?.method, "totp");
+
+    const unverifiedDisable = await apiPost(
+      "/api/auth/disable-totp",
+      {},
+      { authorization }
+    );
+    assert.equal(unverifiedDisable.status, 401);
+
+    const currentCode = speakeasy.totp({
+      secret: signedSetup.secret,
+      encoding: "base32",
+    });
+    const disable = await apiPost(
+      "/api/auth/disable-totp",
+      { currentPassword: seed.password, verificationCode: currentCode },
+      { authorization }
+    );
+    assert.equal(disable.status, 200);
+
+    const [disabled] = await systemDb.select({
+      enabled: users.twoFactorEnabled,
+      method: users.twoFactorMethod,
+    }).from(users).where(eq(users.id, seed.adminUser.id)).limit(1);
+    assert.equal(disabled?.enabled, 0);
+    assert.equal(disabled?.method, null);
+    const secrets = await systemDb.select({ id: totpSecrets.id })
+      .from(totpSecrets)
+      .where(eq(totpSecrets.userId, seed.adminUser.id));
+    assert.equal(secrets.length, 0);
   });
 });

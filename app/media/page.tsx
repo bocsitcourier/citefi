@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Image, Music, Video, Trash2, ExternalLink, Copy, CheckCircle2, Home, Download, Edit, RefreshCw, Loader2 } from "lucide-react";
+import { AlertTriangle, Image, Music, Video, Trash2, ExternalLink, Copy, CheckCircle2, Home, Download, Edit, RefreshCw, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
@@ -45,13 +45,18 @@ export default function MediaLibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: mediaData, isLoading } = useQuery({
+  const { data: mediaData, isLoading, error: mediaError, refetch, isFetching } = useQuery({
     queryKey: ['/api/media/list', activeTab],
     queryFn: async () => {
-      const response = await fetch(`/api/media/list?type=${activeTab}&limit=100`, {
+      const response = await csrfFetch(`/api/media/list?type=${activeTab}&limit=100`, {
         credentials: "include",
       });
-      if (!response.ok) throw new Error('Failed to fetch media');
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const error = new Error(payload.error || 'Failed to fetch media') as Error & { status?: number };
+        error.status = response.status;
+        throw error;
+      }
       return response.json();
     },
   });
@@ -333,12 +338,18 @@ export default function MediaLibraryPage() {
             Manage your images, audio files, and videos
           </p>
         </div>
-        <Link href="/home">
-          <Button variant="outline" size="sm" data-testid="button-home">
-            <Home className="w-4 h-4 mr-2" />
-            Home
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
           </Button>
-        </Link>
+          <Link href="/home">
+            <Button variant="outline" size="sm" data-testid="button-home">
+              <Home className="w-4 h-4 mr-2" />
+              Home
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as MediaType)}>
@@ -358,14 +369,6 @@ export default function MediaLibraryPage() {
         </TabsList>
 
         <TabsContent value={activeTab} className="space-y-6">
-          {/* Upload Section */}
-          <MediaUploader
-            assetType={activeTab}
-            onUploadComplete={() => {
-              queryClient.invalidateQueries({ queryKey: ['/api/media/list'] });
-            }}
-          />
-
           {/* Media Grid */}
           <div>
             <h2 className="text-xl font-semibold mb-4">
@@ -373,7 +376,17 @@ export default function MediaLibraryPage() {
               {!isLoading && <span className="text-muted-foreground ml-2">({assets.length})</span>}
             </h2>
 
-            {isLoading ? (
+            {mediaError ? (
+              <Card className="border-destructive/50">
+                <CardContent className="p-8 text-center">
+                  <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-destructive" />
+                  <p className="font-medium">Media could not be loaded</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {mediaError instanceof Error ? mediaError.message : "Refresh the page to try again."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : isLoading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <Card key={i} className="animate-pulse">
@@ -404,7 +417,7 @@ export default function MediaLibraryPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {assets.map((asset) => (
-                  <Card key={asset.id} className="overflow-hidden hover-elevate" data-testid={`media-card-${asset.id}`}>
+                  <Card key={`${asset.source || "article"}-${asset.id}`} className="overflow-hidden hover-elevate" data-testid={`media-card-${asset.id}`}>
                     {renderMediaPreview(asset)}
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
@@ -493,15 +506,17 @@ export default function MediaLibraryPage() {
                         >
                           <Download className="w-4 h-4" />
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEdit(asset)}
-                          data-testid={`button-edit-${asset.id}`}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        {asset.assetType === 'image' && asset.imagePromptUsed && (
+                        {asset.source === "article" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEdit(asset)}
+                            data-testid={`button-edit-${asset.id}`}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {asset.source === "article" && asset.assetType === 'image' && asset.imagePromptUsed && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -522,15 +537,17 @@ export default function MediaLibraryPage() {
                             Regenerate
                           </Button>
                         )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => deleteMutation.mutate(asset.id)}
-                          disabled={deleteMutation.isPending}
-                          data-testid={`button-delete-${asset.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {asset.source === "article" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => deleteMutation.mutate(asset.id)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-${asset.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

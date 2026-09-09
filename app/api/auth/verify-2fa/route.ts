@@ -8,6 +8,7 @@ import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and, gt, isNull, sql } from "drizzle-orm";
 import { enterSystemContext } from "@/lib/tenant-context";
 import crypto from "crypto";
+import { sessionExpiry, sessionLifetimeSeconds } from "@/lib/session-policy";
 
 function hashesMatch(value: string, expected: string): boolean {
   const actual = Buffer.from(hashToken(value));
@@ -71,7 +72,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid verification code" }, { status: 401 });
     }
 
-    const accessToken = generateAccessToken({ userId: user.id, email: user.email, role: user.role });
+    // The login route bound this choice into the hashed challenge token.
+    const rememberMe = String(challengeToken).endsWith(".1");
+    const lifetimeSeconds = sessionLifetimeSeconds(rememberMe);
+    const accessToken = generateAccessToken(
+      { userId: user.id, email: user.email, role: user.role },
+      lifetimeSeconds,
+    );
     const now = new Date();
     const won = await getTxDb().transaction(async (tx) => {
       // This conditional update both revalidates current account/2FA state and
@@ -95,7 +102,8 @@ export async function POST(req: Request) {
         ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
         userAgent: req.headers.get("user-agent") || null,
         isActive: 1, teamContextId: user.defaultTeamId,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: sessionExpiry(rememberMe),
+        deviceInfo: { rememberedSession: rememberMe },
       });
       if (challenge.method === "totp") {
         await tx.update(totpSecrets).set({ lastUsedAt: now }).where(eq(totpSecrets.userId, user.id));
@@ -108,7 +116,7 @@ export async function POST(req: Request) {
       userId: user.id, action: "2fa_verification_success", resource: "users",
       resourceId: user.id, ipAddress: req.headers.get("x-forwarded-for") || null,
       userAgent: req.headers.get("user-agent") || null,
-      details: { method: challenge.method }, severity: "info",
+      details: { method: challenge.method, rememberedSession: rememberMe }, severity: "info",
     });
     const response = NextResponse.json({
       message: "2FA verification successful",
@@ -116,7 +124,7 @@ export async function POST(req: Request) {
       user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, twoFactorEnabled: true },
     });
     response.cookies.set(AUTH_COOKIE_NAME, accessToken, {
-      httpOnly: true, secure: true, sameSite: "none", path: "/", maxAge: 24 * 60 * 60,
+      httpOnly: true, secure: true, sameSite: "none", path: "/", maxAge: lifetimeSeconds,
     });
     issueCsrfCookie(response);
     return response;

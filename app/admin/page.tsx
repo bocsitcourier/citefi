@@ -313,7 +313,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-3">
-              <Link href="/content">
+              <Link href="/admin/content">
                 <Button className="w-full" variant="outline" data-testid="button-view-all-articles">
                   <FileText className="w-4 h-4 mr-2" />
                   Content Library
@@ -325,7 +325,7 @@ export default function AdminDashboard() {
                   Create Batch
                 </Button>
               </Link>
-              <Link href="/media">
+              <Link href="/admin/content">
                 <Button className="w-full" variant="outline" data-testid="button-media-library">
                   <Activity className="w-4 h-4 mr-2" />
                   Media Library

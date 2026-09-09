@@ -29,7 +29,7 @@ type TotpStep = "idle" | "setup" | "verify" | "backup";
 interface TotpSetupData {
   qrCodeUrl: string;
   manualEntryKey: string;
-  secret: string;
+  setupToken: string;
 }
 
 interface BillingStatus {
@@ -86,6 +86,10 @@ export default function AccountSettingsPage() {
   const [verificationCode, setVerificationCode] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [totpPassword, setTotpPassword] = useState("");
+  const [showDisableTotp, setShowDisableTotp] = useState(false);
+  const [disableTotpPassword, setDisableTotpPassword] = useState("");
+  const [disableTotpCode, setDisableTotpCode] = useState("");
 
   const { data: billing } = useQuery<BillingStatus>({
     queryKey: ["/api/billing/status"],
@@ -116,7 +120,7 @@ export default function AccountSettingsPage() {
     mutationFn: async (): Promise<TotpSetupData> => {
       return apiRequest("/api/auth/setup-totp", {
         method: "POST",
-        body: JSON.stringify({ action: "generate" }),
+        body: JSON.stringify({ action: "generate", currentPassword: totpPassword }),
       });
     },
     onSuccess: (data) => {
@@ -133,7 +137,7 @@ export default function AccountSettingsPage() {
     mutationFn: async (): Promise<{ backupCodes: string[] }> => {
       return apiRequest("/api/auth/setup-totp", {
         method: "POST",
-        body: JSON.stringify({ action: "verify", secret: totpSetupData?.secret, verificationCode }),
+        body: JSON.stringify({ action: "verify", setupToken: totpSetupData?.setupToken, verificationCode }),
       });
     },
     onSuccess: (data) => {
@@ -150,12 +154,21 @@ export default function AccountSettingsPage() {
 
   const disableTotpMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("/api/auth/disable-totp", { method: "POST" });
+      return apiRequest("/api/auth/disable-totp", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword: disableTotpPassword,
+          verificationCode: disableTotpCode,
+        }),
+      });
     },
     onSuccess: () => {
       setTotpStep("idle");
       setTotpSetupData(null);
       setBackupCodes([]);
+      setShowDisableTotp(false);
+      setDisableTotpPassword("");
+      setDisableTotpCode("");
       refreshUser?.();
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: "2FA disabled", description: "Two-factor authentication has been removed from your account." });
@@ -350,22 +363,58 @@ export default function AccountSettingsPage() {
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => disableTotpMutation.mutate()}
+                onClick={() => setShowDisableTotp((value) => !value)}
                 disabled={disableTotpMutation.isPending}
                 data-testid="button-disable-2fa"
               >
-                {disableTotpMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Disabling...</> : <><ShieldOff className="w-4 h-4 mr-2" />Disable 2FA</>}
+                <ShieldOff className="w-4 h-4 mr-2" />Disable 2FA
               </Button>
+              {showDisableTotp ? (
+                <div className="space-y-3 rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">Confirm this security change with your password and a current authenticator code. Other sessions will be signed out.</p>
+                  <Input
+                    type="password"
+                    placeholder="Current password"
+                    value={disableTotpPassword}
+                    onChange={(event) => setDisableTotpPassword(event.target.value)}
+                    autoComplete="current-password"
+                  />
+                  <Input
+                    inputMode="numeric"
+                    placeholder="6-digit authenticator code"
+                    value={disableTotpCode}
+                    onChange={(event) => setDisableTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  />
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setShowDisableTotp(false)}>Cancel</Button>
+                    <Button
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={() => disableTotpMutation.mutate()}
+                      disabled={!disableTotpPassword || disableTotpCode.length !== 6 || disableTotpMutation.isPending}
+                    >
+                      {disableTotpMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Disabling...</> : "Confirm disable"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : totpStep === "idle" ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Two-factor authentication is not enabled. Enable it to require a code from Google Authenticator each time you log in.
               </p>
+              <Input
+                type="password"
+                placeholder="Current password"
+                value={totpPassword}
+                onChange={(event) => setTotpPassword(event.target.value)}
+                autoComplete="current-password"
+              />
               <Button
                 className="w-full"
                 onClick={() => generateTotpMutation.mutate()}
-                disabled={generateTotpMutation.isPending}
+                disabled={!totpPassword || generateTotpMutation.isPending}
                 data-testid="button-enable-2fa"
               >
                 {generateTotpMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</> : <><ShieldCheck className="w-4 h-4 mr-2" />Enable Google Authenticator</>}

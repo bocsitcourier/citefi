@@ -265,6 +265,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       try {
         await db.insert(articleAssets).values({
           articleId: articleId,
+          teamId: article.teamId,
           assetType: 'audio',
           storageUrl: storageUrl,
           altText: `Podcast: ${article.chosenTitle}`,

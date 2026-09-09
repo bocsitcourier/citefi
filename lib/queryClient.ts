@@ -52,7 +52,7 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: async ({ queryKey }) => {
         const url = queryKey[0] as string;
-        const response = await fetch(url, {
+        const response = await csrfFetch(url, {
           credentials: "include",
         });
         if (!response.ok) {

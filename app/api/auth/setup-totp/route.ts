@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { systemDb } from "@/lib/db";
-import { users, totpSecrets, activityLogs } from "@/shared/schema";
-import { generateTOTPSecret, verifyTOTPToken, generateBackupCodes, hashBackupCodes } from "@/lib/auth";
+import { getTxDb, systemDb } from "@/lib/db";
+import { users, sessions, totpSecrets, activityLogs } from "@/shared/schema";
+import {
+  generateTOTPSecret,
+  verifyTOTPToken,
+  generateBackupCodes,
+  hashBackupCodes,
+  verifyPassword,
+  generateTOTPSetupToken,
+  verifyTOTPSetupToken,
+} from "@/lib/auth";
 import { verifyToken } from "@/lib/api/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,26 +50,34 @@ export async function POST(req: NextRequest) {
           { status: 404 }
         );
       }
+      if (!body.currentPassword || !user.passwordHash ||
+          !(await verifyPassword(String(body.currentPassword), user.passwordHash))) {
+        return NextResponse.json(
+          { error: "Current password is required to enable two-factor authentication" },
+          { status: 401 }
+        );
+      }
 
       const totpSetup = await generateTOTPSecret(user.email);
+      const setupToken = generateTOTPSetupToken(user.id, totpSetup.secret);
 
       return NextResponse.json({
         qrCodeUrl: totpSetup.qrCodeUrl,
         manualEntryKey: totpSetup.manualEntryKey,
-        secret: totpSetup.secret,
-      });
+        setupToken,
+      }, { headers: { "Cache-Control": "no-store" } });
 
     } else if (action === "verify") {
-      const { secret } = body;
+      const setup = verifyTOTPSetupToken(String(body.setupToken || ""));
 
-      if (!secret || !verificationCode) {
+      if (!setup || setup.userId !== authResult.userId || !verificationCode) {
         return NextResponse.json(
-          { error: "Secret and verification code are required" },
+          { error: "The authenticator setup has expired. Start again." },
           { status: 400 }
         );
       }
 
-      const verified = verifyTOTPToken(verificationCode, secret);
+      const verified = verifyTOTPToken(String(verificationCode), setup.secret);
 
       if (!verified) {
         return NextResponse.json(
@@ -73,52 +89,44 @@ export async function POST(req: NextRequest) {
       const backupCodes = await generateBackupCodes(10);
       const hashedBackupCodes = await hashBackupCodes(backupCodes);
 
-      const [existingTotp] = await systemDb
-        .select()
-        .from(totpSecrets)
-        .where(eq(totpSecrets.userId, authResult.userId))
-        .limit(1);
-
-      if (existingTotp) {
-        await systemDb
-          .update(totpSecrets)
-          .set({
-            secret,
-            backupCodes: hashedBackupCodes,
-          })
-          .where(eq(totpSecrets.userId, authResult.userId));
-      } else {
-        await systemDb
-          .insert(totpSecrets)
-          .values({
-            userId: authResult.userId,
-            secret,
-            backupCodes: hashedBackupCodes,
-          });
-      }
-
-      await systemDb
-        .update(users)
-        .set({
+      const now = new Date();
+      await getTxDb().transaction(async (tx) => {
+        await tx.insert(totpSecrets).values({
+          userId: authResult.userId,
+          secret: setup.secret,
+          backupCodes: hashedBackupCodes,
+        }).onConflictDoUpdate({
+          target: totpSecrets.userId,
+          set: { secret: setup.secret, backupCodes: hashedBackupCodes, lastUsedAt: null },
+        });
+        await tx.update(users).set({
           twoFactorEnabled: 1,
           twoFactorMethod: "totp",
-        })
-        .where(eq(users.id, authResult.userId));
-
-      await systemDb.insert(activityLogs).values({
-        userId: authResult.userId,
-        action: "totp_setup",
-        resource: "users",
-        resourceId: authResult.userId,
-        ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
-        userAgent: req.headers.get("user-agent") || null,
-        severity: "info",
+        }).where(eq(users.id, authResult.userId));
+        await tx.update(sessions).set({
+          isActive: 0,
+          forceLogoutAt: now,
+          terminationReason: "Two-factor authentication enabled",
+        }).where(and(
+          eq(sessions.userId, authResult.userId),
+          ne(sessions.id, authResult.sessionId),
+        ));
+        await tx.insert(activityLogs).values({
+          userId: authResult.userId,
+          action: "totp_setup",
+          resource: "users",
+          resourceId: authResult.userId,
+          ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
+          userAgent: req.headers.get("user-agent") || null,
+          details: { otherSessionsRevoked: true },
+          severity: "info",
+        });
       });
 
       return NextResponse.json({
         message: "TOTP setup successful",
         backupCodes,
-      });
+      }, { headers: { "Cache-Control": "no-store" } });
     } else {
       return NextResponse.json(
         { error: "Invalid action. Use 'generate' or 'verify'" },

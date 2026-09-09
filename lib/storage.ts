@@ -6,14 +6,18 @@ import {
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { PassThrough, Readable } from "stream";
+import { Storage } from "@google-cloud/storage";
 import { db } from "./db";
-import { articleAssets } from "@/shared/schema";
+import { articleAssets, articles } from "@/shared/schema";
+import { eq } from "drizzle-orm";
 
 // ── DO Spaces / S3-compatible storage ────────────────────────────────────────
 const DO_SPACES_KEY      = process.env.DO_SPACES_KEY      || "";
 const DO_SPACES_SECRET   = process.env.DO_SPACES_SECRET   || "";
 const DO_SPACES_ENDPOINT = process.env.DO_SPACES_ENDPOINT || "";
 const DO_SPACES_BUCKET   = process.env.DO_SPACES_BUCKET   || "";
+const LEGACY_REPLIT_BUCKET = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
+const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 const STORAGE_PREFIX = (process.env.STORAGE_PREFIX || "")
   .trim()
   .replace(/^\/+|\/+$/g, "");
@@ -37,6 +41,7 @@ const s3Client = new S3Client({
 /** True when all required DO Spaces credentials are present. */
 export const isStorageConfigured: boolean =
   !!(DO_SPACES_KEY && DO_SPACES_SECRET && DO_SPACES_ENDPOINT && DO_SPACES_BUCKET);
+export const isLegacyStorageConfigured: boolean = !!LEGACY_REPLIT_BUCKET;
 /** Policy switch used by routes to make disabled media impossible to enqueue. */
 export const isMediaEnabled: boolean = process.env.MEDIA_FEATURES_ENABLED !== "false";
 
@@ -171,6 +176,40 @@ export const objectStorageClient = {
   },
 };
 
+const legacyObjectStorageClient = new Storage({
+  credentials: {
+    audience: "replit",
+    subject_token_type: "access_token",
+    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
+    type: "external_account",
+    credential_source: {
+      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
+      format: {
+        type: "json",
+        subject_token_field_name: "access_token",
+      },
+    },
+    universe_domain: "googleapis.com",
+  },
+  projectId: "",
+});
+
+/**
+ * Preserve read access to objects created before the DO Spaces migration.
+ * New storage is tried first; the Replit bucket is a read-only compatibility
+ * source until historical object migration has been certified.
+ */
+export function getStorageReadCandidates(key: string): any[] {
+  const candidates: any[] = [];
+  if (isStorageConfigured) {
+    candidates.push(objectStorageClient.bucket(DO_SPACES_BUCKET).file(key));
+  }
+  if (isLegacyStorageConfigured) {
+    candidates.push(legacyObjectStorageClient.bucket(LEGACY_REPLIT_BUCKET).file(key));
+  }
+  return candidates;
+}
+
 // ── Public URL helper ─────────────────────────────────────────────────────────
 // Files are served through the Next.js proxy route so URLs never embed a
 // provider-specific hostname and remain stable across storage migrations.
@@ -189,6 +228,8 @@ export interface UploadImageParams {
 
 export async function uploadImage(params: UploadImageParams): Promise<string> {
   const { imageData, articleId, batchId, slug, index, prompt } = params;
+  const [owner] = await db.select({ teamId: articles.teamId }).from(articles).where(eq(articles.id, articleId)).limit(1);
+  if (!owner?.teamId) throw new Error("Cannot store article image without a validated owning team");
 
   const filename   = `${slug}-${index + 1}.webp`;
   const key        = `private/articles/${articleId}/batch-${batchId}/${filename}`;
@@ -204,6 +245,7 @@ export async function uploadImage(params: UploadImageParams): Promise<string> {
 
   await db.insert(articleAssets).values({
     articleId,
+    teamId: owner.teamId,
     imagePromptUsed: prompt,
     storageUrl: publicUrl,
     altText,
@@ -280,6 +322,11 @@ export async function uploadMedia(params: UploadMediaParams): Promise<string> {
   const { fileData, fileName, contentType, assetType, articleId, altText, metadata } =
     params;
 
+  const owner = articleId
+    ? (await db.select({ teamId: articles.teamId }).from(articles).where(eq(articles.id, articleId)).limit(1))[0]
+    : null;
+  if (articleId && !owner?.teamId) throw new Error("Cannot store article media without a validated owning team");
+
   const timestamp  = Date.now();
   const safeName   = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
   const key        = articleId
@@ -300,6 +347,7 @@ export async function uploadMedia(params: UploadMediaParams): Promise<string> {
 
     await db.insert(articleAssets).values({
       articleId,
+      teamId: owner!.teamId,
       assetType,
       storageUrl: publicUrl,
       altText: altText || null,

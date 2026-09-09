@@ -92,6 +92,7 @@ export const NAV_SECTIONS: NavSection[] = [
     adminOnly: true,
     items: [
       { title: "Admin Hub", href: "/admin", icon: Shield, adminOnly: true },
+      { title: "Generated Content", href: "/admin/content", icon: Library, adminOnly: true },
       { title: "Users", href: "/admin/users", icon: UserCog, adminOnly: true },
       { title: "Analytics", href: "/admin/analytics", icon: BarChart3, adminOnly: true },
       { title: "Activity Logs", href: "/admin/activity-logs", icon: ScrollText, adminOnly: true },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { articleAssets, articles, socialPosts } from "@/shared/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { articleAssets, articles, socialPostAssets, socialPosts } from "@/shared/schema";
+import { eq, desc, and, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
 // Helper: Convert any absolute URL to a relative /api/public-objects/ path.
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
     .limit(limit);
 
     // Apply filters for articleAssets — always scope to team via articles join
-    const filters: any[] = [eq(articles.teamId, teamId)];
+    const filters: any[] = [eq(articles.teamId, teamId), isNull(articleAssets.deletedAt)];
     if (articleId) {
       filters.push(eq(articleAssets.articleId, parseInt(articleId)));
     }
@@ -79,6 +79,53 @@ export async function GET(request: NextRequest) {
     });
 
     assets.push(...normalizedAssets);
+
+    if (assetType === 'image' || assetType === 'video' || !assetType) {
+      const socialAssets = await db
+        .select({
+          id: socialPostAssets.id,
+          socialPostId: socialPostAssets.socialPostId,
+          assetType: socialPostAssets.assetType,
+          storageUrl: socialPostAssets.storageUrl,
+          altText: socialPostAssets.altText,
+          fileFormat: socialPostAssets.fileFormat,
+          promptUsed: socialPostAssets.promptUsed,
+          width: socialPostAssets.width,
+          height: socialPostAssets.height,
+          videoDuration: socialPostAssets.videoDuration,
+          createdAt: socialPostAssets.createdAt,
+          title: socialPosts.title,
+        })
+        .from(socialPostAssets)
+        .innerJoin(socialPosts, eq(socialPosts.id, socialPostAssets.socialPostId))
+        .where(and(
+          eq(socialPosts.teamId, teamId),
+          isNull(socialPosts.deletedAt),
+          ...(assetType ? [eq(socialPostAssets.assetType, assetType)] : []),
+        ))
+        .orderBy(desc(socialPostAssets.createdAt))
+        .limit(limit);
+
+      assets.push(...socialAssets.map((asset) => ({
+        id: asset.id,
+        articleId: null,
+        socialPostId: asset.socialPostId,
+        assetType: asset.assetType,
+        storageUrl: normalizeMediaUrl(asset.storageUrl) || asset.storageUrl,
+        altText: asset.altText,
+        fileFormat: asset.fileFormat,
+        metadataJson: {
+          width: asset.width,
+          height: asset.height,
+          duration: asset.videoDuration,
+        },
+        imagePromptUsed: asset.promptUsed,
+        createdAt: asset.createdAt,
+        articleTitle: asset.title,
+        isHero: false,
+        source: 'social',
+      })));
+    }
 
     // Also fetch social videos if type is 'video' or no type specified
     if (assetType === 'video' || !assetType) {

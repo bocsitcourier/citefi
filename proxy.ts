@@ -161,6 +161,13 @@ export async function proxy(request: NextRequest) {
   const token = extractToken(request);
 
   if (!token) {
+    // Replit's development preview is a cross-site iframe and may drop the
+    // HttpOnly cookie on page navigation. Client-side API calls still carry the
+    // development-only preview bearer token and authoritative API guards remain
+    // enforced. Production never bypasses this page-navigation gate.
+    if (process.env.NODE_ENV === "development") {
+      return NextResponse.next();
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

@@ -1,6 +1,7 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
 - [Learning system loops](learning-system-loops.md) — PATTERN_DIMENSION single source of truth, mineCorpus routing, updatePatternDimension atomic upsert, podcast learning loop design.
 - [Auth token storage](auth-token-storage.md) — production is HttpOnly-cookie-only; development adds a sessionStorage bearer fallback for Replit’s cross-site preview iframe.
+- [Authentication session policy](auth-session-policy.md) — normal sessions are 24h; explicit “keep signed in” sessions are 90d and do not bypass MFA on a new login.
 - [Learning system design](learning-system-loops.md) — Thompson Sampling (not epsilon-greedy) drives pattern selection; METRIC_WEIGHTS per content type; isArchived filter excludes archived patterns; teamDataMaturity() gates prior strength.
 - [Optimized content generator](optimized-content-generator.md) — 3-point injection orchestrator; reviewer wired at Stage 1.6 articles + Stage 1.5 social; exemplar retrieval is the last gap.
 - [T004 auth test patterns](t004-auth-tests.md) — node --env-file + tsx/esm runner; jti fix for concurrent logins; TEST-NET-1/2 IP separation; /api/auth/me nests under body.user; waitForServer() required.
@@ -31,3 +32,4 @@
 - [Ads export governance](ads-export-governance.md) — Ads Lab is export-only; finalized manifests, artifact hashes, pinned landing checks, approvals, and retained debit settlement are mandatory.
 - [Provider COGS ledger](provider-cogs-ledger.md) — actual COGS uses locked rates only; unpriced usage is zero-valued, and paid provider results fail closed if accounting fails.
 - [Agency report safety](agency-report-safety.md) — client-safe rows and agency financial snapshots stay physically separate; generation and delivery use consistency barriers.
+- [Media storage migration](media-storage-migration.md) — read DO Spaces first and legacy Replit Object Storage second until historical object parity is certified.

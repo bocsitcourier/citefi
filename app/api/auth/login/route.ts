@@ -9,6 +9,7 @@ import { sendEmailVerificationCode } from "@/lib/email";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and, isNull } from "drizzle-orm";
 import { enterSystemContext } from "@/lib/tenant-context";
+import { sessionExpiry, sessionLifetimeSeconds } from "@/lib/session-policy";
 
 export async function POST(req: Request) {
   enterSystemContext("public login and session creation");
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { email, password } = body;
+    const rememberMe = body.rememberMe === true;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -158,7 +160,9 @@ export async function POST(req: Request) {
       if (method !== "totp" && method !== "email") {
         return NextResponse.json({ error: "Two-factor authentication is misconfigured" }, { status: 409 });
       }
-      const challengeToken = crypto.randomBytes(32).toString("base64url");
+      // The remembered-session choice is bound into the opaque challenge.
+      // Any client modification changes the stored hash and invalidates it.
+      const challengeToken = `${crypto.randomBytes(32).toString("base64url")}.${rememberMe ? "1" : "0"}`;
       const emailCode = method === "email" ? generateEmailCode() : null;
       await getTxDb().transaction(async (tx) => {
         // A new completed password step supersedes older outstanding attempts.
@@ -198,11 +202,12 @@ export async function POST(req: Request) {
     }
 
     // No 2FA required - generate full access token
+    const lifetimeSeconds = sessionLifetimeSeconds(rememberMe);
     const accessToken = generateAccessToken({
       userId: user.id,
       email: user.email,
       role: user.role,
-    });
+    }, lifetimeSeconds);
 
     const tokenHash = hashToken(accessToken);
 
@@ -216,7 +221,8 @@ export async function POST(req: Request) {
         userAgent: req.headers.get("user-agent") || null,
         isActive: 1,
         teamContextId: user.defaultTeamId,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        expiresAt: sessionExpiry(rememberMe),
+        deviceInfo: { rememberedSession: rememberMe },
       })
       .returning();
 
@@ -238,7 +244,7 @@ export async function POST(req: Request) {
       resourceId: user.id,
       ipAddress: req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || null,
       userAgent: req.headers.get("user-agent") || null,
-      details: { email },
+      details: { email, rememberedSession: rememberMe },
       severity: "info",
     });
 
@@ -263,7 +269,7 @@ export async function POST(req: Request) {
       secure: true,
       sameSite: "none",
       path: "/",
-      maxAge: 24 * 60 * 60, // 24 hours
+      maxAge: lifetimeSeconds,
     });
     issueCsrfCookie(response);
 

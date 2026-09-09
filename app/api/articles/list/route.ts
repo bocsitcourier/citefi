@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, locales } from "@/shared/schema";
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq, desc, and, isNull } from "drizzle-orm";
 import { requireTeamMember } from "@/lib/api/auth";
 
 /**
  * GET /api/articles/list
- * Returns completed articles scoped strictly to the authenticated user's team.
+ * Returns all non-deleted articles scoped strictly to the authenticated user's team.
  * SECURITY: requireTeamMember enforces hard team isolation — no NULL-team fallback.
  */
 export async function GET(request: NextRequest) {
@@ -31,11 +31,7 @@ export async function GET(request: NextRequest) {
       .where(
         and(
           eq(articles.teamId, teamId),
-          or(
-            eq(articles.articleStatus, "COMPLETE"),
-            eq(articles.articleStatus, "GPT4_ENHANCED"),
-            eq(articles.articleStatus, "PUBLISHED")
-          )
+          isNull(articles.deletedAt)
         )
       )
       .orderBy(desc(articles.createdAt))
