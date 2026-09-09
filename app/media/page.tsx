@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MediaUploader, type MediaType } from "@/components/MediaUploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,8 @@ import { apiRequest, csrfFetch } from "@/lib/queryClient";
 import { OptimizedVideo } from "@/components/OptimizedVideo";
 
 interface MediaAsset {
-  id: number;
+  id: string;
+  assetId: string;
   articleId: number | null;
   socialPostId?: number | null;
   assetType: string;
@@ -31,24 +32,50 @@ interface MediaAsset {
   articleTitle: string | null;
   isHero?: boolean;
   source?: 'article' | 'social';
+  sourceType: string;
+  actions: {
+    edit: string | null;
+    delete: string | null;
+    download: string;
+    regenerate: string | null;
+    source: string;
+  };
 }
 
 export default function MediaLibraryPage() {
   const [activeTab, setActiveTab] = useState<MediaType>("image");
-  const [copiedUrl, setCopiedUrl] = useState<number | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [editingAsset, setEditingAsset] = useState<MediaAsset | null>(null);
   const [editedAltText, setEditedAltText] = useState("");
   const [redoingAsset, setRedoingAsset] = useState<MediaAsset | null>(null);
   const [redoPrompt, setRedoPrompt] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<MediaAsset | null>(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: mediaData, isLoading, error: mediaError, refetch, isFetching } = useQuery({
-    queryKey: ['/api/media/list', activeTab],
-    queryFn: async () => {
-      const response = await csrfFetch(`/api/media/list?type=${activeTab}&limit=100`, {
+  const {
+    data: mediaData,
+    isLoading,
+    error: mediaError,
+    refetch,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['/api/media/list', activeTab, statusFilter, fromFilter, toFilter],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ type: activeTab, limit: "60" });
+      if (statusFilter) params.set("status", statusFilter);
+      if (fromFilter) params.set("from", fromFilter);
+      if (toFilter) params.set("to", `${toFilter}T23:59:59.999Z`);
+      if (pageParam) params.set("cursor", pageParam);
+      const response = await csrfFetch(`/api/media/list?${params}`, {
         credentials: "include",
       });
       if (!response.ok) {
@@ -59,11 +86,13 @@ export default function MediaLibraryPage() {
       }
       return response.json();
     },
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (assetId: number) => {
-      const response = await csrfFetch(`/api/media/${assetId}`, {
+    mutationFn: async (asset: MediaAsset) => {
+      if (!asset.actions.delete) throw new Error("This asset cannot be deleted");
+      const response = await csrfFetch(asset.actions.delete, {
         method: 'DELETE',
         credentials: "include",
       });
@@ -87,8 +116,9 @@ export default function MediaLibraryPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, altText }: { id: number; altText: string }) => {
-      return await apiRequest(`/api/media/${id}`, {
+    mutationFn: async ({ asset, altText }: { asset: MediaAsset; altText: string }) => {
+      if (!asset.actions.edit) throw new Error("This asset cannot be edited");
+      return await apiRequest(asset.actions.edit, {
         method: 'PATCH',
         body: JSON.stringify({ altText }),
       });
@@ -110,7 +140,7 @@ export default function MediaLibraryPage() {
     },
   });
 
-  const copyToClipboard = (url: string, id: number) => {
+  const copyToClipboard = (url: string, id: string) => {
     navigator.clipboard.writeText(url);
     setCopiedUrl(id);
     toast({
@@ -158,7 +188,7 @@ export default function MediaLibraryPage() {
 
   const handleSaveEdit = () => {
     if (!editingAsset) return;
-    updateMutation.mutate({ id: editingAsset.id, altText: editedAltText });
+    updateMutation.mutate({ asset: editingAsset, altText: editedAltText });
   };
 
   const handleRedo = (asset: MediaAsset) => {
@@ -178,7 +208,8 @@ export default function MediaLibraryPage() {
 
     setIsRegenerating(true);
     try {
-      await apiRequest(`/api/media/${redoingAsset.id}/regenerate`, {
+      if (!redoingAsset.actions.regenerate) throw new Error("This asset cannot be regenerated");
+      await apiRequest(redoingAsset.actions.regenerate, {
         method: "POST",
         body: JSON.stringify({ prompt: redoPrompt }),
       });
@@ -202,7 +233,7 @@ export default function MediaLibraryPage() {
   };
 
   const handleRegenerateVideo = async (asset: MediaAsset) => {
-    if (!asset.socialPostId) {
+    if (!asset.actions.regenerate) {
       toast({
         title: "Error",
         description: "Cannot regenerate: social post ID not found",
@@ -217,14 +248,11 @@ export default function MediaLibraryPage() {
         description: "This may take 60-180 seconds. You'll be notified when complete.",
       });
 
-      const response = await csrfFetch('/api/social/video/generate', {
+      const response = await csrfFetch(asset.actions.regenerate, {
         method: 'POST',
         credentials: "include",
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          socialPostId: asset.socialPostId,
-          platform: 'tiktok'
-        }),
+        body: JSON.stringify({ platform: 'tiktok' }),
       });
 
       const data = await response.json();
@@ -327,7 +355,7 @@ export default function MediaLibraryPage() {
     }
   };
 
-  const assets: MediaAsset[] = mediaData?.assets || [];
+  const assets: MediaAsset[] = mediaData?.pages.flatMap((page) => page.assets) || [];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -367,6 +395,38 @@ export default function MediaLibraryPage() {
             Videos
           </TabsTrigger>
         </TabsList>
+
+        <Card className="mt-4">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Input
+              placeholder="Status (e.g. READY)"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            />
+            <Input
+              type="date"
+              aria-label="Created from"
+              value={fromFilter}
+              onChange={(event) => setFromFilter(event.target.value)}
+            />
+            <Input
+              type="date"
+              aria-label="Created through"
+              value={toFilter}
+              onChange={(event) => setToFilter(event.target.value)}
+            />
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setStatusFilter("");
+                setFromFilter("");
+                setToFilter("");
+              }}
+            >
+              Clear filters
+            </Button>
+          </CardContent>
+        </Card>
 
         <TabsContent value={activeTab} className="space-y-6">
           {/* Media Grid */}
@@ -506,7 +566,7 @@ export default function MediaLibraryPage() {
                         >
                           <Download className="w-4 h-4" />
                         </Button>
-                        {asset.source === "article" && (
+                        {asset.actions.edit && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -516,7 +576,7 @@ export default function MediaLibraryPage() {
                             <Edit className="w-4 h-4" />
                           </Button>
                         )}
-                        {asset.source === "article" && asset.assetType === 'image' && asset.imagePromptUsed && (
+                        {asset.actions.regenerate && asset.assetType === 'image' && asset.imagePromptUsed && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -526,7 +586,7 @@ export default function MediaLibraryPage() {
                             <RefreshCw className="w-4 h-4" />
                           </Button>
                         )}
-                        {asset.assetType === 'video' && asset.source === 'social' && asset.socialPostId && (
+                        {asset.assetType === 'video' && asset.actions.regenerate && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -537,11 +597,11 @@ export default function MediaLibraryPage() {
                             Regenerate
                           </Button>
                         )}
-                        {asset.source === "article" && (
+                        {asset.actions.delete && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => deleteMutation.mutate(asset.id)}
+                            onClick={() => deleteMutation.mutate(asset)}
                             disabled={deleteMutation.isPending}
                             data-testid={`button-delete-${asset.id}`}
                           >
@@ -552,6 +612,14 @@ export default function MediaLibraryPage() {
                     </CardContent>
                   </Card>
                 ))}
+              </div>
+            )}
+            {hasNextPage && (
+              <div className="mt-6 flex justify-center">
+                <Button variant="outline" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                  {isFetchingNextPage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Load more
+                </Button>
               </div>
             )}
           </div>

@@ -6,7 +6,12 @@ import { z } from "zod";
 import { generateSingleImage } from "@/lib/gemini-image-generator";
 import { uploadMedia } from "@/lib/storage";
 import { createImageBrandLockPromptSegment } from "@/lib/branding";
-import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import {
+  requireAdmin,
+  requireTeamMember,
+  runWithAuthenticatedTeamContext,
+} from "@/lib/api/auth";
+import { runWithSystemContext } from "@/lib/tenant-context";
 
 const regenerateSchema = z.object({
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
@@ -17,8 +22,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    return await withAuthenticatedTeamContext(request, async (auth) => {
-      const { userId, teamId } = auth;
+    let teamAuth: Awaited<ReturnType<typeof requireTeamMember>> | null = null;
+    let teamId: number | null = null;
+    try {
+      await requireAdmin(request);
+    } catch (error: any) {
+      if (error?.statusCode !== 403) throw error;
+      teamAuth = await requireTeamMember(request);
+      teamId = teamAuth.teamId;
+    }
+    const regenerate = async () => {
     const { id } = await params;
     const assetId = parseInt(id);
 
@@ -36,7 +49,10 @@ export async function POST(
     const [asset] = await db
       .select()
       .from(articleAssets)
-      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, teamId)));
+      .where(and(
+        eq(articleAssets.id, assetId),
+        ...(teamId === null ? [] : [eq(articleAssets.teamId, teamId)]),
+      ));
 
     if (!asset) {
       return NextResponse.json(
@@ -62,7 +78,7 @@ export async function POST(
       const [article] = await db
         .select()
         .from(articles)
-        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
+        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
       
       if (article?.batchId) {
         const [batch] = await db
@@ -147,7 +163,7 @@ export async function POST(
           originalPrompt: asset.imagePromptUsed,
         }
       })
-      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, teamId)))
+      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, assetTeamId)))
       .returning();
 
     // If this image belongs to an article, update the article HTML
@@ -155,7 +171,7 @@ export async function POST(
       const [article] = await db
         .select()
         .from(articles)
-        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
+        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
 
       if (article) {
         let updatedFields: any = {};
@@ -180,7 +196,7 @@ export async function POST(
           await db
             .update(articles)
             .set(updatedFields)
-            .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, teamId)));
+            .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
           
           console.log(`✅ Updated article ${asset.articleId} with new image URLs`);
         }
@@ -194,8 +210,11 @@ export async function POST(
       asset: updatedAsset,
       message: "Image regenerated successfully",
     });
+    };
 
-      });
+    return teamAuth
+      ? await runWithAuthenticatedTeamContext(teamAuth, regenerate)
+      : await runWithSystemContext("global admin media regeneration", regenerate);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
