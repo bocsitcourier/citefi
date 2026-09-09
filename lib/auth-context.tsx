@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, csrfFetch } from "@/lib/queryClient";
 
 interface User {
   id: number;
@@ -14,7 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string }>;
+  login: (email: string, password: string) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string; role?: User["role"] }>;
   verify2FA: (code: string) => Promise<void>;
   logout: () => Promise<void>;
   signup: (email: string, password: string, fullName?: string, teamName?: string) => Promise<void>;
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = async () => {
     try {
-      const response = await fetch("/api/auth/me", {
+      const response = await csrfFetch("/api/auth/me", {
         credentials: "include",
       });
 
@@ -69,8 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
     }
 
+    if (response.previewToken) {
+      try { sessionStorage.setItem("auth_preview_token", String(response.previewToken)); } catch { /* ignore */ }
+    }
     setUser(response.user);
-    return { requiresTwoFactor: false };
+    return { requiresTwoFactor: false, role: response.user?.role };
   };
 
   const verify2FA = async (code: string) => {
@@ -86,6 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear only after success so a mistyped code can be retried.
     try { sessionStorage.removeItem("auth_2fa_challenge"); } catch { /* ignore */ }
 
+    if (response.previewToken) {
+      try { sessionStorage.setItem("auth_preview_token", String(response.previewToken)); } catch { /* ignore */ }
+    }
     setUser(response.user);
   };
 
@@ -103,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Logout error:", error);
     }
+    try { sessionStorage.removeItem("auth_preview_token"); } catch { /* ignore */ }
     setUser(null);
   };
 

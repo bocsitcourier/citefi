@@ -112,6 +112,7 @@ export async function POST(req: Request) {
     });
     const response = NextResponse.json({
       message: "2FA verification successful",
+      ...(process.env.NODE_ENV === "development" ? { previewToken: accessToken } : {}),
       user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, twoFactorEnabled: true },
     });
     response.cookies.set(AUTH_COOKIE_NAME, accessToken, {

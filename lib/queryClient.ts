@@ -81,6 +81,14 @@ export async function csrfFetch(url: string, options?: RequestInit) {
   if (body != null && !browserSelectsContentType && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  if (typeof window !== "undefined" && !headers.has("Authorization")) {
+    try {
+      const previewToken = sessionStorage.getItem("auth_preview_token");
+      if (previewToken) headers.set("Authorization", `Bearer ${previewToken}`);
+    } catch {
+      // Storage can be unavailable in locked-down browser contexts.
+    }
+  }
   const method = (options?.method || "GET").toUpperCase();
   if (typeof document !== "undefined" && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     const csrf = document.cookie

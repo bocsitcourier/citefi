@@ -48,7 +48,9 @@ function LoginForm() {
         // Full-page navigation clears the Next.js router cache so the
         // middleware sees the fresh auth cookie on the very next request.
         const redirect = searchParams.get("redirect");
-        const dest = redirect && redirect.startsWith("/") ? redirect : "/home";
+        const dest = redirect && redirect.startsWith("/")
+          ? redirect
+          : result.role === "admin" ? "/admin" : "/home";
         window.location.href = dest;
       }
     } catch (error: any) {

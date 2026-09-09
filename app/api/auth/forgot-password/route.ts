@@ -3,11 +3,14 @@ import { systemDb as db } from "@/lib/db";
 import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
-import { deliverEmail } from "@/lib/email";
+import { deliverEmail, hasConfiguredEmailDelivery } from "@/lib/email";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(req: Request) {
   try {
+    const genericResponse = {
+      message: "If this email is registered, you will receive a reset code.",
+    };
     const ip = getClientIp(req);
     const rl = await rateLimitDb(`forgot-password:${ip}`, 3, 60 * 60 * 1000);
     if (!rl.allowed) {
@@ -40,7 +43,14 @@ export async function POST(req: Request) {
 
     if (!user || user.accountStatus === "suspended") {
       // Return success even if user not found (security: don't reveal email existence)
-      return NextResponse.json({ message: "If this email is registered, you will receive a reset code." });
+      return NextResponse.json(genericResponse);
+    }
+
+    // Never create or log a usable reset code when no private delivery channel
+    // is configured. The console email fallback is visible in development logs.
+    if (!hasConfiguredEmailDelivery()) {
+      console.warn("[forgot-password] Reset requested but private email delivery is not configured");
+      return NextResponse.json(genericResponse);
     }
 
     const code = generateEmailCode();
@@ -90,10 +100,7 @@ export async function POST(req: Request) {
 </div>`,
     });
 
-    return NextResponse.json({
-      message: "If this email is registered, you will receive a reset code.",
-      ...(process.env.NODE_ENV === "development" && { code, userId: user.id }),
-    });
+    return NextResponse.json(genericResponse);
   } catch (error) {
     console.error("Forgot password error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

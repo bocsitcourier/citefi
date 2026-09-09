@@ -244,6 +244,7 @@ export async function POST(req: Request) {
 
     const response = NextResponse.json({
       message: "Login successful",
+      ...(process.env.NODE_ENV === "development" ? { previewToken: accessToken } : {}),
       user: {
         id: user.id,
         email: user.email,

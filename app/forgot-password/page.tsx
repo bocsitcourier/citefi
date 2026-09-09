@@ -40,19 +40,10 @@ export default function ForgotPasswordPage() {
         throw new Error(data.error || "Failed to send reset code");
       }
 
-      // In development, auto-fill code if returned by API
-      if (data.code) {
-        setCode(data.code);
-        toast({
-          title: "Development mode",
-          description: `Reset code: ${data.code} (auto-filled for testing)`,
-        });
-      } else {
-        toast({
-          title: "Code sent",
-          description: "Check your email for a 6-digit reset code.",
-        });
-      }
+      toast({
+        title: "Code sent",
+        description: "If the account exists, check its email for a 6-digit reset code.",
+      });
 
       setStep("reset");
     } catch (error: any) {

@@ -45,6 +45,10 @@ function buildTransport(): nodemailer.Transporter | null {
   });
 }
 
+export function hasConfiguredEmailDelivery(): boolean {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
 export async function deliverEmail(payload: EmailPayload): Promise<void> {
   const transport = buildTransport();
 
