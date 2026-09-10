@@ -285,6 +285,7 @@ export interface PipelineWorkerOptions<T> {
   /** Test injection points — do not use in production code. */
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
+    markReservationForReconciliation?: (args: { teamId: number; runId: string; reason: string }) => Promise<unknown>;
     recordProviderFailure?: (queueName: string, error: PipelineError) => Promise<unknown>;
   };
   /** Worker-level test controls for deterministic lock/stall integration tests. */
@@ -490,28 +491,44 @@ export function createPipelineHandler<T>(
       // job, so touching billing could refund/charge the wrong team.
       const isTenantFault =
         isTenantContextRequiredError(err) || isTenantMismatchError(err);
+      const requiresBillingReconciliation =
+        pe.code === "PROVIDER_ACCOUNTING_FAILED" ||
+        pe.code === "PROVIDER_SUBMISSION_UNCERTAIN" ||
+        pe.code === "PROVIDER_RESULT_NOT_DURABLE";
 
       if (isFinal && !isDebitFailure && !isLeaseConflict && !isTenantFault && opts.getBilling) {
         try {
           const billing = await opts.getBilling(job);
           if (billing?.teamId && billing?.runId) {
-            const release =
-              opts._deps?.releaseReservation ??
-              (await import("./billing")).releaseReservation;
-            await release({
-              teamId: billing.teamId,
-              runId: billing.runId,
-              userId: billing.userId,
-              amount: billing.amount,
-              releaseKey: billing.releaseKey,
-              reason:
-                billing.reason ??
-                `${queueName} job ${String(job.id)} failed (${pe.code})`,
-            });
+            const failureReason =
+              billing.reason ??
+              `${queueName} job ${String(job.id)} failed (${pe.code})`;
+            if (requiresBillingReconciliation) {
+              const mark =
+                opts._deps?.markReservationForReconciliation ??
+                (await import("./billing")).markReservationForReconciliation;
+              await mark({
+                teamId: billing.teamId,
+                runId: billing.runId,
+                reason: `${failureReason}: ${pe.message}`,
+              });
+            } else {
+              const release =
+                opts._deps?.releaseReservation ??
+                (await import("./billing")).releaseReservation;
+              await release({
+                teamId: billing.teamId,
+                runId: billing.runId,
+                userId: billing.userId,
+                amount: billing.amount,
+                releaseKey: billing.releaseKey,
+                reason: failureReason,
+              });
+            }
           }
         } catch (releaseErr) {
           console.warn(
-            `[billing] releaseReservation failed for ${queueName} job ${String(job.id)}:`,
+            `[billing] failure settlement/hold failed for ${queueName} job ${String(job.id)}:`,
             releaseErr
           );
         }

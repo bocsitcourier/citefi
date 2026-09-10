@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { articles } from "@/shared/schema";
+import { articles, creditReservations } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { generateArticlePodcast } from "@/lib/podcast-worker";
+import {
+  addPodcastGenerationJob,
+  PodcastEnqueueUncertainError,
+} from "@/lib/queue";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
-import { debitCredits, refundCredits } from "@/lib/credits";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
@@ -34,6 +36,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Article not found" },
         { status: 404 }
+      );
+    }
+
+    // A prior paid podcast attempt with an unresolved outcome must be
+    // reconciled before this resource can acquire a fresh runId and submit
+    // another provider request.
+    const [pendingReconciliation] = await db
+      .select({
+        runId: creditReservations.runId,
+      })
+      .from(creditReservations)
+      .where(
+        and(
+          eq(creditReservations.teamId, teamId),
+          eq(creditReservations.status, "RESERVED"),
+          sql`${creditReservations.reconciliationRequiredAt} IS NOT NULL`,
+          sql`${creditReservations.runId} LIKE ${`podcast:${articleId}:%`}`
+        )
+      )
+      .limit(1);
+    if (pendingReconciliation) {
+      return NextResponse.json(
+        {
+          error: "Podcast generation is pending billing/provider reconciliation",
+          code: "RECONCILIATION_REQUIRED",
+          runId: pendingReconciliation.runId,
+          message: "Resolve the previous podcast attempt before generating another.",
+        },
+        { status: 409 }
       );
     }
 
@@ -113,19 +144,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fire-and-forget generation — worker calls debitReservation on success, releaseReservation on failure
+    // Durable enqueue — deterministic article job identity and an ambiguity
+    // lookup in addPodcastGenerationJob preserve the lock/reservation when Redis
+    // accepted the job but the enqueue response was lost.
+    let queuedJobId: string | null;
     try {
-      generateArticlePodcast({
+      queuedJobId = await addPodcastGenerationJob({
         articleId,
         tone,
         duration,
         teamId,
         userId,
         creditRunId,
-      }).catch((err) => {
-        console.error("Podcast generation failed:", err);
       });
     } catch (startErr) {
+      if (startErr instanceof PodcastEnqueueUncertainError) {
+        // Redis may have accepted the deterministic job. Keep article lock,
+        // credit hold, and cap reservation intact until reconciliation.
+        return NextResponse.json(
+          {
+            success: false,
+            code: "RECONCILIATION_REQUIRED",
+            error: "Podcast queue acceptance is uncertain",
+            message: "The request is preserved and must be reconciled before retrying.",
+            articleId,
+            status: "reconciliation_required",
+          },
+          { status: 202 }
+        );
+      }
       if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await releaseReservation({
         teamId,
@@ -139,6 +186,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Podcast generation started",
+      jobId: queuedJobId,
       articleId,
       status: "pending",
     });

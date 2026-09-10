@@ -152,6 +152,7 @@ export interface RequestUsage {
  * submit a second physical request when the immutable ledger is unavailable.
  */
 export class ProviderAccountingError extends Error {
+  readonly code = "PROVIDER_ACCOUNTING_FAILED";
   readonly accountingError: unknown;
 
   constructor(message: string, accountingError: unknown, providerError?: unknown) {
@@ -162,7 +163,74 @@ export class ProviderAccountingError extends Error {
 }
 
 export function isProviderAccountingError(error: unknown): error is ProviderAccountingError {
-  return error instanceof ProviderAccountingError;
+  return error instanceof ProviderAccountingError ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "PROVIDER_ACCOUNTING_FAILED"
+    );
+}
+
+/**
+ * The request may have reached a paid provider, but no provider operation/result
+ * identifier was returned. Replaying the same request can create a second paid
+ * operation, so this is terminal and requires explicit operator reconciliation.
+ */
+export class ProviderSubmissionUncertainError extends Error {
+  readonly code = "PROVIDER_SUBMISSION_UNCERTAIN";
+
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "ProviderSubmissionUncertainError";
+  }
+}
+
+export function isProviderSubmissionUncertainError(
+  error: unknown
+): error is ProviderSubmissionUncertainError {
+  return error instanceof ProviderSubmissionUncertainError ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "PROVIDER_SUBMISSION_UNCERTAIN"
+    );
+}
+
+/**
+ * A paid provider returned a result (or durable operation ID), but a later
+ * download/storage/composition step failed. Queue replay must not submit the
+ * provider request again. Where no durable checkpoint exists, manual recovery
+ * is safer than silently multiplying provider spend.
+ */
+export class ProviderResultNotDurableError extends Error {
+  readonly code = "PROVIDER_RESULT_NOT_DURABLE";
+  readonly providerRequestId?: string;
+
+  constructor(message: string, providerRequestId?: string | null, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "ProviderResultNotDurableError";
+    this.providerRequestId = providerRequestId ?? undefined;
+  }
+}
+
+export function isProviderResultNotDurableError(
+  error: unknown
+): error is ProviderResultNotDurableError {
+  return error instanceof ProviderResultNotDurableError ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "PROVIDER_RESULT_NOT_DURABLE"
+    );
+}
+
+export function isNonReplayableProviderError(error: unknown): boolean {
+  return isProviderAccountingError(error) ||
+    isProviderSubmissionUncertainError(error) ||
+    isProviderResultNotDurableError(error);
 }
 
 /**

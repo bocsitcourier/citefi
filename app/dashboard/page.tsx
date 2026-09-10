@@ -27,6 +27,7 @@ import {
   DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { BatchSubmissionLatch } from "@/lib/batch-submission";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -280,6 +281,7 @@ function CreditPreviewBanner({ units, onCanAffordChange }: {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const submissionLatch = useRef(new BatchSubmissionLatch());
   const { toast } = useToast();
   const [campaignPublicId, setCampaignPublicId] = useState<string | null>(null);
 
@@ -497,11 +499,15 @@ export default function Dashboard() {
       businessPhone?: string;
       companyLogoUrl?: string;
       skipIntelGate?: boolean;
+      idempotencyKey: string;
     }) => {
-      const { skipIntelGate, ...body } = opts;
+      const { skipIntelGate, idempotencyKey, ...body } = opts;
       return apiRequest("/api/jobs/batch-submit", {
         method: "POST",
-        headers: skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {},
+        headers: {
+          "X-Idempotency-Key": idempotencyKey,
+          ...(skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {}),
+        },
         body: JSON.stringify(body),
       });
     },
@@ -519,6 +525,12 @@ export default function Dashboard() {
         return;
       }
       toast({ title: "Submission failed", description: err.message || "Failed to submit.", variant: "destructive" });
+    },
+    onSettled: (_data, error, variables) => {
+      submissionLatch.current.finish({
+        batchId: variables.batchId,
+        idempotencyKey: variables.idempotencyKey,
+      }, Boolean(error) && (error as any)?.data?.code !== "BATCH_ENQUEUE_FAILED");
     },
   });
 
@@ -623,6 +635,8 @@ export default function Dashboard() {
 
   const handleSubmitBatch = (skipIntelGate = false) => {
     if (!currentBatch || selectedTitles.size === 0) return;
+    const attempt = submissionLatch.current.begin(currentBatch.id);
+    if (!attempt) return;
     submitBatchMutation.mutate({
       batchId: currentBatch.id,
       selectedTitles: Array.from(selectedTitles),
@@ -640,10 +654,12 @@ export default function Dashboard() {
       businessPhone: businessPhone.trim() || undefined,
       companyLogoUrl: companyLogoUrl || undefined,
       skipIntelGate,
+      idempotencyKey: attempt.idempotencyKey,
     });
   };
 
   const handleStartNew = () => {
+    submissionLatch.current.reset();
     // Mark the current batch as abandoned so the resume effect ignores it
     const currentId = generatingBatchId ?? currentBatch?.id ?? null;
     if (currentId !== null) abandonedBatchId.current = currentId;
@@ -661,7 +677,7 @@ export default function Dashboard() {
     setCompetitorUrls([]);
     setSerpFeatureTarget("none");
     setSemanticClusterId(undefined);
-    queryClient.invalidateQueries({ queryKey: ["batches"] });
+    void queryClient.invalidateQueries({ queryKey: ["batches"] });
   };
 
   const titles = currentBatch?.titlePool?.titles ?? [];

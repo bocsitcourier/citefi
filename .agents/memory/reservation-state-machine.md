@@ -15,6 +15,19 @@ description: credit_ledger reserve rows enforce RESERVED→DEBITED|RELEASED; CAS
 ## Critical invariant: throw on balance-guard failure after CAS
 After the CAS claim (RESERVED→DEBITED or RESERVED→RELEASED), if the `credit_balances` WHERE guard returns no rows, **throw — do not return**. The throw rolls back the entire transaction, restoring RESERVED status. A silent `return` would commit the terminal status with no balance update, permanently stranding the reservation.
 
+## Replay ordering
+
+Under the per-run lock, recognize an already-settled job before comparing its
+requested debit with the reservation's remaining amount. Validate explicitly
+malformed amounts independently.
+
+**Why:** A successful first debit reduces the remainder, often to zero.
+Checking capacity first turns a harmless duplicate delivery into a settlement
+error and can make callers repeat already-completed generation.
+
+**How to apply:** Test both concurrent full-settlement replay and replay of a
+partial debit larger than the now-smaller remaining hold.
+
 ## Full vs partial dispatch
 
 | Operation | condition | CAS? | Idempotency |

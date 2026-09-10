@@ -35,4 +35,20 @@ previously applied migration, while the checksum runner skips that migration as
 already recorded.
 
 **How to apply:** Run schema push first, then reassert and verify database-only
-controls. Keep catalog verification in the same reconciliation path.
+controls. Keep catalog verification in the same reconciliation path. Verify
+both ENABLE and FORCE for every intended policy table: PostgreSQL can retain
+policies and FORCE while ENABLE is false, and those policies then provide no
+row filtering. Include a real cross-tenant query with an ordinary isolated actor;
+catalog or scanner success alone is not authorization evidence.
+
+Represent SQL UNIQUE constraints as ORM unique constraints, not same-named
+standalone unique indexes; preserve predicates on partial indexes.
+
+**Why:** A push can remove the constraint while skipping creation of its
+same-named replacement index. The migration ledger can still look healthy
+while every reservation INSERT fails its ON CONFLICT arbitration.
+
+**How to apply:** Verify critical billing arbitration with EXPLAIN (never
+EXPLAIN ANALYZE) of the real INSERT target, not just table/index-name checks.
+Restore missing uniqueness additively and fail on duplicates rather than
+deleting financial history.

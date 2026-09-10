@@ -1,5 +1,6 @@
 import { Queue, type Job } from "bullmq";
 import Redis, { type RedisOptions } from "ioredis";
+import { createHash } from "node:crypto";
 
 // ============================================================================
 // JOB DATA INTERFACES (unchanged — all API routes depend on these)
@@ -30,6 +31,17 @@ export interface BatchJobData {
   /** Optional campaign association. Never trusted over the canonical batch/team. */
   campaignId?: number | null;
 }
+
+export const batchGenerationJobId = (batchId: number) => `batch-${batchId}`;
+export const legacyBatchGenerationJobId = (batchId: number) => `batch:${batchId}`;
+export const articleGenerationJobId = (batchId: number, articleId: number) =>
+  `article-${batchId}-${articleId}`;
+export const articleQueueJobId = (runId: string) =>
+  `article-run-${createHash("sha256").update(runId).digest("hex").slice(0, 24)}`;
+export const imageGenerationJobId = (articleId: number, runId?: string) =>
+  runId
+    ? `image-${articleId}-${createHash("sha256").update(runId).digest("hex").slice(0, 24)}`
+    : `image-${articleId}`;
 
 export interface ArticleJobData {
   articleId: number;
@@ -66,6 +78,21 @@ export interface PodcastJobData {
   journeyStepId?: number;
   creditRunId?: string;
   userId?: number;
+}
+
+export class PodcastEnqueueUncertainError extends Error {
+  readonly code = "PROVIDER_SUBMISSION_UNCERTAIN";
+  constructor(
+    readonly jobId: string,
+    readonly creditRunId: string | undefined,
+    cause: unknown
+  ) {
+    super(
+      `Podcast queue acceptance is uncertain for job ${jobId}; preserving state and billing hold for reconciliation`,
+      { cause }
+    );
+    this.name = "PodcastEnqueueUncertainError";
+  }
 }
 
 export interface SocialPostJobData {
@@ -335,8 +362,14 @@ export async function addBatchGenerationJob(data: BatchJobData) {
     );
   }
 
-  const queue = getQueue(BATCH_GENERATION_QUEUE);
-  const jobId = `batch:${data.batchId}`;
+  return enqueueBatchGenerationJob(getQueue(BATCH_GENERATION_QUEUE), data);
+}
+
+export async function enqueueBatchGenerationJob(
+  queue: Pick<Queue, "add" | "getJob">,
+  data: BatchJobData,
+): Promise<string | null> {
+  const jobId = batchGenerationJobId(data.batchId);
   let job: Job;
   try {
     job = await queue.add("batch", data, {
@@ -347,21 +380,41 @@ export async function addBatchGenerationJob(data: BatchJobData) {
   } catch (error) {
     const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
     if (accepted) return accepted.id ?? jobId;
-    const [{ db }, { jobBatches }, { eq }] = await Promise.all([
-      import("./db"),
-      import("@/shared/schema"),
-      import("drizzle-orm"),
-    ]);
-    await db.update(jobBatches)
-      .set({ status: "FAILED_ENQUEUE" })
-      .where(eq(jobBatches.id, data.batchId));
-    throw error;
+    // Redis not returning the deterministic ID during this short confirmation
+    // window does not prove the write was rejected. Callers must fail closed:
+    // preserve the durable claim and credit hold for retry/reconciliation.
+    throw new AmbiguousBatchEnqueueError(jobId, error);
   }
 
   console.log(
     `📦 Queued batch generation job: ${job.id} for batch ${data.batchId} (brand: ${data.businessName})`
   );
   return job.id ?? null;
+}
+
+export class AmbiguousBatchEnqueueError extends Error {
+  readonly code = "BATCH_ENQUEUE_UNKNOWN";
+  constructor(readonly jobId: string, cause: unknown) {
+    super(`Queue acceptance is unknown for ${jobId}`, { cause });
+    this.name = "AmbiguousBatchEnqueueError";
+  }
+}
+
+export async function findBatchGenerationJob(batchId: number): Promise<Job | null> {
+  const queue = getQueue(BATCH_GENERATION_QUEUE);
+  const current = await findJobAfterAmbiguousEnqueue(queue, batchGenerationJobId(batchId));
+  return current ?? (await queue.getJob(legacyBatchGenerationJobId(batchId))) ?? null;
+}
+
+export async function findArticleGenerationJob(
+  runId: string,
+  queue: Pick<Queue, "getJob"> = getQueue(ARTICLE_GENERATION_QUEUE),
+): Promise<Job | null> {
+  // Legacy jobs used runId directly. Check that first so in-flight jobs from a
+  // rolling deploy retain their recovery owner, then check the legal new ID.
+  return (await queue.getJob(runId)) ??
+    (await queue.getJob(articleQueueJobId(runId))) ??
+    null;
 }
 
 export async function addArticleJob(data: ArticleJobData) {
@@ -385,13 +438,14 @@ export async function addArticleJob(data: ArticleJobData) {
   });
 
   const queue = getQueue(ARTICLE_GENERATION_QUEUE);
+  const queueJobId = articleQueueJobId(runId);
   let job: Job;
   try {
     job = await queue.add(
       "article",
       enrichedData,
       {
-        jobId: runId,  // BullMQ native dedup: double-clicks get the same job
+        jobId: queueJobId,  // BullMQ native dedup: double-clicks get the same job
         attempts: 3,
         backoff: { type: "exponential", delay: 5000 },
       }
@@ -399,12 +453,14 @@ export async function addArticleJob(data: ArticleJobData) {
   } catch (enqueueError) {
     // Queue.add() can time out after Redis accepted the write. Confirm absence
     // before declaring FAILED_ENQUEUE so a retry cannot race an existing job.
-    const acceptedJob = await findJobAfterAmbiguousEnqueue(queue, runId);
+    const acceptedJob =
+      await findJobAfterAmbiguousEnqueue(queue, queueJobId) ??
+      await queue.getJob(runId);
     if (acceptedJob) {
       console.warn(
         `⚠️ Article enqueue returned an error but job ${runId} exists; treating it as accepted`
       );
-      return acceptedJob.id ?? runId;
+      return acceptedJob.id ?? queueJobId;
     }
 
     await markArticleRunEnqueueFailed({
@@ -501,9 +557,7 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
   const job = await getQueue(IMAGE_GENERATION_QUEUE).add("image", data, {
     // Dedup by articleId: prevents a race where two parallel requests both
     // queue image generation for the same article.
-    jobId: data.runId
-      ? `image:${data.articleId}:${data.runId}`
-      : `image:${data.articleId}`,
+    jobId: imageGenerationJobId(data.articleId, data.runId),
     attempts: 2,
     backoff: { type: "exponential", delay: 10000 },
   });
@@ -629,9 +683,18 @@ export async function addIntelligenceResearchJob(
   return job.id ?? null;
 }
 
-export async function addPodcastGenerationJob(data: PodcastJobData) {
-  const queue = getQueue(PODCAST_GENERATION_QUEUE);
-  const jobId = `podcast:${data.articleId}`;
+export async function addPodcastGenerationJob(
+  data: PodcastJobData,
+  _deps: { queue?: Queue } = {}
+) {
+  const queue = _deps.queue ?? getQueue(PODCAST_GENERATION_QUEUE);
+  // One deterministic identity per reserved generation attempt. Article-only
+  // identity prevents legitimate regeneration while completed jobs are still
+  // retained; creditRunId also lets an ambiguous enqueue find exactly the job
+  // associated with the reservation that must be preserved.
+  const jobId = data.creditRunId
+    ? `podcast:${data.articleId}:${createHash("sha256").update(data.creditRunId).digest("hex")}`
+    : `podcast:${data.articleId}`;
   let job: Job;
   try {
     job = await queue.add("podcast", data, {
@@ -642,17 +705,60 @@ export async function addPodcastGenerationJob(data: PodcastJobData) {
     backoff: { type: "exponential", delay: 60000 },
   });
   } catch (error) {
-    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
-    if (accepted) return accepted.id ?? jobId;
-    const [{ db }, { articles }, { eq }] = await Promise.all([
+    const message = error instanceof Error ? error.message : String(error);
+    const provenLocalRejection =
+      /custom id.*cannot contain|job.?id.*invalid|job name.*required|invalid.*job options/i.test(message);
+    if (!provenLocalRejection) {
+      try {
+        const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+        if (accepted) return accepted.id ?? jobId;
+      } catch (lookupError) {
+        console.warn(
+          `[podcast-queue] Acceptance lookup also failed for ${jobId}; outcome remains uncertain:`,
+          lookupError
+        );
+      }
+    }
+
+    const [{ db }, { articles }, drizzle] = await Promise.all([
       import("./db"),
       import("@/shared/schema"),
       import("drizzle-orm"),
     ]);
+    const { eq } = drizzle;
+
+    if (!provenLocalRejection) {
+      try {
+        if (data.creditRunId) {
+          const { markReservationForReconciliation } = await import("./billing");
+          await markReservationForReconciliation({
+            teamId: data.teamId,
+            runId: data.creditRunId,
+            reason: `Podcast queue acceptance uncertain for article ${data.articleId}, job ${jobId}: ${message}`,
+          });
+        }
+        await db.update(articles)
+          .set({
+            podcastStatus: "reconciliation_required",
+            errorMessage: `Podcast queue acceptance uncertain; reconciliation required (${jobId})`.slice(0, 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(articles.id, data.articleId));
+      } catch (persistenceError) {
+        // Never reinterpret an uncertain Redis write as a proven rejection just
+        // because the reconciliation marker also encountered an outage.
+        console.error(
+          `[podcast-queue] Failed to persist reconciliation marker for ${jobId}:`,
+          persistenceError
+        );
+      }
+      throw new PodcastEnqueueUncertainError(jobId, data.creditRunId, error);
+    }
+
     await db.update(articles)
       .set({
         podcastStatus: "failed_enqueue",
-        errorMessage: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000),
+        errorMessage: message.slice(0, 1000),
         updatedAt: new Date(),
       })
       .where(eq(articles.id, data.articleId));

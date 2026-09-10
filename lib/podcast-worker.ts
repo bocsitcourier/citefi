@@ -12,7 +12,11 @@ import { validateBrandInOutput } from "./branding";
 import { uploadPodcastToDrive } from "./google-drive";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { refundCredits, CREDIT_COSTS } from "./credits";
-import { isProviderAccountingError } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  ProviderResultNotDurableError,
+} from "./cost-telemetry";
 import {
   BillingSettlementError,
   isBillingSettlementError,
@@ -32,9 +36,20 @@ export interface PodcastGenerationJob {
 
 export async function generateArticlePodcast(job: PodcastGenerationJob): Promise<void> {
   const { articleId, tone, duration, teamId, personaId } = job;
+  let paidAudioCompleted = false;
   
   try {
     console.log(`[Podcast Worker] Starting podcast generation for article ${articleId}`);
+
+    // A terminal paid-provider ambiguity keeps its reservation held for manual
+    // reconciliation. Redelivery of that same run must stop before any SDK call.
+    if (job.creditRunId && job.teamId) {
+      const { assertReservationReadyForProvider } = await import("@/lib/billing");
+      await assertReservationReadyForProvider({
+        teamId: job.teamId,
+        runId: job.creditRunId,
+      });
+    }
 
     // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
     // catch (article status write, legacy refund guard) before the pipeline
@@ -199,7 +214,14 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       text: seg.text,
     }));
     
-    const audioBuffer = await mergeAudioSegments(audioSegments);
+    const audioBuffer = await mergeAudioSegments(audioSegments, {
+      operationType: "podcast_tts",
+      teamId: teamId ?? article.teamId,
+      userId: job.userId,
+      articleId,
+      jobId: job.creditRunId,
+    });
+    paidAudioCompleted = true;
     console.log(`[Podcast Worker] Audio generated, size: ${audioBuffer.length} bytes`);
     
     const totalText = script.segments.map(s => s.text).join(' ');
@@ -390,19 +412,43 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       actionUrl: `/content/${articleId}`,
     }).catch(() => {});
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
     if (isBillingSettlementError(error)) throw error;
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, error);
+    const finalError =
+      paidAudioCompleted && !isNonReplayableProviderError(error)
+        ? new ProviderResultNotDurableError(
+            `Podcast audio completed for article ${articleId}, but durable delivery failed; refusing automatic replay`,
+            null,
+            error
+          )
+        : error;
+    const requiresReconciliation = isNonReplayableProviderError(finalError);
+    const errMsg = finalError instanceof Error ? finalError.message : String(finalError);
+    console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, finalError);
 
-    await db.update(articles)
-      .set({ podcastStatus: 'failed' })
+    const statusWrite = db.update(articles)
+      .set({
+        podcastStatus: requiresReconciliation ? "reconciliation_required" : "failed",
+        errorMessage: requiresReconciliation
+          ? `Provider/billing reconciliation required: ${errMsg}`.slice(0, 1000)
+          : errMsg.slice(0, 1000),
+        updatedAt: new Date(),
+      })
       .where(eq(articles.id, articleId));
+    if (requiresReconciliation) {
+      await statusWrite.catch((statusError) => {
+        console.error(
+          `[Podcast Worker] Failed to persist reconciliation status for article ${articleId}:`,
+          statusError
+        );
+      });
+    } else {
+      await statusWrite;
+    }
 
     // Two-bucket billing: reservation release on final failure is handled by
     // createPipelineWorker (registration in lib/worker.ts). Only the legacy
     // pre-reservation refund path remains here.
-    if (!job.creditRunId && job.userId && job.debitLedgerRowId && job.teamId) {
+    if (!requiresReconciliation && !job.creditRunId && job.userId && job.debitLedgerRowId && job.teamId) {
       // Legacy fallback: refund via old debitLedgerRowId path
       await refundCredits({
         teamId: job.teamId,
@@ -421,24 +467,42 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       teamId: job.teamId,
       type: "error",
       category: "article",
-      title: "Podcast Generation Failed",
-      message: `Podcast generation failed for article ${articleId}: ${errMsg.slice(0, 200)}`,
+      title: requiresReconciliation
+        ? "Podcast Generation Needs Reconciliation"
+        : "Podcast Generation Failed",
+      message: requiresReconciliation
+        ? `Podcast generation for article ${articleId} has an uncertain provider outcome and is paused for reconciliation.`
+        : `Podcast generation failed for article ${articleId}: ${errMsg.slice(0, 200)}`,
       entityId: articleId,
       entityType: "article",
       actionUrl: `/content/${articleId}`,
     }).catch(() => {});
 
-    await logError({
+    const errorLog = logError({
       errorType: "PODCAST",
       errorMessage: errMsg,
-      stackTrace: error instanceof Error ? error.stack : undefined,
-      severity: "error",
+      stackTrace: finalError instanceof Error ? finalError.stack : undefined,
+      severity: requiresReconciliation ? "critical" : "error",
       articleId,
       component: "PodcastWorker",
-      context: { articleId },
+      context: {
+        articleId,
+        reconciliationRequired: requiresReconciliation,
+        creditRunId: job.creditRunId ?? null,
+      },
     });
-    
+    if (requiresReconciliation) {
+      await errorLog.catch((loggingError) => {
+        console.error(
+          `[Podcast Worker] Failed to persist reconciliation error log for article ${articleId}:`,
+          loggingError
+        );
+      });
+    } else {
+      await errorLog;
+    }
+
     // Rethrow — createPipelineWorker classifies and applies retry/billing policy.
-    throw error;
+    throw finalError;
   }
 }

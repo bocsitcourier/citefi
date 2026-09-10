@@ -4,7 +4,11 @@ import { objectStorageClient } from "./storage";
 import { TTS_MODEL, TTS_VOICE } from "./ai-config";
 import { VoiceHumanizer } from "./voice-humanizer";
 import type { Emotion } from "@/types/video-schema";
-import { isProviderAccountingError } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  ProviderResultNotDurableError,
+} from "./cost-telemetry";
 import { 
   getVoiceProfile, 
   getEmotionInstruction, 
@@ -129,6 +133,7 @@ export async function generateVideoTTS(
 
   const voice = TONE_VOICE_MAP[tone] || TONE_VOICE_MAP["default"] || "coral";
   const emotionInstructions = TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS["default"] || "Speak naturally and conversationally.";
+  let paidProviderResultReceived = false;
 
   try {
     console.log(`  🎤 Using voice: ${voice} (tone: ${tone})`);
@@ -159,6 +164,7 @@ export async function generateVideoTTS(
         usage: { characters: fullNarration.length },
       }
     );
+    paidProviderResultReceived = true;
 
     // Convert response to buffer
     const buffer = Buffer.from(await mp3.arrayBuffer());
@@ -206,6 +212,14 @@ export async function generateVideoTTS(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isNonReplayableProviderError(error)) throw error;
+    if (paidProviderResultReceived) {
+      throw new ProviderResultNotDurableError(
+        `OpenAI TTS completed for social post ${socialPostId}, but audio delivery failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
     console.error("❌ Failed to generate TTS:", error);
     throw new Error(`TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -260,6 +274,7 @@ export async function generateMultiVoiceTTS(
   console.log(`  🗣️ Speakers: ${uniqueSpeakers.join(", ")}`);
 
   const audioSegments: AudioSegment[] = [];
+  let paidProviderResultReceived = false;
   const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
 
   for (let i = 0; i < groupedSegments.length; i++) {
@@ -309,6 +324,7 @@ export async function generateMultiVoiceTTS(
           usage: { characters: combinedText.length },
         }
       );
+      paidProviderResultReceived = true;
 
       const buffer = Buffer.from(await mp3.arrayBuffer());
       const wordCount = combinedText.split(/\s+/).length;
@@ -324,6 +340,14 @@ export async function generateMultiVoiceTTS(
 
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
+      if (isNonReplayableProviderError(error)) throw error;
+      if (paidProviderResultReceived) {
+        throw new ProviderResultNotDurableError(
+          `At least one OpenAI TTS segment completed for social post ${socialPostId} before segment ${i} failed; refusing automatic replay`,
+          null,
+          error
+        );
+      }
       console.error(`  ❌ Failed to generate TTS for ${speaker}:`, error);
       throw new Error(`TTS generation failed for ${speaker}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -341,21 +365,32 @@ export async function generateMultiVoiceTTS(
   const bucket = objectStorageClient.bucket(BUCKET_ID);
   const file = bucket.file(objectPath);
 
-  await file.save(combinedBuffer, {
-    contentType: "audio/mpeg",
-    metadata: {
-      cacheControl: "public, max-age=31536000",
-    },
-  });
+  let audioUrl: string;
+  let localPath: string;
+  try {
+    await file.save(combinedBuffer, {
+      contentType: "audio/mpeg",
+      metadata: {
+        cacheControl: "public, max-age=31536000",
+      },
+    });
 
-  const audioUrl = `/api/public-objects/social-videos/${fileName}`;
+    audioUrl = `/api/public-objects/social-videos/${fileName}`;
 
-  const fs = await import("fs/promises");
-  const path = await import("path");
-  const tempDir = "/tmp/video-audio";
-  await fs.mkdir(tempDir, { recursive: true });
-  const localPath = path.join(tempDir, `${socialPostId}-multivoice.mp3`);
-  await fs.writeFile(localPath, combinedBuffer);
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const tempDir = "/tmp/video-audio";
+    await fs.mkdir(tempDir, { recursive: true });
+    localPath = path.join(tempDir, `${socialPostId}-multivoice.mp3`);
+    await fs.writeFile(localPath, combinedBuffer);
+  } catch (error) {
+    if (isNonReplayableProviderError(error)) throw error;
+    throw new ProviderResultNotDurableError(
+      `OpenAI multi-voice TTS completed for social post ${socialPostId}, but audio delivery failed; refusing automatic replay`,
+      null,
+      error
+    );
+  }
 
   const totalDuration = audioSegments.reduce((sum, seg) => sum + seg.duration, 0);
   const voicesUsed = [...new Set(audioSegments.map(s => s.voice))].join(", ");

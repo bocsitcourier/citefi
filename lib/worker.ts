@@ -37,6 +37,7 @@ import {
   addPodcastGenerationJob,
   addVideoGenerationJob,
   addIntelligenceResearchJob,
+  articleGenerationJobId,
   PODCAST_GENERATION_QUEUE,
   DAILY_BRIEF_QUEUE,
   SIGNUP_COMPETITOR_INTAKE_QUEUE,
@@ -2267,15 +2268,16 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           }
 };
 
-export async function registerWorkers() {
-
-  // ============================================================================
-  // BATCH GENERATION WORKER
-  // ============================================================================
-
-  createPipelineWorker(BATCH_GENERATION_QUEUE, async (job: Job<BatchJobData>) => {
+export async function processBatchGenerationJob(
+  job: Job<BatchJobData>,
+  deps: { addArticleJob?: typeof addArticleJob } = {},
+): Promise<void> {
+        const enqueueArticle = deps.addArticleJob ?? addArticleJob;
         console.log(`📦 Processing batch generation job ${job.id}`);
         const { batchId, teamId, selectedTitles, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, personaId, journeyContext, journeyName, creditRunId, creditCostPerUnit: batchCreditCostPerUnit, capReservationId } = job.data;
+        const uniqueSelectedTitles = [...new Set(
+          selectedTitles.map((title) => title.trim()).filter(Boolean),
+        )];
 
       try {
         // Authoritative entity/team cross-check: the batch row's owner must
@@ -2303,11 +2305,11 @@ export async function registerWorkers() {
         // unconditional write. Cancellation therefore always wins the race.
         const [claimedBatch] = await db.update(jobBatches).set({
           status: "RUNNING",
-          numArticlesRequested: selectedTitles.length,
+          numArticlesRequested: uniqueSelectedTitles.length,
         }).where(and(
           eq(jobBatches.id, batchId),
           eq(jobBatches.teamId, teamId),
-          inArray(jobBatches.status, ["PENDING", "QUEUED"])
+          inArray(jobBatches.status, ["PENDING", "SUBMITTING", "QUEUED"])
         )).returning({ id: jobBatches.id });
         if (!claimedBatch) {
           console.log(`🛑 Batch ${batchId} was not claimable; no children will be enqueued`);
@@ -2336,8 +2338,8 @@ export async function registerWorkers() {
           eventType: "BATCH_STARTED",
           stage: "ORCHESTRATION",
           severity: "info",
-          message: `Batch started with ${selectedTitles.length} articles${serpFeatureTarget ? ` targeting ${serpFeatureTarget}` : ''}`,
-          payloadJson: { selectedTitles, tone, wordCountMin, wordCountMax, serpFeatureTarget, semanticClusterId }
+          message: `Batch started with ${uniqueSelectedTitles.length} articles${serpFeatureTarget ? ` targeting ${serpFeatureTarget}` : ''}`,
+          payloadJson: { selectedTitles: uniqueSelectedTitles, tone, wordCountMin, wordCountMax, serpFeatureTarget, semanticClusterId }
         });
 
         // Statuses that mean "work is done — don't re-run"
@@ -2345,7 +2347,7 @@ export async function registerWorkers() {
         // removing them would cause recovery jobs to re-process completed articles.
         const TERMINAL_OK_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
         // Statuses that mean "already queued — don't duplicate"
-        const IN_PROGRESS_STATUSES = ["PENDING", "IN_PROGRESS"];
+        const IN_PROGRESS_STATUSES = ["IN_PROGRESS"];
 
         // PREFETCH: Load all existing articles for this batch in ONE query.
         // Avoids N individual per-title queries inside the loop, which previously
@@ -2355,12 +2357,11 @@ export async function registerWorkers() {
           .from(articles)
           .where(eq(articles.batchId, batchId));
         const existingByTitle = new Map(existingArticles.map(a => [a.chosenTitle, a]));
-
         let spawned = 0;
         let skipped = 0;
         let retried = 0;
 
-        for (let i = 0; i < selectedTitles.length; i++) {
+        for (let i = 0; i < uniqueSelectedTitles.length; i++) {
           const [orchestrationGuard] = await db.select({ status: jobBatches.status })
             .from(jobBatches)
             .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)))
@@ -2369,7 +2370,7 @@ export async function registerWorkers() {
             console.log(`🛑 Batch ${batchId} cancelled during orchestration; stopping child creation`);
             return;
           }
-          const title = selectedTitles[i];
+          const title = uniqueSelectedTitles[i];
           if (!title) { skipped++; continue; }
 
           // In-memory lookup — no DB query per iteration.
@@ -2397,11 +2398,11 @@ export async function registerWorkers() {
               .set({ articleStatus: "PENDING", updatedAt: new Date() })
               .where(eq(articles.id, existing.id));
 
-            const runId = crypto.randomUUID();
+            const runId = articleGenerationJobId(batchId, existing.id);
             const [enqueueGuard] = await db.select({ status: jobBatches.status })
               .from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
             if (enqueueGuard?.status === "CANCELLED") return;
-            await addArticleJob({
+            await enqueueArticle({
               articleId: existing.id,
               batchId,
               runId,
@@ -2444,8 +2445,9 @@ export async function registerWorkers() {
           if (!article) {
             throw new Error(`Failed to insert article row for title: "${title.slice(0, 80)}"`);
           }
+          existingByTitle.set(title, article);
 
-          const runId = crypto.randomUUID();
+          const runId = articleGenerationJobId(batchId, article.id);
           const [enqueueGuard] = await db.select({ status: jobBatches.status })
             .from(jobBatches).where(eq(jobBatches.id, batchId)).limit(1);
           if (enqueueGuard?.status === "CANCELLED") {
@@ -2455,7 +2457,7 @@ export async function registerWorkers() {
             ));
             return;
           }
-          await addArticleJob({
+          await enqueueArticle({
             articleId: article.id,
             batchId,
             runId,
@@ -2513,9 +2515,11 @@ export async function registerWorkers() {
         });
         
         try {
+          const attempts = job.opts.attempts ?? 1;
+          const canRetry = job.attemptsMade + 1 < attempts;
           await db
             .update(jobBatches)
-            .set({ status: "FAILED" })
+            .set({ status: canRetry ? "QUEUED" : "FAILED" })
             .where(and(
               eq(jobBatches.id, batchId),
               sql`${jobBatches.status} <> 'CANCELLED'`
@@ -2540,7 +2544,15 @@ export async function registerWorkers() {
 
         throw error;
       }
-  }, {
+}
+
+export async function registerWorkers() {
+
+  // ============================================================================
+  // BATCH GENERATION WORKER
+  // ============================================================================
+
+  createPipelineWorker(BATCH_GENERATION_QUEUE, processBatchGenerationJob, {
     stage: "enqueue",
     concurrency: 1,
     execution: { scope: "tenant", getTeamId: (j) => j.data.teamId },

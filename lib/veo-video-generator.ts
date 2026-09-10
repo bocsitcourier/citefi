@@ -6,7 +6,14 @@ import { execSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
 import { getModel } from "./model-resolver";
 import { sanitizeVeoPrompt } from "@/types/video-schema";
-import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  logFailedProviderAttempt,
+  logCostTelemetry,
+  ProviderResultNotDurableError,
+  ProviderSubmissionUncertainError,
+} from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Veo video generation");
@@ -57,6 +64,7 @@ export async function generateVeoClip(
   if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Veo generation requires a validated teamId");
   let providerUsageRecorded = false;
   let operationId: string | null = null;
+  let providerSubmitted = false;
 
   // Sanitize prompt to avoid content policy rejections
   const sanitizedPrompt = sanitizeVeoPrompt(prompt);
@@ -78,6 +86,7 @@ export async function generateVeoClip(
         numberOfVideos: 1,
       },
     });
+    providerSubmitted = true;
     operationId = operation.name ?? null;
 
     console.log(`  ⏳ Veo operation started: ${operation.name}`);
@@ -266,6 +275,7 @@ export async function generateVeoClip(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isNonReplayableProviderError(error)) throw error;
     console.error(`❌ Veo clip ${sceneNumber} generation failed:`, error);
     // Failed attempts still cost money on the provider side in some failure
     // modes; record them so the budget ceiling and spend breaker see them.
@@ -276,6 +286,27 @@ export async function generateVeoClip(
           providerRequestId: operationId },
         { videoSeconds: 0 },
         Date.now() - clipStartMs,
+        error
+      );
+    }
+    if (providerSubmitted) {
+      throw new ProviderResultNotDurableError(
+        `Veo operation ${operationId ?? "(missing id)"} was accepted but its clip was not durably delivered; refusing automatic replay`,
+        operationId,
+        error
+      );
+    }
+    const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (
+      errorMessage.includes("timeout") ||
+      errorMessage.includes("timed out") ||
+      errorMessage.includes("econnreset") ||
+      errorMessage.includes("etimedout") ||
+      errorMessage.includes("socket hang up") ||
+      errorMessage.includes("fetch failed")
+    ) {
+      throw new ProviderSubmissionUncertainError(
+        `Veo submission outcome is uncertain for scene ${sceneNumber}; refusing automatic replay`,
         error
       );
     }

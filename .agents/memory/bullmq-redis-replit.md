@@ -5,6 +5,27 @@ description: How to wire BullMQ with local Redis in a Replit dev environment giv
 
 # BullMQ + Redis on Replit
 
+## Queue acceptance is an integration boundary
+
+Prefer colon-free deterministic IDs for new custom jobs and keep explicit legacy
+lookup compatibility when changing persisted identities. Existing three-part
+IDs may remain only when the installed Queue.add integration test accepts them.
+Verify enqueue helpers
+against a real isolated Redis queue with no worker, not only a mocked `add`.
+
+**Why:** The installed BullMQ rejects common two-part colon IDs before Redis
+accepts the job. Mocked queue/processor tests missed this and made a completely
+nonfunctional enqueue path look successful. Treat known client-side validation
+rejection differently from an unknown network-write outcome.
+
+**How to apply:** Exercise the installed Queue.add and job-state lookup,
+including ambiguous writes and repeated stable IDs. Never enqueue audit fixtures
+on customer processing queues or attach paid workers to the test queue.
+Isolated queue tests must not inherit credential-bearing application URLs:
+construct localhost-only options instead. Reconnect errors can print the entire
+endpoint into durable tool history; fixing the default cannot revoke a leaked
+credential.
+
 ## The Rule
 Always use local Redis (`redis://127.0.0.1:6379`) for dev, not the Upstash URL injected by the `javascript_mem_db` integration. The integration URL has a known typo and Upstash is unreachable from the Replit dev sandbox.
 

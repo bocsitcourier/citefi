@@ -11,7 +11,7 @@
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { db } from "../../lib/db.js";
+import { db, closeDb } from "../../lib/db.js";
 import { debitReservation, getBucketBalance, reserveCredits } from "../../lib/billing.js";
 import {
   teams,
@@ -25,6 +25,7 @@ import { eq, inArray } from "drizzle-orm";
 import { enterSystemContext } from "../../lib/tenant-context.js";
 
 enterSystemContext("billing concurrency integration test");
+after(() => closeDb());
 
 const RUN_ID = `billing_conc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
@@ -242,6 +243,44 @@ describe("debitReservation — concurrent batch workers", () => {
       // Must only have debited ONCE (10 credits)
       assert.equal(final.allowanceUsed, 10, "should only have debited 10 credits once");
       assert.equal(final.purchasedUsed, 0, "purchased should not be touched");
+    } finally {
+      await cleanupBillingTeam(teamId, userId);
+    }
+  });
+
+  test("concurrent full-debit redelivery with explicit amounts settles once", async () => {
+    const { teamId, userId } = await seedBillingTeam("parallelReplay");
+    const runId = `${RUN_ID}_parallel_replay`;
+    try {
+      await seedCreditBalance(teamId, 50, 0, 10);
+      await seedReservation(teamId, runId, 10);
+      const jobId = `${runId}_job`;
+      const results = await Promise.all(Array.from({ length: 8 }, () =>
+        debitReservation({ teamId, runId, jobId, amount: 10 })));
+      assert.ok(results.every((result) => result.ok));
+      assert.equal(results.reduce((total, result) => total + result.fromAllowance, 0), 10);
+      const final = await getBucketBalance(teamId);
+      assert.equal(final.allowanceUsed, 10);
+      assert.equal(final.reservedCredits, 0);
+    } finally {
+      await cleanupBillingTeam(teamId, userId);
+    }
+  });
+
+  test("partial-debit replay succeeds even when remaining hold is smaller", async () => {
+    const { teamId, userId } = await seedBillingTeam("partialReplay");
+    const runId = `${RUN_ID}_partial_replay`;
+    try {
+      await seedCreditBalance(teamId, 50, 0, 15);
+      await seedReservation(teamId, runId, 15);
+      const jobId = `${runId}_first`;
+      assert.equal((await debitReservation({ teamId, runId, jobId, amount: 10 })).ok, true);
+      const replay = await debitReservation({ teamId, runId, jobId, amount: 10 });
+      assert.equal(replay.ok, true);
+      assert.equal(replay.fromAllowance, 0);
+      assert.equal((await getBucketBalance(teamId)).reservedCredits, 5);
+      await debitReservation({ teamId, runId, jobId: `${runId}_second`, amount: 5 });
+      assert.equal((await getBucketBalance(teamId)).allowanceUsed, 15);
     } finally {
       await cleanupBillingTeam(teamId, userId);
     }

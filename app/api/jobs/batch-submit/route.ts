@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { jobBatches, articles, campaigns, clientBrandProfiles } from "@/shared/schema";
-import { eq, and, sql } from "drizzle-orm";
-import { addBatchGenerationJob } from "@/lib/queue";
+import { eq, and, inArray, sql } from "drizzle-orm";
+import {
+  addBatchGenerationJob,
+  AmbiguousBatchEnqueueError,
+  batchGenerationJobId,
+  findBatchGenerationJob,
+} from "@/lib/queue";
 import { getEffectiveCreditCost, getCreditCost } from "@/lib/credit-menu";
 import { reserveCredits, releaseReservation } from "@/lib/billing";
 import {
@@ -12,38 +17,16 @@ import {
 } from "@/lib/api/auth";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
-
-const batchSubmitSchema = z.object({
-  batchId: z.number(),
-  selectedTitles: z.array(z.string()).min(1).max(100),
-  targetUrl: z.string().url(),
-  tone: z.string().optional(),
-  wordCountMin: z.number().min(500).max(5000).default(800),
-  wordCountMax: z.number().min(500).max(5000).default(2000),
-  geographicFocus: z.string().optional(),
-  audience: z.string().optional(),
-  // NAP Data - businessName is REQUIRED to prevent AI hallucination in images/text
-  businessName: z.string().transform(str => str.trim()).pipe(z.string().min(1, "Business name is required to ensure brand consistency")),
-  businessAddress: z.string().optional(),
-  businessPhone: z.string().optional(),
-  // Accept both absolute URLs and relative paths (e.g., /api/public-objects/...)
-  companyLogoUrl: z.string().optional().transform(val => val === "" ? undefined : val).refine(
-    (val) => !val || val.startsWith('/') || val.startsWith('http://') || val.startsWith('https://'),
-    { message: "Must be a valid URL or relative path" }
-  ).optional(),
-  // Advanced features
-  competitorUrls: z.array(z.string().url()).max(5).optional(),
-  semanticClusterId: z.number().optional(),
-  serpFeatureTarget: z.enum(['Featured Snippet', 'PAA', 'List', 'Q&A']).optional(),
-  // Auto-publishing
-  autoPublishEnabled: z.boolean().optional().default(false),
-  autoPublishConnectionIds: z.array(z.number()).optional(),
-  // Psychographic targeting
-  personaId: z.number().optional(),
-}).refine((data) => data.wordCountMin <= data.wordCountMax, {
-  message: "Minimum word count must be less than or equal to maximum word count",
-  path: ["wordCountMin"],
-});
+import {
+  compensateBatchEnqueueFailure,
+  inspectBatchSubmissionReplay,
+  validateBatchSubmissionKey,
+} from "@/lib/batch-submission";
+import {
+  claimBatchForSubmission,
+  recordBatchEnqueueAccepted,
+} from "@/lib/batch-submission-server";
+import { batchSubmitSchema } from "@/lib/batch-submission-validation";
 
 export async function POST(request: NextRequest) {
   // Declared outside the outer try so the outer catch can cancel any pending
@@ -51,6 +34,7 @@ export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
   // Hoisted so the outer catch can reset status to PENDING on unexpected errors
   let _batchId: number | null = null;
+  let preserveDurableState = false;
   let authenticatedAuth: { userId: number; teamId: number; role: string } | null = null;
   try {
     // CRITICAL: Verify authentication and get team context
@@ -85,31 +69,103 @@ export async function POST(request: NextRequest) {
       // Psychographic targeting
       personaId,
     } = validatedData;
+    const suppliedRequestKey = request.headers.get("X-Idempotency-Key");
+    let requestKey: string;
+    try {
+      requestKey = suppliedRequestKey
+        ? validateBatchSubmissionKey(suppliedRequestKey)
+        : crypto.randomUUID();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid X-Idempotency-Key header" },
+        { status: 400 },
+      );
+    }
     _batchId = batchId; // hoist for outer catch PENDING reset
 
     // Atomically claim PENDING → SUBMITTING — prevents concurrent double-submit race
-    const [batch] = await db
-      .update(jobBatches)
-      .set({ status: "SUBMITTING" })
-      .where(
-        and(
-          eq(jobBatches.id, batchId),
-          eq(jobBatches.teamId, teamId),
-          eq(jobBatches.status, "PENDING")
-        )
-      )
-      .returning();
-
-    if (!batch) {
-      const [exists] = await db
-        .select({ id: jobBatches.id })
-        .from(jobBatches)
-        .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
-      if (!exists) {
-        return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
+    const claim = await claimBatchForSubmission(batchId, teamId);
+    if (claim.outcome === "not_found") {
+      return NextResponse.json({ error: "Batch not found or access denied" }, { status: 404 });
+    }
+    if (claim.outcome === "conflict") {
+      const params = (claim.batch.generationParams ?? {}) as Record<string, unknown>;
+      const submission = params.submission as Record<string, unknown> | undefined;
+      const replay = inspectBatchSubmissionReplay({
+        batchId,
+        status: claim.batch.status,
+        generationParams: params,
+        idempotencyKey: requestKey,
+      });
+      if (replay.outcome === "terminal") {
+        return NextResponse.json(
+          { error: `Batch is terminal (${claim.batch.status}) and cannot be resurrected` },
+          { status: 409 },
+        );
+      }
+      if (replay.outcome !== "not_match") {
+        // This request is replaying an existing durable operation. Any lookup
+        // failure is ambiguous and must never reset that operation or its hold.
+        preserveDurableState = true;
+        if (replay.outcome === "accepted") {
+          return NextResponse.json({
+            success: true,
+            replayed: true,
+            batchId,
+            jobId: replay.jobId,
+            articlesQueued: selectedTitles.length,
+          });
+        }
+        const accepted = await findBatchGenerationJob(batchId);
+        if (accepted) {
+          const acceptedJobId = accepted.id ?? batchGenerationJobId(batchId);
+          const jobState = await accepted.getState();
+          if (!["waiting", "delayed", "active", "prioritized", "waiting-children"].includes(jobState)) {
+            return NextResponse.json({
+              success: false,
+              pending: true,
+              retryable: false,
+              code: "BATCH_ENQUEUE_CONFIRMATION_PENDING",
+              message: `The retained queue job is ${jobState}; batch reconciliation is required.`,
+            }, { status: 503 });
+          }
+          await db.update(jobBatches).set({
+            status: "QUEUED",
+            generationParams: {
+              ...params,
+              submission: { ...submission, state: "ACCEPTED", jobId: acceptedJobId },
+            },
+          }).where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
+          return NextResponse.json({
+            success: true,
+            replayed: true,
+            batchId,
+            jobId: acceptedJobId,
+            articlesQueued: selectedTitles.length,
+          });
+        }
+        return NextResponse.json({
+          success: false,
+          pending: true,
+          retryable: false,
+          code: "BATCH_ENQUEUE_CONFIRMATION_PENDING",
+          message: "This submission is still being reconciled. Credits remain safely held; do not resubmit.",
+        }, { status: 503 });
       }
       return NextResponse.json({ error: "Batch already submitted or in progress" }, { status: 409 });
     }
+    const batch = claim.batch;
+    const creditRunId = `batch:${batchId}:${requestKey}`;
+    await db.update(jobBatches).set({
+      generationParams: {
+        ...((batch.generationParams ?? {}) as Record<string, unknown>),
+        submission: {
+          idempotencyKey: requestKey,
+          creditRunId,
+          state: "CLAIMED",
+        },
+      },
+    }).where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
 
     console.log(`📦 Submitting batch ${batchId} with ${selectedTitles.length} articles`);
 
@@ -184,9 +240,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Per-request idempotency key: stable for retries of the same request, unique per submission attempt
-    const requestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
-
     // RESERVE credits — atomic two-bucket reserve; DEBIT fires per-article on success
     // Resolve per-article cost honoring DB overrides (team-specific → global → static default)
     const creditCostPerUnit = (await getEffectiveCreditCost("article", teamId)) ?? getCreditCost("article") ?? 10;
@@ -212,7 +265,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const creditRunId = `batch:${batchId}:${requestKey}`;
     const creditReserve = await reserveCredits({
       teamId,
       operationType: "article",
@@ -241,6 +293,17 @@ export async function POST(request: NextRequest) {
         { status: 402 }
       );
     }
+    preserveDurableState = true;
+    await db.update(jobBatches).set({
+      generationParams: {
+        ...((batch.generationParams ?? {}) as Record<string, unknown>),
+        submission: {
+          idempotencyKey: requestKey,
+          creditRunId,
+          state: "RESERVED",
+        },
+      },
+    }).where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
 
     // Wrap all post-debit work — refund + reset batch on any failure
     let jobId: string | null = null;
@@ -251,6 +314,11 @@ export async function POST(request: NextRequest) {
         ...existingParams,
         tone, wordCountMin, wordCountMax, geographicFocus, audience,
         ...(serpFeatureTarget ? { serpFeatureTarget } : {}),
+        submission: {
+          idempotencyKey: requestKey,
+          creditRunId,
+          state: "RESERVED",
+        },
       };
 
       await db
@@ -295,9 +363,21 @@ export async function POST(request: NextRequest) {
       });
 
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");
+      await recordBatchEnqueueAccepted({
+        batchId,
+        teamId,
+        generationParams: {
+          ...mergedParams,
+          submission: {
+            idempotencyKey: requestKey,
+            creditRunId,
+            state: "ACCEPTED",
+            jobId,
+          },
+        },
+      });
     } catch (queueErr) {
       console.error(`❌ Batch ${batchId} submission failed:`, queueErr);
-      await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, batchId)).catch(() => {});
       // Log to Admin Error Log so queue failures are always visible
       const { logError } = await import("@/lib/error-logger");
       await logError({
@@ -308,18 +388,47 @@ export async function POST(request: NextRequest) {
         batchId,
         component: "batch-submit",
       }).catch(() => {});
-      await releaseReservation({
-        teamId,
-        runId: creditRunId,
-        userId,
-        reason: `Release: batch ${batchId} queue failure`,
-      }).catch(() => {});
-      // Cancel the spending-cap reservation so the held capacity is freed
-      if (capReservationId !== null) {
-        cancelCapReservation(capReservationId).catch(() => {});
+      if (queueErr instanceof AmbiguousBatchEnqueueError) {
+        return NextResponse.json({
+          success: false,
+          pending: true,
+          retryable: false,
+          code: "BATCH_ENQUEUE_CONFIRMATION_PENDING",
+          message: "Queue acceptance could not be confirmed. Credits remain safely held while this submission is reconciled.",
+        }, { status: 503 });
       }
+      const compensation = await compensateBatchEnqueueFailure({
+        releaseCredits: () => releaseReservation({
+          teamId,
+          runId: creditRunId,
+          userId,
+          reason: `Release: batch ${batchId} queue failure`,
+        }),
+        releaseCap: () => capReservationId === null
+          ? Promise.resolve()
+          : cancelCapReservation(capReservationId),
+        markRetryable: async () => {
+          await db
+            .update(jobBatches)
+            .set({ status: "PENDING" })
+            .where(and(
+              eq(jobBatches.id, batchId),
+              inArray(jobBatches.status, ["SUBMITTING", "FAILED_ENQUEUE"]),
+            ));
+        },
+      });
       return NextResponse.json(
-        { error: "Failed to queue batch generation job. Please try again." },
+        compensation.retryEnabled
+          ? {
+              error: "Failed to queue batch generation job. Please try again.",
+              code: "BATCH_ENQUEUE_FAILED",
+              retryable: true,
+            }
+          : {
+              error: "Batch could not be queued and its credit hold is awaiting reconciliation. Please do not resubmit yet.",
+              code: "BATCH_ENQUEUE_CLEANUP_PENDING",
+              retryable: false,
+            },
         { status: 500 }
       );
     }
@@ -337,11 +446,10 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("Batch submission error:", error);
     const cleanup = async () => {
-      // Best-effort: release any spending-cap reservation created before the error.
-      // The 2-hour auto-expiry is the safety net if this call also fails.
-      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-      // Reset batch to PENDING so the user can retry
-      if (_batchId !== null) {
+      // Once credits are reserved, an unexpected post-reserve failure is
+      // ambiguous. Fail closed: preserve both durable state and holds.
+      if (!preserveDurableState && capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      if (!preserveDurableState && _batchId !== null) {
         await db.update(jobBatches).set({ status: "PENDING" }).where(eq(jobBatches.id, _batchId)).catch(() => {});
       }
       // Log to Admin Error Log so infra crashes are visible instead of silent

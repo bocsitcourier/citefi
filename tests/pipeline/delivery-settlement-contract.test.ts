@@ -63,10 +63,7 @@ test("worker readiness waits for every durable scheduler", async () => {
     del: async (key: string) => { values.delete(key); },
   } as any;
 
-  await beginWorkerReadiness(redis);
-  await markWorkerModelsReady(redis);
-  await markWorkerRegistration(redis, "pipeline-workers");
-  for (const scheduler of [
+  const requiredSchedulers = [
     "job-monitor",
     "provider-circuit",
     "spend-breaker",
@@ -74,10 +71,24 @@ test("worker readiness waits for every durable scheduler", async () => {
     "canary",
     "reservation-sweeper",
     "brief",
-  ]) {
-    await markWorkerScheduler(redis, scheduler);
+    "job-recovery",
+    "stripe-credit-reconciliation",
+  ];
+
+  for (const omitted of requiredSchedulers) {
+    await beginWorkerReadiness(redis);
+    await markWorkerModelsReady(redis);
+    await markWorkerRegistration(redis, "pipeline-workers");
+    for (const scheduler of requiredSchedulers) {
+      if (scheduler !== omitted) await markWorkerScheduler(redis, scheduler);
+    }
+    assert.equal(
+      (await readWorkerReadiness(redis))?.ready,
+      false,
+      `readiness must wait for ${omitted}`,
+    );
   }
-  assert.equal((await readWorkerReadiness(redis))?.ready, false);
-  await markWorkerScheduler(redis, "job-recovery");
+
+  await markWorkerScheduler(redis, requiredSchedulers.at(-1)!);
   assert.equal((await readWorkerReadiness(redis))?.ready, true);
 });

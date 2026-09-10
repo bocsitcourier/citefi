@@ -2,6 +2,7 @@ import {
   ARTICLE_GENERATION_QUEUE,
   getQueue,
   addArticleJob,
+  findArticleGenerationJob,
   type ArticleJobData,
 } from "../lib/queue";
 import { systemDb } from "../lib/db";
@@ -116,7 +117,7 @@ export async function reconcileMissingArticleEnqueues(
 
   for (const candidate of candidates) {
     try {
-      const job = await queue.getJob(candidate.runId);
+      const job = await findArticleGenerationJob(candidate.runId, queue);
       if (job) continue;
       const changed = await markArticleRunEnqueueFailed({
         articleId: candidate.articleId,
@@ -200,7 +201,7 @@ export async function reconcileExpiredArticleRuns(
 
   for (const candidate of candidates) {
     try {
-      const job = await queue.getJob(candidate.runId);
+      const job = await findArticleGenerationJob(candidate.runId, queue);
       if (job) {
         const state = await job.getState();
         if (state === "completed" || state === "failed") {

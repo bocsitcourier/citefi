@@ -77,14 +77,22 @@ test("concurrent cross-type approvals cannot let one actor win twice", async () 
 test("client approval route accepts a client reviewer without agency membership", () => {
   const route = readFileSync("app/api/campaigns/[id]/ads/[adId]/approve/route.ts", "utf8");
   const campaignService = readFileSync("lib/campaign-service.ts", "utf8");
-  assert.match(route, /requireClientReviewer/);
-  assert.match(route, /getCampaignForClientApprovalByPublicId/);
+  assert.match(
+    route,
+    /withAuthenticatedClientReviewerContext\(request,[\s\S]*teamId: authTeamId/,
+  );
+  assert.match(route, /getCampaignForClientApprovalByPublicId\(authTeamId, id\)/);
+  assert.match(route, /getCampaignByPublicId\(authTeamId, id\)/);
   assert.match(route, /approveCampaignAd\(campaign\.teamId/);
   assert.match(campaignService, /eq\(campaigns\.clientTeamId, clientTeamId\)/);
   assert.match(campaignService, /isNull\(teams\.deletedAt\)/);
   assert.match(campaignService, /eq\(teams\.clientStatus, "active"\)/);
   assert.match(campaignService, /campaign client approval relationship lookup/);
   const auth = readFileSync("lib/api/auth.ts", "utf8");
+  assert.match(
+    auth,
+    /withAuthenticatedClientReviewerContext[\s\S]{0,300}requireClientReviewer\(req\)[\s\S]{0,200}runWithAuthenticatedTeamContext\(auth/,
+  );
   assert.match(auth, /requireClientReviewer[\s\S]*isNull\(teams\.deletedAt\)[\s\S]*eq\(teams\.clientStatus, "active"\)/);
   const adsService = readFileSync("lib/campaign-ads-service.ts", "utf8");
   assert.match(adsService, /clientDeletedAt[\s\S]*clientStatus[\s\S]*Client team relationship is not active/);

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import { verifyReservationArbiter } from "./lib/verify-reservation-arbiter.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const files = [
@@ -22,6 +23,9 @@ const files = [
   "0027_campaign_public_id_constraints.sql",
   "0028_legacy_unique_constraint_names.sql",
   "0029_incident_schema_constraints.sql",
+  "0030_reservation_run_arbiter.sql",
+  "0031_generation_rls_drift_repair.sql",
+  "0032_reservation_reconciliation_hold.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");
@@ -168,6 +172,12 @@ async function main() {
         to_regclass('public.credit_reservation_quarantine') IS NOT NULL AS reservation_quarantine,
         to_regclass('public.stripe_credit_reconciliations') IS NOT NULL AS stripe_reconciliations,
         to_regclass('public.login_challenges') IS NOT NULL AS login_challenges,
+        (
+          SELECT count(*) FROM pg_attribute
+          WHERE attrelid=to_regclass('public.credit_reservations')
+            AND attname IN ('reconciliation_required_at', 'reconciliation_reason')
+            AND NOT attisdropped
+        ) = 2 AS reconciliation_hold,
         EXISTS (
           SELECT 1 FROM pg_attribute
           WHERE attrelid=to_regclass('public.credit_balances')
@@ -198,6 +208,17 @@ async function main() {
     `);
     if (!Object.values(postSchemaVerification.rows[0]).every(Boolean)) {
       throw new Error(`post-schema migration catalog verification failed: ${JSON.stringify(postSchemaVerification.rows[0])}`);
+    }
+    await verifyReservationArbiter(client);
+    const disabledPolicies = await client.query(`
+      SELECT c.relname FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public'
+        AND EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid=c.oid)
+        AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity)
+    `);
+    if (disabledPolicies.rows.length) {
+      throw new Error(`RLS policy tables are not enabled and forced: ${disabledPolicies.rows.map((row) => row.relname).join(", ")}`);
     }
     await client.query("COMMIT");
     console.log("migration ledger and schema controls verified");

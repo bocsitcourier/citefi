@@ -1,41 +1,109 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { Client } from "pg";
-import { asc, eq, isNull } from "drizzle-orm";
-import { closeDb, db } from "../lib/db";
+import { eq, inArray } from "drizzle-orm";
+import { closeDb, systemDb } from "../lib/db";
 import {
   appendProviderAdjustment,
   recordProviderInvoiceReconciliation,
   recordProviderUsage,
 } from "../lib/provider-usage-ledger";
 import { runWithSystemContext } from "../lib/tenant-context";
-import { providerInvoiceReconciliations, providerUsageLedger, teams } from "../shared/schema";
+import { providerInvoiceReconciliations, providerUsageLedger } from "../shared/schema";
 
 const connectionString = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!connectionString) throw new Error("DATABASE_URL is required for provider ledger integration tests");
 
 const sourceEventId = "test:provider-usage-ledger:concurrency:v1";
-let teamIds: number[] = [];
+const bigintOriginalSourceEventId = "test:provider-usage-ledger:bigint-original:v1";
+const accountingFixtureTeamPublicIds = [
+  "10000000-0000-4000-8000-000000000101",
+  "10000000-0000-4000-8000-000000000102",
+] as const;
+let concurrencyTeamId: number;
+let bigintTeamId: number;
+let collisionTeamId: number;
 let eventId: number;
+let isolatedUserId: number;
+let isolatedTeamId: number;
 
 before(async () => {
-  teamIds = await runWithSystemContext("provider ledger integration fixture", async () => {
-    const existing = await db.select({ teamId: providerUsageLedger.teamId })
+  const owner = new Client({ connectionString });
+  await owner.connect();
+  try {
+    // Immutable ledger events retain their owning workspace forever, so these
+    // deterministic, test-only accounting workspaces are intentionally stable
+    // fixtures rather than arbitrary customer teams that teardown cannot delete.
+    const fixtureUser = await owner.query<{ id: number }>(
+      `INSERT INTO users (public_id, email, role, account_status)
+       VALUES ('10000000-0000-4000-8000-000000000001',
+               'provider-ledger-fixture@example.invalid',
+               'team_member',
+               'active')
+       ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+       RETURNING id`,
+    );
+    const fixtureTeams = await Promise.all(accountingFixtureTeamPublicIds.map((publicId, index) =>
+      owner.query<{ id: number }>(
+        `INSERT INTO teams (public_id, name, created_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (public_id) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id`,
+        [publicId, `Provider ledger integration fixture ${index + 1}`, fixtureUser.rows[0]!.id],
+      )
+    ));
+    const primaryFixtureTeamId = fixtureTeams[0]!.rows[0]!.id;
+    collisionTeamId = fixtureTeams[1]!.rows[0]!.id;
+
+    const historical = await systemDb
+      .select({ sourceEventId: providerUsageLedger.sourceEventId, teamId: providerUsageLedger.teamId })
       .from(providerUsageLedger)
-      .where(eq(providerUsageLedger.sourceEventId, sourceEventId))
-      .limit(1);
-    if (existing[0]) {
-      const others = await db.select({ id: teams.id }).from(teams)
-        .where(isNull(teams.deletedAt)).orderBy(asc(teams.id)).limit(20);
-      return [existing[0].teamId, ...others.map((row) => row.id).filter((id) => id !== existing[0]!.teamId)].slice(0, 2);
-    }
-    const rows = await db.select({ id: teams.id }).from(teams).orderBy(asc(teams.id)).limit(2);
-    return rows.map((row) => row.id);
-  });
-  if (!teamIds.length) throw new Error("Provider ledger integration test requires an existing team");
+      .where(inArray(providerUsageLedger.sourceEventId, [
+        sourceEventId,
+        bigintOriginalSourceEventId,
+      ]));
+    concurrencyTeamId = historical.find((row) => row.sourceEventId === sourceEventId)?.teamId
+      ?? primaryFixtureTeamId;
+    bigintTeamId = historical.find((row) => row.sourceEventId === bigintOriginalSourceEventId)?.teamId
+      ?? primaryFixtureTeamId;
+
+    const fixtureKey = randomUUID();
+    const user = await owner.query<{ id: number }>(
+      `INSERT INTO users (email, role, account_status)
+       VALUES ($1, 'team_member', 'active')
+       RETURNING id`,
+      [`provider-ledger-rls-${fixtureKey}@example.invalid`],
+    );
+    isolatedUserId = user.rows[0]!.id;
+    const team = await owner.query<{ id: number }>(
+      `INSERT INTO teams (name, created_by)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [`Provider ledger RLS fixture ${fixtureKey}`, isolatedUserId],
+    );
+    isolatedTeamId = team.rows[0]!.id;
+    await owner.query(
+      `INSERT INTO team_members (team_id, user_id, role)
+       VALUES ($1, $2, 'member')`,
+      [isolatedTeamId, isolatedUserId],
+    );
+  } finally {
+    await owner.end();
+  }
 });
 
 after(async () => {
+  if (isolatedUserId && isolatedTeamId) {
+    const owner = new Client({ connectionString });
+    await owner.connect();
+    try {
+      await owner.query("DELETE FROM teams WHERE id = $1", [isolatedTeamId]);
+      await owner.query("DELETE FROM users WHERE id = $1", [isolatedUserId]);
+    } finally {
+      await owner.end();
+    }
+  }
   await closeDb();
 });
 
@@ -43,7 +111,7 @@ test("concurrent duplicate provider events insert exactly once", async () => {
   const results = await runWithSystemContext("provider ledger concurrent idempotency test", () =>
     Promise.all(Array.from({ length: 8 }, () => recordProviderUsage({
       sourceEventId,
-      teamId: teamIds[0],
+      teamId: concurrencyTeamId,
       operationType: "other",
       provider: "brave",
       model: "web-search",
@@ -58,12 +126,11 @@ test("concurrent duplicate provider events insert exactly once", async () => {
   assert.ok(results.filter((result) => result.inserted).length <= 1);
 });
 
-test("a source event cannot be rebound across tenants", async (t) => {
-  if (teamIds.length < 2) return t.skip("requires two teams");
+test("a source event cannot be rebound across tenants", async () => {
   await assert.rejects(
     runWithSystemContext("provider ledger source collision test", () => recordProviderUsage({
       sourceEventId,
-      teamId: teamIds[1],
+      teamId: collisionTeamId,
       operationType: "other",
       provider: "brave",
       model: "web-search",
@@ -78,7 +145,7 @@ test("a source event cannot be rebound across tenants", async (t) => {
 test("database trigger rejects mutation of a recorded event", async () => {
   await assert.rejects(
     runWithSystemContext("provider ledger append-only test", async () =>
-      await db.update(providerUsageLedger)
+      await systemDb.update(providerUsageLedger)
         .set({ costMicrousd: 1 })
         .where(eq(providerUsageLedger.id, eventId))
     ),
@@ -99,7 +166,7 @@ test("bigint correction and invoice variance persist exactly above int4 range", 
   await runWithSystemContext("provider ledger bigint accounting test", async () => {
     const original = await recordProviderUsage({
       sourceEventId: "test:provider-usage-ledger:bigint-original:v1",
-      teamId: teamIds[0],
+      teamId: bigintTeamId,
       operationType: "bigint_contract",
       provider,
       model: "unpriced-test-model",
@@ -110,7 +177,7 @@ test("bigint correction and invoice variance persist exactly above int4 range", 
     });
     const correction = await appendProviderAdjustment({
       sourceEventId: "test:provider-usage-ledger:bigint-correction:v1",
-      teamId: teamIds[0],
+       teamId: bigintTeamId,
       eventType: "correction",
       originalEventId: original.event.id,
       operationType: "bigint_contract_correction",
@@ -132,11 +199,11 @@ test("bigint correction and invoice variance persist exactly above int4 range", 
     assert.equal(reconciliation.ledgerCostMicrousd, largeCorrection);
     assert.equal(reconciliation.varianceMicrousd, 123);
 
-    const [persistedCorrection] = await db.select({ cost: providerUsageLedger.costMicrousd })
+    const [persistedCorrection] = await systemDb.select({ cost: providerUsageLedger.costMicrousd })
       .from(providerUsageLedger)
       .where(eq(providerUsageLedger.sourceEventId, "test:provider-usage-ledger:bigint-correction:v1"))
       .limit(1);
-    const [persistedInvoice] = await db.select({
+    const [persistedInvoice] = await systemDb.select({
       invoiced: providerInvoiceReconciliations.invoicedCostMicrousd,
       ledger: providerInvoiceReconciliations.ledgerCostMicrousd,
       variance: providerInvoiceReconciliations.varianceMicrousd,
@@ -153,18 +220,10 @@ test("bigint correction and invoice variance persist exactly above int4 range", 
 });
 
 test("tenant RLS cannot read another workspace's provider cost event", async (t) => {
+  if (!isolatedUserId || !isolatedTeamId) return t.skip("isolated tenant fixture unavailable");
   const owner = new Client({ connectionString });
   await owner.connect();
   try {
-    const memberships = await owner.query<{ userId: number; teamId: number; role: string }>(
-      `SELECT tm.user_id AS "userId", tm.team_id AS "teamId", tm.role
-         FROM team_members tm
-        WHERE tm.team_id <> $1 AND tm.role IN ('owner','admin','member')
-        LIMIT 1`,
-      [teamIds[0]]
-    );
-    const membership = memberships.rows[0];
-    if (!membership) return t.skip("requires a member on a second team");
     await owner.query("BEGIN");
     await owner.query("SET LOCAL ROLE citefi_tenant");
     await owner.query(
@@ -172,7 +231,7 @@ test("tenant RLS cannot read another workspace's provider cost event", async (t)
               set_config('citefi.user_id',$1,true),
               set_config('citefi.team_id',$2,true),
               set_config('citefi.member_role',$3,true)`,
-      [String(membership.userId), String(membership.teamId), membership.role]
+      [String(isolatedUserId), String(isolatedTeamId), "member"]
     );
     const result = await owner.query(
       "SELECT id FROM provider_usage_ledger WHERE source_event_id = $1",

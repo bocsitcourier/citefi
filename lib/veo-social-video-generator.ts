@@ -7,7 +7,12 @@ import { generateVeoTTS } from "./veo-video-tts-generator";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
 import { generateVideoImages } from "./social-video-image-generator";
 import { composeVideo, cleanupTempFiles as cleanupSlideshowTempFiles } from "./social-video-compositor";
-import { isProviderAccountingError, throwIfProviderAccountingFailed } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  ProviderResultNotDurableError,
+  throwIfProviderAccountingFailed,
+} from "./cost-telemetry";
 
 const VEO_STYLE_CONSTANTS = {
   quality: "hyper-realistic, photorealistic, 8K ultra HD, cinematic, shallow depth of field, lifelike textures, film grain",
@@ -89,6 +94,7 @@ export async function generateVeoSocialVideo(
 
   console.log(`\n🎬 Starting Veo AI video generation for Social Post ${socialPostId}`);
   console.log(`Platform: ${platform}, Aspect Ratio: ${aspectRatio}`);
+  let paidProviderResultReceived = false;
 
   try {
     console.log(`\n📊 Step 1/6: Fetching social post data...`);
@@ -170,6 +176,7 @@ export async function generateVeoSocialVideo(
       tone: post.tone || "Professional",
       companyName: post.companyName,
     });
+    paidProviderResultReceived = true;
 
     console.log(`  ✅ Voiceover generated (~${audio.duration}s, voice: ${audio.voice})`);
 
@@ -246,6 +253,7 @@ export async function generateVeoSocialVideo(
           return generated;
         } catch (clipError) {
           if (isProviderAccountingError(clipError)) throw clipError;
+          if (isNonReplayableProviderError(clipError)) throw clipError;
           lastError = clipError as Error;
           console.log(`  ❌ Clip ${index + 1} attempt ${retry + 1} failed: ${lastError.message}`);
         }
@@ -261,6 +269,7 @@ export async function generateVeoSocialVideo(
     const failures = clipResults.filter(r => r.status === 'rejected');
     if (failures.length > 0) {
       const firstFailure = failures[0] as PromiseRejectedResult;
+      if (isNonReplayableProviderError(firstFailure.reason)) throw firstFailure.reason;
       throw new Error(firstFailure.reason?.message || 'One or more Veo clips failed to generate');
     }
 
@@ -409,6 +418,14 @@ export async function generateVeoSocialVideo(
 
     await cleanupVeoTempFiles(socialPostId);
 
+    if (isNonReplayableProviderError(error)) throw error;
+    if (paidProviderResultReceived) {
+      throw new ProviderResultNotDurableError(
+        `A paid media result for social post ${socialPostId} completed before the video failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
     throw error;
   }
 }
@@ -446,6 +463,7 @@ export async function generateVideoFromScript(
 
   console.log(`\n🎬 Starting standalone Veo AI video generation for Video Idea ${videoIdeaId}`);
   console.log(`Title: ${title}, Clips: ${script.clips.length}`);
+  let paidProviderResultReceived = false;
 
   try {
     // Step 1: Generate TTS with natural speech and website pronunciation
@@ -468,6 +486,7 @@ export async function generateVideoFromScript(
       companyName,
       website,
     });
+    paidProviderResultReceived = true;
 
     console.log(`  ✅ Voiceover generated (~${audio.duration}s, voice: ${audio.voice})`);
     if (onProgress) {
@@ -521,6 +540,7 @@ export async function generateVideoFromScript(
           return generated;
         } catch (clipError) {
           if (isProviderAccountingError(clipError)) throw clipError;
+          if (isNonReplayableProviderError(clipError)) throw clipError;
           lastError = clipError as Error;
           console.log(`  ❌ Clip ${index + 1} attempt ${retry + 1} failed: ${lastError.message}`);
         }
@@ -539,6 +559,10 @@ export async function generateVideoFromScript(
       .map(r => (r as PromiseFulfilledResult<VeoClip>).value);
 
     if (ideaFailures.length > 0) {
+      const nonReplayableFailure = ideaFailures.find(
+        (result) => isNonReplayableProviderError((result as PromiseRejectedResult).reason)
+      ) as PromiseRejectedResult | undefined;
+      if (nonReplayableFailure) throw nonReplayableFailure.reason;
       const isQuotaFailure = ideaFailures.some(r => {
         const msg = (r as PromiseRejectedResult).reason?.message || '';
         return msg.includes('RESOURCE_EXHAUSTED') || msg.includes('429') || msg.includes('quota');
@@ -622,6 +646,14 @@ export async function generateVideoFromScript(
     if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Standalone video generation failed for Video Idea ${videoIdeaId}:`, error);
     await cleanupVeoTempFiles(videoIdeaId);
+    if (isNonReplayableProviderError(error)) throw error;
+    if (paidProviderResultReceived) {
+      throw new ProviderResultNotDurableError(
+        `A paid media result for video idea ${videoIdeaId} completed before delivery failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
     throw error;
   }
 }
@@ -637,6 +669,7 @@ export async function generateIdeaVideoSlideshow(
   if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Standalone Veo slideshow requires a validated teamId");
 
   console.log(`\n🖼️ Starting image-based slideshow fallback for Video Idea ${videoIdeaId} (Veo quota exceeded)`);
+  let paidProviderResultReceived = false;
 
   try {
     // Step 1: Generate TTS voiceover
@@ -656,6 +689,7 @@ export async function generateIdeaVideoSlideshow(
       companyName,
       website,
     });
+    paidProviderResultReceived = true;
     console.log(`  ✅ Voiceover generated (~${audio.duration}s)`);
     if (onProgress) await onProgress({ stage: "tts", progress: 20, message: "Voiceover complete" });
 
@@ -741,6 +775,14 @@ export async function generateIdeaVideoSlideshow(
     console.error(`\n❌ Idea slideshow fallback failed for Video Idea ${videoIdeaId}:`, error);
     await cleanupSlideshowTempFiles(videoIdeaId).catch(() => {});
     await cleanupVeoTempFiles(videoIdeaId).catch(() => {});
+    if (isNonReplayableProviderError(error)) throw error;
+    if (paidProviderResultReceived) {
+      throw new ProviderResultNotDurableError(
+        `A paid media result for video idea slideshow ${videoIdeaId} completed before delivery failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
     throw error;
   }
 }

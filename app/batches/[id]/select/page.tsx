@@ -1,6 +1,6 @@
 "use client";
 
-import { use, Suspense, useState, useEffect } from "react";
+import { use, Suspense, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { BatchSubmissionLatch } from "@/lib/batch-submission";
 
 interface TitlePoolData {
   titles: string[];
@@ -59,6 +60,7 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
   const batchId = parseInt(resolvedParams.id);
   const router = useRouter();
   const { toast } = useToast();
+  const submissionLatch = useRef(new BatchSubmissionLatch());
 
   const [selectedTitles, setSelectedTitles] = useState<Set<string>>(new Set());
   const [tone, setTone] = useState("professional");
@@ -151,11 +153,15 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
       autoPublishConnectionIds?: number[];
       personaId?: number;
       skipIntelGate?: boolean;
+      idempotencyKey: string;
     }) => {
-      const { skipIntelGate, ...body } = submitData;
+      const { skipIntelGate, idempotencyKey, ...body } = submitData;
       return await apiRequest("/api/jobs/batch-submit", {
         method: "POST",
-        headers: skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {},
+        headers: {
+          "X-Idempotency-Key": idempotencyKey,
+          ...(skipIntelGate ? { "X-Skip-Intelligence-Gate": "1" } : {}),
+        },
         body: JSON.stringify(body),
       });
     },
@@ -164,7 +170,7 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
         title: "Batch submitted!",
         description: `${selectedTitles.size} articles are being generated.`,
       });
-      queryClient.invalidateQueries({ queryKey: [`/api/batches/${batchId}`] });
+      void queryClient.invalidateQueries({ queryKey: [`/api/batches/${batchId}`] });
       router.push(`/batches/${batchId}`);
     },
     onError: (error: Error) => {
@@ -178,6 +184,12 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
         description: error.message || "Failed to submit batch",
         variant: "destructive",
       });
+    },
+    onSettled: (_data, error, variables) => {
+      submissionLatch.current.finish({
+        batchId: variables.batchId,
+        idempotencyKey: variables.idempotencyKey,
+      }, Boolean(error) && (error as any)?.data?.code !== "BATCH_ENQUEUE_FAILED");
     },
   });
 
@@ -231,6 +243,8 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
       return;
     }
 
+    const attempt = submissionLatch.current.begin(batchId);
+    if (!attempt) return;
     submitBatchMutation.mutate({
       batchId,
       selectedTitles: Array.from(selectedTitles),
@@ -247,6 +261,7 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
       personaId: selectedPersonaId && selectedPersonaId !== "none" 
         ? personas?.find(p => p.publicId === selectedPersonaId)?.id 
         : undefined,
+      idempotencyKey: attempt.idempotencyKey,
     });
   };
 
@@ -755,7 +770,14 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
               onClick={() => {
                 setShowIntelGateDialog(false);
                 if (submitBatchMutation.variables) {
-                  submitBatchMutation.mutate({ ...submitBatchMutation.variables, skipIntelGate: true });
+                  const attempt = submissionLatch.current.begin(batchId);
+                  if (attempt) {
+                    submitBatchMutation.mutate({
+                      ...submitBatchMutation.variables,
+                      idempotencyKey: attempt.idempotencyKey,
+                      skipIntelGate: true,
+                    });
+                  }
                 }
               }}
             >

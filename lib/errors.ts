@@ -27,6 +27,9 @@ export type ErrorCode =
   | "CONFIG_MISSING"         // required env var absent
   | "FEATURE_DISABLED"       // an operator intentionally disabled this capability
   | "BUDGET_EXCEEDED"        // run accumulated cost >= ceiling; no retry would help
+  | "PROVIDER_ACCOUNTING_FAILED" // paid response returned but immutable accounting failed
+  | "PROVIDER_SUBMISSION_UNCERTAIN" // request may have reached a paid provider
+  | "PROVIDER_RESULT_NOT_DURABLE" // paid result exists but downstream persistence failed
   // Retryable — transient
   | "RATE_LIMITED"           // 429 — honor Retry-After
   | "PROVIDER_ERROR"         // 5xx from provider
@@ -49,6 +52,9 @@ export const FATAL_CODES = new Set<ErrorCode>([
   "FEATURE_DISABLED",
   "STORAGE_NOT_CONFIGURED",
   "BUDGET_EXCEEDED",         // credits returned to user; no retry will succeed
+  "PROVIDER_ACCOUNTING_FAILED",
+  "PROVIDER_SUBMISSION_UNCERTAIN",
+  "PROVIDER_RESULT_NOT_DURABLE",
 ]);
 
 export class PipelineError extends Error {
@@ -104,6 +110,18 @@ export function classifyError(
   const msg  = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
   const prov  = ctx?.provider ?? detectProvider(lower);
+  const explicitCode =
+    typeof err === "object" && err !== null && "code" in err
+      ? (err as { code?: unknown }).code
+      : undefined;
+
+  if (
+    explicitCode === "PROVIDER_ACCOUNTING_FAILED" ||
+    explicitCode === "PROVIDER_SUBMISSION_UNCERTAIN" ||
+    explicitCode === "PROVIDER_RESULT_NOT_DURABLE"
+  ) {
+    return new PipelineError(msg, explicitCode, "fatal", stage, prov, err);
+  }
 
   // ── Fatal (operator must act) ────────────────────────────────────────────
   if (lower.includes("401") || lower.includes("403") ||

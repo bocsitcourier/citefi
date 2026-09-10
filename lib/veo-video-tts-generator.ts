@@ -2,7 +2,11 @@ import { openaiClient, callOpenAI } from "./openai-client";
 import type { VeoClipPrompt } from "./veo-video-generator";
 import { objectStorageClient } from "./storage";
 import { TTS_MODEL, TTS_VOICE } from "./ai-config";
-import { isProviderAccountingError } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  ProviderResultNotDurableError,
+} from "./cost-telemetry";
 
 // Voice selection based on content tone
 const TONE_VOICE_MAP: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable" | "nova" | "onyx" | "sage" | "shimmer"> = {
@@ -122,6 +126,7 @@ export async function generateVeoTTS(
 
   const voice = (TONE_VOICE_MAP[tone] || TONE_VOICE_MAP['default'])!;
   const emotionInstructions = (TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS['default'])!;
+  let paidProviderResultReceived = false;
 
   try {
     console.log(`  🎤 Using voice: ${voice} (tone: ${tone})`);
@@ -149,6 +154,7 @@ export async function generateVeoTTS(
         usage: { characters: ttsNarration.length },
       }
     );
+    paidProviderResultReceived = true;
 
     const buffer = Buffer.from(await mp3.arrayBuffer());
 
@@ -202,6 +208,14 @@ export async function generateVeoTTS(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isNonReplayableProviderError(error)) throw error;
+    if (paidProviderResultReceived) {
+      throw new ProviderResultNotDurableError(
+        `OpenAI TTS completed for video ${socialPostId}, but audio delivery failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
     console.error("❌ Failed to generate Veo TTS:", error);
     throw new Error(`Veo TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }

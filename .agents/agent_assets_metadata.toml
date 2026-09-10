@@ -50,3 +50,115 @@ mtime_ms = 1788994535629
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/41689b2b-b7ff-41aa-9b87-a9c51401e9b8/497a659a-0192-4291-b537-52308e1c5f64"
 storage_version_token = "1788994676200848"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "CfcRhW2Xp_iH8cAeBEeEW"
+uri = "file://reports/ai-generation-audit-2026-09-10.md"
+type = "text"
+title = "AI generation audit — incomplete / NO-GO"
+description = "Verified repairs, test evidence, final review blockers, runtime findings, and Redis credential rotation requirement."
+logical_id = "48fc722c-4eb8-472b-996a-76c2d41c8b5c"
+content_hash = "sha256:f8e9df9e042275cf14c9c832eb675f20cc575976a00f71cdbd92f6b19059a314"
+size = 22971
+mtime_ms = 1789054194289
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/48fc722c-4eb8-472b-996a-76c2d41c8b5c/c8b405a4-295b-4bf8-9d86-d7144ca23e55"
+storage_version_token = "1789054283097483"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "xi9Hul_vAkwuXxaDhWjFd"
+uri = "file://AI_ARCHITECTURE.md"
+type = "text"
+title = "AI architecture"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "1ab1d418-dae7-40e6-b180-7d404a18e6a6"
+content_hash = "sha256:1e6feed5f15e66955f4e7ef23424c0350bfb1e52efeee3744c07aa9414ae3c26"
+size = 16210
+mtime_ms = 1789054240105
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/1ab1d418-dae7-40e6-b180-7d404a18e6a6/71e16dfa-2855-4c77-b092-784e284376ea"
+storage_version_token = "1789054290111097"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "OvqoNZnGxnroBMBVahV5x"
+uri = "file://GENERATION_PIPELINES.md"
+type = "text"
+title = "Generation pipelines"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "5b426b45-2e96-4405-a29e-d686c2557e9a"
+content_hash = "sha256:16bdd86a0667b1b322a2719567f112f73cb04a4557102dc9f517a31edae77848"
+size = 14501
+mtime_ms = 1789054208774
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/5b426b45-2e96-4405-a29e-d686c2557e9a/9c679bc9-1350-4e7c-b9d8-a0c430d43350"
+storage_version_token = "1789054290931573"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "cXXvDe20UDTbjRpOVW-6O"
+uri = "file://AI_PROVIDER_MATRIX.md"
+type = "text"
+title = "AI provider matrix"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "7a5cadc0-bcc7-493e-affe-7bb373b3c652"
+content_hash = "sha256:4ec43d57609f7efded4142d41dc67f371773b9804ba2933691b03984cefac572"
+size = 8777
+mtime_ms = 1789054227285
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/7a5cadc0-bcc7-493e-affe-7bb373b3c652/0319ddff-cefc-4973-90e8-1c4b24e794f9"
+storage_version_token = "1789054291667319"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "nsVtit_qcQgnXgwsoG1Gs"
+uri = "file://GENERATION_TESTING.md"
+type = "text"
+title = "Generation testing"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "9257b2a5-db1c-4b5d-8e38-68fa345788c2"
+content_hash = "sha256:d74de25d7afd69d2b30d43c7da8d7c1900b512d6abf7c60a1b8dabb1925ac206"
+size = 9928
+mtime_ms = 1789054169526
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/9257b2a5-db1c-4b5d-8e38-68fa345788c2/eb5b9367-773f-421f-bcdf-3c222c7df440"
+storage_version_token = "1789054292442906"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "wzkNkbzg-R8qQjnRd2ek9"
+uri = "file://FAILURE_RECOVERY.md"
+type = "text"
+title = "Failure recovery"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "afef8907-8338-4cc7-a7b7-47ec15ab65bb"
+content_hash = "sha256:fdff91fe45eadd42938b2f4d4dd4f29cb217c8848950b1f5bd101628790e0988"
+size = 12492
+mtime_ms = 1789054190113
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/afef8907-8338-4cc7-a7b7-47ec15ab65bb/f305e121-731a-44b1-91d5-a87dd88184fa"
+storage_version_token = "1789054293079245"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "gOrUhEKizVDAOc4yVX02G"
+uri = "file://AI_COST_CONTROL.md"
+type = "text"
+title = "AI cost control"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "46f1684d-be59-4faf-b731-c546eb2a5df1"
+content_hash = "sha256:b88893255a4049825e0325a7f9493d6e3b8d5c1a952771d03ba23171c0ec1212"
+size = 12323
+mtime_ms = 1789054245893
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/46f1684d-be59-4faf-b731-c546eb2a5df1/914e0bef-9d48-408e-929a-039d1a20d459"
+storage_version_token = "1789054293714353"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "931h2B97YOaXUjd7EB2Ux"
+uri = "file://FUTURE_PROOFING.md"
+type = "text"
+title = "Future-proofing"
+description = "Audit reference document; includes the final FAIL / NO-GO limitations."
+logical_id = "76575a87-8d29-4179-a15c-2c3fd0ed771f"
+content_hash = "sha256:5bd402e69d80f9cbd056ed035483f123cadbc5bc91296ccca0ea198738e7eefe"
+size = 11353
+mtime_ms = 1789054240253
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/76575a87-8d29-4179-a15c-2c3fd0ed771f/3e579753-8ee8-498d-b4ea-93232b452cc0"
+storage_version_token = "1789054294626213"
+content_type = "text/markdown"

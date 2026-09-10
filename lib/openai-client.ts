@@ -6,6 +6,7 @@ import {
   isProviderAccountingError,
   logFailedProviderAttempt,
   logCostTelemetry,
+  ProviderSubmissionUncertainError,
   resolveTelemetryTeamId,
 } from "./cost-telemetry";
 import type {
@@ -39,16 +40,9 @@ export const openaiLimiter = new Bottleneck({
   minTime: 50, // Minimum 50ms between requests to prevent burst
 });
 
-// Exponential backoff on 429 errors
-openaiLimiter.on("failed", async (error, jobInfo) => {
-  const isRateLimitError = error?.status === 429 || error?.code === 'rate_limit_exceeded';
-  if (isRateLimitError && jobInfo.retryCount < 3) {
-    const delay = Math.min(1000 * Math.pow(2, jobInfo.retryCount) + Math.random() * 1000, 10000);
-    console.warn(`⚠️  OpenAI rate limit hit, retrying in ${delay}ms (attempt ${jobInfo.retryCount + 1}/3)`);
-    return delay;
-  }
-  return undefined;
-});
+// Retry ownership lives in callOpenAI below. Bottleneck is concurrency/rate
+// scheduling only; a failed-listener retry here would multiply each manual
+// attempt into four physical submissions.
 
 console.log(`🔧 OpenAI rate limiter initialized: ${OPENAI_CONCURRENCY} concurrent requests with Bottleneck`);
 
@@ -95,7 +89,12 @@ export async function callOpenAI<T>(
   operation: (client: OpenAI) => Promise<T>,
   context: string,
   timeoutMs?: number, // Optional per-operation timeout override
-  telemetry: OpenAICallTelemetry = {}
+  telemetry: OpenAICallTelemetry = {},
+  _deps: {
+    logSuccess?: typeof logCostTelemetry;
+    logFailure?: typeof logFailedProviderAttempt;
+    sleep?: (milliseconds: number) => Promise<void>;
+  } = {}
 ): Promise<T> {
   const effectiveTeamId = resolveTelemetryTeamId(telemetry.teamId);
   if (effectiveTeamId == null) {
@@ -139,7 +138,7 @@ export async function callOpenAI<T>(
       try {
         const result = await operation(client);
         const response = result as OpenAIResponseWithUsage;
-        await logCostTelemetry(
+        await (_deps.logSuccess ?? logCostTelemetry)(
             {
               ...telemetryContext,
               operationType: telemetryContext.operationType ?? "other",
@@ -174,7 +173,7 @@ export async function callOpenAI<T>(
         // id for every physical attempt so retry accounting never collapses.
         // Do not treat telemetry failures as provider failures: only wrap the
         // operation above in the retry path.
-        await logFailedProviderAttempt(
+          await (_deps.logFailure ?? logFailedProviderAttempt)(
             {
               ...telemetryContext,
               operationType: telemetryContext.operationType ?? "other",
@@ -204,7 +203,17 @@ export async function callOpenAI<T>(
         const isRateLimit = error?.status === 429 || error?.code === 'rate_limit_exceeded';
         const isTimeout = error?.code === 'ETIMEDOUT' || error?.message?.includes('timeout');
         
-        if (attempt < MAX_RETRIES && (isRateLimit || isTimeout)) {
+        // A timeout is ambiguous: OpenAI may have completed (and billed) the
+        // request after our socket stopped waiting. Never physically resubmit
+        // an ambiguous request. Explicit 429 responses are safe to retry.
+        if (isTimeout) {
+          throw new ProviderSubmissionUncertainError(
+            `OpenAI submission outcome is uncertain for ${context}; refusing automatic replay`,
+            error
+          );
+        }
+
+        if (attempt < MAX_RETRIES && isRateLimit) {
           totalRetries++;
           const jitter = Math.random() * 1000;
           const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1) + jitter;
@@ -217,7 +226,7 @@ export async function callOpenAI<T>(
             console.warn(`[OpenAI] 🔔 High retry count for ${context} - investigate rate limits`);
           }
           
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await (_deps.sleep ?? ((milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds))))(delay);
         } else {
           break;
         }

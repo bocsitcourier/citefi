@@ -4,6 +4,7 @@ import { articles, articleAssets, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { generateAndStoreHeroImage } from "@/lib/gemini-image-generator";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { runDirectImageOperation } from "@/lib/direct-image-operation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90; // 90 seconds for image generation
@@ -15,7 +16,7 @@ export async function POST(
   try {
     // CRITICAL: Verify authentication and get team context
     return await withAuthenticatedTeamContext(request, async (auth) => {
-      const { teamId } = auth;
+      const { teamId, userId } = auth;
 
     const { id } = await context.params;
     const articleId = parseInt(id);
@@ -88,24 +89,30 @@ export async function POST(
     console.log(`[REGENERATE_HERO] Regenerating hero for article ${articleId}${businessName ? ` with brand lock: "${businessName}"` : ''}...`);
 
     // Generate new hero image with brand lock
-    const heroImageUrl = await generateAndStoreHeroImage(
-      prompt,
-      articleId,
-      article.batchId || 0,
-      articleTeamId,
-      businessName
-    );
-
-    // CRITICAL: Update article with new hero image URL with team filter
-    await db
-      .update(articles)
-      .set({ heroImageUrl })
-      .where(
-        and(
-          eq(articles.id, articleId),
-          eq(articles.teamId, teamId) // CRITICAL TEAM FILTER ON UPDATE
-        )
-      );
+    const heroImageUrl = await runDirectImageOperation({
+      teamId,
+      userId,
+      resourceType: "article_hero",
+      resourceId: articleId,
+      resourceVersion: article.heroImageUrl ?? "none",
+      requestKey: request.headers.get("x-idempotency-key"),
+      generate: () => generateAndStoreHeroImage(
+        prompt,
+        articleId,
+        article.batchId || 0,
+        articleTeamId,
+        businessName,
+      ),
+      persist: async (generatedUrl) => {
+        const [linked] = await db
+          .update(articles)
+          .set({ heroImageUrl: generatedUrl })
+          .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
+          .returning({ id: articles.id });
+        if (!linked) throw new Error("Generated hero image could not be linked to its article");
+        return generatedUrl;
+      },
+    });
 
     console.log(`[REGENERATE_HERO] Success! New URL: ${heroImageUrl}`);
 
@@ -121,6 +128,8 @@ export async function POST(
       {
         error: "Failed to regenerate hero image",
         details: error instanceof Error ? error.message : "Unknown error",
+        code: error?.code,
+        ...(error?.details ?? {}),
       },
       { status: error?.statusCode || 500 }
     );

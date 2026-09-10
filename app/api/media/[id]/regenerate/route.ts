@@ -6,12 +6,8 @@ import { z } from "zod";
 import { generateSingleImage } from "@/lib/gemini-image-generator";
 import { uploadMedia } from "@/lib/storage";
 import { createImageBrandLockPromptSegment } from "@/lib/branding";
-import {
-  requireAdmin,
-  requireTeamMember,
-  runWithAuthenticatedTeamContext,
-} from "@/lib/api/auth";
-import { runWithSystemContext } from "@/lib/tenant-context";
+import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { runDirectImageOperation } from "@/lib/direct-image-operation";
 
 const regenerateSchema = z.object({
   prompt: z.string().min(10, "Prompt must be at least 10 characters"),
@@ -22,16 +18,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    let teamAuth: Awaited<ReturnType<typeof requireTeamMember>> | null = null;
-    let teamId: number | null = null;
-    try {
-      await requireAdmin(request);
-    } catch (error: any) {
-      if (error?.statusCode !== 403) throw error;
-      teamAuth = await requireTeamMember(request);
-      teamId = teamAuth.teamId;
-    }
-    const regenerate = async () => {
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
     const { id } = await params;
     const assetId = parseInt(id);
 
@@ -51,7 +38,7 @@ export async function POST(
       .from(articleAssets)
       .where(and(
         eq(articleAssets.id, assetId),
-        ...(teamId === null ? [] : [eq(articleAssets.teamId, teamId)]),
+        eq(articleAssets.teamId, teamId),
       ));
 
     if (!asset) {
@@ -84,7 +71,7 @@ export async function POST(
         const [batch] = await db
           .select()
           .from(jobBatches)
-          .where(eq(jobBatches.id, article.batchId));
+          .where(and(eq(jobBatches.id, article.batchId), eq(jobBatches.teamId, teamId)));
         
         // CRITICAL: Validate businessName before image regeneration
         if (!batch?.businessName || batch.businessName.trim().length === 0) {
@@ -109,15 +96,24 @@ export async function POST(
     console.log(`🔄 Regenerating image ${assetId}${businessName ? ` with image brand lock: "${businessName}"` : ''}`);
 
     // Generate new image with Gemini 2.5 Flash Image with image-specific brand lock
-    const dataUrl = await generateSingleImage(enhancedPrompt, {
+    const result = await runDirectImageOperation({
       teamId: assetTeamId,
-      articleId: asset.articleId ?? undefined,
+      userId,
       resourceType: "media_asset",
       resourceId: assetId,
-    });
-    if (!dataUrl) {
-      throw new Error("No image returned from Gemini");
-    }
+      resourceVersion: asset.storageUrl,
+      requestKey: request.headers.get("x-idempotency-key"),
+      generate: async () => {
+        const dataUrl = await generateSingleImage(enhancedPrompt, {
+          teamId: assetTeamId,
+          articleId: asset.articleId ?? undefined,
+          resourceType: "media_asset",
+          resourceId: assetId,
+        });
+        if (!dataUrl) throw new Error("Gemini rejected image generation before returning a paid result");
+        return dataUrl;
+      },
+      persist: async (dataUrl) => {
 
     console.log(`✅ Gemini image generated, extracting data...`);
 
@@ -151,70 +147,58 @@ export async function POST(
     // Store the old URL for replacement in article HTML
     const oldUrl = asset.storageUrl;
 
-    // Update the asset record — enforce team ownership on write
-    const [updatedAsset] = await db
-      .update(articleAssets)
-      .set({
-        storageUrl: permanentUrl,
-        imagePromptUsed: prompt,
-        metadataJson: {
-          ...(asset.metadataJson as Record<string, unknown> | null ?? {}),
-          regeneratedAt: new Date().toISOString(),
-          originalPrompt: asset.imagePromptUsed,
-        }
-      })
-      .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, assetTeamId)))
-      .returning();
+    const updatedAsset = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(articleAssets)
+        .set({
+          storageUrl: permanentUrl,
+          imagePromptUsed: prompt,
+          metadataJson: {
+            ...(asset.metadataJson as Record<string, unknown> | null ?? {}),
+            regeneratedAt: new Date().toISOString(),
+            originalPrompt: asset.imagePromptUsed,
+          }
+        })
+        .where(and(eq(articleAssets.id, assetId), eq(articleAssets.teamId, assetTeamId)))
+        .returning();
+      if (!updated) throw new Error("Generated image could not be linked to its media asset");
 
-    // If this image belongs to an article, update the article HTML
-    if (asset.articleId) {
-      const [article] = await db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
-
-      if (article) {
-        let updatedFields: any = {};
-
-        // Update hero image URL if this is the hero image
-        if (article.heroImageUrl === oldUrl) {
-          updatedFields.heroImageUrl = permanentUrl;
-          console.log(`✅ Updating article ${asset.articleId} hero image URL`);
-        }
-
-        // Replace old URL with new URL in article HTML content
-        if (article.finalHtmlContent && article.finalHtmlContent.includes(oldUrl)) {
-          updatedFields.finalHtmlContent = article.finalHtmlContent.replace(
-            new RegExp(oldUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-            permanentUrl
-          );
-          console.log(`✅ Replaced old image URL in article ${asset.articleId} HTML content`);
-        }
-
-        // Apply updates if any fields changed
-        if (Object.keys(updatedFields).length > 0) {
-          await db
-            .update(articles)
-            .set(updatedFields)
-            .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
-          
-          console.log(`✅ Updated article ${asset.articleId} with new image URLs`);
+      if (asset.articleId) {
+        const [article] = await tx
+          .select()
+          .from(articles)
+          .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
+        if (article) {
+          const updatedFields: Record<string, string> = {};
+          if (article.heroImageUrl === oldUrl) updatedFields.heroImageUrl = permanentUrl;
+          if (article.finalHtmlContent?.includes(oldUrl)) {
+            updatedFields.finalHtmlContent = article.finalHtmlContent.replace(
+              new RegExp(oldUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"),
+              permanentUrl,
+            );
+          }
+          if (Object.keys(updatedFields).length > 0) {
+            await tx.update(articles)
+              .set(updatedFields)
+              .where(and(eq(articles.id, asset.articleId), eq(articles.teamId, assetTeamId)));
+          }
         }
       }
-    }
+      return updated;
+    });
 
     console.log(`✅ Image ${assetId} regenerated successfully`);
 
+        return updatedAsset;
+      },
+    });
+
     return NextResponse.json({
       success: true,
-      asset: updatedAsset,
+      asset: result,
       message: "Image regenerated successfully",
     });
-    };
-
-    return teamAuth
-      ? await runWithAuthenticatedTeamContext(teamAuth, regenerate)
-      : await runWithSystemContext("global admin media regeneration", regenerate);
+    });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -230,7 +214,9 @@ export async function POST(
     return NextResponse.json(
       { 
         error: "Failed to regenerate image",
-        message: error instanceof Error ? error.message : "Unknown error"
+        message: error instanceof Error ? error.message : "Unknown error",
+        code: error?.code,
+        ...(error?.details ?? {}),
       },
       { status: error?.statusCode || 500 }
     );

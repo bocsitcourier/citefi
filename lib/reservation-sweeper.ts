@@ -15,6 +15,7 @@ import {
   articleRuns,
   articles,
   creditLedger,
+  creditReservations,
   socialPosts,
   videoIdeas,
 } from "@/shared/schema";
@@ -128,8 +129,16 @@ export async function sweepStaleReservations(
       teamId: creditLedger.teamId,
       runId: creditLedger.runId,
       amount: creditLedger.amount,
+      reconciliationRequiredAt: creditReservations.reconciliationRequiredAt,
     })
     .from(creditLedger)
+    .leftJoin(
+      creditReservations,
+      and(
+        eq(creditReservations.teamId, creditLedger.teamId),
+        eq(creditReservations.runId, creditLedger.runId)
+      )
+    )
     .where(and(...staleFilters))
     .limit(limit);
 
@@ -310,6 +319,13 @@ export async function sweepStaleReservations(
         skipped += 1;
         console.warn(
           `[reservation-sweeper] Reservation id=${row.id} has no runId; leaving it untouched`
+        );
+        continue;
+      }
+      if (row.reconciliationRequiredAt) {
+        skipped += 1;
+        console.warn(
+          `[reservation-sweeper] runId=${row.runId} requires explicit reconciliation; preserving RESERVED hold`
         );
         continue;
       }

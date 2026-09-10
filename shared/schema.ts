@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, bigint, real, jsonb, index, uniqueIndex, uuid, boolean, foreignKey, check, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, serial, bigserial, bigint, real, jsonb, index, uniqueIndex, unique, uuid, boolean, foreignKey, check, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -3009,7 +3009,7 @@ export const providerRateVersions = pgTable("provider_rate_versions", {
   effectiveTo: timestamp("effective_to"),
   lockedAt: timestamp("locked_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}).enableRLS();
 
 export const providerRates = pgTable("provider_rates", {
   id: serial("id").primaryKey(),
@@ -3027,7 +3027,7 @@ export const providerRates = pgTable("provider_rates", {
 }, (t) => ({
   versionModelUnitUnique: uniqueIndex("provider_rates_version_model_unit_unique").on(t.rateVersionId, t.provider, t.model, t.unitType),
   lookupIdx: index("provider_rates_lookup_idx").on(t.provider, t.model, t.unitType, t.effectiveFrom),
-}));
+})).enableRLS();
 
 export const providerUsageLedger = pgTable("provider_usage_ledger", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
@@ -3061,7 +3061,7 @@ export const providerUsageLedger = pgTable("provider_usage_ledger", {
   teamOccurredIdx: index("provider_usage_ledger_team_occurred_idx").on(t.teamId, t.occurredAt),
   reconciliationIdx: index("provider_usage_ledger_provider_occurred_idx").on(t.provider, t.occurredAt),
   originalIdx: index("provider_usage_ledger_original_idx").on(t.originalEventId),
-}));
+})).enableRLS();
 
 export const providerInvoiceReconciliations = pgTable("provider_invoice_reconciliations", {
   id: serial("id").primaryKey(),
@@ -3198,11 +3198,13 @@ export const creditReservations = pgTable("credit_reservations", {
   remainingAmount: integer("remaining_amount").notNull(),
   status: varchar("status", { length: 20 }).notNull().default("RESERVED"),
   requestKey: varchar("request_key", { length: 255 }),
+  reconciliationRequiredAt: timestamp("reconciliation_required_at"),
+  reconciliationReason: text("reconciliation_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => ({
-  teamRunUnique: uniqueIndex("credit_reservations_team_run_unique").on(t.teamId, t.runId),
-  requestKeyUnique: uniqueIndex("credit_reservations_team_request_unique").on(t.teamId, t.requestKey),
+  teamRunUnique: unique("credit_reservations_team_run_unique").on(t.teamId, t.runId),
+  requestKeyUnique: uniqueIndex("credit_reservations_team_request_unique").on(t.teamId, t.requestKey).where(sql`${t.requestKey} IS NOT NULL`),
   outstandingIdx: index("credit_reservations_outstanding_idx").on(t.status, t.updatedAt),
   amountsCheck: check("credit_reservations_amounts_check",
     sql`${t.originalAmount} > 0 AND ${t.remainingAmount} >= 0 AND ${t.remainingAmount} <= ${t.originalAmount}`),
@@ -4286,7 +4288,7 @@ export const campaignAds = pgTable("campaign_ads", {
     foreignColumns: [campaigns.teamId, campaigns.id],
     name: "campaign_ads_campaign_team_fk",
   }).onDelete("cascade"),
-}));
+})).enableRLS();
 
 export const campaignAdApprovals = pgTable("campaign_ad_approvals", {
   id: serial("id").primaryKey(),
@@ -4310,7 +4312,7 @@ export const campaignAdApprovals = pgTable("campaign_ad_approvals", {
     foreignColumns: [campaignAds.teamId, campaignAds.id],
     name: "campaign_ad_approvals_ad_team_fk",
   }).onDelete("cascade"),
-}));
+})).enableRLS();
 
 export type CampaignAd = typeof campaignAds.$inferSelect;
 export type CampaignAdApproval = typeof campaignAdApprovals.$inferSelect;

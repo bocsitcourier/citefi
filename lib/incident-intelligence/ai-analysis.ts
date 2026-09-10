@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { telemetryAiAnalyses, telemetryAiRequests } from "@/shared/schema";
+import { isProviderAccountingError } from "@/lib/cost-telemetry";
 import { redactString, sanitizeMetadata } from "./core";
 
 const MAX_EVIDENCE_BYTES = 24_000;
@@ -84,68 +85,86 @@ export function buildAnalysisInput(evidence: IncidentEvidence[]): {
   return { json: json.slice(0, MAX_EVIDENCE_BYTES), evidenceIds: new Set(bounded.map((item) => item.id)) };
 }
 
-type AiInvoker = (args: { system: string; user: string; maxTokens: number }) => Promise<unknown>;
+type AiInvoker = (args: {
+  system: string;
+  user: string;
+  maxTokens: number;
+  accountingTeamId?: number;
+  actorUserId?: number;
+}) => Promise<unknown>;
 
-async function defaultInvoker(args: { system: string; user: string; maxTokens: number }): Promise<unknown> {
-  const [{ openaiClient }, { getModel }] = await Promise.all([
+async function defaultInvoker(args: Parameters<AiInvoker>[0]): Promise<unknown> {
+  const [{ callOpenAI }, { getModel }] = await Promise.all([
     import("@/lib/openai-client"),
     import("@/lib/model-resolver"),
   ]);
-  const response = await openaiClient.chat.completions.create({
-    model: getModel("gptMini"),
-    temperature: 0,
-    max_completion_tokens: args.maxTokens,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "incident_advice",
-        strict: true,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            summary: { type: "string" },
-            likelyCauses: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  cause: { type: "string" },
-                  evidenceRefs: { type: "array", items: { type: "string" } },
+  const model = getModel("gptMini");
+  const response = await callOpenAI(
+    (client) => client.chat.completions.create({
+      model,
+      temperature: 0,
+      max_completion_tokens: args.maxTokens,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "incident_advice",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              summary: { type: "string" },
+              likelyCauses: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    cause: { type: "string" },
+                    evidenceRefs: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["cause", "evidenceRefs"],
                 },
-                required: ["cause", "evidenceRefs"],
               },
-            },
-            recommendedChecks: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  check: { type: "string" },
-                  evidenceRefs: { type: "array", items: { type: "string" } },
+              recommendedChecks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    check: { type: "string" },
+                    evidenceRefs: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["check", "evidenceRefs"],
                 },
-                required: ["check", "evidenceRefs"],
               },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              insufficientEvidence: { type: "boolean" },
+              missingEvidence: { type: "array", items: { type: "string" } },
+              safetyNotice: { type: "string", enum: ["Advisory only; no fixes were executed."] },
             },
-            confidence: { type: "number", minimum: 0, maximum: 1 },
-            insufficientEvidence: { type: "boolean" },
-            missingEvidence: { type: "array", items: { type: "string" } },
-            safetyNotice: { type: "string", enum: ["Advisory only; no fixes were executed."] },
+            required: [
+              "summary", "likelyCauses", "recommendedChecks", "confidence",
+              "insufficientEvidence", "missingEvidence", "safetyNotice",
+            ],
           },
-          required: [
-            "summary", "likelyCauses", "recommendedChecks", "confidence",
-            "insufficientEvidence", "missingEvidence", "safetyNotice",
-          ],
         },
       },
+      messages: [
+        { role: "system", content: args.system },
+        { role: "user", content: args.user },
+      ],
+    }),
+    "Incident intelligence advisory",
+    undefined,
+    {
+      operationType: "other",
+      model,
+      teamId: args.accountingTeamId,
+      userId: args.actorUserId,
+      resourceType: "incident",
     },
-    messages: [
-      { role: "system", content: args.system },
-      { role: "user", content: args.user },
-    ],
-  });
+  );
   const text = response.choices[0]?.message.content;
   if (!text) throw new Error("AI incident analysis returned no content");
   return JSON.parse(text);
@@ -154,11 +173,14 @@ async function defaultInvoker(args: { system: string; user: string; maxTokens: n
 export async function generateIncidentAdvice(
   evidence: IncidentEvidence[],
   invoke: AiInvoker = defaultInvoker,
+  telemetry?: { accountingTeamId: number; actorUserId: number },
 ): Promise<IncidentAdvice> {
   const input = buildAnalysisInput(evidence);
   try {
     const output = await invoke({
       maxTokens: MAX_OUTPUT_TOKENS,
+      accountingTeamId: telemetry?.accountingTeamId,
+      actorUserId: telemetry?.actorUserId,
       system: [
         "You are a read-only incident advisor. Return only JSON matching the requested schema.",
         "Never execute or prescribe an autonomous fix. Ground every cause in supplied evidence IDs.",
@@ -171,7 +193,8 @@ export async function generateIncidentAdvice(
         `Required keys: summary, likelyCauses[{cause,evidenceRefs}], recommendedChecks[{check,evidenceRefs}], confidence, insufficientEvidence, missingEvidence, safetyNotice.`,
     });
     return validateIncidentAdvice(output, input.evidenceIds);
-  } catch {
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
     return INSUFFICIENT_EVIDENCE_ADVICE;
   }
 }
@@ -181,6 +204,7 @@ export async function getOrCreateIncidentAnalysis(args: {
   evidenceVersion: number;
   evidence: IncidentEvidence[];
   actorUserId: number;
+  accountingTeamId?: number;
 }): Promise<IncidentAdvice> {
   const [{ getTxDb }, { runWithSystemContext }] = await Promise.all([
     import("@/lib/db"),
@@ -210,6 +234,7 @@ export async function refreshIncidentAnalysis(args: {
   evidenceVersion: number;
   evidence: IncidentEvidence[];
   actorUserId: number;
+  accountingTeamId?: number;
 }): Promise<IncidentAdvice> {
   const [{ getTxDb }, { runWithSystemContext }] = await Promise.all([
     import("@/lib/db"),
@@ -246,6 +271,7 @@ async function createAnalysisUnderBudget(
   db: any,
   args: Parameters<typeof refreshIncidentAnalysis>[0],
 ): Promise<IncidentAdvice> {
+  const accountingTeamId = requireIncidentAccountingTeamId(args.accountingTeamId);
   return db.transaction(async (tx: any) => {
     // A transaction-scoped global lock deliberately bounds cross-instance model
     // concurrency to one. This favors protecting the provider budget over
@@ -278,7 +304,10 @@ async function createAnalysisUnderBudget(
       evidenceVersion: args.evidenceVersion,
     });
     const input = buildAnalysisInput(args.evidence);
-    const analysis = await generateIncidentAdvice(args.evidence);
+    const analysis = await generateIncidentAdvice(args.evidence, defaultInvoker, {
+      accountingTeamId,
+      actorUserId: args.actorUserId,
+    });
     await tx.insert(telemetryAiAnalyses).values({
       incidentId: args.incidentId,
       evidenceVersion: args.evidenceVersion,
@@ -289,6 +318,19 @@ async function createAnalysisUnderBudget(
     }).onConflictDoNothing();
     return (await readCachedAnalysis(tx, args)) ?? analysis;
   });
+}
+
+function requireIncidentAccountingTeamId(explicitTeamId?: number): number {
+  const configured = process.env.INCIDENT_AI_ACCOUNTING_TEAM_ID;
+  const teamId = explicitTeamId ??
+    (configured == null || configured.trim() === "" ? Number.NaN : Number(configured));
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    throw new Error(
+      "Incident AI provider requests require an explicit accountingTeamId " +
+      "or a positive integer INCIDENT_AI_ACCOUNTING_TEAM_ID"
+    );
+  }
+  return teamId;
 }
 
 function rateLimitError() {

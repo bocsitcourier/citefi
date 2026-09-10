@@ -5,7 +5,14 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { uploadMedia } from "./storage";
 import { logError } from "./error-logger";
 import { throttledGeminiRequest } from "./gemini";
-import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  logFailedProviderAttempt,
+  logCostTelemetry,
+  ProviderResultNotDurableError,
+  ProviderSubmissionUncertainError,
+} from "./cost-telemetry";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
 import { getModel } from "./model-resolver";
@@ -163,6 +170,7 @@ export async function generateImagesForArticle(
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const startedAt = Date.now();
+    let paidProviderResultReceived = false;
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
@@ -203,6 +211,7 @@ export async function generateImagesForArticle(
         { imageCount: 1 },
         Date.now() - startedAt, true
       );
+      paidProviderResultReceived = true;
 
       const imageBuffer = Buffer.from(imageData, "base64");
       console.log(`  ✅ Image generated (${(imageBuffer.length / 1024).toFixed(2)} KB) — uploading...`);
@@ -244,6 +253,14 @@ export async function generateImagesForArticle(
       return [{ url: permanentUrl, prompt: heroPromptRaw, format: "png", assetId: asset?.id }];
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
+      if (isNonReplayableProviderError(error)) throw error;
+      if (paidProviderResultReceived) {
+        throw new ProviderResultNotDurableError(
+          `Gemini returned and accounted for article ${articleId}'s hero image, but durable storage/attachment failed; refusing automatic replay`,
+          null,
+          error
+        );
+      }
       // A rejected request can still have reached Gemini. Record the provider
       // attempt, but never record the local SVG fallback below as spend.
       await logFailedProviderAttempt(
@@ -254,6 +271,20 @@ export async function generateImagesForArticle(
         },
         { imageCount: 0 }, Date.now() - startedAt, error
       );
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("timed out") ||
+        errorMessage.includes("econnreset") ||
+        errorMessage.includes("etimedout") ||
+        errorMessage.includes("socket hang up") ||
+        errorMessage.includes("fetch failed")
+      ) {
+        throw new ProviderSubmissionUncertainError(
+          `Gemini hero image submission outcome is uncertain for article ${articleId}; refusing automatic replay`,
+          error
+        );
+      }
       lastError = error as Error;
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`  ⚠️ Attempt ${attempt}/${MAX_RETRIES} failed:`, errorMsg);
@@ -301,18 +332,23 @@ export async function generateImagesForArticle(
 
 export async function generateSingleImage(
   prompt: string,
-  telemetry: { teamId: number; articleId?: number; resourceType?: string; resourceId?: string | number }
+  telemetry: { teamId: number; articleId?: number; resourceType?: string; resourceId?: string | number },
+  _deps: {
+    generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
+    logSuccess?: typeof logCostTelemetry;
+    logFailure?: typeof logFailedProviderAttempt;
+  } = {}
 ): Promise<string | null> {
   const accountingTeamId = requireImageGenerationTeamId(telemetry.teamId, "Single image generation");
   const startedAt = Date.now();
   try {
-    const response = await genAI.models.generateContent({
+    const response = await (_deps.generateContent ?? ((request) => genAI.models.generateContent(request)))({
       model: "gemini-2.5-flash-image",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseModalities: ["Image"] },
     });
 
-    await logCostTelemetry(
+    await (_deps.logSuccess ?? logCostTelemetry)(
       {
         operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
         ...telemetry, teamId: accountingTeamId, attempt: 1, providerRequestId: (response as any).responseId ?? null,
@@ -327,16 +363,35 @@ export async function generateSingleImage(
       }
     }
 
-    return null;
+    throw new ProviderResultNotDurableError(
+      "Gemini single-image provider returned successfully, but no durable image payload was available; refusing automatic replay",
+      (response as any).responseId ?? null
+    );
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    await logFailedProviderAttempt(
+    if (isNonReplayableProviderError(error)) throw error;
+    await (_deps.logFailure ?? logFailedProviderAttempt)(
       {
         operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
         ...telemetry, teamId: accountingTeamId, attempt: 1,
       },
       { imageCount: 0 }, Date.now() - startedAt, error
     );
+    const errorMessage =
+      error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (
+      errorMessage.includes("timeout") ||
+      errorMessage.includes("timed out") ||
+      errorMessage.includes("econnreset") ||
+      errorMessage.includes("etimedout") ||
+      errorMessage.includes("socket hang up") ||
+      errorMessage.includes("fetch failed")
+    ) {
+      throw new ProviderSubmissionUncertainError(
+        "Gemini single-image submission outcome is uncertain; refusing automatic replay",
+        error
+      );
+    }
     console.error("Gemini image generation error:", error);
     return null;
   }
@@ -348,7 +403,13 @@ export async function generateAndStoreHeroImage(
   articleId: number,
   batchId: number,
   teamId: number,
-  businessName?: string
+  businessName?: string,
+  _deps: {
+    generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
+    upload?: typeof uploadMedia;
+    logSuccess?: typeof logCostTelemetry;
+    sleep?: (milliseconds: number) => Promise<void>;
+  } = {}
 ): Promise<string> {
   const accountingTeamId = requireImageGenerationTeamId(teamId, "Stored hero image generation");
   console.log(`🖼️ Generating hero image with Gemini for article ${articleId}...`);
@@ -363,20 +424,23 @@ export async function generateAndStoreHeroImage(
 
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;
+  let providerRequestId: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const startedAt = Date.now();
+    let paidProviderResultReceived = false;
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
       const response = await withTimeout(
-        genAI.models.generateContent({
+        (_deps.generateContent ?? ((request) => genAI.models.generateContent(request)))({
           model: "gemini-2.5-flash-image",
           contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
           config: { responseModalities: ["Image"] },
         }),
         60000
       );
+      providerRequestId = (response as any).responseId ?? null;
 
       let imageData: string | null = null;
       if (response.candidates?.[0]?.content?.parts) {
@@ -391,7 +455,7 @@ export async function generateAndStoreHeroImage(
       if (!imageData) {
         throw new Error("No image data returned from Gemini API");
       }
-      await logCostTelemetry(
+      await (_deps.logSuccess ?? logCostTelemetry)(
         {
           operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
           teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
@@ -399,11 +463,12 @@ export async function generateAndStoreHeroImage(
         },
         { imageCount: 1 }, Date.now() - startedAt, true
       );
+      paidProviderResultReceived = true;
 
       const imageBuffer = Buffer.from(imageData, "base64");
       console.log(`  ✅ Image generated (${(imageBuffer.length / 1024).toFixed(2)} KB) — uploading...`);
 
-      const permanentUrl = await uploadMedia({
+      const permanentUrl = await (_deps.upload ?? uploadMedia)({
         fileData: imageBuffer,
         fileName: `hero-image-${articleId}-${Date.now()}.png`,
         contentType: "image/png",
@@ -422,6 +487,14 @@ export async function generateAndStoreHeroImage(
       return permanentUrl;
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
+      if (isNonReplayableProviderError(error)) throw error;
+      if (paidProviderResultReceived) {
+        throw new ProviderResultNotDurableError(
+          `Gemini returned and accounted for stored hero image ${articleId}, but upload failed; refusing automatic replay`,
+          providerRequestId,
+          error
+        );
+      }
       await logFailedProviderAttempt(
         {
           operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
@@ -430,13 +503,27 @@ export async function generateAndStoreHeroImage(
         },
         { imageCount: 0 }, Date.now() - startedAt, error
       );
+      const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      if (
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("timed out") ||
+        errorMessage.includes("econnreset") ||
+        errorMessage.includes("etimedout") ||
+        errorMessage.includes("socket hang up") ||
+        errorMessage.includes("fetch failed")
+      ) {
+        throw new ProviderSubmissionUncertainError(
+          `Stored Gemini hero image submission outcome is uncertain for article ${articleId}; refusing automatic replay`,
+          error
+        );
+      }
       lastError = error as Error;
       console.error(`  ❌ Attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
 
       if (attempt < MAX_RETRIES) {
         const delayMs = Math.pow(2, attempt) * 1000;
         console.log(`  ⏳ Retrying in ${delayMs / 1000}s...`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await (_deps.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))))(delayMs);
       }
     }
   }

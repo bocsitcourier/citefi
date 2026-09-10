@@ -1,0 +1,1249 @@
+# CITEFI.CO — FULL AI GENERATION PIPELINE AUDIT, STRESS TEST & FUTURE-PROOFING
+
+## ROLE
+
+You are acting as a **world-class AI systems architect, Stanford-level computer science researcher, senior SaaS CTO, AI infrastructure engineer, QA director, and adversarial production auditor**.
+
+You are NOT performing a superficial code review.
+
+Your mission is to **audit, test, repair, upgrade, harden, and future-proof the entire CiteFi.co AI content-generation ecosystem**.
+
+Think like someone responsible for keeping a sophisticated AI platform operational for the next **10 years**, despite changing AI models, APIs, media standards, advertising platforms, browsers, operating systems, pricing, authentication systems, and third-party providers.
+
+Be extremely persistent.
+
+Do not stop after finding the first problem.
+
+Do not assume that something works because the UI appears to work.
+
+Do not assume an API call succeeded because it returned HTTP 200.
+
+Do not assume generated content is actually usable.
+
+Trace every generation pipeline from:
+
+**USER INPUT → FRONT END → BACK END → AI ORCHESTRATION → PROVIDER/API → GENERATION → VALIDATION → STORAGE → DATABASE → MEDIA PROCESSING → PREVIEW → PUBLISHING → EXPORT → ANALYTICS**
+
+Test the entire chain.
+
+---
+
+# PRIMARY OBJECTIVE
+
+Perform a complete audit of every AI generation capability in CiteFi.co, including but not limited to:
+
+1. Articles
+2. Blog posts
+3. SEO content
+4. Images
+5. Image editing
+6. Video
+7. Video scripts
+8. Video generation
+9. Social media posts
+10. Social media campaigns
+11. Facebook/Meta ads
+12. Google Ads
+13. Podcast scripts
+14. Podcast/audio generation
+15. Voice generation
+16. Headlines
+17. Captions
+18. Hashtags
+19. Metadata
+20. SEO titles
+21. Meta descriptions
+22. Keywords
+23. Landing pages
+24. Marketing campaigns
+25. Email campaigns
+26. Ad creative
+27. Ad variations
+28. Content repurposing
+29. Long-form → short-form transformations
+30. Image → social post
+31. Article → social campaign
+32. Article → video script
+33. Article → podcast
+34. Campaign → multi-channel content
+35. Any other AI-generated asset currently present or implied by the application
+
+You must discover capabilities from the actual codebase.
+
+**Do not rely exclusively on documentation.**
+
+---
+
+# PHASE 1 — UNDERSTAND THE ENTIRE SYSTEM
+
+Before changing anything, inspect the entire repository.
+
+Map:
+
+* Frontend architecture
+* Backend architecture
+* API routes
+* Server actions
+* AI services
+* AI providers
+* Model configurations
+* Prompt systems
+* Generation workers
+* Queues
+* Background jobs
+* Database
+* Storage
+* File handling
+* Image handling
+* Video handling
+* Audio handling
+* Authentication
+* Authorization
+* Billing
+* Usage tracking
+* Token tracking
+* Credit systems
+* Rate limiting
+* Retry systems
+* Error handling
+* Logging
+* Monitoring
+* Webhooks
+* Scheduled jobs
+* Publishing integrations
+* Social integrations
+* Advertising integrations
+* Export systems
+
+Create an internal architecture map before making major modifications.
+
+---
+
+# PHASE 2 — BUILD A GENERATION MATRIX
+
+Create a complete matrix of every generation capability.
+
+For EVERY generator identify:
+
+| Generator | Input | AI Model | Provider | API | Output | Storage | Validation | UI | Retry | Error Handling | Usage Tracking | Tested |
+| --------- | ----- | -------- | -------- | --- | ------ | ------- | ---------- | -- | ----- | -------------- | -------------- | ------ |
+
+Do not leave unknown values blank.
+
+If you cannot determine something, investigate the code until you can.
+
+---
+
+# PHASE 3 — FIND BROKEN GENERATION PATHS
+
+Search aggressively for:
+
+* TODO
+* FIXME
+* mock data
+* placeholder responses
+* fake generators
+* hardcoded outputs
+* simulated success
+* demo mode
+* test-only providers
+* disabled integrations
+* commented-out APIs
+* abandoned endpoints
+* stale model names
+* deprecated APIs
+* dead code
+* unreachable code
+* swallowed exceptions
+* empty catch blocks
+* fake progress bars
+* optimistic UI
+* incorrect success messages
+* failed background jobs
+* missing webhook handlers
+* missing database writes
+* missing file writes
+* orphaned media
+* incomplete uploads
+* race conditions
+* duplicate generations
+* timeout failures
+* partial generation
+* provider-specific failures
+
+Pay special attention to systems where the frontend says:
+
+**"Generated successfully"**
+
+while the actual asset was never created, stored, published, or made available to the user.
+
+---
+
+# PHASE 4 — TEST EVERY GENERATOR
+
+You must actually test the generation pipelines.
+
+Do not merely inspect them.
+
+For each generator:
+
+### TEST A — Normal Input
+
+Use realistic production input.
+
+Confirm:
+
+1. Request reaches backend
+2. Backend validates input
+3. AI provider is called
+4. Correct model is selected
+5. Provider responds
+6. Response is parsed
+7. Output passes validation
+8. Output is stored
+9. Database record is created/updated
+10. UI receives result
+11. User can access result
+12. Usage is recorded
+13. Billing/credits are correctly calculated
+14. Errors are logged
+15. Generated asset can be exported/downloaded/published where applicable
+
+---
+
+# PHASE 5 — ADVERSARIAL TESTING
+
+Do not only test perfect inputs.
+
+Test:
+
+* Empty prompts
+* Extremely long prompts
+* Special characters
+* Emojis
+* Unicode
+* Multiple languages
+* Invalid URLs
+* Missing images
+* Missing videos
+* Missing audio
+* Huge files
+* Tiny files
+* Corrupt files
+* Unsupported formats
+* Provider timeout
+* Provider 400
+* Provider 401
+* Provider 403
+* Provider 404
+* Provider 429
+* Provider 500
+* Provider 502
+* Provider 503
+* Provider returning malformed JSON
+* Provider returning empty output
+* Provider returning incomplete output
+* Provider returning inappropriate output
+* Provider changing response structure
+* Network interruption
+* Database failure
+* Storage failure
+* Queue failure
+* Webhook failure
+* Browser refresh during generation
+* User closing browser during generation
+* Duplicate button clicks
+* Multiple simultaneous generations
+* Generation cancellation
+* Retry after failure
+
+Every failure must result in a controlled and understandable state.
+
+---
+
+# PHASE 6 — IMAGE GENERATION AUDIT
+
+Audit every image-generation pipeline.
+
+Verify:
+
+* Prompt construction
+* Model selection
+* Provider API
+* Resolution
+* Aspect ratios
+* Output formats
+* Image storage
+* CDN/storage URLs
+* Thumbnail generation
+* Preview generation
+* File naming
+* Metadata
+* Image optimization
+* Compression
+* Duplicate prevention
+* Retry handling
+* Content moderation
+* Error handling
+* Cost tracking
+
+Test multiple aspect ratios.
+
+Test portrait, landscape, square, social-media dimensions, ad dimensions, and website dimensions.
+
+Verify the actual generated image exists after generation.
+
+Do NOT consider an image generation successful merely because the provider returned a response.
+
+---
+
+# PHASE 7 — VIDEO GENERATION AUDIT
+
+Audit the entire video pipeline.
+
+Verify:
+
+* Script generation
+* Storyboard generation
+* Scene generation
+* Image/video generation
+* Voiceover
+* Music/audio
+* Captions
+* Transitions
+* Rendering
+* Encoding
+* Resolution
+* Aspect ratio
+* Frame rate
+* Audio synchronization
+* Storage
+* CDN delivery
+* Preview
+* Final export
+* Progress tracking
+* Long-running jobs
+* Queue processing
+* Retry/resume
+* Failed render recovery
+
+Test actual video playback.
+
+Verify:
+
+* Video file exists
+* Video is not corrupted
+* Audio exists
+* Duration is correct
+* Video is playable
+* Captions are present when requested
+* Final URL works
+
+---
+
+# PHASE 8 — SOCIAL MEDIA GENERATION
+
+Audit every social platform workflow.
+
+Check:
+
+* Facebook
+* Instagram
+* LinkedIn
+* X
+* TikTok
+* YouTube
+* Threads
+* Any other supported platform
+
+Verify:
+
+* Content generation
+* Platform-specific formatting
+* Character limits
+* Hashtags
+* Mentions
+* Images
+* Videos
+* Links
+* Scheduling
+* Publishing
+* OAuth
+* Token refresh
+* Expired credentials
+* Permissions
+* API changes
+* Publishing failures
+* Retry logic
+* Post status
+* Duplicate publishing prevention
+
+The system must NEVER tell the user a post was published when it wasn't.
+
+---
+
+# PHASE 9 — GOOGLE ADS
+
+Audit Google Ads generation and integration.
+
+Verify:
+
+* Campaign creation
+* Campaign objectives
+* Headlines
+* Descriptions
+* Keywords
+* Extensions/assets
+* Character limits
+* Policy compliance
+* API authentication
+* API version compatibility
+* Publishing
+* Error handling
+* Draft vs live state
+* Budget handling
+* Duplicate campaign prevention
+
+Separate:
+
+**AI-generated recommendation**
+
+from
+
+**actual Google Ads API operation**
+
+The UI must never imply that an ad is live unless the platform confirms it.
+
+---
+
+# PHASE 10 — META / FACEBOOK ADS
+
+Audit Meta advertising workflows.
+
+Verify:
+
+* Campaign
+* Ad set
+* Ad
+* Creative
+* Copy
+* Images
+* Videos
+* Targeting
+* Budget
+* API authentication
+* Permissions
+* API versions
+* Publishing
+* Validation
+* Error handling
+* Draft/live state
+
+Test failures and rejected ads.
+
+---
+
+# PHASE 11 — PODCAST / AUDIO PIPELINE
+
+Audit:
+
+* Podcast topic generation
+* Research
+* Script generation
+* Episode structure
+* Host dialogue
+* Voice generation
+* Multiple voices
+* Audio stitching
+* Background music
+* Intro/outro
+* Volume normalization
+* Silence removal
+* Encoding
+* MP3/WAV output
+* Metadata
+* Artwork
+* RSS generation if supported
+* Storage
+* Playback
+* Download
+
+Actually test generated audio.
+
+Do not assume an audio API response means the final MP3 is valid.
+
+---
+
+# PHASE 12 — CONTENT REPURPOSING
+
+Test the complete content flywheel.
+
+Example:
+
+ARTICLE
+↓
+SOCIAL POSTS
+↓
+IMAGE
+↓
+VIDEO SCRIPT
+↓
+VIDEO
+↓
+PODCAST
+↓
+EMAIL
+↓
+ADS
+↓
+SHORT-FORM CONTENT
+
+Every transformation must preserve:
+
+* factual consistency
+* brand voice
+* core message
+* CTA
+* important entities
+* SEO intent
+
+Identify where information is lost between transformations.
+
+---
+
+# PHASE 13 — AI MODEL OBSOLESCENCE AUDIT
+
+This is extremely important.
+
+Assume the AI ecosystem will change dramatically.
+
+Find:
+
+* Hardcoded model names
+* Hardcoded provider assumptions
+* Provider-specific response formats
+* Deprecated SDKs
+* Deprecated endpoints
+* Models with announced retirement
+* Models that cannot easily be replaced
+* Provider lock-in
+* Prompts tied to one model
+* Token assumptions
+* Context-window assumptions
+* Output-format assumptions
+
+Design a provider abstraction layer where appropriate.
+
+The application should be able to replace:
+
+**Provider A → Provider B → Provider C**
+
+without rewriting the entire application.
+
+Models should be configurable rather than buried throughout the codebase.
+
+---
+
+# PHASE 14 — 10-YEAR ARCHITECTURE TEST
+
+Design CiteFi.co so that it remains maintainable as AI technology changes.
+
+The architecture should support:
+
+### MODEL ROUTING
+
+Example:
+
+AI Task
+↓
+Model Router
+↓
+Best Available Provider
+↓
+Fallback Provider
+
+Allow different models for:
+
+* Writing
+* Reasoning
+* Images
+* Video
+* Audio
+* Embeddings
+* Classification
+* Moderation
+
+Do not assume one model should perform every task.
+
+---
+
+# PHASE 15 — AUTOMATIC FALLBACKS
+
+Every mission-critical AI operation should have an appropriate fallback strategy.
+
+Example:
+
+Primary Provider
+↓
+Timeout?
+↓
+Retry
+↓
+Fallback Provider
+↓
+Retry
+↓
+Queue
+↓
+Human-readable failure
+
+Do not create infinite retries.
+
+Use:
+
+* exponential backoff
+* jitter
+* retry limits
+* circuit breakers
+* provider health tracking
+
+---
+
+# PHASE 16 — COST PROTECTION
+
+This is critical.
+
+Audit the system for accidental AI spending.
+
+Find every place where:
+
+* AI calls are made
+* retries occur
+* background jobs execute
+* users can repeatedly click Generate
+* failed calls may retry indefinitely
+* image/video/audio jobs can multiply
+* duplicate jobs can occur
+
+Implement safeguards.
+
+Every generation should have:
+
+* request ID
+* generation ID
+* user ID
+* provider
+* model
+* estimated cost
+* actual usage when available
+* retry count
+* duration
+* status
+
+Prevent accidental token/API-cost explosions.
+
+---
+
+# PHASE 17 — IDEMPOTENCY
+
+Every generation operation should be protected against duplicate execution.
+
+If a user clicks:
+
+**GENERATE**
+
+five times rapidly, the system should not blindly create five expensive generations unless that is explicitly intended.
+
+Use idempotency keys or equivalent mechanisms.
+
+Test this.
+
+---
+
+# PHASE 18 — OBSERVABILITY
+
+Create comprehensive logging.
+
+Every generation should have a traceable lifecycle:
+
+REQUESTED
+→ VALIDATING
+→ QUEUED
+→ PROCESSING
+→ PROVIDER_CALL
+→ PROVIDER_RESPONSE
+→ VALIDATING_OUTPUT
+→ STORING
+→ COMPLETED
+
+or:
+
+FAILED
+
+with a precise reason.
+
+Do not expose sensitive API keys in logs.
+
+---
+
+# PHASE 19 — HEALTH CHECKS
+
+Create or improve system health monitoring.
+
+Health checks should identify:
+
+* Database
+* Storage
+* AI providers
+* Image provider
+* Video provider
+* Audio provider
+* Social APIs
+* Advertising APIs
+* Queue
+* Worker
+* Webhooks
+* Authentication
+
+Distinguish:
+
+**SYSTEM HEALTH**
+
+from
+
+**GENERATION HEALTH**
+
+A provider being reachable does not necessarily mean generation works.
+
+---
+
+# PHASE 20 — AUTOMATED TEST SUITE
+
+Build a serious automated test suite.
+
+Include:
+
+### Unit tests
+
+* prompt builders
+* validators
+* cost calculators
+* parsers
+* model routing
+* retry logic
+
+### Integration tests
+
+* AI providers
+* storage
+* database
+* queues
+* webhooks
+
+### End-to-end tests
+
+Test actual user journeys.
+
+Example:
+
+USER
+→ creates article
+→ generates image
+→ creates social campaign
+→ creates video
+→ creates podcast
+→ creates ad copy
+→ saves campaign
+→ exports assets
+
+Verify the complete workflow.
+
+---
+
+# PHASE 21 — GENERATION CONTRACTS
+
+Every generator must have a clearly defined output contract.
+
+For example:
+
+ARTICLE GENERATOR
+
+Required:
+
+* title
+* introduction
+* body
+* conclusion
+* SEO title
+* meta description
+* keywords
+
+If required fields are missing:
+
+**Generation must fail validation rather than silently succeeding.**
+
+Do this for every generator.
+
+---
+
+# PHASE 22 — QUALITY VALIDATION
+
+Generation is NOT successful merely because text exists.
+
+Validate:
+
+* minimum length
+* required sections
+* formatting
+* JSON schema
+* links
+* metadata
+* media
+* captions
+* file integrity
+* platform requirements
+
+Where appropriate, perform a second AI quality-control pass.
+
+Example:
+
+GENERATOR
+↓
+OUTPUT
+↓
+VALIDATOR
+↓
+QUALITY CHECK
+↓
+PASS
+↓
+STORE
+
+or
+
+FAIL
+↓
+REPAIR / RETRY
+
+---
+
+# PHASE 23 — SECURITY AUDIT
+
+Audit:
+
+* API keys
+* environment variables
+* authentication
+* authorization
+* user isolation
+* file access
+* signed URLs
+* webhook verification
+* prompt injection
+* malicious uploads
+* SSRF
+* XSS
+* SQL injection
+* command injection
+* rate limiting
+* abuse prevention
+* excessive resource consumption
+
+Never expose provider credentials to the frontend.
+
+---
+
+# PHASE 24 — DATABASE AUDIT
+
+Find:
+
+* orphaned records
+* duplicate generations
+* failed generations marked successful
+* missing foreign keys
+* missing indexes
+* inconsistent statuses
+* race conditions
+* missing timestamps
+* missing provider information
+* missing generation IDs
+* missing usage records
+
+Generation status should be deterministic.
+
+Use explicit states rather than ambiguous booleans.
+
+---
+
+# PHASE 25 — FRONTEND AUDIT
+
+For every Generate button verify:
+
+CLICK
+↓
+LOADING STATE
+↓
+PROGRESS
+↓
+SUCCESS / FAILURE
+
+Test:
+
+* double clicks
+* refresh
+* browser close
+* navigation
+* network loss
+* slow generation
+* failed generation
+* retry
+
+The frontend must reflect the actual backend state.
+
+---
+
+# PHASE 26 — USER EXPERIENCE
+
+A sophisticated AI system should communicate clearly.
+
+Instead of:
+
+"Something went wrong."
+
+Provide:
+
+"Video generation could not be completed because the rendering service timed out. Your generation was not charged. You can retry."
+
+Where appropriate show:
+
+* generation status
+* estimated progress
+* retry option
+* cancellation
+* error details
+* usage/cost impact
+
+---
+
+# PHASE 27 — PROVIDER ABSTRACTION
+
+Where technically appropriate, create standardized interfaces such as:
+
+AITextProvider
+AIImageProvider
+AIVideoProvider
+AIAudioProvider
+AIEmbeddingProvider
+
+Each provider adapter should implement standardized methods.
+
+This makes future replacement dramatically easier.
+
+---
+
+# PHASE 28 — CONFIGURATION OVER HARDCODING
+
+Move appropriate configuration into centralized configuration.
+
+Examples:
+
+* model names
+* providers
+* token limits
+* image dimensions
+* retry limits
+* timeout values
+* rate limits
+* feature flags
+* generation limits
+
+Avoid scattering these values throughout the codebase.
+
+---
+
+# PHASE 29 — DOCUMENTATION
+
+Create/update:
+
+`AI_ARCHITECTURE.md`
+
+`GENERATION_PIPELINES.md`
+
+`AI_PROVIDER_MATRIX.md`
+
+`GENERATION_TESTING.md`
+
+`FAILURE_RECOVERY.md`
+
+`AI_COST_CONTROL.md`
+
+`FUTURE_PROOFING.md`
+
+Document:
+
+* architecture
+* providers
+* models
+* APIs
+* dependencies
+* fallbacks
+* failure modes
+* testing
+* cost controls
+* replacement procedures
+
+A future engineer should be able to replace an AI provider without reverse-engineering the entire application.
+
+---
+
+# PHASE 30 — DO NOT JUST REPORT PROBLEMS
+
+This is critical.
+
+If you find a defect that you can safely fix:
+
+**FIX IT.**
+
+Do not merely write:
+
+"Potential issue found."
+
+Instead:
+
+1. Reproduce it
+2. Identify root cause
+3. Fix it
+4. Add a regression test
+5. Run the test
+6. Verify the fix
+7. Document the change
+
+---
+
+# PHASE 31 — NEVER FAKE SUCCESS
+
+This rule is absolute.
+
+The application must NEVER report:
+
+* generated
+* completed
+* published
+* uploaded
+* saved
+* processed
+* exported
+
+unless the underlying operation actually succeeded.
+
+No simulated success.
+
+No fake completion.
+
+No placeholder production responses.
+
+No "success" because an API request was merely initiated.
+
+---
+
+# PHASE 32 — FINAL PRODUCTION TEST
+
+After all fixes, perform a complete production-style test.
+
+Test every generation category.
+
+For each one record:
+
+* Input
+* Provider
+* Model
+* Start time
+* End time
+* Duration
+* Output
+* Output validation
+* Storage result
+* Database result
+* Usage
+* Cost
+* Status
+* Errors
+* Retry count
+
+---
+
+# PHASE 33 — FINAL AUDIT REPORT
+
+At the end produce:
+
+## EXECUTIVE SUMMARY
+
+Overall health score:
+
+**0–100**
+
+Then classify:
+
+### CRITICAL
+
+System-breaking or financially dangerous
+
+### HIGH
+
+Major production reliability issue
+
+### MEDIUM
+
+Important but manageable
+
+### LOW
+
+Improvement opportunity
+
+### FUTURE RISK
+
+Potential issue caused by technology/API evolution
+
+---
+
+# REQUIRED FINAL REPORT
+
+Provide:
+
+### 1. What works
+
+### 2. What was broken
+
+### 3. What you fixed
+
+### 4. What remains broken
+
+### 5. What could not be tested and why
+
+### 6. All AI providers
+
+### 7. All AI models
+
+### 8. All generation pipelines
+
+### 9. All third-party APIs
+
+### 10. All deprecated or risky dependencies
+
+### 11. Cost risks
+
+### 12. Security risks
+
+### 13. Performance risks
+
+### 14. Scalability risks
+
+### 15. AI obsolescence risks
+
+### 16. 10-year architecture recommendations
+
+### 17. Automated tests created
+
+### 18. Tests that passed
+
+### 19. Tests that failed
+
+### 20. Remaining technical debt
+
+---
+
+# FINAL ACCEPTANCE CRITERIA
+
+Do not declare the system healthy merely because:
+
+* the application starts
+* pages load
+* API endpoints respond
+* UI buttons work
+* one generation succeeds
+
+CiteFi.co passes this audit only when:
+
+**EVERY DISCOVERED GENERATION PIPELINE HAS BEEN TRACED, TESTED, VALIDATED, AND VERIFIED END-TO-END.**
+
+The ultimate test is:
+
+**Can a real user generate the asset, receive the actual asset, retrieve it later, and use/publish/export it successfully?**
+
+If the answer is no:
+
+**the pipeline is not complete.**
+
+---
+
+# ENGINEERING PHILOSOPHY
+
+Think like a Stanford AI systems researcher combined with a ruthless production CTO.
+
+Be skeptical.
+
+Be persistent.
+
+Follow every dependency.
+
+Follow every API call.
+
+Follow every file.
+
+Follow every database write.
+
+Follow every asynchronous job.
+
+Follow every webhook.
+
+Follow every retry.
+
+Follow every dollar of AI spend.
+
+Do not stop at the first successful response.
+
+Look for the hidden failure after the visible success.
+
+Look for the race condition.
+
+Look for the silent exception.
+
+Look for the orphaned file.
+
+Look for the false success state.
+
+Look for the deprecated API.
+
+Look for the provider lock-in.
+
+Look for the unexpected cost explosion.
+
+Look for what will break when the AI ecosystem changes.
+
+Most importantly:
+
+**BUILD CITEFI.CO SO THAT IT CAN EVOLVE.**
+
+Do not architect for today's AI models.
+
+Architect for an AI ecosystem that will look dramatically different in 2030, 2035, and 2036.
+
+The objective is not merely:
+
+**"Make it work today."**
+
+The objective is:
+
+**"Make it observable, testable, replaceable, resilient, cost-controlled, and continuously upgradeable for the next decade."**
+
+Begin the audit now.
+
+Do not ask me to manually identify the files you need.
+
+Discover the architecture yourself.
+
+Start with the repository.
+
+Then trace the entire generation ecosystem.
+
+**Do not stop until you have exhausted the system.**

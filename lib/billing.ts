@@ -344,20 +344,8 @@ export async function debitReservation(params: {
     if (!ownedReservation) {
       throw new Error(`[billing] authoritative reservation missing for teamId=${teamId} runId=${runId}`);
     }
-    // Omitted amount always means "settle exactly what this run still owns".
-    const amount = params.amount ?? ownedReservation.remainingAmount;
-    if (!Number.isInteger(amount) || amount <= 0) {
-      if (ownedReservation.remainingAmount === 0) {
-        const balance = await getBucketBalance(teamId);
-        return { ok: ownedReservation.status === "DEBITED", fromAllowance: 0, fromPurchased: 0, ...balance };
-      }
+    if (params.amount !== undefined && (!Number.isInteger(params.amount) || params.amount <= 0)) {
       throw new Error(`[billing] debit amount must be a positive integer`);
-    }
-    if (amount > ownedReservation.remainingAmount) {
-      throw new Error(`[billing] debit amount ${amount} exceeds run reservation remaining ${ownedReservation.remainingAmount}`);
-    }
-    if (amount < ownedReservation.remainingAmount && !jobId) {
-      throw new Error("[billing] partial debit requires a durable jobId");
     }
 
     // ── Idempotency: prevent double-debit (jobId path) ───────────────────────
@@ -379,6 +367,25 @@ export async function debitReservation(params: {
       console.warn(`[billing] Debit already recorded for runId=${runId} jobId=${jobId ?? 'none'} — returning idempotently`);
       const balance = await getBucketBalance(teamId);
       return { ok: true, fromAllowance: 0, fromPurchased: 0, ...balance };
+    }
+
+    // Check the already-settled job under the run lock BEFORE its remaining
+    // balance. A successful earlier debit may have consumed the entire hold;
+    // replaying that job must acknowledge success, not fail or regenerate.
+    // Omitted amount means "settle exactly what this run still owns".
+    const amount = params.amount ?? ownedReservation.remainingAmount;
+    if (!Number.isInteger(amount) || amount <= 0) {
+      if (ownedReservation.remainingAmount === 0) {
+        const balance = await getBucketBalance(teamId);
+        return { ok: ownedReservation.status === "DEBITED", fromAllowance: 0, fromPurchased: 0, ...balance };
+      }
+      throw new Error(`[billing] debit amount must be a positive integer`);
+    }
+    if (amount > ownedReservation.remainingAmount) {
+      throw new Error(`[billing] debit amount ${amount} exceeds run reservation remaining ${ownedReservation.remainingAmount}`);
+    }
+    if (amount < ownedReservation.remainingAmount && !jobId) {
+      throw new Error("[billing] partial debit requires a durable jobId");
     }
 
     // ── State-machine atomic claim (full debits only) ─────────────────────────
@@ -572,6 +579,99 @@ export async function debitReservation(params: {
 // Step 3: RELEASE — cancels a reservation (job failed / cancelled)
 // ---------------------------------------------------------------------------
 
+/**
+ * Preserve a RESERVED hold when a paid provider may have accepted/completed
+ * work but delivery or immutable accounting is unresolved. Idempotent: the
+ * first timestamp/reason are retained for an explicit reconciliation worker.
+ */
+export async function markReservationForReconciliation(params: {
+  teamId: number;
+  runId: string;
+  reason: string;
+}): Promise<boolean> {
+  const { teamId, runId, reason } = params;
+  if (!reason.trim()) {
+    throw new Error("[billing] reconciliation reason must be non-empty");
+  }
+  const txDb = await getTxDb();
+  return txDb.transaction(async (tx) => {
+    const [reservation] = await tx
+      .select({
+        id: creditReservations.id,
+        status: creditReservations.status,
+        reconciliationRequiredAt: creditReservations.reconciliationRequiredAt,
+      })
+      .from(creditReservations)
+      .where(
+        sql`${creditReservations.teamId}=${teamId} AND ${creditReservations.runId}=${runId}`
+      )
+      .limit(1)
+      .for("update");
+
+    if (!reservation) {
+      throw new Error(
+        `[billing] authoritative reservation missing for reconciliation teamId=${teamId} runId=${runId}`
+      );
+    }
+    if (reservation.status !== "RESERVED") {
+      console.warn(
+        `[billing] Cannot mark reconciliation for runId=${runId}: reservation is ${reservation.status}`
+      );
+      return false;
+    }
+    if (reservation.reconciliationRequiredAt) return true;
+
+    const marked = await tx
+      .update(creditReservations)
+      .set({
+        reconciliationRequiredAt: new Date(),
+        reconciliationReason: reason.slice(0, 2000),
+        updatedAt: new Date(),
+      })
+      .where(
+        sql`${creditReservations.id}=${reservation.id}
+          AND ${creditReservations.status}='RESERVED'
+          AND ${creditReservations.reconciliationRequiredAt} IS NULL`
+      )
+      .returning({ id: creditReservations.id });
+    return marked.length === 1;
+  });
+}
+
+export class ReservationReconciliationRequiredError extends Error {
+  readonly code = "PROVIDER_RESULT_NOT_DURABLE";
+  constructor(public readonly runId: string, reason?: string | null) {
+    super(
+      `Billing reconciliation is required for runId=${runId} before provider work may resume` +
+      (reason ? `: ${reason}` : "")
+    );
+    this.name = "ReservationReconciliationRequiredError";
+  }
+}
+
+/** Provider-entry guard scoped to one durable billing run. */
+export async function assertReservationReadyForProvider(params: {
+  teamId: number;
+  runId: string;
+}): Promise<void> {
+  const [reservation] = await db
+    .select({
+      reconciliationRequiredAt: creditReservations.reconciliationRequiredAt,
+      reconciliationReason: creditReservations.reconciliationReason,
+    })
+    .from(creditReservations)
+    .where(
+      sql`${creditReservations.teamId}=${params.teamId} AND ${creditReservations.runId}=${params.runId}`
+    )
+    .limit(1);
+  if (reservation?.reconciliationRequiredAt) {
+    throw new ReservationReconciliationRequiredError(
+      params.runId,
+      reservation.reconciliationReason
+    );
+  }
+}
+
 export async function releaseReservation(params: {
   teamId: number;
   runId: string;
@@ -623,6 +723,13 @@ export async function releaseReservation(params: {
     ).limit(1).for("update");
     if (!ownedReservation) {
       throw new Error(`[billing] authoritative reservation missing for teamId=${teamId} runId=${runId}`);
+    }
+    if (ownedReservation.reconciliationRequiredAt) {
+      console.warn(
+        `[billing] Automatic release refused for runId=${runId} teamId=${teamId}: ` +
+        `reservation requires explicit reconciliation (${ownedReservation.reconciliationReason ?? "reason unavailable"})`
+      );
+      return;
     }
     // Omitted amount settles only this run's authoritative remainder.
     const amount = params.amount ?? ownedReservation.remainingAmount;

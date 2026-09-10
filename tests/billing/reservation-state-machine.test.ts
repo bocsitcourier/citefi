@@ -17,13 +17,20 @@
 
 import assert from "node:assert/strict";
 import { db } from "../../lib/db.js";
-import { reserveCredits, debitReservation, releaseReservation } from "../../lib/billing.js";
+import {
+  reserveCredits,
+  debitReservation,
+  releaseReservation,
+  markReservationForReconciliation,
+} from "../../lib/billing.js";
+import { sweepStaleReservations } from "../../lib/reservation-sweeper.js";
 import {
   teams,
   users,
   teamMembers,
   creditBalances,
   creditLedger,
+  creditReservations,
 } from "../../shared/schema.js";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { runWithSystemContext } from "../../lib/tenant-context.js";
@@ -139,6 +146,56 @@ await check("release() flips status to RELEASED", async () => {
   const events = await getLedgerEvents(teamId, runId);
   assert.equal(events.filter(e => e.eventType === "release").length, 1);
   assert.equal(events.filter(e => e.eventType === "debit").length, 0);
+});
+
+await check("reconciliation hold survives direct release and stale sweeper", async () => {
+  const { teamId } = await seedTeam("reconciliation-hold");
+  const runId = `${RUN_TAG}-reconciliation-hold`;
+  await reserveCredits({ teamId, operationType: "podcast", runId });
+
+  const [before] = await db
+    .select({ reservedCredits: creditBalances.reservedCredits })
+    .from(creditBalances)
+    .where(eq(creditBalances.teamId, teamId))
+    .limit(1);
+
+  assert.equal(
+    await markReservationForReconciliation({
+      teamId,
+      runId,
+      reason: "fake provider accepted; delivery uncertain",
+    }),
+    true
+  );
+  await releaseReservation({ teamId, runId, reason: "automatic worker cleanup" });
+  const sweep = await sweepStaleReservations({
+    teamId,
+    cutoff: new Date(Date.now() + 60_000),
+  });
+
+  const [reservation] = await db
+    .select()
+    .from(creditReservations)
+    .where(
+      and(
+        eq(creditReservations.teamId, teamId),
+        eq(creditReservations.runId, runId)
+      )
+    )
+    .limit(1);
+  const [after] = await db
+    .select({ reservedCredits: creditBalances.reservedCredits })
+    .from(creditBalances)
+    .where(eq(creditBalances.teamId, teamId))
+    .limit(1);
+  const events = await getLedgerEvents(teamId, runId);
+
+  assert.equal(reservation?.status, "RESERVED");
+  assert.ok(reservation?.reconciliationRequiredAt);
+  assert.equal(reservation?.reconciliationReason, "fake provider accepted; delivery uncertain");
+  assert.equal(after?.reservedCredits, before?.reservedCredits);
+  assert.equal(events.filter((event) => event.eventType === "release").length, 0);
+  assert.ok(sweep.skipped >= 1);
 });
 
 await check("release() after debit (DEBITED) is a no-op — reservation already charged", async () => {

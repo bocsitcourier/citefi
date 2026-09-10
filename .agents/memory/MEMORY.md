@@ -37,3 +37,4 @@
 - [Media storage migration](media-storage-migration.md) — read DO Spaces first and legacy Replit Object Storage second until historical object parity is certified.
 - [Canonical asset identity](canonical-asset-identity.md) — dedupe is team-scoped by durable object key; legacy source rows remain until generation writers converge.
 - [Post-merge schema reconciliation](post-merge-schema-reconciliation.md) — preserve migration checksums; detect Drizzle’s false-success prompts and reassert database-only controls.
+- [Generation audit contract](generation-audit-contract.md) — require usable end-to-end assets; prioritize duplicate media spend, post-success retries, double clicks, and abandoned jobs.

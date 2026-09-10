@@ -3,7 +3,14 @@ import { objectStorageClient } from "./storage";
 import type { VideoScene } from "./gemini-video-script-generator";
 import { createImageBrandLockPromptSegment } from "./branding";
 import sharp from "sharp";
-import { isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+  logCostTelemetry,
+  logFailedProviderAttempt,
+  ProviderResultNotDurableError,
+  ProviderSubmissionUncertainError,
+} from "./cost-telemetry";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -160,6 +167,7 @@ Visual Elements:
         return result;
       } catch (err: any) {
         if (isProviderAccountingError(err)) throw err;
+        if (isNonReplayableProviderError(err)) throw err;
         await logFailedProviderAttempt(
           {
             operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image", teamId,
@@ -168,17 +176,31 @@ Visual Elements:
           },
           { imageCount: 0 }, 0, err
         );
-        const isTransient =
-          err?.message?.includes("fetch failed") ||
-          err?.message?.includes("ECONNRESET") ||
-          err?.message?.includes("ETIMEDOUT") ||
-          err?.message?.includes("socket hang up") ||
-          err?.code === "ECONNRESET";
-        if (isTransient && attempt < 4) {
+        // Only an explicit rejection is safe to replay. Network timeouts and
+        // disconnects are ambiguous and may already have incurred provider cost.
+        const isExplicitRateLimit =
+          err?.status === 429 ||
+          err?.code === "RESOURCE_EXHAUSTED" ||
+          err?.code === "rate_limit_exceeded";
+        if (isExplicitRateLimit && attempt < 4) {
           const delayMs = attempt * 5000; // 5s, 10s, 15s
           console.warn(`  ⚠️ Scene ${scene.sceneNumber}: Gemini fetch failed (attempt ${attempt}/3), retrying in ${delayMs / 1000}s...`);
           await new Promise((r) => setTimeout(r, delayMs));
           return callGeminiWithRetry(prompt, attempt + 1);
+        }
+        const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+        if (
+          message.includes("timeout") ||
+          message.includes("timed out") ||
+          message.includes("econnreset") ||
+          message.includes("etimedout") ||
+          message.includes("socket hang up") ||
+          message.includes("fetch failed")
+        ) {
+          throw new ProviderSubmissionUncertainError(
+            `Gemini scene ${scene.sceneNumber} submission outcome is uncertain; refusing automatic replay`,
+            err
+          );
         }
         throw err;
       }
@@ -313,19 +335,30 @@ Visual Elements:
     const bucket = objectStorageClient.bucket(BUCKET_ID);
     const file = bucket.file(objectPath);
 
-    await file.save(finalBuffer, {
-      contentType: "image/jpeg",
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
+    let storageUrl: string;
+    let localPath: string;
+    try {
+      await file.save(finalBuffer, {
+        contentType: "image/jpeg",
+        metadata: {
+          cacheControl: "public, max-age=31536000",
+        },
+      });
 
-    // Public URL served through Next.js API route
-    const storageUrl = `/api/public-objects/social-videos/${fileName}`;
+      // Public URL served through Next.js API route
+      storageUrl = `/api/public-objects/social-videos/${fileName}`;
 
-    // Save to temporary local file for FFmpeg processing
-    const localPath = path.join(tempDir, `${socialPostId}-scene${scene.sceneNumber}.jpg`);
-    await fs.writeFile(localPath, finalBuffer);
+      // Save to temporary local file for FFmpeg processing
+      localPath = path.join(tempDir, `${socialPostId}-scene${scene.sceneNumber}.jpg`);
+      await fs.writeFile(localPath, finalBuffer);
+    } catch (error) {
+      if (isNonReplayableProviderError(error)) throw error;
+      throw new ProviderResultNotDurableError(
+        `Gemini scene ${scene.sceneNumber} for social post ${socialPostId} completed, but image storage failed; refusing automatic replay`,
+        null,
+        error
+      );
+    }
 
     console.log(`✅ Scene ${scene.sceneNumber} image ready (${aspectRatio})`);
 
@@ -338,7 +371,28 @@ Visual Elements:
   });
 
   // Wait for all images to complete in parallel
-  const results = await Promise.all(imagePromises);
+  const settled = await Promise.allSettled(imagePromises);
+  const nonReplayableFailure = settled.find(
+    (result) => result.status === "rejected" && isNonReplayableProviderError(result.reason)
+  );
+  if (nonReplayableFailure?.status === "rejected") throw nonReplayableFailure.reason;
+  const firstFailure = settled.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (firstFailure) {
+    const completedCount = settled.filter((result) => result.status === "fulfilled").length;
+    if (completedCount > 0) {
+      throw new ProviderResultNotDurableError(
+        `${completedCount} paid scene image(s) completed before another scene failed; refusing to replay the entire batch`,
+        null,
+        firstFailure.reason
+      );
+    }
+    throw firstFailure.reason;
+  }
+  const results = settled.map(
+    (result) => (result as PromiseFulfilledResult<VideoImageResult>).value
+  );
 
   console.log(`✅ All 5 video images generated in parallel - DONE`);
   return results;
