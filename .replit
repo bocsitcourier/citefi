@@ -126,6 +126,10 @@ integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascrip
 
 [userenv.shared]
 NODE_OPTIONS = "--max-old-space-size=4096"
+DO_SPACES_BUCKET = "citefi"
+DO_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com"
+LEGACY_STORAGE_READS_ENABLED = "false"
+STORAGE_MIGRATION_EVIDENCE_PATH = "reports/media-storage-migration-evidence.json"
 
 [objectStorage]
 defaultBucketID = "replit-objstore-de84b703-ccbb-4b3d-a923-9a198c55f981"

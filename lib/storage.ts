@@ -10,6 +10,8 @@ import { Storage } from "@google-cloud/storage";
 import { db } from "./db";
 import { articleAssets, articles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import { shouldDisableLegacyStorageReads } from "./storage-migration";
 
 // ── DO Spaces / S3-compatible storage ────────────────────────────────────────
 const DO_SPACES_KEY      = process.env.DO_SPACES_KEY      || "";
@@ -54,18 +56,39 @@ export function isMediaFeatureEnabled(): boolean {
   return process.env.MEDIA_FEATURES_ENABLED !== "false";
 }
 
-if (!isStorageConfigured) {
-  console.warn(
-    "⚠️  DO Spaces storage not fully configured — media uploads will fail. " +
-    "Set DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT, and DO_SPACES_BUCKET in .env.local."
-  );
-} else {
-  console.log(`✅ Using DO Spaces storage: ${DO_SPACES_BUCKET}`);
+function legacyReadsEnabled(): boolean {
+  if (process.env.LEGACY_STORAGE_READS_ENABLED !== "false") return true;
+  if (!isStorageConfigured) {
+    console.error("Legacy storage reads remain enabled: primary storage is not fully configured");
+    return true;
+  }
+  const evidencePaths = [...new Set([
+    process.env.STORAGE_MIGRATION_EVIDENCE_PATH,
+    "reports/media-storage-migration-evidence.json",
+  ].filter((value): value is string => !!value))];
+  for (const evidencePath of evidencePaths) {
+    try {
+      const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+      if (shouldDisableLegacyStorageReads({
+        requested: true,
+        isPrimaryConfigured: isStorageConfigured,
+        evidence,
+        expectedPrimary: {
+          provider: "s3",
+          endpoint: DO_SPACES_ENDPOINT,
+          bucket: DO_SPACES_BUCKET,
+          prefix: STORAGE_PREFIX,
+        },
+      })) return false;
+    } catch {
+      // Try the signed evidence bundled with the release before failing closed.
+    }
+  }
+  console.error("Legacy storage reads remain enabled: no destination-matched PASS evidence was found");
+  return true;
 }
 
-// ── GCS-compatible shim so all callers need zero changes ──────────────────────
-// The rest of the codebase calls objectStorageClient.bucket(id).file(key).save/delete/getMetadata/createReadStream
-// Those all work exactly as before — the shim translates to S3 under the hood.
+export const isLegacyStorageReadEnabled = legacyReadsEnabled();
 
 class S3FileShim {
   constructor(
@@ -204,7 +227,7 @@ export function getStorageReadCandidates(key: string): any[] {
   if (isStorageConfigured) {
     candidates.push(objectStorageClient.bucket(DO_SPACES_BUCKET).file(key));
   }
-  if (isLegacyStorageConfigured) {
+  if (isLegacyStorageConfigured && isLegacyStorageReadEnabled) {
     candidates.push(legacyObjectStorageClient.bucket(LEGACY_REPLIT_BUCKET).file(key));
   }
   return candidates;

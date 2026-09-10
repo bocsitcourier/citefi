@@ -145,9 +145,30 @@ Add metrics and alerts for:
 - Duplicate object hashes across legacy content stores.
 - Failed output grouped by pipeline stage and provider.
 
-### 6. Complete the object-storage migration — medium priority
+### 6. Object-storage migration — completed September 9, 2026
 
-The legacy Replit bucket is now a read-only compatibility source. Inventory and copy historical objects to the intended production storage provider, verify hashes and byte-range reads, then remove the fallback only after migration parity is certified.
+The historical object migration is certified in
+`reports/media-storage-migration-evidence.json`:
+
+- 6,401 legacy objects inventoried.
+- 5,985 database owner references inventoried across article, social, video-idea, and podcast sources.
+- 6,086 objects copied and verified by size and SHA-256.
+- 315 existing primary objects independently verified by size and SHA-256.
+- 0 database owner references point to a missing object.
+- 1,250 legacy objects have no current database owner and are explicitly reported; they were copied without deleting either the objects or database records.
+- 0 copy or verification failures.
+- Primary-storage image full read: PASS.
+- Primary-storage video full read and byte-range read: PASS.
+- Primary-storage podcast full read: PASS.
+
+The primary provider is configured on the DigitalOcean host and passes an
+authenticated bucket check. Legacy reads can be disabled only when the runtime
+loads the valid PASS evidence; missing, invalid, failed, or tampered evidence
+keeps the compatibility fallback enabled. Certification schema 1.1 also binds
+the evidence to the exact primary endpoint, bucket, and normalized prefix.
+Missing primary credentials or an identity mismatch keeps fallback enabled.
+Database-referenced primary-only objects are byte-read, and each referenced
+media kind requires a passing primary read check.
 
 ## Release assessment
 

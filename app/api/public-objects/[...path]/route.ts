@@ -162,7 +162,20 @@ export async function GET(
       const match = rangeHeader.match(/^bytes=(\d+)-(\d*)/);
       if (match) {
         const start     = parseInt(match[1]!, 10);
-        const end       = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+        if (start >= fileSize) {
+          return new NextResponse(null, {
+            status: 416,
+            headers: { "Content-Range": `bytes */${fileSize}`, "Cache-Control": cacheControl },
+          });
+        }
+        const requestedEnd = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+        const end = Math.min(requestedEnd, fileSize - 1);
+        if (end < start) {
+          return new NextResponse(null, {
+            status: 416,
+            headers: { "Content-Range": `bytes */${fileSize}`, "Cache-Control": cacheControl },
+          });
+        }
         const chunkSize = end - start + 1;
 
         const nodeStream = file.createReadStream({ start, end });
