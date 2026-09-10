@@ -1,0 +1,825 @@
+# 🚨 ZERO-EXCEPTION FULL GENERATION EXECUTION DIRECTIVE
+
+This is NOT a code-review exercise.
+
+You must **ACTUALLY RUN AND TEST EVERY GENERATION FUNCTION IN CITEFI.CO.**
+
+Do not tell me that a generator "should work."
+
+Do not tell me that an API endpoint "appears correct."
+
+Do not consider a test successful because the request returned HTTP 200.
+
+I need proof that the **actual final asset was generated successfully and can be used by a real customer.**
+
+---
+
+# 1. DISCOVER EVERY GENERATION FEATURE
+
+Search the entire application and identify EVERY function, button, endpoint, workflow, worker, job, service, API route, or background process capable of generating content.
+
+Do not rely on a predefined list.
+
+Discover them from the codebase.
+
+Create a master inventory.
+
+At minimum investigate:
+
+* Articles
+* Blog posts
+* SEO articles
+* Rewrites
+* Summaries
+* Headlines
+* SEO titles
+* Meta descriptions
+* Keywords
+* Social posts
+* Social campaigns
+* Facebook posts
+* Instagram posts
+* LinkedIn posts
+* X posts
+* TikTok content
+* YouTube content
+* Images
+* Image variations
+* Image editing
+* Image resizing
+* Image enhancement
+* Video scripts
+* Storyboards
+* Videos
+* Short-form videos
+* Reels
+* Shorts
+* Voiceovers
+* Audio
+* Podcasts
+* Podcast scripts
+* Podcast episodes
+* Ad copy
+* Google Ads
+* Meta/Facebook Ads
+* Campaigns
+* Landing pages
+* Emails
+* Marketing copy
+* Content repurposing
+* Article → social
+* Article → image
+* Article → video
+* Article → podcast
+* Content → ads
+* Any other AI generation functionality discovered
+
+If you discover something that is not on this list:
+
+**TEST IT TOO.**
+
+---
+
+# 2. ACTUALLY CLICK / EXECUTE EVERY GENERATOR
+
+For every generator:
+
+1. Open the actual UI/workflow.
+2. Enter realistic test data.
+3. Start generation.
+4. Wait for completion.
+5. Observe the complete generation lifecycle.
+6. Verify the backend operation.
+7. Verify the AI provider operation.
+8. Verify the returned output.
+9. Verify storage.
+10. Verify the database record.
+11. Refresh the page.
+12. Verify the generated asset still exists.
+13. Open the asset.
+14. Download/export it where applicable.
+15. Verify that the exported file is valid.
+
+A green notification saying:
+
+**"Generation successful"**
+
+is NOT sufficient.
+
+---
+
+# 3. TEST THE ACTUAL OUTPUT
+
+For every generated asset, inspect the final output.
+
+## TEXT
+
+Verify:
+
+* Content actually exists
+* Content is not empty
+* Required sections exist
+* Formatting is valid
+* No raw JSON leaks into the UI
+* No provider error appears as content
+* No placeholder text
+* No mock response
+* No obvious truncation
+* Metadata exists where required
+
+## IMAGE
+
+Verify:
+
+* Actual image file exists
+* Image opens
+* Image is not corrupted
+* Correct dimensions
+* Correct format
+* Correct aspect ratio
+* Image is stored
+* Image survives page refresh
+* Image can be downloaded
+
+## VIDEO
+
+Verify:
+
+* Actual video file exists
+* Video opens
+* Video plays
+* Audio exists when requested
+* Audio/video synchronization
+* Correct duration
+* Correct dimensions
+* Correct format
+* Captions when requested
+* File is downloadable
+* Stored URL remains valid
+
+## AUDIO / PODCAST
+
+Verify:
+
+* Actual audio file exists
+* Audio plays
+* Correct duration
+* No corrupted file
+* Voice exists
+* Multiple speakers work where supported
+* Audio levels are reasonable
+* File downloads
+* Metadata exists where applicable
+
+---
+
+# 4. TEST EVERY GENERATION PATH END-TO-END
+
+Do not only test individual generators.
+
+Test complete chains.
+
+### TEST 1 — ARTICLE PIPELINE
+
+User input
+→ Article generation
+→ SEO optimization
+→ Image generation
+→ Save
+→ Preview
+→ Export
+
+### TEST 2 — SOCIAL PIPELINE
+
+Article
+→ Social campaign
+→ Platform-specific posts
+→ Images
+→ Captions
+→ Hashtags
+→ Save
+
+### TEST 3 — VIDEO PIPELINE
+
+Article
+→ Video script
+→ Storyboard
+→ Visuals
+→ Voice
+→ Video rendering
+→ Captions
+→ Final video
+→ Playback
+→ Export
+
+### TEST 4 — PODCAST PIPELINE
+
+Article
+→ Podcast script
+→ Voice generation
+→ Audio assembly
+→ Metadata
+→ Final MP3
+→ Playback
+→ Download
+
+### TEST 5 — AD PIPELINE
+
+Business information
+→ Campaign strategy
+→ Ad copy
+→ Headlines
+→ Descriptions
+→ Creative
+→ Platform validation
+→ Draft/export/publish workflow
+
+### TEST 6 — CONTENT FLYWHEEL
+
+One piece of source content should be tested through:
+
+ARTICLE
+↓
+IMAGE
+↓
+SOCIAL
+↓
+VIDEO
+↓
+PODCAST
+↓
+EMAIL
+↓
+ADS
+
+Verify that each downstream generator receives the correct source information.
+
+---
+
+# 5. TEST EVERY UI GENERATE BUTTON
+
+Search the frontend for:
+
+* Generate
+* Create
+* Generate Image
+* Generate Video
+* Generate Article
+* Generate Audio
+* Generate Podcast
+* Generate Campaign
+* Generate Social
+* Generate Ad
+* Rewrite
+* Improve
+* Repurpose
+* Create with AI
+* AI Assistant
+* Continue with AI
+
+Every button must be traced to its actual backend functionality.
+
+Find buttons that:
+
+* do nothing
+* call the wrong endpoint
+* return fake data
+* return stale data
+* fail silently
+* create records but no assets
+* create assets but no records
+* show success before completion
+
+FIX THEM.
+
+---
+
+# 6. TEST EVERY API ROUTE
+
+Inventory every AI-related API route.
+
+For each route:
+
+* Call it with valid input.
+* Call it with invalid input.
+* Verify authentication.
+* Verify authorization.
+* Verify provider call.
+* Verify response.
+* Verify database write.
+* Verify storage.
+* Verify errors.
+
+No AI endpoint should remain untested.
+
+---
+
+# 7. TEST BACKGROUND JOBS
+
+Find every:
+
+* queue
+* worker
+* cron
+* background job
+* asynchronous generation
+* webhook
+* rendering process
+
+Actually execute them.
+
+Verify:
+
+REQUEST
+→ QUEUE
+→ WORKER
+→ PROVIDER
+→ OUTPUT
+→ STORAGE
+→ DATABASE
+→ UI
+
+Test worker failures.
+
+Test worker restart.
+
+Test timeout.
+
+Test retry.
+
+Test duplicate jobs.
+
+---
+
+# 8. TEST FAILURES INTENTIONALLY
+
+Force failures wherever practical.
+
+Simulate:
+
+* API timeout
+* Invalid API key
+* Rate limit
+* Provider outage
+* Empty response
+* Invalid response
+* Malformed JSON
+* Storage failure
+* Database failure
+* Queue failure
+* Network failure
+* Rendering failure
+
+Then verify CiteFi handles the failure correctly.
+
+The application must NEVER create a false success.
+
+---
+
+# 9. TEST DUPLICATE GENERATION
+
+Rapidly click Generate multiple times.
+
+Test:
+
+* double click
+* five clicks
+* browser refresh
+* reopening page
+* repeated API request
+
+Verify CiteFi does not accidentally generate and charge for multiple identical expensive jobs.
+
+Implement idempotency where necessary.
+
+---
+
+# 10. TEST GENERATION RECOVERY
+
+Start:
+
+* Image generation
+* Video generation
+* Audio generation
+* Article generation
+
+Then interrupt the process.
+
+Examples:
+
+* Refresh browser
+* Close browser
+* Disconnect network
+* Restart worker
+* Simulate provider timeout
+
+Verify the system can determine whether the job:
+
+* completed
+* failed
+* is still processing
+* can safely retry
+
+Never create duplicate expensive generations during recovery.
+
+---
+
+# 11. TEST REAL FILE INTEGRITY
+
+For every generated media file:
+
+Do not trust the filename.
+
+Actually inspect the file.
+
+Verify:
+
+### Images
+
+Actual image headers and dimensions.
+
+### Videos
+
+Actual playable video container.
+
+### Audio
+
+Actual playable audio stream.
+
+### Documents
+
+Actual valid document structure where applicable.
+
+A file called:
+
+`video.mp4`
+
+is not evidence that a valid MP4 exists.
+
+---
+
+# 12. TEST STORAGE PERSISTENCE
+
+After generation:
+
+1. Save asset.
+2. Refresh application.
+3. Log out.
+4. Log back in.
+5. Reopen project.
+6. Open generated asset.
+7. Download asset.
+
+The asset must still exist.
+
+Check for:
+
+* broken URLs
+* expired URLs
+* missing files
+* orphaned database records
+* orphaned storage objects
+
+---
+
+# 13. TEST BILLING / USAGE
+
+For EVERY generation:
+
+Record:
+
+* User
+* Generation ID
+* Provider
+* Model
+* Tokens/credits if applicable
+* Estimated cost
+* Actual usage when available
+* Retry count
+* Duration
+* Final status
+
+Verify users are not charged:
+
+* twice
+* for failed generations when they shouldn't be
+* for accidental duplicate jobs
+* for infinite retries
+
+---
+
+# 14. TEST PROVIDER FALLBACKS
+
+If CiteFi supports multiple providers:
+
+Force the primary provider to fail.
+
+Verify:
+
+Primary
+→ Failure
+→ Retry policy
+→ Fallback
+→ Successful generation
+
+If no fallback exists and one is architecturally necessary, identify and implement an appropriate abstraction.
+
+---
+
+# 15. TEST EVERY SUPPORTED FORMAT
+
+For each media generator test all supported:
+
+* aspect ratios
+* resolutions
+* file formats
+* language options
+* voice options
+* platform formats
+
+Do not test only the default option.
+
+---
+
+# 16. TEST MULTI-LANGUAGE GENERATION
+
+Test multiple languages supported by CiteFi.
+
+Verify:
+
+* text generation
+* images where applicable
+* voice
+* captions
+* metadata
+* social formatting
+
+No mojibake.
+
+No broken Unicode.
+
+No unexpected English fallback.
+
+---
+
+# 17. TEST LONG CONTENT
+
+Test:
+
+* short article
+* normal article
+* long article
+* very long source material
+
+Verify:
+
+* context handling
+* truncation
+* token limits
+* chunking
+* continuation
+* final assembly
+
+No silent truncation.
+
+---
+
+# 18. TEST CONCURRENT USERS / JOBS
+
+Run multiple generations simultaneously.
+
+Test combinations such as:
+
+* 5 articles
+* 5 images
+* 5 videos
+* 5 audio jobs
+
+where practical in the development/test environment.
+
+Look for:
+
+* race conditions
+* database collisions
+* queue problems
+* resource exhaustion
+* incorrect user ownership
+* cross-user data leakage
+
+---
+
+# 19. BUILD AUTOMATED END-TO-END TESTS
+
+After manually discovering the workflows, automate them.
+
+Every critical generator should have an automated test proving:
+
+INPUT
+→ GENERATION
+→ VALIDATION
+→ STORAGE
+→ DATABASE
+→ RETRIEVAL
+→ OUTPUT
+
+Tests must fail when generation actually fails.
+
+Do not create tests that only mock the entire generation system and therefore prove nothing.
+
+Use mocks for unit tests where appropriate, but also create real integration/smoke tests for actual provider-backed workflows where credentials and cost controls permit.
+
+---
+
+# 20. CREATE A GENERATION TEST DASHBOARD
+
+Create an internal test/reporting mechanism showing:
+
+| Feature | UI | API | Provider | Generation | Output | Storage | DB | Export | Billing | Status |
+| ------- | -- | --- | -------- | ---------- | ------ | ------- | -- | ------ | ------- | ------ |
+
+Use:
+
+✅ PASS
+
+⚠️ PARTIAL
+
+❌ FAIL
+
+🚫 NOT TESTABLE
+
+Every feature must have a status.
+
+---
+
+# 21. DO NOT MARK "NOT TESTABLE" WITHOUT PROOF
+
+If something cannot be tested because:
+
+* API credentials are missing
+* provider account is unavailable
+* external platform requires production access
+* billing is required
+* sandbox doesn't support the operation
+
+document exactly:
+
+1. What could not be tested
+2. Why
+3. What was tested instead
+4. What credential/configuration is required
+5. Exact procedure needed to complete testing
+
+Do not quietly skip it.
+
+---
+
+# 22. FIX EVERYTHING YOU FIND
+
+For every failure:
+
+REPRODUCE
+→ IDENTIFY ROOT CAUSE
+→ FIX
+→ TEST
+→ REGRESSION TEST
+→ DOCUMENT
+
+Do not simply produce a report.
+
+---
+
+# 23. FINAL FULL-SYSTEM GENERATION TEST
+
+When individual tests are complete, perform one final complete system test.
+
+Start with a realistic business/company profile.
+
+Generate:
+
+1. Article
+2. SEO metadata
+3. Image
+4. Social campaign
+5. Platform-specific posts
+6. Video script
+7. Video
+8. Podcast script
+9. Podcast/audio
+10. Google Ads content
+11. Meta Ads content
+12. Email campaign
+13. Landing-page content
+14. Repurposed content
+
+Then verify that ALL resulting assets:
+
+* exist
+* are valid
+* are stored
+* are retrievable
+* display correctly
+* survive refresh
+* can be exported
+* have correct status
+* have correct usage tracking
+* do not create duplicate charges
+
+---
+
+# 24. FINAL RULE
+
+DO NOT TELL ME:
+
+"Everything appears to work."
+
+Instead tell me:
+
+**"I tested X generation workflows. X passed, X failed, X were partially testable, and here is the evidence."**
+
+I want actual test results.
+
+If something fails:
+
+**FIX IT.**
+
+If the fix creates another failure:
+
+**KEEP GOING.**
+
+If a provider is obsolete:
+
+**REPLACE OR ABSTRACT IT.**
+
+If the architecture prevents reliable testing:
+
+**REFACTOR IT.**
+
+If a feature is only partially implemented:
+
+**FINISH IT OR clearly identify the blocker.**
+
+If a generator claims success but produces no usable asset:
+
+**MARK IT FAILED AND FIX IT.**
+
+---
+
+# DEFINITION OF DONE
+
+CiteFi.co is NOT considered fully audited until you have:
+
+☐ Discovered every generation capability
+☐ Tested every generator
+☐ Tested every Generate button
+☐ Tested every AI API route
+☐ Tested background generation
+☐ Tested actual provider calls where possible
+☐ Tested actual output files
+☐ Tested storage persistence
+☐ Tested database persistence
+☐ Tested downloads/exports
+☐ Tested failure scenarios
+☐ Tested retries
+☐ Tested duplicate generation
+☐ Tested concurrency
+☐ Tested usage tracking
+☐ Tested cost protection
+☐ Tested provider fallbacks
+☐ Tested long inputs
+☐ Tested multiple formats
+☐ Tested multilingual content where supported
+☐ Tested complete content workflows
+☐ Created automated regression tests
+☐ Fixed discovered production defects
+☐ Documented every remaining blocker
+☐ Produced a final PASS/FAIL matrix
+
+### FINAL COMMAND
+
+**START NOW.**
+
+First inspect the entire repository.
+
+Then create the generation inventory.
+
+Then begin executing tests.
+
+Do not wait for me to tell you what to test.
+
+Do not stop at the first failure.
+
+Do not stop when the UI looks good.
+
+**TEST THE ACTUAL GENERATION.**
+
+**TEST THE ACTUAL ASSET.**
+
+**TEST THE ACTUAL STORAGE.**
+
+**TEST THE ACTUAL RETRIEVAL.**
+
+**TEST THE ACTUAL EXPORT.**
+
+Then fix what is broken and run the tests again.
+
+**Keep going until the entire CiteFi.co generation ecosystem has been exhausted.**
