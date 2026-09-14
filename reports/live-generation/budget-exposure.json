@@ -1,0 +1,98 @@
+{
+  "fixtureLabel": "LIVE GENERATION QA 2026-09-10",
+  "teamId": 2535,
+  "observedAt": "2026-09-10T16:41:29.478Z",
+  "scope": {
+    "databaseAccess": "read-only",
+    "teamStatisticsScope": 2535,
+    "providerGenerationCallsMadeDuringFollowup": 0,
+    "providerMetadataCallsMadeDuringFollowup": 1,
+    "ledgerBackfillPerformed": false,
+    "usageFabricated": false
+  },
+  "incidentReference": {
+    "batchId": 626,
+    "articleId": 2235,
+    "reportedCallTime": "2026-09-10T16:23:00Z",
+    "model": "gemini-3.5-flash",
+    "status": "unreconciled",
+    "reason": "Exact usage and provider request ID were lost, and triage found no backfillable cost spool.",
+    "accountingTreatment": "No provider ledger event was fabricated or backfilled. A separate USD reserve is retained."
+  },
+  "knownRecordedCost": {
+    "source": "provider_usage_ledger aggregate filtered to team_id = 2535",
+    "eventCount": 20,
+    "costMicrousd": 98597,
+    "costUsd": 0.098597,
+    "unpricedCount": 0,
+    "latestOccurredAt": "2026-09-10T16:40:50.499Z",
+    "note": "This is the authoritative recorded team aggregate at observation time. It does not include a fabricated estimate for the unreconciled call."
+  },
+  "separateUnreconciledCallReserve": {
+    "reservedUsd": 5,
+    "approvedTotalRealProviderSpendUsd": 50,
+    "knownRecordedCostPlusReserveUsd": 5.098597,
+    "remainingApprovedBudgetAfterKnownCostAndReserveUsd": 44.901403
+  },
+  "teamControls": {
+    "monthlySpendingCapCents": 5000,
+    "monthlySpendingCapUsd": 50,
+    "hardStop": true,
+    "creditBalance": {
+      "legacyBalance": 4999,
+      "allowanceCredits": 0,
+      "allowanceUsed": 0,
+      "purchasedCredits": 5000,
+      "purchasedUsed": 1,
+      "reservedCredits": 0,
+      "availableCredits": 4999
+    },
+    "usageEventsOperationalEstimate": {
+      "eventCount": 1,
+      "estimatedCostCents": 1,
+      "note": "Operational estimate only; kept separate from immutable provider-ledger actual cost."
+    }
+  },
+  "modelLimits": {
+    "source": "Gemini models.get metadata API",
+    "metadataEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash",
+    "modelResource": "models/gemini-3.5-flash",
+    "modelVersion": "3.5-flash-05-2026",
+    "inputTokenLimit": 1048576,
+    "outputTokenLimit": 65536,
+    "articleGenerationConfiguredMaxOutputTokens": 65536,
+    "effectiveBoundedOutputTokens": 65536,
+    "configurationEvidence": "lib/gemini.ts:1630-1645"
+  },
+  "lockedActiveTokenRate": {
+    "source": "provider_rates joined to provider_rate_versions; active row for gemini/gemini-3.5-flash/tokens",
+    "rateVersion": "2026-08-22",
+    "effectiveFrom": "2026-08-22T00:00:00.000Z",
+    "effectiveTo": null,
+    "inputMicrousdPerMillionTokens": 300000,
+    "outputMicrousdPerMillionTokens": 2500000,
+    "inputUsdPerMillionTokens": 0.3,
+    "outputUsdPerMillionTokens": 2.5,
+    "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing"
+  },
+  "maximumChargeCalculation": {
+    "inputMaximumUsd": 0.3145728,
+    "inputFormula": "1048576 * 0.30 / 1000000",
+    "outputMaximumUsd": 0.16384,
+    "outputFormula": "65536 * 2.50 / 1000000",
+    "boundedMaximumUsd": 0.4784128,
+    "boundedMaximumFormula": "(1048576 * 0.30 + 65536 * 2.50) / 1000000",
+    "extraConservativeHighestRateStressBoundUsd": 2.78528,
+    "extraConservativeHighestRateStressFormula": "(1048576 + 65536) * 2.50 / 1000000",
+    "reserveUsd": 5,
+    "reserveSufficient": true,
+    "reserveMarginAgainstBoundedMaximumUsd": 4.5215872,
+    "reserveMarginAgainstHighestRateStressBoundUsd": 2.21472,
+    "conclusion": "The $5 reserve exceeds both the strict input/output-limit maximum at the locked rates and a deliberately harsher bound that prices every permitted token at the higher output rate."
+  },
+  "pricingEvidenceCaveat": {
+    "observation": "Configured OpenAI token-rate rows currently carry the Gemini pricing evidence URL.",
+    "codeEvidence": "migrations/0017_provider_usage_ledger.sql:63-76",
+    "action": "No rate or evidence record was changed. Correction requires verified official OpenAI evidence and is outside this read-only follow-up."
+  }
+}

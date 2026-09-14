@@ -6,6 +6,7 @@ import {
   createPipelineWorker,
   currentTenantTeamId,
   isArticleRunLeaseConflictError,
+  isBillingSettlementError,
 } from "./pipeline-worker";
 import {
   getRedisConnection,
@@ -84,7 +85,10 @@ import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
 import { classifyError } from "./errors";
-import { isProviderAccountingError } from "./cost-telemetry";
+import {
+  isNonReplayableProviderError,
+  isProviderAccountingError,
+} from "./cost-telemetry";
 import { getArticleGenerationBilling } from "./pipeline-billing";
 
 export { getArticleGenerationBilling } from "./pipeline-billing";
@@ -167,7 +171,7 @@ export const processArticleGenerationJob = async (
   dependencies: ArticleGenerationDependencies = {}
 ) => {
         console.log(`📝 Processing article generation job ${job.id}`);
-        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit } = job.data;
+        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit, capReservationId: articleCapReservationId } = job.data;
         // The watchdog uses this timestamp instead of a stage transition alone:
         // a long but healthy Gemini/GPT call should never be mistaken for a crash.
         let runLeaseToken: string | null = null;
@@ -679,7 +683,8 @@ export const processArticleGenerationJob = async (
               batchId, // OPTIMIZATION: Pass batch ID for SEO cache lookup
               articleTeamId, // Psychographic targeting: team context
               articlePersonaId, // Psychographic targeting: persona for content adaptation
-              shadowRunPlan // Shadow run pre-flight failure pattern awareness
+               shadowRunPlan, // Shadow run pre-flight failure pattern awareness
+               articleId // Immutable provider accounting content attribution
             ),
             GEMINI_TIMEOUT_MS,
             `Gemini Generation (Article ${articleId})`
@@ -1631,16 +1636,26 @@ export const processArticleGenerationJob = async (
 
           // Record usage event — populates the spending cap meter.
           // costEstimateCents uses credits as a cent proxy (1 credit ≈ $0.01).
-          const { recordUsageEvent } = await import("@/lib/usage-caps");
-          await recordUsageEvent({
-            teamId: articleTeamId,
-            campaignId: job.data.campaignId ?? null,
-            action: "article_generation",
-            units: 1,
-            costEstimateCents: articleCreditCost,
-            jobId: String(job.id),
-            metadata: { articleId, batchId },
-          }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+          const { completeCapReservation, recordUsageEvent } = await import("@/lib/usage-caps");
+          const usageSettlement = articleCapReservationId != null
+            ? completeCapReservation({
+                reservationId: articleCapReservationId,
+                teamId: articleTeamId,
+                jobId: String(job.id),
+                metadata: { articleId, batchId },
+              })
+            : recordUsageEvent({
+                teamId: articleTeamId,
+                campaignId: job.data.campaignId ?? null,
+                action: "article_generation",
+                units: 1,
+                costEstimateCents: articleCreditCost,
+                jobId: String(job.id),
+                metadata: { articleId, batchId },
+              });
+          await usageSettlement.catch((err) =>
+            console.warn(`[usage-caps] article usage settlement failed (non-fatal): ${err?.message}`)
+          );
         }
 
         const settled = await updateClaimedArticleRun({
@@ -1718,6 +1733,39 @@ export const processArticleGenerationJob = async (
 
         // Classify the error for disposition, user-facing message, and admin log type.
         const classified = classifyError(error, "text_gen");
+        const requiresProviderReconciliation =
+          classified.code === "PROVIDER_ACCOUNTING_FAILED" ||
+          classified.code === "PROVIDER_SUBMISSION_UNCERTAIN" ||
+          classified.code === "PROVIDER_RESULT_NOT_DURABLE";
+
+        // checkBatchCompletion() performs end-of-batch reservation cleanup. A
+        // paid provider result with failed/uncertain accounting must place the
+        // reservation on hold before that cleanup can release it.
+        if (requiresProviderReconciliation) {
+          if (!persistedBillingTeamId || !persistedBillingRunId) {
+            console.error(
+              `[billing] Cannot place article ${articleId} provider-accounting failure on hold: ` +
+              "trusted billing identity is incomplete"
+            );
+            throw error;
+          }
+          try {
+            const { markReservationForReconciliation } = await import("@/lib/billing");
+            await markReservationForReconciliation({
+              teamId: persistedBillingTeamId,
+              runId: persistedBillingRunId,
+              reason: `Article ${articleId} ${classified.code}: ${errorMessage}`,
+            });
+          } catch (holdError) {
+            console.error(
+              `[billing] Failed to hold article ${articleId} for provider reconciliation:`,
+              holdError
+            );
+            // Preserve the exact provider-accounting failure and do not invoke
+            // batch cleanup while the paid-call reservation is unprotected.
+            throw error;
+          }
+        }
 
         // Derive a user-friendly message based on the error code so the
         // Content page (articles table errorMessage column) shows actionable
@@ -1856,6 +1904,10 @@ export const processArticleGenerationJob = async (
               completedAt: new Date(),
               leaseToken: null,
               leaseExpiresAt: null,
+              settlementLastError: requiresProviderReconciliation
+                ? `Billing reconciliation required: ${classified.code}: ${errorMessage}`.slice(0, 2000)
+                : undefined,
+              settlementNextAttemptAt: null,
             },
           }).catch(() => false);
           if (!terminalRecorded) throw leaseLostError("recording terminal failure");
@@ -4931,7 +4983,7 @@ export async function registerWorkers() {
   console.log("🎙️ Registering podcast generation worker for queue:", PODCAST_GENERATION_QUEUE);
   try {
     createPipelineWorker<PodcastJobData>(PODCAST_GENERATION_QUEUE, async (job) => {
-          const { articleId, teamId, tone, duration, journeyStepId, creditRunId, userId } = job.data;
+          const { articleId, teamId, tone, duration, journeyStepId, creditRunId, userId, capReservationId } = job.data;
           console.log(`🎙️ Processing podcast generation job ${job.id}: article ${articleId}, team ${teamId}${journeyStepId ? `, journeyStep ${journeyStepId}` : ""}`);
           try {
             // Authoritative entity/team cross-check: the article the podcast is
@@ -4950,7 +5002,7 @@ export async function registerWorkers() {
               });
             }
             const { generateArticlePodcast } = await import("./podcast-worker");
-            await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120", creditRunId, userId });
+            await generateArticlePodcast({ articleId, teamId, tone: tone ?? "Conversational", duration: duration ?? "120", creditRunId, userId, capReservationId });
 
             if (journeyStepId) {
               const { journeySteps: jStepsTable } = await import("@/shared/schema");
@@ -4963,6 +5015,21 @@ export async function registerWorkers() {
             console.log(`✅ Podcast job ${job.id} completed for article ${articleId}`);
           } catch (error) {
             if (isProviderAccountingError(error)) throw error;
+            const finalAttempt =
+              job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+            if (
+              finalAttempt &&
+              capReservationId != null &&
+              !isNonReplayableProviderError(error) &&
+              !isBillingSettlementError(error)
+            ) {
+              await cancelCapReservation(capReservationId).catch((capError) =>
+                console.error(
+                  `[usage-caps] Failed to cancel proven no-delivery podcast cap reservation ${capReservationId}:`,
+                  capError
+                )
+              );
+            }
             console.error(`❌ Podcast job ${job.id} failed for article ${articleId}:`, error);
             if (journeyStepId) {
               const { journeySteps: jStepsTable } = await import("@/shared/schema");

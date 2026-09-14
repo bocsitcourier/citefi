@@ -1,0 +1,160 @@
+{
+  "phase": "independent-brand-intelligence",
+  "status": "complete-with-output-gaps",
+  "capturedAt": "2026-09-10T16:31:07.730Z",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "input": {
+    "companyName": "Harbor Home Energy",
+    "websiteUrl": "https://www.energy.gov/energysaver",
+    "affiliationClaimed": false
+  },
+  "job": {
+    "jobId": 1,
+    "profileId": 14,
+    "createdAt": "2026-09-10T16:27:38.256Z",
+    "completedAt": "2026-09-10T16:28:18.566Z",
+    "elapsedMs": 40310,
+    "http": "POST /api/intelligence/run 200 in 2.9s"
+  },
+  "provider": {
+    "ledgerRows": [
+      {
+        "provider": "brave",
+        "model": "web-search",
+        "providerRequestId": null,
+        "units": 1,
+        "costMicrousd": "5000",
+        "occurredAt": "2026-09-10T16:27:39.369Z"
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "providerRequestId": "fNqiauqoFc29sOIPr4OE4AM",
+        "inputUnits": 871,
+        "outputUnits": 836,
+        "costMicrousd": "2351",
+        "occurredAt": "2026-09-10T16:27:49.318Z"
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "providerRequestId": "hdqiat-QNp6b-8YPnuzNuQg",
+        "inputUnits": 936,
+        "outputUnits": 1586,
+        "costMicrousd": "4246",
+        "occurredAt": "2026-09-10T16:28:08.392Z"
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "providerRequestId": null,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "costMicrousd": "0",
+        "occurredAt": "2026-09-10T16:28:08.425Z"
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "providerRequestId": "mNqiasClIdyPjrEPldDEiAk",
+        "inputUnits": 394,
+        "outputUnits": 856,
+        "costMicrousd": "2258",
+        "occurredAt": "2026-09-10T16:28:18.524Z"
+      }
+    ]
+  },
+  "persisted": {
+    "status": "complete",
+    "websiteUrl": "https://www.energy.gov/energysaver",
+    "companyName": "Harbor Home Energy",
+    "profileKeys": [
+      "brandVoice",
+      "positioning",
+      "targetAudience",
+      "brandPolicyPack",
+      "competitiveGaps",
+      "competitorLandscape",
+      "contentOpportunities",
+      "localNicheIntelligence",
+      "failureAnalysis",
+      "seedExemplars"
+    ],
+    "competitorCount": 4,
+    "seedExemplarCount": 0,
+    "rawResearchKeys": [
+      "competitors",
+      "gapAnalysis",
+      "websiteAnalysis"
+    ]
+  },
+  "uiValidation": {
+    "active": true,
+    "meaningfulCompetitorLandscape": true,
+    "competitors": [
+      "Sealed",
+      "Dr. Energy Saver",
+      "Home Energy Medics",
+      "Treehouse"
+    ],
+    "meaningfulBrandPolicyPack": true,
+    "brandVoiceValuesBlank": true,
+    "targetAudienceValuesBlank": true,
+    "competitiveGapsValuesBlank": true,
+    "pricingTier": "unknown"
+  },
+  "warnings": [
+    "Could not fetch homepage for https://www.energy.gov/energysaver",
+    "analyzeGapsAndFailures Gemini error: SyntaxError: Unexpected non-whitespace character after JSON at position 7482"
+  ],
+  "articleGenerationTouched": false,
+  "persistenceVerification": {
+    "browserRefresh": {
+      "route": "/intelligence",
+      "status": "Active",
+      "source": "Harbor Home Energy · https://www.energy.gov/energysaver",
+      "lastUpdated": "9/10/2026"
+    },
+    "logout": {
+      "ui": "button-sidebar-logout",
+      "redirect": "/login",
+      "verified": true
+    },
+    "relogin": {
+      "sameRuntimeCredentials": true,
+      "redirect": "/home",
+      "verified": true
+    },
+    "postReloginRetrieval": {
+      "route": "/intelligence",
+      "status": "Active",
+      "source": "Harbor Home Energy · https://www.energy.gov/energysaver",
+      "logoutVisible": true,
+      "credits": "5,000",
+      "competitorLandscape": {
+        "verified": true,
+        "count": 4,
+        "names": [
+          "Sealed",
+          "Dr. Energy Saver",
+          "Home Energy Medics",
+          "Treehouse"
+        ]
+      },
+      "brandPolicyPack": {
+        "verified": true,
+        "approvedClaimsVisible": true,
+        "prohibitedClaimsVisible": true,
+        "vocabularyVisible": true
+      }
+    }
+  },
+  "outputGaps": {
+    "brandVoice": "UI fields blank",
+    "targetAudience": "UI fields blank",
+    "competitiveGaps": "UI fields blank",
+    "pricingTier": "unknown",
+    "seedExemplars": 0
+  }
+}

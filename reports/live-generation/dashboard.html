@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Generation Execution Dashboard</title>
+  <style>
+    :root { color-scheme: dark; --bg:#08111f; --panel:#111d2f; --line:#2a3b55; --text:#e9f0f8; --muted:#9fb0c5; --accent:#65d6b4; --warn:#ffc857; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
+    header, main { max-width:1800px; margin:auto; padding:24px; }
+    h1 { margin:0 0 6px; } h2 { margin-top:32px; }
+    .muted { color:var(--muted); }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+    .card,.artifact { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+    .value { font-size:1.5rem; font-weight:750; margin-top:5px; }
+    .coverage { border-left:4px solid var(--warn); }
+    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    table { border-collapse:collapse; min-width:2600px; background:var(--panel); }
+    th,td { border-bottom:1px solid var(--line); border-right:1px solid var(--line); padding:10px; text-align:left; vertical-align:top; max-width:280px; }
+    th { position:sticky; top:0; background:#17263b; z-index:1; }
+    .status { display:inline-block; padding:3px 8px; border-radius:999px; background:#293b55; font-weight:700; white-space:normal; }
+    .not_run { color:var(--warn); } .not_testable { color:#ff8e8e; }
+    .artifacts { display:grid; gap:12px; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#cfe0f4; }
+    code { color:var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Live Generation Execution Dashboard</h1>
+    <div class="muted">LIVE GENERATION QA 2026-09-10 · rendered 2026-09-10T16:26:06.741Z</div>
+    <p>This dashboard reports real-session artifacts without converting static inventory, a reachable port, an empty fixture page, or missing evidence into PASS. Initial unsupported/code-only discoveries remain <strong>NOT_RUN</strong> until proof supports <strong>NOT_TESTABLE</strong>.</p>
+  </header>
+  <main>
+    <section class="cards" aria-label="Budget and accounting">
+      <div class="card"><div class="muted">Funded hard budget</div><div class="value">$50.000000</div></div>
+      <div class="card"><div class="muted">Recorded provider cost</div><div class="value">$0.007518</div></div>
+      <div class="card"><div class="muted">Remaining vs recorded only</div><div class="value">$49.992482</div></div>
+      <div class="card"><div class="muted">Recorded provider events</div><div class="value">2</div></div>
+      <div class="card"><div class="muted">Unpriced events</div><div class="value">0</div></div>
+      <div class="card coverage"><div class="muted">Cost coverage</div><div>PARTIAL — locked-rate ledger valuation, not a provider invoice; unsupported, delayed, missing, or unpriced usage is not free.</div></div>
+    </section>
+
+    <h2>Observed provider accounting</h2>
+    <p class="muted">Source: <code>accounting.json</code>, observed 2026-09-10T16:21:29.672Z. Request identifiers and sensitive fields are intentionally not rendered.</p>
+    <div class="table-wrap">
+      <table style="min-width:1100px">
+        <thead><tr><th>occurred</th><th>operation</th><th>provider</th><th>model</th><th>unit type</th><th>input</th><th>output</th><th>unit count</th><th>recorded cost</th></tr></thead>
+        <tbody><tr>
+      <td>2026-09-10T16:20:02.584Z</td>
+      <td>topic_research</td>
+      <td>brave</td>
+      <td>web-search</td>
+      <td>requests</td>
+      <td>—</td>
+      <td>—</td>
+      <td>1</td>
+      <td>$0.005000</td>
+    </tr><tr>
+      <td>2026-09-10T16:20:17.431Z</td>
+      <td>article_title_pool</td>
+      <td>gemini</td>
+      <td>gemini-3.5-flash</td>
+      <td>tokens</td>
+      <td>2475</td>
+      <td>710</td>
+      <td>5133</td>
+      <td>$0.002518</td>
+    </tr></tbody>
+      </table>
+    </div>
+
+    <h2>Master execution inventory (39)</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>feature</th><th>ui</th><th>api</th><th>provider</th><th>generation</th><th>output</th><th>storage</th><th>db</th><th>export</th><th>billing</th><th>status</th><th>evidence</th><th>blocker</th><th>nextProcedure</th></tr></thead>
+        <tbody>
+  <tr>
+    <td><strong>Article title pool and topic research</strong></td>
+    <td>app/batches/[id]/select<br>app/client/generate</td>
+    <td>GET /api/jobs/title-pool</td>
+    <td>Brave Search<br>Gemini</td>
+    <td>Research a synthetic business/topic and generate selectable article titles.</td>
+    <td>Title pool</td>
+    <td>PostgreSQL batch generation parameters</td>
+    <td>job_batches</td>
+    <td>Batch title-selection UI</td>
+    <td>Provider usage ledger plus configured generation credits/cap</td>
+    <td><span class="status partial">PARTIAL</span></td>
+    <td>article-run.json records live titleGeneration=success, titleCount=5 and selectedCount=1<br>accounting.json records live topic_research and article_title_pool usage totaling part of the recorded $0.007518</td>
+    <td>The earlier empty fixture page was a precondition outcome, not a product defect. The current artifact records counts and selection but not the five title strings or a standalone retrieval artifact, so PASS is not claimed.</td>
+    <td>Capture the persisted five-title payload and later retrieval, then reconcile against a freshly observed accounting snapshot before considering PASS.</td>
+  </tr>
+  <tr>
+    <td><strong>Batch article generation</strong></td>
+    <td>app/batches/[id]/select<br>app/batches/[id]</td>
+    <td>POST /api/jobs/batch-submit</td>
+    <td>Gemini<br>OpenAI</td>
+    <td>Queue selected titles, generate article text, critique/review, SEO and configured media.</td>
+    <td>Durable articles with HTML, metadata and optional assets</td>
+    <td>PostgreSQL, Redis/BullMQ and object storage</td>
+    <td>job_batches<br>articles<br>article_runs<br>article_assets<br>credit_ledger<br>provider_usage_ledger</td>
+    <td>Content detail<br>GET /api/export/batch/[id]</td>
+    <td>Batch credit/cap reservation; child settlement; provider usage events</td>
+    <td><span class="status fail">FAIL</span></td>
+    <td>article-run.json records live submit HTTP 202, batch 626 FAILED, article 2235 FAILED, and UI progress 0 of 1</td>
+    <td>The first real article attempt reached the worker and failed; no final article output was produced. accounting.json predates completion of this attempt, so total attempt cost is not yet fully observed.</td>
+    <td>Refresh observer accounting, preserve the failed run evidence, determine the failure from permitted fixture diagnostics, and retry only after confirming no ambiguous paid work.</td>
+  </tr>
+  <tr>
+    <td><strong>Single article regeneration</strong></td>
+    <td>app/content/[id]</td>
+    <td>POST /api/articles/[id]/regenerate</td>
+    <td>Gemini<br>OpenAI</td>
+    <td>Regenerate an existing tenant-owned article.</td>
+    <td>Updated article content and generation state</td>
+    <td>PostgreSQL and configured object storage</td>
+    <td>articles<br>article_runs<br>credit_ledger<br>provider_usage_ledger</td>
+    <td>Content detail and article export paths</td>
+    <td>Credit/cap reservation and provider accounting</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs a successfully generated synthetic article first.</td>
+    <td>Regenerate one synthetic article, verify changed durable output and retrieval, and compare provider/credit deltas.</td>
+  </tr>
+  <tr>
+    <td><strong>Batch title regeneration</strong></td>
+    <td>app/batches/[id]</td>
+    <td>POST /api/batches/[id]/regenerate-titles</td>
+    <td>Gemini</td>
+    <td>Regenerate titles for existing batch articles.</td>
+    <td>Updated article titles</td>
+    <td>PostgreSQL</td>
+    <td>job_batches<br>articles<br>provider_usage_ledger</td>
+    <td>Batch and content UI</td>
+    <td>Configured title-generation credits/cap and provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires generated synthetic articles.</td>
+    <td>Run on one synthetic batch, verify every intended title update and provider accounting without touching non-fixture records.</td>
+  </tr>
+  <tr>
+    <td><strong>Article metadata regeneration</strong></td>
+    <td>app/content/[id] metadata controls</td>
+    <td>POST /api/content/[id]/regenerate/seo-title<br>POST /api/content/[id]/regenerate/meta-description<br>POST /api/content/[id]/regenerate/keywords<br>POST /api/content/[id]/regenerate/slug<br>POST /api/content/[id]/regenerate/faq<br>POST /api/content/[id]/regenerate/hashtags</td>
+    <td>Gemini<br>OpenAI (route/service dependent)</td>
+    <td>Regenerate six independently invoked metadata variants.</td>
+    <td>SEO title, description, keywords, slug, FAQ and hashtags</td>
+    <td>PostgreSQL</td>
+    <td>articles<br>provider_usage_ledger</td>
+    <td>Content UI and article exports</td>
+    <td>Synchronous provider usage; route-specific credit/cap behavior must be observed</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs a generated synthetic article; each API is a distinct paid procedure.</td>
+    <td>Run each variant once on the fixture article, validate schema/persistence/retrieval, and attribute each provider event.</td>
+  </tr>
+  <tr>
+    <td><strong>Article reformatting</strong></td>
+    <td>app/content/[id]</td>
+    <td>POST /api/articles/[id]/reformat</td>
+    <td>OpenAI<br>Gemini (service dependent)<br>Deterministic cleaners</td>
+    <td>Reformat existing article HTML.</td>
+    <td>Reformatted HTML</td>
+    <td>PostgreSQL</td>
+    <td>articles<br>provider_usage_ledger</td>
+    <td>Content UI and exports</td>
+    <td>Provider usage and route-specific credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires non-empty fixture HTML.</td>
+    <td>Capture before/after HTML, provider events and durable retrieval while validating no content loss.</td>
+  </tr>
+  <tr>
+    <td><strong>Article and batch hyperlink transforms</strong></td>
+    <td>app/content/[id]<br>app/batches/[id] repair controls</td>
+    <td>POST /api/articles/[id]/apply-hyperlinks<br>POST /api/batches/[id]/apply-keyword-hyperlinks<br>POST /api/batches/[id]/fix-hyperlinks</td>
+    <td>OpenAI/Gemini where configured<br>Deterministic cleaners</td>
+    <td>Apply or repair hyperlinks in existing article HTML.</td>
+    <td>Updated linked HTML</td>
+    <td>PostgreSQL</td>
+    <td>articles<br>job_batches<br>provider_usage_ledger</td>
+    <td>Article and batch exports</td>
+    <td>Provider usage is route dependent</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires fixture articles and safe target links.</td>
+    <td>Exercise each important route on synthetic HTML, validate links and persistence, and distinguish deterministic from provider-backed work.</td>
+  </tr>
+  <tr>
+    <td><strong>Direct hero and media image regeneration</strong></td>
+    <td>app/content/[id] image controls<br>media detail</td>
+    <td>POST /api/articles/[id]/regenerate-hero<br>POST /api/content/[id]/regenerate-hero-image<br>POST /api/media/[id]/regenerate</td>
+    <td>Gemini gemini-2.5-flash-image</td>
+    <td>Generate and link a replacement image through the direct-image operation.</td>
+    <td>PNG image and updated article/media link</td>
+    <td>Object storage plus PostgreSQL</td>
+    <td>articles<br>article_assets<br>credit_ledger<br>usage_events<br>provider_usage_ledger</td>
+    <td>Authenticated object retrieval, content UI and exports</td>
+    <td>section_regenerate credit/cap reservation and provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Known resource-version concurrency and cap-accounting release blockers require one-at-a-time execution and explicit observation; no live output has passed yet.</td>
+    <td>Run one route at a time on fixture assets, retrieve and validate bytes, reconcile billing/cap, then separately execute an approved concurrency procedure.</td>
+  </tr>
+  <tr>
+    <td><strong>Batch image and caption repair</strong></td>
+    <td>app/batches/[id] repair controls</td>
+    <td>POST /api/batches/[id]/regenerate-images<br>POST /api/batches/[id]/fix-image-captions</td>
+    <td>Gemini image/text<br>Deterministic transforms</td>
+    <td>Regenerate article images or repair image captions across a batch.</td>
+    <td>Updated images/captions</td>
+    <td>PostgreSQL, BullMQ and object storage</td>
+    <td>job_batches<br>articles<br>article_assets<br>provider_usage_ledger</td>
+    <td>Content and batch exports</td>
+    <td>Queue/provider and credit behavior must be reconciled</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires a fixture batch with generated assets.</td>
+    <td>Use the smallest eligible fixture batch and verify each child result, object retrieval, partial failure behavior and cost.</td>
+  </tr>
+  <tr>
+    <td><strong>Identity-based social/media image regeneration</strong></td>
+    <td>Media asset controls</td>
+    <td>POST /api/media/assets/[identity]/regenerate</td>
+    <td>Gemini image</td>
+    <td>Regenerate an identity-addressed platform image; default platform is TikTok when omitted.</td>
+    <td>Platform-sized image asset</td>
+    <td>Object storage and PostgreSQL</td>
+    <td>article_assets<br>social_post_assets<br>provider_usage_ledger</td>
+    <td>Media retrieval and social export</td>
+    <td>Provider usage and route-specific credits/cap</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs an eligible synthetic asset identity.</td>
+    <td>Test explicit platform and omitted-platform variants, validate dimensions/bytes/linkage, and reconcile usage.</td>
+  </tr>
+  <tr>
+    <td><strong>Social text generation</strong></td>
+    <td>app/social/create<br>app/content/[id] social controls</td>
+    <td>POST /api/social_posts/generate</td>
+    <td>Gemini<br>OpenAI</td>
+    <td>Generate platform variants for X, Facebook, Instagram, LinkedIn and Pinterest; optional image.</td>
+    <td>Social post and platform variants</td>
+    <td>PostgreSQL, BullMQ and optional object storage</td>
+    <td>social_posts<br>social_post_variants<br>social_post_assets<br>provider_usage_ledger</td>
+    <td>GET /api/social_posts/[id], social UI and campaign export</td>
+    <td>Credit/cap reservation and provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires a fixture topic or article and explicit platform selection.</td>
+    <td>Generate minimum text-only variants, validate all requested platform constraints and retrieval, then test includeImage separately.</td>
+  </tr>
+  <tr>
+    <td><strong>Social variant regeneration</strong></td>
+    <td>Social detail variant controls</td>
+    <td>POST /api/social-posts/variants/[variantId]/regenerate</td>
+    <td>Gemini<br>OpenAI</td>
+    <td>Regenerate one existing platform variant.</td>
+    <td>Updated social variant</td>
+    <td>PostgreSQL</td>
+    <td>social_posts<br>social_post_variants<br>provider_usage_ledger</td>
+    <td>Social detail and campaign export</td>
+    <td>Provider usage and route-specific credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires a live fixture social variant.</td>
+    <td>Regenerate one fixture variant, verify platform constraints, durable update and cost attribution.</td>
+  </tr>
+  <tr>
+    <td><strong>Social image generation</strong></td>
+    <td>app/social/create includeImage</td>
+    <td>POST /api/social_posts/generate (includeImage=true)</td>
+    <td>Gemini image or zero-cost article hero reuse</td>
+    <td>Reuse an eligible article hero or generate a platform-aspect social image.</td>
+    <td>Linked image asset</td>
+    <td>Object storage and PostgreSQL</td>
+    <td>social_posts<br>social_post_assets<br>article_assets<br>provider_usage_ledger</td>
+    <td>Social detail and campaign ZIP</td>
+    <td>No image provider cost on reuse; otherwise image/provider usage and credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Reuse and provider-generation are distinct variants and need separate evidence.</td>
+    <td>Prove hero reuse first, then force one generated image; validate asset bytes/aspect/link and separate costs.</td>
+  </tr>
+  <tr>
+    <td><strong>Social slideshow video</strong></td>
+    <td>app/social/[id]</td>
+    <td>POST /api/social/video/generate<br>POST /api/social/video/batch<br>POST /api/social/video/cancel<br>GET /api/social/video/storage-check</td>
+    <td>Gemini script/images<br>OpenAI TTS/GPT metadata<br>FFmpeg</td>
+    <td>Create slideshow MP4; route defaults platform TikTok and videoType slideshow.</td>
+    <td>MP4 plus component image/audio assets and metadata</td>
+    <td>BullMQ, temp filesystem, object storage and PostgreSQL</td>
+    <td>social_posts<br>social_post_assets<br>credit_ledger<br>provider_usage_ledger</td>
+    <td>Social detail, authenticated media retrieval and campaign ZIP</td>
+    <td>Multi-stage credit/cap and provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Expensive multi-provider path; known cancellation and provider-entry gaps require strict budget gating.</td>
+    <td>Run one minimum-duration fixture video after budget approval, validate every component and final playback, then test cancellation separately.</td>
+  </tr>
+  <tr>
+    <td><strong>Idea video</strong></td>
+    <td>app/social/idea-video</td>
+    <td>POST /api/social/video/idea<br>POST /api/social/video/idea/[id]/generate<br>GET /api/social/video/idea/[id]<br>DELETE /api/social/video/idea/[id]</td>
+    <td>Gemini<br>Veo<br>OpenAI TTS<br>FFmpeg</td>
+    <td>Expand an idea, generate 4/6/8-second clips in 16:9 or 9:16, narrate and compose.</td>
+    <td>Idea/script/progress and final MP4</td>
+    <td>BullMQ, PostgreSQL, temp filesystem and object storage</td>
+    <td>video_ideas<br>video_jobs<br>credit_ledger<br>provider_usage_ledger</td>
+    <td>Idea status UI and authenticated media retrieval</td>
+    <td>High-cost Veo seconds plus Gemini/OpenAI and credit/cap controls</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Veo operation persistence/cancellation gaps and budget risk; no live attempt evidence yet.</td>
+    <td>Only after remaining-budget approval, run the shortest one-clip fixture, persist operation evidence, validate playback and reconcile every provider event.</td>
+  </tr>
+  <tr>
+    <td><strong>Like-this video</strong></td>
+    <td>app/social/idea-video</td>
+    <td>POST /api/social/video/like<br>POST /api/social/video/like/[id]/analyze<br>POST /api/social/video/like/[id]/generate</td>
+    <td>External HTTPS media fetch/analyzer<br>Gemini<br>Veo<br>OpenAI TTS<br>FFmpeg</td>
+    <td>Analyze an authorized external style reference and generate through the idea-video pipeline.</td>
+    <td>Style analysis and final MP4</td>
+    <td>PostgreSQL, BullMQ and object storage</td>
+    <td>video_ideas<br>video_jobs<br>provider_usage_ledger</td>
+    <td>Idea UI and media retrieval</td>
+    <td>Analysis plus video provider usage and credits/cap</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires an authorized public media URL and separate proof that analysis is not counted as final generation.</td>
+    <td>Use a rights-cleared synthetic/public-domain URL, capture analyze and generate separately, then validate cost and output.</td>
+  </tr>
+  <tr>
+    <td><strong>Podcast generation</strong></td>
+    <td>app/content/[id] Generate Podcast</td>
+    <td>POST /api/podcast/generate<br>GET /api/podcast/status/[id]</td>
+    <td>Gemini script/critic<br>OpenAI TTS<br>MP3 merge<br>optional Google Drive backup</td>
+    <td>Generate script, TTS segments and merged podcast audio.</td>
+    <td>MP3 and podcast status/URL</td>
+    <td>BullMQ, object storage, PostgreSQL and optional Drive</td>
+    <td>articles<br>article_assets<br>credit_ledger<br>usage_events<br>provider_usage_ledger</td>
+    <td>Content player and authenticated object retrieval</td>
+    <td>Podcast credits/cap plus Gemini/OpenAI usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Known post-debit checkpoint, sweeper-ID and cap-lifecycle release blockers; no live playable MP3 evidence.</td>
+    <td>Do not run until checkpoint/recovery procedure is approved; then generate one short fixture podcast, retrieve/play it and reconcile debit, cap and provider events.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO content audit</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/content-audit</td>
+    <td>SEO services<br>Gemini/OpenAI where configured</td>
+    <td>Analyze supplied synthetic URL/content for SEO issues.</td>
+    <td>Audit findings</td>
+    <td>Route/service dependent</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI</td>
+    <td>Provider usage and route-specific credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires a safe public URL or synthetic content.</td>
+    <td>Run against the declared non-affiliated Energy Saver URL or synthetic content, save response and provider accounting.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO local research</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/local-research</td>
+    <td>Research/search services<br>Gemini/OpenAI where configured</td>
+    <td>Produce local SEO research from synthetic business/location inputs.</td>
+    <td>Local research report</td>
+    <td>Route/service dependent</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI</td>
+    <td>Research/provider usage and route-specific credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs synthetic location/business input.</td>
+    <td>Run one Boston synthetic fixture and verify cited response, schema and cost.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO competitor analysis</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/competitor-analysis</td>
+    <td>Research/search services<br>Gemini/OpenAI where configured</td>
+    <td>Analyze provided competitor URLs/keywords.</td>
+    <td>Competitor analysis</td>
+    <td>Route/service dependent</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI</td>
+    <td>Research/provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Only public, non-customer target data may be used.</td>
+    <td>Use explicitly public fixture URLs, capture output/citations and reconcile provider events.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO schema markup</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/schema-markup</td>
+    <td>Gemini/OpenAI where configured<br>Deterministic schema validation</td>
+    <td>Generate structured schema markup from synthetic content.</td>
+    <td>Schema.org JSON-LD</td>
+    <td>Response or route-specific persistence</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI/copy</td>
+    <td>Provider usage if model-backed</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs synthetic page/business data.</td>
+    <td>Generate one fixture document, parse JSON-LD, validate schema shape and account for provider use.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO content structure</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/content-structure</td>
+    <td>Gemini/OpenAI where configured</td>
+    <td>Generate a content outline/structure.</td>
+    <td>Structured content plan</td>
+    <td>Response or route-specific persistence</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI</td>
+    <td>Provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs a synthetic topic/keyword fixture.</td>
+    <td>Run one minimal topic, validate response contract and provider accounting.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO pillar and cluster planning</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/pillar-cluster</td>
+    <td>Gemini/OpenAI where configured</td>
+    <td>Generate pillar/cluster recommendations.</td>
+    <td>Topic cluster plan</td>
+    <td>Response or route-specific persistence</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>SEO tools UI</td>
+    <td>Provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Needs a synthetic business/topic fixture.</td>
+    <td>Run one minimal fixture, validate deduplication/schema and cost.</td>
+  </tr>
+  <tr>
+    <td><strong>SEO create articles</strong></td>
+    <td>app/seo-tools</td>
+    <td>POST /api/seo/create-articles</td>
+    <td>Gemini<br>OpenAI</td>
+    <td>Create executable article work from SEO parameters.</td>
+    <td>Article/batch generation intents and eventual articles</td>
+    <td>PostgreSQL, BullMQ and object storage</td>
+    <td>job_batches<br>articles<br>credit_ledger<br>provider_usage_ledger</td>
+    <td>Batch/content UI and exports</td>
+    <td>Article credits/cap and provider usage</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>May fan out into paid article generation; requires explicit count and budget bound.</td>
+    <td>Use minimum article count, capture created identities, follow to durable output, and reconcile total fan-out cost.</td>
+  </tr>
+  <tr>
+    <td><strong>Daily brief generation</strong></td>
+    <td>app/home<br>app/admin/briefs</td>
+    <td>POST /api/briefs/generate-me<br>POST /api/briefs/generate-now</td>
+    <td>Daily brief AI/research services</td>
+    <td>Generate a user brief; admin route is an important forced-generation variant.</td>
+    <td>Daily brief</td>
+    <td>BullMQ and PostgreSQL</td>
+    <td>daily_briefs<br>brief_preferences<br>provider_usage_ledger</td>
+    <td>GET /api/briefs/today<br>Home/admin brief UI</td>
+    <td>Provider accounting; credit treatment must be observed</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires synthetic preferences and distinction between normal and forced variants.</td>
+    <td>Run generate-me first, retrieve today, then use admin force only if needed and account separately.</td>
+  </tr>
+  <tr>
+    <td><strong>Campaign ad copy generation</strong></td>
+    <td>app/campaigns/ads-lab</td>
+    <td>POST /api/campaigns/[id]/ads<br>GET /api/campaigns/[id]/ads</td>
+    <td>Gemini JSON</td>
+    <td>Generate and validate Google RSA and Meta ad copy for export only.</td>
+    <td>Campaign ad records and validation</td>
+    <td>PostgreSQL</td>
+    <td>campaigns<br>campaign_ads<br>campaign_ad_approvals<br>provider_usage_ledger</td>
+    <td>POST /api/campaigns/[id]/ads/[adId]/approve<br>GET /api/campaigns/[id]/ads/[adId]/export</td>
+    <td>Provider usage and configured campaign generation credits</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires a synthetic campaign and an existing HTTPS landing URL; export is not publication.</td>
+    <td>Generate minimum Google/Meta variants, verify deterministic constraints, approve/export fixture data only, and reconcile usage.</td>
+  </tr>
+  <tr>
+    <td><strong>Campaign brand confirmation and intelligence context</strong></td>
+    <td>app/campaigns/[id]</td>
+    <td>POST /api/campaigns/[id]/confirm-brand</td>
+    <td>Brand/research services where invoked</td>
+    <td>Confirm or enrich campaign brand context consumed by downstream generators.</td>
+    <td>Campaign brand snapshot/context</td>
+    <td>PostgreSQL</td>
+    <td>campaigns<br>client_brand_profiles<br>provider_usage_ledger</td>
+    <td>Campaign UI and downstream generation prompts</td>
+    <td>Research/provider usage where invoked</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>No standalone customer brand-generator button was found; this is context orchestration.</td>
+    <td>Use only synthetic brand data, capture whether a provider is actually called, and validate durable context.</td>
+  </tr>
+  <tr>
+    <td><strong>Journey orchestration and recommendations</strong></td>
+    <td>app/journeys</td>
+    <td>POST /api/journeys<br>POST /api/journeys/[id]/trigger<br>POST /api/batches/[id]/launch-journey<br>GET/POST /api/journey/next<br>POST /api/journey/convert</td>
+    <td>Policy/orchestration services; model use not guaranteed</td>
+    <td>Schedule/contextualize journey steps and recommendations.</td>
+    <td>Journey, steps, recommendations and conversions</td>
+    <td>PostgreSQL and scheduler queue</td>
+    <td>journeys<br>journey_steps<br>journey_conversions</td>
+    <td>Journey UI/stats</td>
+    <td>Provider usage only where a model call is observed</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Static scan did not verify step-to-asset generation or email generation; absence is not yet an execution result.</td>
+    <td>Create/trigger a synthetic journey, trace every enqueued step, and classify observed orchestration separately from asset generation.</td>
+  </tr>
+  <tr>
+    <td><strong>Learning, corpus mining and decisioning analysis</strong></td>
+    <td>app/learning</td>
+    <td>POST /api/learning/feedback<br>POST /api/learning/engagement<br>POST /api/learning/mine-corpus<br>POST /api/learning/monitor/mine-corpus<br>GET /api/learning/intelligence<br>GET /api/learning/strategy<br>GET /api/learning/optimization/[contentType]<br>POST /api/learning/agents/[id]/seed<br>POST /api/learning/agents/[id]/optimize</td>
+    <td>Learning/decision services; model calls only in some analyses</td>
+    <td>Ingest synthetic feedback/engagement and generate analysis/strategy where implemented.</td>
+    <td>Patterns, optimization and strategy data</td>
+    <td>PostgreSQL</td>
+    <td>learning_events<br>learning_patterns<br>provider_usage_ledger</td>
+    <td>Learning UI and downstream prompt context</td>
+    <td>Only observed provider-backed analyses count as generation cost</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Most endpoints are learning/analysis, not guaranteed asset generation; customer records must not be read.</td>
+    <td>Use fixture-owned events only, run endpoints individually, and record whether each performs deterministic DB work or a provider call.</td>
+  </tr>
+  <tr>
+    <td><strong>Admin incident AI analysis</strong></td>
+    <td>Admin incident detail</td>
+    <td>POST /api/admin/incidents/[id]/analysis</td>
+    <td>OpenAI through centralized accounting wrapper</td>
+    <td>Generate structured incident analysis.</td>
+    <td>Incident intelligence analysis</td>
+    <td>PostgreSQL/logs</td>
+    <td>incident records<br>provider_usage_ledger<br>cost_telemetry</td>
+    <td>Admin incident UI</td>
+    <td>Explicit configured accounting team plus actor attribution</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>No customer incident may be read; requires a synthetic fixture incident.</td>
+    <td>Create/use a synthetic incident only, invoke once, validate schema and ledger attribution, then remove fixture if authorized.</td>
+  </tr>
+  <tr>
+    <td><strong>Admin SEO report generation</strong></td>
+    <td>Admin SEO reporting</td>
+    <td>POST /api/admin/seo-report</td>
+    <td>Report/SEO services; provider use must be observed</td>
+    <td>Generate an administrative SEO report.</td>
+    <td>SEO report</td>
+    <td>Route/service dependent</td>
+    <td>provider_usage_ledger where instrumented</td>
+    <td>Admin report response/UI</td>
+    <td>Provider usage if model-backed</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Requires synthetic report inputs and admin fixture scope.</td>
+    <td>Run with synthetic/non-customer inputs, validate report and determine actual provider/cost path.</td>
+  </tr>
+  <tr>
+    <td><strong>Agency report rendering and delivery</strong></td>
+    <td>app/agency/reports</td>
+    <td>POST /api/agency/reports/generate<br>POST /api/agency/reports/[id]/approve<br>POST /api/agency/reports/[id]/send<br>GET /api/agency/reports/[id]/download</td>
+    <td>Deterministic database evidence renderer; email service for send</td>
+    <td>Render a report from stored evidence; this is not AI content generation.</td>
+    <td>Report HTML/download and optional email delivery</td>
+    <td>PostgreSQL and report artifacts</td>
+    <td>agency_reports<br>agency_report_deliveries</td>
+    <td>Download/client portal/email</td>
+    <td>No AI provider cost expected; delivery cost is separate</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Must use synthetic report evidence; sending email is prohibited in this session.</td>
+    <td>Render and download a fixture report without send, prove deterministic/no-provider behavior, and record zero provider events only if observed.</td>
+  </tr>
+  <tr>
+    <td><strong>Content publication adapters</strong></td>
+    <td>Publishing settings/jobs UI</td>
+    <td>POST /api/publishing/jobs<br>POST /api/publishing/jobs/[id]/retry</td>
+    <td>Website<br>Facebook<br>LinkedIn<br>TikTok adapters</td>
+    <td>Deliver already-generated content; no new content generation is implied.</td>
+    <td>Remote publication attempt/status</td>
+    <td>PostgreSQL and remote platform</td>
+    <td>publishing_jobs<br>publishing_connections</td>
+    <td>Remote publication</td>
+    <td>No generation provider cost expected; platform effects are separate</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md</td>
+    <td>Session forbids creating publishing connections or external publication.</td>
+    <td>Keep NOT_RUN unless a separately authorized sandbox connection exists; never infer publication from queue acceptance.</td>
+  </tr>
+  <tr>
+    <td><strong>Landing-page generation</strong></td>
+    <td>Campaign landingPageUrl input</td>
+    <td>—</td>
+    <td>—</td>
+    <td>Fresh scan found URL validation/fetch only, not generation.</td>
+    <td>No generated landing-page output identified</td>
+    <td>Existing external HTTPS URL only</td>
+    <td>campaign landingPageUrl fields</td>
+    <td>Ads reference the existing URL</td>
+    <td>No generation cost path identified</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>No executable generator was found by static scan; this has not been execution-proven NOT_TESTABLE.</td>
+    <td>Confirm route/product contract with source owner before changing status to NOT_TESTABLE; do not fabricate a provider attempt.</td>
+  </tr>
+  <tr>
+    <td><strong>AI email-campaign generation</strong></td>
+    <td>Journey/email concepts only</td>
+    <td>—</td>
+    <td>—</td>
+    <td>Fresh scan found transactional/report email and journey concepts, not an AI email campaign asset generator.</td>
+    <td>No generated email campaign identified</td>
+    <td>No generation persistence identified</td>
+    <td>—</td>
+    <td>No campaign-email export identified</td>
+    <td>No generation cost path identified</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>No executable generator was found; absence is not yet execution proof.</td>
+    <td>Confirm product contract/source routes before classifying NOT_TESTABLE.</td>
+  </tr>
+  <tr>
+    <td><strong>Live Google/Meta ad publishing and spend</strong></td>
+    <td>Campaign Ads Lab export controls</td>
+    <td>Ad approval/export routes only</td>
+    <td>—</td>
+    <td>Ads Lab generates copy but static scan found no live ad network publishing/spend operation.</td>
+    <td>Export files, not live campaigns</td>
+    <td>Campaign ad records and export artifacts</td>
+    <td>campaign_ads<br>campaign_ad_approvals</td>
+    <td>ZIP/CSV</td>
+    <td>No ad-network spend path identified</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>External ad spend is prohibited and no executable publishing adapter was found.</td>
+    <td>Retain NOT_RUN pending source-owner confirmation; test export separately without ad publication.</td>
+  </tr>
+  <tr>
+    <td><strong>Provider-backed image editing or inpainting</strong></td>
+    <td>Image regeneration controls only</td>
+    <td>Regeneration routes only</td>
+    <td>—</td>
+    <td>Fresh scan found replacement generation and local transforms, not edit/inpaint.</td>
+    <td>No edited-image contract identified</td>
+    <td>Not applicable until contract is identified</td>
+    <td>—</td>
+    <td>Not identified</td>
+    <td>No edit/inpaint price path identified</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>No executable edit/inpaint contract found; regeneration must not be mislabeled.</td>
+    <td>Confirm product/provider contract before classifying NOT_TESTABLE.</td>
+  </tr>
+  <tr>
+    <td><strong>Atomic article-to-all-channels flywheel</strong></td>
+    <td>Individual article/social/video/podcast/campaign controls</td>
+    <td>Individual APIs listed in this inventory</td>
+    <td>Multiple providers if manually orchestrated</td>
+    <td>Fresh scan found individual transformations, not one atomic all-channel generator.</td>
+    <td>No single atomic result identified</td>
+    <td>Independent pipeline stores</td>
+    <td>Independent article/social/video/podcast/campaign tables</td>
+    <td>Independent exports</td>
+    <td>Independent pipeline charges</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>No executable atomic orchestrator found; manually invoking every feature is not equivalent.</td>
+    <td>Confirm intended contract before NOT_TESTABLE classification; do not fabricate a one-click result.</td>
+  </tr>
+  <tr>
+    <td><strong>Threads and YouTube generation contracts</strong></td>
+    <td>—</td>
+    <td>—</td>
+    <td>—</td>
+    <td>Fresh scan found neither Threads nor YouTube generation contract.</td>
+    <td>No output contract identified</td>
+    <td>Not identified</td>
+    <td>—</td>
+    <td>No corresponding publisher adapter identified</td>
+    <td>No generation cost path identified</td>
+    <td><span class="status not_run">NOT_RUN</span></td>
+    <td>discovered-inventory.md static unsupported/code-only section</td>
+    <td>No route/contract found; this remains NOT_RUN pending proof rather than assumed NOT_TESTABLE.</td>
+    <td>Ask source owner to confirm intended support before final classification.</td>
+  </tr></tbody>
+      </table>
+    </div>
+
+    <h2>Actual outcome artifacts (1)</h2>
+    <p class="muted">Artifacts are escaped before rendering and sensitive-key fields are omitted. Their recorded status is displayed as evidence, not promoted to PASS.</p>
+    <div class="artifacts"><article class="artifact">
+        <h3>article-run.json</h3>
+        <p><span class="status artifact-status">failed</span></p>
+        <pre>{
+  &quot;phase&quot;: &quot;real-generation-phase-1&quot;,
+  &quot;status&quot;: &quot;failed&quot;,
+  &quot;capturedAt&quot;: &quot;2026-09-10T16:24:26.904Z&quot;,
+  &quot;teamId&quot;: 2535,
+  &quot;batchId&quot;: 626,
+  &quot;articleId&quot;: 2235,
+  &quot;live&quot;: {
+    &quot;titleGeneration&quot;: &quot;success&quot;,
+    &quot;titleCount&quot;: 5,
+    &quot;selectedCount&quot;: 1,
+    &quot;articleSubmitStatus&quot;: 202,
+    &quot;brandGateFirstStatus&quot;: 428,
+    &quot;brandGateAction&quot;: &quot;Skip for now&quot;,
+    &quot;workerTerminal&quot;: &quot;failed&quot;,
+    &quot;uiProgress&quot;: &quot;0 of 1&quot;,
+    &quot;uiArticleStatus&quot;: &quot;IN_PROGRESS&quot;,
+    &quot;uiFailure&quot;: &quot;Batch generation failed. Please check the logs or try again.&quot;
+  },
+  &quot;config&quot;: {
+    &quot;topic&quot;: &quot;Boston Home Energy Audit Checklist Before Winter&quot;,
+    &quot;sourceUrl&quot;: &quot;https://www.energy.gov/energysaver&quot;,
+    &quot;business&quot;: &quot;Harbor Home Energy&quot;,
+    &quot;wordCountMin&quot;: 500,
+    &quot;wordCountMax&quot;: 800,
+    &quot;autoPublish&quot;: false,
+    &quot;articleCostCredits&quot;: 10
+  },
+  &quot;network&quot;: {
+    &quot;interceptionInstalled&quot;: false,
+    &quot;providerCallsAllowed&quot;: true,
+    &quot;batchSubmitLive&quot;: true
+  },
+  &quot;db&quot;: [
+    {
+      &quot;batch_id&quot;: 626,
+      &quot;batch_status&quot;: &quot;FAILED&quot;,
+      &quot;created_at&quot;: &quot;2026-09-10T16:20:17.651Z&quot;,
+      &quot;completed_at&quot;: &quot;2026-09-10T16:24:08.495Z&quot;,
+      &quot;article_id&quot;: 2235,
+      &quot;article_status&quot;: &quot;FAILED&quot;,
+      &quot;error_message&quot;: &quot;Article generation failed. Please retry.&quot;,
+      &quot;article_created_at&quot;: &quot;2026-09-10T16:23:11.340Z&quot;,
+      &quot;article_updated_at&quot;: &quot;2026-09-10T16:23:11.688Z&quot;
+    }
+  ]
+}</pre>
+      </article></div>
+  </main>
+</body>
+</html>

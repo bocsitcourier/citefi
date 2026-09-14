@@ -61,6 +61,8 @@ export interface PipelineBilling {
   /** Optional idempotency key for the release */
   releaseKey?: string;
   reason?: string;
+  /** Pending usage-cap reservation paired with this paid run. */
+  capReservationId?: number | null;
 }
 
 /**
@@ -286,6 +288,7 @@ export interface PipelineWorkerOptions<T> {
   _deps?: {
     releaseReservation?: (args: { teamId: number; runId: string; userId?: number; amount?: number; releaseKey?: string; reason: string }) => Promise<unknown>;
     markReservationForReconciliation?: (args: { teamId: number; runId: string; reason: string }) => Promise<unknown>;
+    cancelCapReservation?: (reservationId: number) => Promise<unknown>;
     recordProviderFailure?: (queueName: string, error: PipelineError) => Promise<unknown>;
   };
   /** Worker-level test controls for deterministic lock/stall integration tests. */
@@ -524,6 +527,12 @@ export function createPipelineHandler<T>(
                 releaseKey: billing.releaseKey,
                 reason: failureReason,
               });
+              if (billing.capReservationId != null) {
+                const cancelCap =
+                  opts._deps?.cancelCapReservation ??
+                  (await import("./usage-caps")).cancelCapReservation;
+                await cancelCap(billing.capReservationId);
+              }
             }
           }
         } catch (releaseErr) {

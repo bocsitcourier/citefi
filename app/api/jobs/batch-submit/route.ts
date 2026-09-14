@@ -129,13 +129,35 @@ export async function POST(request: NextRequest) {
               message: `The retained queue job is ${jobState}; batch reconciliation is required.`,
             }, { status: 503 });
           }
-          await db.update(jobBatches).set({
-            status: "QUEUED",
+          const recorded = await recordBatchEnqueueAccepted({
+            batchId,
+            teamId,
             generationParams: {
               ...params,
               submission: { ...submission, state: "ACCEPTED", jobId: acceptedJobId },
             },
-          }).where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
+          });
+          if (!recorded) {
+            const [current] = await db.select({ status: jobBatches.status })
+              .from(jobBatches)
+              .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)))
+              .limit(1);
+            if (["CANCELLED", "FAILED"].includes(current?.status ?? "")) {
+              return NextResponse.json(
+                { error: `Batch is terminal (${current?.status}) and cannot be resurrected` },
+                { status: 409 },
+              );
+            }
+            if (!["RUNNING", "PARTIAL_COMPLETE", "COMPLETE"].includes(current?.status ?? "")) {
+              return NextResponse.json({
+                success: false,
+                pending: true,
+                retryable: false,
+                code: "BATCH_ENQUEUE_CONFIRMATION_PENDING",
+                message: "Queue acceptance is durable, but batch state reconciliation is still pending.",
+              }, { status: 503 });
+            }
+          }
           return NextResponse.json({
             success: true,
             replayed: true,

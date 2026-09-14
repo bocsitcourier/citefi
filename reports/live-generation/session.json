@@ -1,0 +1,185 @@
+{
+  "fixtureLabel": "LIVE GENERATION QA 2026-09-10",
+  "generatedAt": "2026-09-10T16:17:18.017Z",
+  "isolation": {
+    "developmentOnly": true,
+    "syntheticIdentity": true,
+    "noProviderCallsMade": true,
+    "noEmailsSent": true,
+    "noPublishingConnectionsCreated": true,
+    "targetUrl": "https://www.energy.gov/energysaver",
+    "actualAffiliation": false
+  },
+  "identity": {
+    "userId": 10794,
+    "userPublicId": "26091000-0000-4000-8000-000000000001",
+    "loginHandle": "live-generation-qa-2026-09-10@example.invalid",
+    "accountStatus": "active",
+    "emailVerified": true,
+    "twoFactorEnabled": false
+  },
+  "team": {
+    "teamId": 2535,
+    "teamPublicId": "26091000-0000-4000-8000-000000000002",
+    "membershipRole": "admin",
+    "billingPlan": "enterprise",
+    "billingStatus": "active"
+  },
+  "generationDraft": {
+    "batchId": 622,
+    "batchPublicId": "26091000-0000-4000-8000-000000000003",
+    "status": "PENDING",
+    "businessName": "Harbor Home Energy",
+    "businessDescription": "Fictitious Boston home energy audit business",
+    "targetUrl": "https://www.energy.gov/energysaver",
+    "actualAffiliation": false,
+    "autoPublishEnabled": false
+  },
+  "accounting": {
+    "legacyBalance": 5000,
+    "allowanceRemaining": 0,
+    "purchasedRemaining": 5000,
+    "reservedCredits": 0,
+    "availableCredits": 5000,
+    "grantLedgerRowId": 1389,
+    "monthlyCapCents": 5000,
+    "monthlyCapUsd": 50,
+    "hardStop": true,
+    "creditGrantRequested": 5000,
+    "grantResultBalance": 5000,
+    "fixtureProviderLedgerBaseline": {
+      "eventCount": 0,
+      "costMicrousd": 0,
+      "unpricedCount": 0
+    },
+    "globalProviderLedgerBaseline": {
+      "eventCount": 33,
+      "costMicrousd": 3101825001,
+      "unpricedCount": 4
+    }
+  },
+  "pricingCoverage": {
+    "gemini": [
+      {
+        "model": "gemini-3.5-flash",
+        "covered": true,
+        "unitTypes": [
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      },
+      {
+        "model": "gemini-3.1-pro-preview",
+        "covered": true,
+        "unitTypes": [
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      },
+      {
+        "model": "gemini-2.5-flash-lite",
+        "covered": true,
+        "unitTypes": [
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      },
+      {
+        "model": "gemini-2.5-flash-image",
+        "covered": true,
+        "unitTypes": [
+          "images",
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      }
+    ],
+    "openai": [
+      {
+        "model": "gpt-4.1-mini",
+        "covered": true,
+        "unitTypes": [
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      },
+      {
+        "model": "gpt-4.1",
+        "covered": true,
+        "unitTypes": [
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      },
+      {
+        "model": "gpt-4o-mini-tts",
+        "covered": true,
+        "unitTypes": [
+          "characters",
+          "tokens"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing",
+          "https://platform.openai.com/docs/pricing"
+        ]
+      }
+    ],
+    "veo": [
+      {
+        "model": "veo-3.1-fast-generate-preview",
+        "covered": true,
+        "unitTypes": [
+          "seconds"
+        ],
+        "rateVersions": [
+          "2026-08-22"
+        ],
+        "evidenceUrls": [
+          "https://ai.google.dev/gemini-api/docs/pricing"
+        ]
+      }
+    ]
+  },
+  "httpConfirmation": {
+    "attempted": true,
+    "baseUrl": "http://localhost:5000",
+    "loginStatus": 200,
+    "meStatus": 200,
+    "confirmed": true
+  },
+  "credentialFile": ".local/test-fixtures/live-generation.json",
+  "credentialFileMode": "0600"
+}

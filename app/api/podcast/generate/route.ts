@@ -7,12 +7,17 @@ import {
   PodcastEnqueueUncertainError,
 } from "@/lib/queue";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
-import { reserveCredits, releaseReservation } from "@/lib/billing";
+import {
+  reserveCredits,
+  releaseReservation,
+  markReservationForReconciliation,
+} from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
 
 export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
+  let preserveCapReservation = false;
   try {
     return await withAuthenticatedTeamContext(request, async ({ userId, teamId }) => {
     try {
@@ -156,11 +161,13 @@ export async function POST(request: NextRequest) {
         teamId,
         userId,
         creditRunId,
+        capReservationId,
       });
     } catch (startErr) {
       if (startErr instanceof PodcastEnqueueUncertainError) {
         // Redis may have accepted the deterministic job. Keep article lock,
         // credit hold, and cap reservation intact until reconciliation.
+        preserveCapReservation = true;
         return NextResponse.json(
           {
             success: false,
@@ -173,13 +180,42 @@ export async function POST(request: NextRequest) {
           { status: 202 }
         );
       }
-      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-      await releaseReservation({
-        teamId,
-        runId: creditRunId,
-        userId,
-        reason: `Release: podcast start failure for article ${articleId}`,
-      }).catch(() => {});
+      try {
+        await releaseReservation({
+          teamId,
+          runId: creditRunId,
+          userId,
+          reason: `Release: podcast proven enqueue rejection for article ${articleId}`,
+        });
+      } catch (releaseError) {
+        preserveCapReservation = true;
+        await markReservationForReconciliation({
+          teamId,
+          runId: creditRunId,
+          reason: `Podcast enqueue was rejected but reservation release failed for article ${articleId}: ${
+            releaseError instanceof Error ? releaseError.message : String(releaseError)
+          }`,
+        });
+        await db.update(articles).set({
+          podcastStatus: "reconciliation_required",
+          errorMessage: "Podcast enqueue failed and its billing hold requires reconciliation",
+          updatedAt: new Date(),
+        }).where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)));
+        return NextResponse.json(
+          {
+            success: false,
+            code: "RECONCILIATION_REQUIRED",
+            error: "Podcast billing hold requires reconciliation",
+            articleId,
+            status: "reconciliation_required",
+          },
+          { status: 202 }
+        );
+      }
+      if (capReservationId !== null) {
+        await cancelCapReservation(capReservationId);
+        capReservationId = null;
+      }
       throw startErr;
     }
 
@@ -191,7 +227,9 @@ export async function POST(request: NextRequest) {
       status: "pending",
     });
     } catch (error) {
-      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      if (!preserveCapReservation && capReservationId !== null) {
+        cancelCapReservation(capReservationId).catch(() => {});
+      }
       throw error;
     }
     });

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { creditReservations } from "@/shared/schema";
+import { db, getTxDb } from "@/lib/db";
+import { creditReservations, usageEvents } from "@/shared/schema";
 import {
   debitReservation,
   markReservationForReconciliation,
@@ -117,25 +117,59 @@ async function assertNoUnresolvedAttempt(
   }
 }
 
-async function claimProviderEntry(teamId: number, runId: string, claimToken: string): Promise<boolean> {
-  const now = new Date();
-  const claimed = await db
-    .update(creditReservations)
-    .set({
-      requestKey: claimToken,
-      reconciliationRequiredAt: now,
-      reconciliationReason: "direct_image_provider_entry_or_settlement_pending",
-      updatedAt: now,
-    })
-    .where(and(
-      eq(creditReservations.teamId, teamId),
-      eq(creditReservations.runId, runId),
-      eq(creditReservations.status, "RESERVED"),
-      sql`${creditReservations.requestKey} IS NULL`,
-      sql`${creditReservations.reconciliationRequiredAt} IS NULL`,
-    ))
-    .returning({ id: creditReservations.id });
-  return claimed.length === 1;
+type ProviderEntryClaim = "claimed" | "same_run_claimed" | "resource_busy";
+
+async function claimProviderEntry(
+  teamId: number,
+  resourceType: string,
+  resourceId: number,
+  runId: string,
+  claimToken: string,
+): Promise<ProviderEntryClaim> {
+  const prefix = resourcePrefix(resourceType, resourceId);
+  const txDb = await getTxDb();
+  return txDb.transaction(async (tx) => {
+    // Serialize only the short claim transaction. The provider call happens
+    // after commit, while the flagged reservation row acts as the durable lease.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${teamId}:${resourceType}:${resourceId}`}, 0))`,
+    );
+    const [otherClaim] = await tx
+      .select({ runId: creditReservations.runId })
+      .from(creditReservations)
+      .where(and(
+        eq(creditReservations.teamId, teamId),
+        eq(creditReservations.status, "RESERVED"),
+        sql`starts_with(${creditReservations.runId}, ${prefix})`,
+        sql`(
+          ${creditReservations.requestKey} IS NOT NULL
+          OR ${creditReservations.reconciliationRequiredAt} IS NOT NULL
+        )`,
+      ))
+      .limit(1);
+    if (otherClaim) {
+      return otherClaim.runId === runId ? "same_run_claimed" : "resource_busy";
+    }
+
+    const now = new Date();
+    const claimed = await tx
+      .update(creditReservations)
+      .set({
+        requestKey: claimToken,
+        reconciliationRequiredAt: now,
+        reconciliationReason: "direct_image_provider_entry_or_settlement_pending",
+        updatedAt: now,
+      })
+      .where(and(
+        eq(creditReservations.teamId, teamId),
+        eq(creditReservations.runId, runId),
+        eq(creditReservations.status, "RESERVED"),
+        sql`${creditReservations.requestKey} IS NULL`,
+        sql`${creditReservations.reconciliationRequiredAt} IS NULL`,
+      ))
+      .returning({ id: creditReservations.id });
+    return claimed.length === 1 ? "claimed" : "same_run_claimed";
+  });
 }
 
 async function clearOwnedProviderEntryFlag(
@@ -159,6 +193,25 @@ async function clearOwnedProviderEntryFlag(
     ))
     .returning({ id: creditReservations.id });
   return cleared.length === 1;
+}
+
+async function settleCapReservation(
+  teamId: number,
+  reservationId: number,
+  runId: string,
+): Promise<void> {
+  const settled = await db
+    .update(usageEvents)
+    .set({ status: "completed", units: 1, jobId: runId })
+    .where(and(
+      eq(usageEvents.id, reservationId),
+      eq(usageEvents.teamId, teamId),
+      eq(usageEvents.status, "pending"),
+    ))
+    .returning({ id: usageEvents.id });
+  if (settled.length !== 1) {
+    throw new Error("Pending usage cap reservation could not be settled");
+  }
 }
 
 /**
@@ -186,6 +239,7 @@ export async function runDirectImageOperation<Generated, Persisted>(params: {
     markReconciliation?: typeof markReservationForReconciliation;
     debit?: typeof debitReservation;
     recordUsage?: typeof recordUsageEvent;
+    settleCap?: typeof settleCapReservation;
     cancelCap?: typeof cancelCapReservation;
   };
 }): Promise<Persisted> {
@@ -245,14 +299,17 @@ export async function runDirectImageOperation<Generated, Persisted>(params: {
     creditHeld = true;
 
     const claimToken = randomUUID();
-    const ownsProviderEntry = await (_deps.claimProviderEntry ?? claimProviderEntry)(
+    const providerEntryClaim = await (_deps.claimProviderEntry ?? claimProviderEntry)(
       teamId,
+      resourceType,
+      resourceId,
       runId,
       claimToken,
     );
-    if (!ownsProviderEntry) {
-      // This hold belongs to the concurrent winner. The loser must not release it.
-      creditHeld = false;
+    if (providerEntryClaim !== "claimed") {
+      // Same-run callers share the winner's hold and must not release it.
+      // A cross-version loser owns a distinct hold, which the catch path releases.
+      if (providerEntryClaim === "same_run_claimed") creditHeld = false;
       throw new DirectImageOperationError(
         "Image generation is already in progress for this resource",
         409,
@@ -330,16 +387,28 @@ export async function runDirectImageOperation<Generated, Persisted>(params: {
     }
     creditHeld = false;
 
-    await (_deps.recordUsage ?? recordUsageEvent)({
-      teamId,
-      action: "cap_reservation",
-      units: 1,
-      costEstimateCents: creditCost,
-      jobId: runId,
-    }).catch(() => undefined);
     if (capReservationId !== null) {
-      await (_deps.cancelCap ?? cancelCapReservation)(capReservationId).catch(() => undefined);
+      try {
+        await (_deps.settleCap ?? settleCapReservation)(teamId, capReservationId, runId);
+      } catch {
+        // The completed image and debit are durable, but the pending cap must
+        // remain conservative until usage accounting is repaired.
+        throw new DirectImageOperationError(
+          "Image was stored but usage-cap settlement is pending",
+          503,
+          "USAGE_CAP_SETTLEMENT_PENDING",
+          { runId },
+        );
+      }
       capReservationId = null;
+    } else {
+      await (_deps.recordUsage ?? recordUsageEvent)({
+        teamId,
+        action: "cap_reservation",
+        units: 1,
+        costEstimateCents: creditCost,
+        jobId: runId,
+      });
     }
     return persisted;
   } catch (error) {

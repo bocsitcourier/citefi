@@ -1,0 +1,80 @@
+{
+  "article": {
+    "id": 2235,
+    "batchId": 626,
+    "targetUrl": "https://www.energy.gov/energysaver",
+    "status": "GEMINI_COMPLETE",
+    "title": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+    "heroImageUrl": "/api/public-objects/private/articles/2235/image/1789058413428-hero-image-2235-1789058413424.png",
+    "seoTitle": "Boston, MA Winter Home Energy Audit Checklist | Guide",
+    "metaDescription": "Follow this professional winter home energy audit checklist for Boston, Massachusetts properties to reduce heat loss and lower utility bills in 2026.",
+    "slug": "boston-winter-home-energy-audit-checklist",
+    "keywords": [
+      "comprehensive home energy assessment",
+      "winter energy savings checklist",
+      "diy home draft detection",
+      "professional energy audit guide",
+      "boston home heating efficiency",
+      "reducing winter utility bills"
+    ],
+    "hashtags": [
+      "#BostonHome",
+      "#EnergyAudit",
+      "#WinterChecklist",
+      "#EnergyEfficiency",
+      "#HomeMaintenance",
+      "#BostonMassachusetts",
+      "#MassSave",
+      "#Weatherization",
+      "#SaveEnergy",
+      "#HeaterEfficiency",
+      "#DraftDetection",
+      "#GreenLivingBoston"
+    ],
+    "faq": [
+      {
+        "answer": "Property owners can pinpoint cold air leaks by performing [diy home draft detection](https://www.energy.gov/energysaver) near common entry points. Using an incense stick or a thermal leak detector along window frames, baseboards, and exterior doors will reveal hidden gaps. Sealing these zones immediately improves seasonal comfort.",
+        "question": "How do I find drafts in my Boston home?"
+      },
+      {
+        "answer": "Local energy codes recommend maintaining at least twelve inches of insulation to maximize thermal performance. Upgrading your attic spaces ensures [boston home heating efficiency](https://www.energy.gov/energysaver) remains consistent throughout the sub-freezing season. This simple improvement prevents heat from escaping through the roof.",
+        "question": "What is the recommended attic insulation thickness for winter?"
+      },
+      {
+        "answer": "It is best to arrange a [comprehensive home energy assessment](https://www.energy.gov/energysaver) in early autumn before winter weather settles in. However, scheduling an evaluation during winter is still highly beneficial for identifying active thermal leaks. Certified professionals use specialized diagnostic equipment to detect hidden issues.",
+        "question": "When should I schedule a professional energy audit?"
+      },
+      {
+        "answer": "A structured checklist helps prioritize the most critical sealing and insulation tasks on your property. By systematically [reducing winter utility bills](https://www.energy.gov/energysaver), homeowners protect their heating systems from excessive wear and tear. This proactive maintenance significantly lowers monthly operational expenses.",
+        "question": "How does a winter checklist lower heating costs?"
+      },
+      {
+        "answer": "Yes, historic homes require specialized auditing techniques that respect original building materials while addressing thermal vulnerabilities. Building specialists use non-invasive tools to create a tailored [professional energy audit guide](https://www.energy.gov/energysaver) for older architectural styles. This ensures preservation and modern efficiency coexist.",
+        "question": "Can historic Boston homes undergo modern energy audits?"
+      }
+    ],
+    "wordCount": 749,
+    "htmlContent": "\"\n        ```\n        Wait! Look at the prompt's input text:\n        `How does air sealing protect my home's structural health?`\n        `Proper air sealing prevents warm, moist indoor air from escaping into cold attic spaces. This reduces the risk of condensation, mold growth, and ice dam formation, thereby preserving your home structural health over the long term.`\n        Wait, in my copy of the prompt, the text *does* have the full sentence:\n        `This reduces the risk of condensation, mold growth, and ice dam formation, thereby preserving your home structural health over the long term.`\n        But wait, is there a cut-off in the JSON-LD or in the text?\n        Let's look at the JSON-LD:\n        ```json\n        {\n          \"@type\": \"Question\",\n          \"name\": \"How does air sealing protect my home's structural health?\",\n          \"acceptedAnswer\": {\n            \"@type\": \"Answer\",\n            \"text\": \"Proper air sealing prevents warm, moist indoor air from escaping into cold attic spaces. This reduces the risk of condensation, mold growth, and ice dam formation, thereby preserving your home structural health over the long term.\"\n          }\n        }\n        ```\n        Wait, is there a missing closing tag or something? No, it's closed.\n        Wait, let's look at the prompt's instruction again:\n        \"- The content is cut off — complete the final section properly. (no terminal punctuation — likely cut off)\"\n",
+    "seoScore": null,
+    "hyperlinkedKeywords": null,
+    "metaEnrichment": null,
+    "podcastUrl": null,
+    "podcastDuration": null,
+    "podcastStatus": "none",
+    "podcastGeneratedAt": null,
+    "podcastScriptJson": null,
+    "businessName": "Harbor Home Energy",
+    "createdAt": "2026-09-10T16:23:11.340Z",
+    "updatedAt": "2026-09-10T16:39:36.867Z"
+  },
+  "assets": [
+    {
+      "id": 5026,
+      "url": "/api/public-objects/private/articles/2235/image/1789058413428-hero-image-2235-1789058413424.png",
+      "altText": "Hero image - Professional hero image for article: How to Run a Boston, Massachusetts Home Energy Audit: Winter Ch",
+      "prompt": "Professional hero image for article: How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist. High quality, photorealistic, modern, relevant to the topic.",
+      "format": "png"
+    }
+  ],
+  "exportedAt": "2026-09-10T16:41:02.852Z"
+}

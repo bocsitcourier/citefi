@@ -185,8 +185,6 @@ export async function POST(
     };
     if (authenticatedAuth) {
       await runWithAuthenticatedTeamContext(authenticatedAuth, recordFailure);
-    } else {
-      await recordFailure();
     }
 
     return NextResponse.json(

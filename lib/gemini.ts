@@ -914,6 +914,26 @@ export interface ArticleGenerationResult {
   factValidation?: FactValidationResult;
 }
 
+export function buildArticleGenerationTelemetryContext(args: {
+  model: string;
+  teamId: number;
+  batchId?: number;
+  articleId: number;
+  providerRequestId?: string | null;
+}) {
+  return {
+    operationType: "article_generation" as const,
+    provider: "gemini" as const,
+    model: args.model,
+    teamId: args.teamId,
+    batchId: args.batchId,
+    articleId: args.articleId,
+    resourceType: "article",
+    resourceId: args.articleId,
+    providerRequestId: args.providerRequestId ?? null,
+  };
+}
+
 export async function generateArticleContent(
   title: string,
   targetUrl: string,
@@ -935,6 +955,9 @@ export async function generateArticleContent(
 ): Promise<ArticleGenerationResult> {
   if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated teamId");
+  }
+  if (!Number.isInteger(articleId) || (articleId ?? 0) <= 0) {
+    throw new Error("Article generation requires a validated articleId");
   }
   // Dynamic year for freshness signals
   const currentYear = new Date().getFullYear();
@@ -1690,9 +1713,13 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   if (result?.usageMetadata) {
     const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
     await logCostTelemetry(
-      { operationType: "article_generation", provider: "gemini", model,
-        teamId, batchId, articleId, resourceType: "article", resourceId: articleId,
-        providerRequestId: (result as any).responseId ?? null },
+      buildArticleGenerationTelemetryContext({
+        model,
+        teamId: teamId!,
+        batchId,
+        articleId: articleId!,
+        providerRequestId: (result as any).responseId ?? null,
+      }),
       extractGeminiUsage(result), 0, true
     );
   }
@@ -1868,8 +1895,12 @@ export async function generateArticleWithGemini(
   batchId?: number,
   teamId?: number,
   personaId?: number,
-  shadowRunPlan?: ArticleShadowRunPlan
+  shadowRunPlan?: ArticleShadowRunPlan,
+  articleId?: number,
 ): Promise<AdvancedArticleResult> {
+  if (!Number.isInteger(articleId) || (articleId ?? 0) <= 0) {
+    throw new Error("Article generation requires a validated articleId");
+  }
   const result = await generateArticleContent(
     title,
     targetUrl,
@@ -1885,7 +1916,7 @@ export async function generateArticleWithGemini(
     teamId,
     personaId,
     undefined, // enableFactValidation
-    undefined, // articleId
+    articleId,
     serpFeatureTarget,
     shadowRunPlan
   );

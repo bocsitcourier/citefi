@@ -3,7 +3,10 @@ import test from "node:test";
 import { Queue } from "bullmq";
 import Redis from "ioredis";
 
-const { addPodcastGenerationJob } = await import("../lib/queue");
+const {
+  addPodcastGenerationJob,
+  podcastGenerationJobIdCandidates,
+} = await import("../lib/queue");
 
 void test("podcast helper uses a legal deterministic ID with a real isolated Queue.add", async () => {
   const port = Number(process.env.LOCAL_TEST_REDIS_PORT ?? "6379");
@@ -19,6 +22,10 @@ void test("podcast helper uses a legal deterministic ID with a real isolated Que
   const queueName = `test-podcast-add-${Date.now()}-${process.pid}`;
   const queue = new Queue(queueName, { connection });
   const creditRunId = "podcast:4242:request-key-with-extra:colons";
+  const candidates = podcastGenerationJobIdCandidates(4242, creditRunId);
+  assert.equal(candidates.length, 2);
+  assert.match(candidates[0]!, /^podcast:4242:[a-f0-9]{64}$/);
+  assert.equal(candidates[1], "podcast:4242");
 
   try {
     const jobId = await addPodcastGenerationJob(

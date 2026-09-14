@@ -166,6 +166,40 @@ void test("direct provider SDK submissions have adjacent centralized or immutabl
     }
   }
   assert.deepEqual(violations, []);
+
+  const gemini = readFileSync("lib/gemini.ts", "utf8");
+  const worker = readFileSync("lib/worker.ts", "utf8");
+  const regenerateRoute = readFileSync("app/api/articles/[id]/regenerate/route.ts", "utf8");
+  assert.match(
+    gemini,
+    /buildArticleGenerationTelemetryContext\([\s\S]*batchId: args\.batchId[\s\S]*articleId: args\.articleId[\s\S]*resourceId: args\.articleId/,
+    "article telemetry must keep distinct batch and article ownership IDs",
+  );
+  assert.match(
+    worker,
+    /articlePersonaId,[\s\S]{0,200}shadowRunPlan,[\s\S]{0,200}articleId\s*\/\/ Immutable provider accounting content attribution/,
+    "the production article worker must pass the trusted article ID to Gemini accounting",
+  );
+  assert.match(
+    worker,
+    /requiresProviderReconciliation[\s\S]*markReservationForReconciliation[\s\S]*checkBatchCompletion\(batchId\)/,
+    "paid provider accounting failures must establish a billing hold before batch cleanup",
+  );
+  assert.match(
+    regenerateRoute,
+    /reserveCredits\([\s\S]*creditRunId[\s\S]*await addArticleJob\([\s\S]*creditRunId,[\s\S]*creditCostPerUnit: creditCost[\s\S]*capReservationId/,
+    "article regeneration must reserve canonical credits and pass its own billing identity before enqueue",
+  );
+  assert.match(
+    regenerateRoute,
+    /X-Idempotency-Key[\s\S]*findArticleGenerationJob\(runId\)[\s\S]*ArticleEnqueueUncertainError[\s\S]*markReservationForReconciliation/,
+    "article regeneration replay and ambiguous enqueue must preserve one billing owner",
+  );
+  assert.match(
+    worker,
+    /articleCapReservationId[\s\S]*completeCapReservation\([\s\S]*reservationId: articleCapReservationId/,
+    "regeneration's pending spending-cap reservation must settle with worker delivery",
+  );
 });
 
 void test("provider boundaries never swallow immutable accounting failures", () => {
@@ -266,7 +300,7 @@ void test("OpenAI TTS helpers propagate accounting failures unchanged", () => {
   }
 });
 
-void test("accounting failures are explicit and retain provider failures as cause", () => {
+void test("accounting failures are explicit, retain cause, and hold billing without retry", async () => {
   const providerError = new Error("provider timed out");
   const ledgerError = new Error("ledger unavailable");
   const error = new ProviderAccountingError(
@@ -279,6 +313,58 @@ void test("accounting failures are explicit and retain provider failures as caus
   assert.equal(error.cause, providerError);
   assert.equal(error.accountingError, ledgerError);
   assert.match(error.message, /accounting failed/i);
+
+  const { createPipelineHandler } = await import("../lib/pipeline-worker");
+  let holds = 0;
+  let releases = 0;
+  const handler = createPipelineHandler(
+    "article-generation",
+    async () => { throw error; },
+    {
+      stage: "text_gen",
+      execution: undefined as never,
+      getBilling: () => ({ teamId: 2535, runId: "batch:626:test", amount: 10 }),
+      _deps: {
+        recordProviderFailure: async () => {},
+        markReservationForReconciliation: async () => { holds += 1; },
+        releaseReservation: async () => { releases += 1; },
+      },
+    },
+  );
+  await assert.rejects(
+    () => handler({ id: "article-2235", data: {}, attemptsMade: 0, opts: { attempts: 3 } } as any),
+    /PROVIDER_ACCOUNTING_FAILED/,
+  );
+  assert.equal(holds, 1, "paid provider accounting failure must retain a reconciliation hold");
+  assert.equal(releases, 0, "paid provider accounting failure must never release credits");
+
+  let capCancellations = 0;
+  const ordinaryFailureHandler = createPipelineHandler(
+    "article-generation",
+    async () => { throw new Error("generation rejected"); },
+    {
+      stage: "text_gen",
+      execution: undefined as never,
+      getBilling: () => ({
+        teamId: 2535,
+        runId: "article-regeneration:2235:test",
+        amount: 10,
+        capReservationId: 42,
+      }),
+      _deps: {
+        recordProviderFailure: async () => {},
+        releaseReservation: async () => { releases += 1; },
+        cancelCapReservation: async () => { capCancellations += 1; },
+      },
+    },
+  );
+  await assert.rejects(
+    () => ordinaryFailureHandler(
+      { id: "article-2235-regeneration", data: {}, attemptsMade: 2, opts: { attempts: 3 } } as any
+    ),
+  );
+  assert.equal(releases, 1, "final rejected regeneration must release only its own reservation");
+  assert.equal(capCancellations, 1, "final rejected regeneration must release its pending cap hold");
 });
 
 void test("optional provider fallbacks rethrow immutable accounting failures", () => {

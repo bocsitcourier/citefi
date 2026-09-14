@@ -725,11 +725,10 @@ export async function releaseReservation(params: {
       throw new Error(`[billing] authoritative reservation missing for teamId=${teamId} runId=${runId}`);
     }
     if (ownedReservation.reconciliationRequiredAt) {
-      console.warn(
-        `[billing] Automatic release refused for runId=${runId} teamId=${teamId}: ` +
-        `reservation requires explicit reconciliation (${ownedReservation.reconciliationReason ?? "reason unavailable"})`
+      throw new ReservationReconciliationRequiredError(
+        runId,
+        ownedReservation.reconciliationReason
       );
-      return;
     }
     // Omitted amount settles only this run's authoritative remainder.
     const amount = params.amount ?? ownedReservation.remainingAmount;

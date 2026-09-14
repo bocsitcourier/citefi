@@ -129,6 +129,10 @@ export async function GET(
         pending: batchArticles.filter(a => a.articleStatus === "PENDING").length,
         failed: batchArticles.filter(a => a.articleStatus === "FAILED").length,
       },
+    }, {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+      },
     });
       });
   } catch (error: any) {

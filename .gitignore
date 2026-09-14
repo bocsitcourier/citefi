@@ -23,6 +23,7 @@ tsconfig.tsbuildinfo
 # Test output
 test-results/
 playwright-report/
+/.local/test-fixtures/
 
 # SSH keys (never commit these)
 DO_SSH_PRIVATE_KEY.txt

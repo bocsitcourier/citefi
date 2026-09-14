@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { articles, jobBatches, jobEvents } from "@/shared/schema";
-import { eq, and } from "drizzle-orm";
-import { addArticleJob } from "@/lib/queue";
+import { articles, creditReservations, jobBatches, jobEvents } from "@/shared/schema";
+import { eq, and, sql } from "drizzle-orm";
+import {
+  addArticleJob,
+  ArticleEnqueueUncertainError,
+  findArticleGenerationJob,
+} from "@/lib/queue";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import {
+  markReservationForReconciliation,
+  releaseReservation,
+  reserveCredits,
+} from "@/lib/billing";
+import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
+import { getCreditCost, getEffectiveCreditCost } from "@/lib/credit-menu";
+import { cancelCapReservation, checkUsageCap } from "@/lib/usage-caps";
+import { createHash } from "node:crypto";
 
 export async function POST(
   request: NextRequest,
@@ -12,7 +25,7 @@ export async function POST(
   try {
     // CRITICAL: Verify authentication and get team context
     return await withAuthenticatedTeamContext(request, async (auth) => {
-      const { teamId } = auth;
+      const { teamId, userId } = auth;
 
     const { id } = await context.params;
     const articleId = parseInt(id);
@@ -28,6 +41,8 @@ export async function POST(
     // Fall back to an empty object so customInstructions is simply undefined.
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const { customInstructions } = body as { customInstructions?: string };
+    const rawRequestKey = request.headers.get("X-Idempotency-Key") ?? crypto.randomUUID();
+    const requestKey = createHash("sha256").update(rawRequestKey).digest("hex");
 
     // CRITICAL: Verify article belongs to user's team
     const [article] = await db
@@ -81,7 +96,120 @@ export async function POST(
     const wordCountMax = generationParams.wordCountMax || 2000;
     const personaId = generationParams.personaId || undefined;
 
-    // CRITICAL: Reset article fields with team filter
+    const creditCost =
+      (await getEffectiveCreditCost("article", teamId)) ??
+      getCreditCost("article") ??
+      10;
+    const creditRunId = `article-regeneration:${articleId}:${requestKey}`;
+    const runId = `regeneration:${articleId}:${requestKey}`;
+
+    // Stable request identity prevents a network retry from purchasing and
+    // enqueueing a second regeneration.
+    const [existingReservation] = await db
+      .select({ status: creditReservations.status })
+      .from(creditReservations)
+      .where(and(
+        eq(creditReservations.teamId, teamId),
+        eq(creditReservations.runId, creditRunId),
+      ))
+      .limit(1);
+    if (existingReservation) {
+      const existingJob = await findArticleGenerationJob(runId);
+      if (existingJob || existingReservation.status === "DEBITED") {
+        return NextResponse.json({
+          success: true,
+          replayed: true,
+          articleId,
+          status: existingReservation.status === "DEBITED" ? "COMPLETE" : article.articleStatus,
+          jobId: existingJob?.id,
+        });
+      }
+      return NextResponse.json({
+        error: "Article regeneration billing/queue state requires reconciliation",
+        code: "RECONCILIATION_REQUIRED",
+        articleId,
+        runId: creditRunId,
+      }, { status: 409 });
+    }
+
+    const [pendingReconciliation] = await db
+      .select({ runId: creditReservations.runId })
+      .from(creditReservations)
+      .where(and(
+        eq(creditReservations.teamId, teamId),
+        eq(creditReservations.status, "RESERVED"),
+        sql`${creditReservations.reconciliationRequiredAt} IS NOT NULL`,
+        sql`${creditReservations.runId} LIKE ${`article-regeneration:${articleId}:%`}`,
+      ))
+      .limit(1);
+    if (pendingReconciliation) {
+      return NextResponse.json({
+        error: "Article regeneration is pending billing/queue reconciliation",
+        code: "RECONCILIATION_REQUIRED",
+        articleId,
+        runId: pendingReconciliation.runId,
+      }, { status: 409 });
+    }
+
+    if (article.articleStatus === "PENDING" || article.articleStatus === "IN_PROGRESS") {
+      return NextResponse.json({
+        error: "Article regeneration is already in progress",
+        articleId,
+        status: article.articleStatus,
+      }, { status: 409 });
+    }
+
+    const paywall = await checkTeamPaywall(teamId);
+    if (!paywall.allowed) {
+      return NextResponse.json(paywallErrorBody(paywall), { status: 402 });
+    }
+
+    let capReservationId: number | null = null;
+    try {
+      capReservationId = await checkUsageCap(teamId, creditCost, batch.campaignId ?? null);
+    } catch (capError: any) {
+      if (capError?.code !== "SPENDING_CAP_EXCEEDED") throw capError;
+      return NextResponse.json({
+        error: capError.message,
+        code: "SPENDING_CAP_EXCEEDED",
+        spendingCapGate: true,
+      }, { status: 402 });
+    }
+
+    let reservation: Awaited<ReturnType<typeof reserveCredits>>;
+    try {
+      reservation = await reserveCredits({
+        teamId,
+        operationType: "article",
+        runId: creditRunId,
+        amount: creditCost,
+        userId,
+      });
+    } catch (reservationError) {
+      if (capReservationId !== null) {
+        await cancelCapReservation(capReservationId).catch(() => {});
+      }
+      throw reservationError;
+    }
+    if (!reservation.ok) {
+      if (capReservationId !== null) {
+        await cancelCapReservation(capReservationId).catch(() => {});
+      }
+      return NextResponse.json({
+        error: "CREDITS_EXHAUSTED",
+        creditCost: reservation.requiredCredits,
+        sufficient: false,
+        allowanceRemaining: reservation.allowanceRemaining,
+        purchasedRemaining: reservation.purchasedRemaining,
+        totalRemaining: reservation.totalRemaining,
+        insufficientBy: reservation.insufficientBy,
+        upgradeUrl: "/settings/billing",
+        message: `You need ${reservation.requiredCredits} credits to regenerate this article. Current balance: ${reservation.totalRemaining}.`,
+      }, { status: 402 });
+    }
+
+    // Reset only after the canonical credit and cap reservations exist.
+    try {
     await db
       .update(articles)
       .set({ 
@@ -128,9 +256,6 @@ export async function POST(
       severity: "info",
     });
 
-    // Each regeneration gets a fresh run ID so the worker tracks it as a new attempt
-    const runId = crypto.randomUUID();
-    
     await addArticleJob({
       articleId: article.id,
       batchId: article.batchId,
@@ -149,8 +274,54 @@ export async function POST(
       serpFeatureTarget: batch.serpFeatureTarget || undefined,
       customInstructions: customInstructions || undefined,
       personaId,
-      teamId, // Required for psychographic persona targeting in Gemini
+      teamId,
+      creditRunId,
+      creditCostPerUnit: creditCost,
+      capReservationId,
+      campaignId: batch.campaignId ?? null,
     });
+    } catch (startError) {
+      if (startError instanceof ArticleEnqueueUncertainError) {
+        await markReservationForReconciliation({
+          teamId,
+          runId: creditRunId,
+          reason: `Article ${articleId} regeneration queue acceptance is uncertain`,
+        }).catch(() => {});
+        return NextResponse.json({
+          success: false,
+          pending: true,
+          retryable: false,
+          code: "RECONCILIATION_REQUIRED",
+          articleId,
+          message: "Queue acceptance is uncertain. Credits and spending-cap capacity remain safely held.",
+        }, { status: 202 });
+      }
+
+      try {
+        await releaseReservation({
+          teamId,
+          runId: creditRunId,
+          userId,
+          reason: `Release: article ${articleId} regeneration failed before queue acceptance`,
+        });
+        if (capReservationId !== null) await cancelCapReservation(capReservationId);
+      } catch (releaseError) {
+        await markReservationForReconciliation({
+          teamId,
+          runId: creditRunId,
+          reason: `Article ${articleId} regeneration setup failed and release was not durable: ${
+            releaseError instanceof Error ? releaseError.message : String(releaseError)
+          }`,
+        }).catch(() => {});
+        return NextResponse.json({
+          success: false,
+          code: "RECONCILIATION_REQUIRED",
+          articleId,
+          message: "Regeneration was not queued and its billing hold requires reconciliation.",
+        }, { status: 202 });
+      }
+      throw startError;
+    }
 
     console.log(`🔄 Article ${articleId} queued for regeneration${customInstructions ? ' with custom instructions' : ''}`);
 

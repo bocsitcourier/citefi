@@ -206,6 +206,49 @@ export async function cancelCapReservation(reservationId: number): Promise<void>
     .where(and(eq(usageEvents.id, reservationId), eq(usageEvents.status, "pending")));
 }
 
+/**
+ * Atomically converts the original pending cap reservation into completed
+ * usage. Repeated settlement is idempotent and never inserts a second event.
+ */
+export async function completeCapReservation(params: {
+  reservationId: number;
+  teamId: number;
+  jobId: string;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  const completed = await db
+    .update(usageEvents)
+    .set({
+      status: "completed",
+      jobId: params.jobId,
+      metadataJson: params.metadata ?? null,
+    })
+    .where(
+      and(
+        eq(usageEvents.id, params.reservationId),
+        eq(usageEvents.teamId, params.teamId),
+        eq(usageEvents.status, "pending")
+      )
+    )
+    .returning({ id: usageEvents.id });
+  if (completed.length === 1) return;
+
+  const [existing] = await db
+    .select({ status: usageEvents.status, jobId: usageEvents.jobId })
+    .from(usageEvents)
+    .where(
+      and(
+        eq(usageEvents.id, params.reservationId),
+        eq(usageEvents.teamId, params.teamId)
+      )
+    )
+    .limit(1);
+  if (existing?.status === "completed" && existing.jobId === params.jobId) return;
+  throw new Error(
+    `[usage-caps] cap reservation ${params.reservationId} is missing or owned by another settlement`
+  );
+}
+
 /** Write a usage event after successful billable work completion */
 export async function recordUsageEvent(opts: {
   teamId: number;

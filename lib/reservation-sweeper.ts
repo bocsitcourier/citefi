@@ -6,6 +6,8 @@ import {
   addVideoIdeaJob,
   getQueue,
   getVideoIdeaJobIdForRunId,
+  legacyPodcastGenerationJobId,
+  podcastGenerationJobIdCandidates,
   PODCAST_GENERATION_QUEUE,
   SOCIAL_POST_GENERATION_QUEUE,
   SOCIAL_VIDEO_GENERATION_QUEUE,
@@ -48,9 +50,17 @@ export interface SweepStaleReservationsResult {
 
 export async function requeueDeliveredSettlement(
   queueName: string,
-  jobId: string
+  jobId: string,
+  _deps: { queue?: ReturnType<typeof getQueue> } = {}
 ): Promise<void> {
-  const job = await getQueue(queueName).getJob(jobId);
+  const queue = _deps.queue ?? getQueue(queueName);
+  let job = await queue.getJob(jobId);
+  if (!job && queueName === PODCAST_GENERATION_QUEUE) {
+    const articleId = Number(jobId.split(":")[1]);
+    if (Number.isInteger(articleId) && articleId > 0) {
+      job = await queue.getJob(legacyPodcastGenerationJobId(articleId));
+    }
+  }
   if (!job) throw new Error(`Settlement recovery job ${queueName}/${jobId} is no longer retained`);
   const state = await job.getState();
   if (state === "failed" || state === "completed") {
@@ -288,7 +298,10 @@ export async function sweepStaleReservations(
     if (podcast.podcastStatus === "ready" && podcast.podcastCreditRunId) {
       settlementJobByRunId.set(podcast.podcastCreditRunId, {
         queueName: PODCAST_GENERATION_QUEUE,
-        jobId: `podcast:${podcast.id}`,
+        jobId: podcastGenerationJobIdCandidates(
+          podcast.id,
+          podcast.podcastCreditRunId
+        )[0]!,
       });
     }
   }

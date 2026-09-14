@@ -4,6 +4,7 @@ export type ArticleGenerationBillingJobData = {
   teamId: number;
   creditRunId?: string;
   creditCostPerUnit?: number;
+  capReservationId?: number | null;
   articleId: number;
 };
 
@@ -26,5 +27,6 @@ export async function getArticleGenerationBilling(
       10,
     releaseKey: `article:${job.data.articleId}`,
     reason: `Article ${job.data.articleId} generation failed`,
+    capReservationId: job.data.capReservationId,
   };
 }

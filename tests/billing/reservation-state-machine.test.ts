@@ -25,12 +25,18 @@ import {
 } from "../../lib/billing.js";
 import { sweepStaleReservations } from "../../lib/reservation-sweeper.js";
 import {
+  checkUsageCap,
+  completeCapReservation,
+} from "../../lib/usage-caps.js";
+import {
   teams,
   users,
   teamMembers,
   creditBalances,
   creditLedger,
   creditReservations,
+  spendingCaps,
+  usageEvents,
 } from "../../shared/schema.js";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { runWithSystemContext } from "../../lib/tenant-context.js";
@@ -167,7 +173,10 @@ await check("reconciliation hold survives direct release and stale sweeper", asy
     }),
     true
   );
-  await releaseReservation({ teamId, runId, reason: "automatic worker cleanup" });
+  await assert.rejects(
+    () => releaseReservation({ teamId, runId, reason: "automatic worker cleanup" }),
+    /Billing reconciliation is required/
+  );
   const sweep = await sweepStaleReservations({
     teamId,
     cutoff: new Date(Date.now() + 60_000),
@@ -196,6 +205,39 @@ await check("reconciliation hold survives direct release and stale sweeper", asy
   assert.equal(after?.reservedCredits, before?.reservedCredits);
   assert.equal(events.filter((event) => event.eventType === "release").length, 0);
   assert.ok(sweep.skipped >= 1);
+});
+
+await check("podcast cap reservation completes in place exactly once", async () => {
+  const { teamId } = await seedTeam("podcast-cap-complete");
+  await db.insert(spendingCaps).values({
+    teamId,
+    monthlyCapCents: 10_000,
+    hardStop: true,
+  });
+  const reservationId = await checkUsageCap(teamId, 8);
+  assert.ok(reservationId);
+  const jobId = `podcast:991:${RUN_TAG}`;
+
+  await completeCapReservation({
+    reservationId,
+    teamId,
+    jobId,
+    metadata: { articleId: 991 },
+  });
+  await completeCapReservation({
+    reservationId,
+    teamId,
+    jobId,
+    metadata: { articleId: 991 },
+  });
+
+  const rows = await db
+    .select()
+    .from(usageEvents)
+    .where(eq(usageEvents.id, reservationId));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.status, "completed");
+  assert.equal(rows[0]?.jobId, jobId);
 });
 
 await check("release() after debit (DEBITED) is a no-op — reservation already charged", async () => {

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jobBatches } from "@/shared/schema";
 
@@ -55,7 +55,7 @@ export async function recordBatchEnqueueAccepted(input: {
   }).where(and(
     eq(jobBatches.id, input.batchId),
     eq(jobBatches.teamId, input.teamId),
-    eq(jobBatches.status, "SUBMITTING"),
+    inArray(jobBatches.status, ["SUBMITTING", "QUEUED"]),
   )).returning({ id: jobBatches.id });
   return Boolean(updated);
 }

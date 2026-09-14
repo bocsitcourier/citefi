@@ -1,0 +1,48 @@
+{
+  "phase": "real-generation-phase-1",
+  "status": "failed",
+  "capturedAt": "2026-09-10T16:24:26.904Z",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "batchId": 626,
+  "articleId": 2235,
+  "live": {
+    "titleGeneration": "success",
+    "titleCount": 5,
+    "selectedCount": 1,
+    "articleSubmitStatus": 202,
+    "brandGateFirstStatus": 428,
+    "brandGateAction": "Skip for now",
+    "workerTerminal": "failed",
+    "uiProgress": "0 of 1",
+    "uiArticleStatus": "IN_PROGRESS",
+    "uiFailure": "Batch generation failed. Please check the logs or try again."
+  },
+  "config": {
+    "topic": "Boston Home Energy Audit Checklist Before Winter",
+    "sourceUrl": "https://www.energy.gov/energysaver",
+    "business": "Harbor Home Energy",
+    "wordCountMin": 500,
+    "wordCountMax": 800,
+    "autoPublish": false,
+    "articleCostCredits": 10
+  },
+  "network": {
+    "interceptionInstalled": false,
+    "providerCallsAllowed": true,
+    "batchSubmitLive": true
+  },
+  "db": [
+    {
+      "batch_id": 626,
+      "batch_status": "FAILED",
+      "created_at": "2026-09-10T16:20:17.651Z",
+      "completed_at": "2026-09-10T16:24:08.495Z",
+      "article_id": 2235,
+      "article_status": "FAILED",
+      "error_message": "Article generation failed. Please retry.",
+      "article_created_at": "2026-09-10T16:23:11.340Z",
+      "article_updated_at": "2026-09-10T16:23:11.688Z"
+    }
+  ]
+}

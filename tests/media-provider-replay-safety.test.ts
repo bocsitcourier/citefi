@@ -20,6 +20,7 @@ const {
   generateAndStoreHeroImage,
 } = await import("../lib/gemini-image-generator");
 const { callOpenAI } = await import("../lib/openai-client");
+const { settleDeliveredPodcast } = await import("../lib/podcast-worker");
 
 void test("paid-provider boundary failures classify fatal instead of consuming queue retries", () => {
   const cases = [
@@ -303,6 +304,46 @@ void test("actual callOpenAI 429 policy has one owner and three physical calls, 
     (error) => error === rateLimitError
   );
   assert.equal(physicalCalls, 3);
+});
+
+void test("podcast post-debit marker failure remains settlement-only and cap transition is idempotent", async () => {
+  let debitCalls = 0;
+  let capTransitions = 0;
+  let capState: "pending" | "completed" = "pending";
+  let markerCalls = 0;
+  const job = {
+    articleId: 42,
+    teamId: 7,
+    userId: 9,
+    creditRunId: "podcast:42:settlement",
+    capReservationId: 123,
+  };
+  const deps = {
+    debit: async () => {
+      debitCalls++;
+      return { ok: true };
+    },
+    completeCap: async () => {
+      if (capState === "pending") {
+        capState = "completed";
+        capTransitions++;
+      }
+    },
+    markSettled: async () => {
+      markerCalls++;
+      if (markerCalls === 1) throw new Error("fake podcastBillingSettledAt write failure");
+    },
+  };
+
+  await assert.rejects(
+    () => settleDeliveredPodcast(job, 42, deps),
+    (error: any) => error?.name === "BillingSettlementError"
+  );
+  assert.equal(capState, "completed");
+  await settleDeliveredPodcast(job, 42, deps);
+  assert.equal(debitCalls, 2, "idempotent debit is retried without media generation");
+  assert.equal(capTransitions, 1, "pending cap transitions to completed exactly once");
+  assert.equal(markerCalls, 2);
 });
 
 void test("production provider modules retain bounded replay and operation evidence", () => {

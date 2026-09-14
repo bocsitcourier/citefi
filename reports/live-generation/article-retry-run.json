@@ -1,0 +1,275 @@
+{
+  "phase": "article-retry-and-asset-validation",
+  "capturedAt": "2026-09-10T16:43:52.567Z",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "input": {
+    "batchId": 626,
+    "articleId": 2235,
+    "title": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+    "targetUrl": "https://www.energy.gov/energysaver",
+    "instructions": "Educational Boston home energy checklist, 500-800 words; do not claim BPI certification, warranties, affiliation, or rebate eligibility",
+    "privateQaOnly": true,
+    "published": false
+  },
+  "attempts": [
+    {
+      "attempt": "original",
+      "articleRunId": 1974,
+      "runId": "article-626-2235",
+      "status": "failed",
+      "billingAmount": 10,
+      "billingJobId": "article-run-b11e02bf9722619a352963a9",
+      "observedUi": "FAILED; Article generation failed. Please retry."
+    },
+    {
+      "attempt": "single-normal-retry",
+      "articleRunId": 1975,
+      "runId": "5bf19a2e-4816-44d9-947c-20ce0747abb0",
+      "uiAction": "button-retry-article-2235",
+      "clickTimestamp": 1789058253506,
+      "status": "completed",
+      "jobId": "article-run-e16b9ae183fd31f531ce8c66",
+      "observedUi": "GEMINI_COMPLETE then COMPLETE; 749 words; View & Edit",
+      "secondRetry": false
+    }
+  ],
+  "workerLogs": {
+    "requeue": "POST /api/batches/626/requeue 200",
+    "stage": "Stage 1 Gemini generating article 2235",
+    "shadowPreflight": "1 failure pattern(s) loaded",
+    "seoContext": "Gemini fenced JSON parse failed; worker fell back to generating without cache",
+    "fatalOrExactError": "original failure notification: Article generation failed"
+  },
+  "db": {
+    "articleStatus": "COMPLETE",
+    "qualityGateStatus": "PASSED",
+    "approvalStatus": "draft",
+    "wordCount": 749,
+    "htmlLength": 15648,
+    "htmlMd5": "b2cc98c89cd22b1e04ad22616fd652a0",
+    "batchStatus": "COMPLETE",
+    "batchCompletedAt": "2026-09-10T16:41:37.123Z",
+    "activeAssets": [
+      {
+        "id": 5026,
+        "type": "hero",
+        "format": "png",
+        "url": "/api/public-objects/private/articles/2235/image/1789058413428-hero-image-2235-1789058413424.png"
+      }
+    ]
+  },
+  "api": {
+    "contentGet": {
+      "route": "/api/content/2235",
+      "status": 200,
+      "bytes": 27203,
+      "articleStatus": "COMPLETE"
+    },
+    "heroGet": {
+      "route": "/api/public-objects/private/articles/2235/image/1789058413428-hero-image-2235-1789058413424.png",
+      "status": 200,
+      "contentType": "image/png",
+      "bytes": 1760887,
+      "magic": "89504e470d0a1a0a"
+    },
+    "providerLedgerRows": [
+      {
+        "id": "292",
+        "operation_type": "article_generation",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 19067,
+        "cost_microusd": "7063",
+        "provider_request_id": "3tyiatXwGsPqjrEPj9PT2AQ",
+        "occurred_at": "2026-09-10T16:38:38.576Z"
+      },
+      {
+        "id": "296",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 8943,
+        "cost_microusd": "5965",
+        "provider_request_id": "G92iapu5HqW7jrEPs9bC6QQ",
+        "occurred_at": "2026-09-10T16:39:16.544Z"
+      },
+      {
+        "id": "297",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 10824,
+        "cost_microusd": "1608",
+        "provider_request_id": "NN2iauTmK__9jrEP_duTqQQ",
+        "occurred_at": "2026-09-10T16:39:43.680Z"
+      },
+      {
+        "id": "300",
+        "operation_type": "image_generation",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash-image",
+        "unit_count": 1,
+        "cost_microusd": "40000",
+        "provider_request_id": "aN2iau_-CLexsOIP2_6ZkQg",
+        "occurred_at": "2026-09-10T16:40:13.395Z"
+      },
+      {
+        "id": "304",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 1759,
+        "cost_microusd": "2285",
+        "provider_request_id": "wN2iapi4POa5sOIPzv-9yAQ",
+        "occurred_at": "2026-09-10T16:41:46.236Z"
+      },
+      {
+        "id": "305",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 1939,
+        "cost_microusd": "2525",
+        "provider_request_id": "wN2iaqa3PLa9sOIP4bLY-Ao",
+        "occurred_at": "2026-09-10T16:41:46.999Z"
+      },
+      {
+        "id": "306",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 2565,
+        "cost_microusd": "3709",
+        "provider_request_id": "wd2iav9E5rmw4g_O_73IBA",
+        "occurred_at": "2026-09-10T16:41:50.556Z"
+      },
+      {
+        "id": "307",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 2089,
+        "cost_microusd": "2690",
+        "provider_request_id": "yt2iau-OHpugjrEPsa6lsQQ",
+        "occurred_at": "2026-09-10T16:41:56.216Z"
+      },
+      {
+        "id": "308",
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_count": 2391,
+        "cost_microusd": "3318",
+        "provider_request_id": "y92iapj_B7nD39IPsfDxyA8",
+        "occurred_at": "2026-09-10T16:41:58.610Z"
+      }
+    ],
+    "totalCostMicrousd": 69163
+  },
+  "outputs": {
+    "articleExport": {
+      "path": "reports/live-generation/article-2235-export-article-2235.json",
+      "bytes": 5996,
+      "htmlContentBytes": 1442
+    },
+    "heroDownload": {
+      "path": "reports/live-generation/article-2235-hero-hero-image-boston-winter-home-energy-audit-checklist.webp",
+      "bytes": 1760887,
+      "magic": "89504e470d0a1a0a",
+      "extensionMismatch": true
+    },
+    "heroApiDownload": {
+      "path": "reports/live-generation/article-2235-hero-api.png",
+      "bytes": 1760887
+    },
+    "bodyImages": {
+      "count": 0,
+      "normalUiControl": false,
+      "qualityGap": true
+    }
+  },
+  "quality": {
+    "verdict": "FAIL",
+    "reason": "Article Content renders prompt-injection/debug text instead of clean educational article; starts Wait! Look at the prompt's input text and includes internal reasoning/JSON-LD discussion.",
+    "bodyChars": 5852,
+    "forbiddenRequestedTermsFound": [],
+    "manualScanRequestedTerms": [
+      "BPI",
+      "warranty",
+      "affiliation",
+      "rebate eligibility"
+    ],
+    "genericCertifiedWordingObserved": true
+  },
+  "persistenceVerification": {
+    "browserRefresh": {
+      "route": "/content/2235",
+      "status": "COMPLETE",
+      "words": 749,
+      "heroCount": 1,
+      "imageCount": 1
+    },
+    "logout": {
+      "route": "/login",
+      "uiSignOut": true
+    },
+    "relogin": {
+      "route": "/home",
+      "sameRuntimeCredentials": true
+    },
+    "postRelogin": {
+      "route": "/content/2235",
+      "status": "COMPLETE",
+      "words": 749,
+      "heroCount": 1,
+      "imageCount": 1,
+      "logoutVisible": true
+    }
+  },
+  "budget": {
+    "totalAllocationUsd": 50,
+    "reservedPendingReconciliationUsd": 5,
+    "knownUsageVisibleLedgerUsd": 0.069163,
+    "knownUsageApprox": "~0.023 per requestor note; provider ledger query captured rows separately",
+    "initialVisibleCredits": 5000,
+    "postHeroVisibleCredits": 4999
+  },
+  "safety": {
+    "articleRetriedExactlyOnce": true,
+    "articleRegenerated": false,
+    "published": false,
+    "socialGenerated": false,
+    "podcastGenerated": false,
+    "brandRerun": false,
+    "dbSeededContent": false
+  },
+  "runRows": [
+    {
+      "id": 1974,
+      "article_id": 2235,
+      "run_id": "article-626-2235",
+      "status": "failed",
+      "queued_at": "2026-09-10T16:23:11.352Z",
+      "started_at": "2026-09-10T16:23:11.750Z",
+      "completed_at": "2026-09-10T16:24:08.473Z",
+      "billing_amount": 10,
+      "billing_job_id": "article-run-b11e02bf9722619a352963a9",
+      "billing_run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+      "settlement_attempts": 0
+    },
+    {
+      "id": 1975,
+      "article_id": 2235,
+      "run_id": "5bf19a2e-4816-44d9-947c-20ce0747abb0",
+      "status": "completed",
+      "queued_at": "2026-09-10T16:37:36.661Z",
+      "started_at": "2026-09-10T16:37:36.868Z",
+      "completed_at": "2026-09-10T16:41:37.105Z",
+      "billing_amount": null,
+      "billing_job_id": null,
+      "billing_run_id": null,
+      "settlement_attempts": 0
+    }
+  ]
+}

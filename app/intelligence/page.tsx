@@ -362,7 +362,7 @@ export default function BrandIntelligencePage() {
   }
 
   // ── Failed state ──────────────────────────────────────────────────────────
-  if (profile.status === "failed") {
+  if (profile.status === "failed" && !merged) {
     return (
       <div className="max-w-xl mx-auto p-6 space-y-4">
         <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -414,8 +414,12 @@ export default function BrandIntelligencePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-green-600 border-green-600/40 bg-green-50 dark:bg-green-950/20" data-testid="status-badge">
-            <CheckCircle2 className="w-3 h-3 mr-1" />Active
+          <Badge variant="outline" className={profile.status === "complete"
+            ? "text-green-600 border-green-600/40 bg-green-50 dark:bg-green-950/20"
+            : "text-amber-700 border-amber-600/40 bg-amber-50 dark:bg-amber-950/20"} data-testid="status-badge">
+            {profile.status === "complete"
+              ? <><CheckCircle2 className="w-3 h-3 mr-1" />Active</>
+              : <><AlertTriangle className="w-3 h-3 mr-1" />Partial</>}
           </Badge>
           <Button
             size="sm"
@@ -434,9 +438,13 @@ export default function BrandIntelligencePage() {
       </div>
 
       {/* Impact callout */}
-      <div className="bg-primary/5 border border-primary/10 rounded-md px-4 py-3 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground">Intelligence is active.</span>{" "}
-        Brand voice, policy pack, and competitive gaps are injected into every article, social post, and video you generate.
+      <div className={`border rounded-md px-4 py-3 text-sm ${profile.status === "complete" ? "bg-primary/5 border-primary/10 text-muted-foreground" : "bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-900"}`}>
+        <span className="font-medium">
+          {profile.status === "complete" ? "Intelligence is active." : "Research is incomplete and is not active for content generation."}
+        </span>{" "}
+        {profile.status === "complete"
+          ? "Brand voice, policy pack, and competitive gaps are injected into every article, social post, and video you generate."
+          : (profile.errorMessage ?? "Some valid research is shown below. Retry to complete the missing analysis.")}
       </div>
 
       {merged && (
@@ -611,6 +619,11 @@ export default function BrandIntelligencePage() {
                 label="Approved Claims"
                 onSave={v => saveOverride(["brandPolicyPack", "approvedClaims"], v)}
               />
+              {merged.brandPolicyPack.approvedClaimsEvidenceNote && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-2" data-testid="approved-claims-evidence-note">
+                  {merged.brandPolicyPack.approvedClaimsEvidenceNote}
+                </p>
+              )}
             </FieldRow>
             <FieldRow label="Prohibited Claims">
               <TagList

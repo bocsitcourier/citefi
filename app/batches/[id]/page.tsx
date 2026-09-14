@@ -28,6 +28,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  firstBatchFailureReason,
+  getBatchProgressPollInterval,
+} from "@/lib/batch-progress";
 
 interface Article {
   id: number;
@@ -95,17 +99,18 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
     refetchInterval: (query) => {
       const batchData = query.state.data as BatchResponse | undefined;
       const status = batchData?.batch.status;
-      if (!status || !ACTIVE_STATUSES.includes(status)) return false;
       // Adaptive clock only starts once RUNNING
       if (status === "RUNNING") {
         if (!runningStartRef.current) runningStartRef.current = Date.now();
-        const elapsedMs = Date.now() - runningStartRef.current;
-        if (elapsedMs < 60_000) return 3000;
-        if (elapsedMs < 300_000) return 5000;
-        return 10_000;
       }
-      // SUBMITTING / QUEUED / PROCESSING — poll every 3s
-      return 3000;
+      return getBatchProgressPollInterval({
+        status,
+        pending: batchData?.summary.pending,
+        inProgress: batchData?.summary.inProgress,
+        runningElapsedMs: runningStartRef.current
+          ? Date.now() - runningStartRef.current
+          : 0,
+      });
     },
     refetchIntervalInBackground: false,
   });
@@ -379,6 +384,7 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
   const completedArticles = articles.filter(a => ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"].includes(a.articleStatus));
   const articlesWithoutImages = completedArticles.filter(a => !a.heroImageUrl || a.heroImageUrl === "");
   const hasArticlesWithoutImages = articlesWithoutImages.length > 0;
+  const failureReason = firstBatchFailureReason(articles);
 
   return (
     <div className="p-6">
@@ -626,7 +632,10 @@ function BatchDetailContent({ paramsPromise }: { paramsPromise: Promise<{ id: st
                 Failed Articles
               </CardTitle>
               <CardDescription>
-                {summary.failed} article(s) failed due to API quota limits or errors. You can requeue them to retry.
+                {failureReason
+                  ? `Failure reason: ${failureReason}`
+                  : `${summary.failed} article(s) failed due to API quota limits or errors.`}{" "}
+                You can requeue them to retry.
               </CardDescription>
             </CardHeader>
             <CardContent>

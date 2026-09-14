@@ -43,6 +43,11 @@ import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import {
+  criticalProfileIssues,
+  parseSingleStructuredObject,
+  retainSourceSupportedClaims,
+} from "./brand-intelligence-validation";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -131,6 +136,7 @@ export interface LocaleConstraint {
 
 export interface BrandPolicyPack {
   approvedClaims: string[];
+  approvedClaimsEvidenceNote?: string;
   prohibitedClaims: string[];
   prohibitedPhrases: string[];
   requiredDisclaimers: string[];
@@ -416,7 +422,7 @@ Return a JSON object with EXACTLY this structure (all fields required):
     "uniqueValueProposition": "their core UVP in one precise sentence",
     "coreServices": [{"name": "service name", "description": "brief description", "differentiator": "what makes it different from generic offerings"}],
     "pricingTier": "budget|mid|premium|unknown",
-    "trustSignals": ["specific trust signals: awards, certifications, years in business, specific testimonial claims, guarantees — up to 6"],
+    "trustSignals": ["exact verbatim website quotes supporting awards, certifications, years in business, testimonial claims, or guarantees — omit anything not explicitly stated"],
     "contentGaps": ["topic areas their content doesn't cover that customers would search for — up to 4"]
   },
   "targetAudience": {
@@ -440,10 +446,20 @@ Return a JSON object with EXACTLY this structure (all fields required):
       config: { responseMimeType: "application/json" },
     });
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
-    const parsed = JSON.parse(result.text ?? "{}");
+    const parsed = parseSingleStructuredObject(result.text ?? "");
+    if (
+      !Array.isArray(parsed.brandVoice?.toneAdjectives) ||
+      !Array.isArray(parsed.positioning?.coreServices) ||
+      typeof parsed.positioning?.uniqueValueProposition !== "string" ||
+      typeof parsed.targetAudience?.primaryPersona !== "string"
+    ) {
+      throw new Error("Website analysis response is missing required brand fields");
+    }
+    const parsedPositioning = parsed.positioning ?? emptyPositioning();
+    const supportedTrustSignals = retainSourceSupportedClaims(parsedPositioning.trustSignals, allContent);
     return {
       brandVoice: parsed.brandVoice ?? emptyBrandVoice(),
-      positioning: parsed.positioning ?? emptyPositioning(),
+      positioning: { ...parsedPositioning, trustSignals: supportedTrustSignals.approved },
       targetAudience: parsed.targetAudience ?? {},
       localNicheIntelligence: parsed.localNicheIntelligence ?? emptyLocalIntel(),
       rawText: allContent.slice(0, 3_000),
@@ -572,7 +588,7 @@ Use real companies — not placeholder names. If Brave results are provided, pri
       config: { responseMimeType: "application/json" },
     });
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
-    const parsed = JSON.parse(result.text ?? "{}");
+    const parsed = parseSingleStructuredObject(result.text ?? "");
     const rawCompetitors: Competitor[] = Array.isArray(parsed.competitors) ? parsed.competitors : [];
 
     // Enrich each competitor with live page meta for more accurate positioning
@@ -706,7 +722,16 @@ Return a JSON object:
       config: { responseMimeType: "application/json" },
     });
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
-    const parsed = JSON.parse(result.text ?? "{}");
+    const parsed = parseSingleStructuredObject(result.text ?? "");
+    if (
+      !Array.isArray(parsed.competitiveGaps?.opportunityTopics) ||
+      !Array.isArray(parsed.failureAnalysis?.likelyLossReasons) ||
+      !Array.isArray(parsed.contentOpportunities?.uncoveredTopics) ||
+      !Array.isArray(parsed.actualPainPoints) ||
+      !Array.isArray(parsed.decisionDrivers)
+    ) {
+      throw new Error("Competitive gap response is missing required analysis fields");
+    }
     return {
       competitiveGaps: parsed.competitiveGaps ?? { clientAdvantages: [], clientWeaknesses: [], opportunityTopics: [] },
       failureAnalysis: parsed.failureAnalysis ?? { likelyLossReasons: [], messagingProblems: [], trustSignalGaps: [], contentDepthGaps: [] },
@@ -718,13 +743,7 @@ Return a JSON object:
     if (isProviderAccountingError(err)) throw err;
     await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("analyzeGapsAndFailures Gemini error:", err);
-    return {
-      competitiveGaps: { clientAdvantages: [], clientWeaknesses: [], opportunityTopics: [] },
-      failureAnalysis: { likelyLossReasons: [], messagingProblems: [], trustSignalGaps: [], contentDepthGaps: [] },
-      contentOpportunities: { uncoveredTopics: [], unansweredQuestions: [], highValueKeywords: [] },
-      actualPainPoints: [],
-      decisionDrivers: [],
-    };
+    throw new Error(`Competitive gap analysis failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -741,7 +760,8 @@ async function buildBrandPolicyPack(
   positioning: Positioning,
   competitiveGaps: CompetitiveGaps,
   failureAnalysis: FailureAnalysis,
-  localNiche: LocalNicheIntelligence
+  localNiche: LocalNicheIntelligence,
+  sourceText: string
 ): Promise<BrandPolicyPack> {
   const prompt = `You are a brand compliance expert. Create a Brand Policy Pack for "${companyName}" to enforce consistent, accurate AI content generation.
 
@@ -757,7 +777,7 @@ REGULATORY CONTEXT: ${localNiche.regulatoryContext.slice(0, 3).join("; ")}
 
 Return a JSON object:
 {
-  "approvedClaims": ["factual claims the business CAN make, grounded in their trust signals and real advantages — up to 8"],
+  "approvedClaims": ["ONLY exact, verbatim quotes from SOURCE WEBSITE EVIDENCE below that state a factual claim — never infer or rewrite a claim"],
   "prohibitedClaims": ["claims to AVOID because they'd be misleading or expose weaknesses — up to 6"],
   "prohibitedPhrases": ["generic marketing phrases that dilute brand voice: 'world-class', 'industry-leading', 'best-in-class', etc — up to 10"],
   "requiredDisclaimers": ["legal or industry disclaimers required in this space — up to 3"],
@@ -775,7 +795,12 @@ Return a JSON object:
       "prohibitedClaims": ["claims specifically prohibited in this locale"]
     }
   ]
-}`;
+}
+
+SOURCE WEBSITE EVIDENCE:
+${sourceText.slice(0, 12_000)}
+
+If the source does not explicitly support a claim, omit it. An empty approvedClaims array is correct.`;
 
   const startedAt = Date.now();
   try {
@@ -785,20 +810,40 @@ Return a JSON object:
       config: { responseMimeType: "application/json" },
     });
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
-    const parsed = JSON.parse(result.text ?? "{}");
+    const parsed = parseSingleStructuredObject(result.text ?? "");
+    if (
+      !Array.isArray(parsed.approvedClaims) ||
+      !Array.isArray(parsed.prohibitedClaims) ||
+      !Array.isArray(parsed.prohibitedPhrases) ||
+      typeof parsed.toneLexicon !== "object"
+    ) {
+      throw new Error("Brand policy response is missing required policy fields");
+    }
+    const evidenceResult = retainSourceSupportedClaims(parsed.approvedClaims, sourceText);
+    const localeConstraints = Array.isArray(parsed.localeConstraints)
+      ? parsed.localeConstraints.map((constraint: LocaleConstraint) => ({
+          ...constraint,
+          localeClaims: retainSourceSupportedClaims(constraint?.localeClaims, sourceText).approved,
+        }))
+      : [];
     return {
-      approvedClaims: parsed.approvedClaims ?? [],
+      approvedClaims: evidenceResult.approved,
+      approvedClaimsEvidenceNote: evidenceResult.rejected.length > 0
+        ? `${evidenceResult.rejected.length} generated claim(s) were not approved because no matching source quote was found. Add verified claims manually if needed.`
+        : evidenceResult.approved.length === 0
+          ? "No claims were approved because the source website did not provide a matching factual quote. Add verified claims manually if needed."
+          : undefined,
       prohibitedClaims: parsed.prohibitedClaims ?? [],
       prohibitedPhrases: parsed.prohibitedPhrases ?? [],
       requiredDisclaimers: parsed.requiredDisclaimers ?? [],
       toneLexicon: parsed.toneLexicon ?? { approved: [], offBrand: [] },
-      localeConstraints: parsed.localeConstraints ?? [],
+      localeConstraints,
     };
   } catch (err) {
     if (isProviderAccountingError(err)) throw err;
     await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
     console.error("buildBrandPolicyPack Gemini error:", err);
-    return emptyBrandPolicy();
+    throw new Error(`Brand policy analysis failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -858,6 +903,10 @@ export async function runIntelligenceResearch(
       .where(profilePredicate);
   };
 
+  let websiteData: Awaited<ReturnType<typeof analyzeClientWebsite>> | null = null;
+  let competitors: Competitor[] = [];
+  let completedGapAnalysis: Awaited<ReturnType<typeof analyzeGapsAndFailures>> | null = null;
+  let completeAnalysisPersistedAsPartial = false;
   try {
     await db.update(clientBrandProfiles)
       .set({ status: "running", progressStep: "website", errorMessage: null, updatedAt: new Date() })
@@ -865,12 +914,15 @@ export async function runIntelligenceResearch(
 
     // ── Step 1: Website brand extraction ──────────────────────────────────
     console.log(`🧠 [team:${teamId}] Step 1/5 — Analyzing ${websiteUrl}`);
-    const websiteData = await analyzeClientWebsite(teamId, websiteUrl, companyName);
+    websiteData = await analyzeClientWebsite(teamId, websiteUrl, companyName);
+    if (!websiteData.rawText.trim()) {
+      throw new Error(`Required business source could not be fetched or analyzed: ${websiteUrl}`);
+    }
 
     // ── Step 2: Competitor discovery ──────────────────────────────────────
     await setProgress("competitors");
     console.log(`🧠 [team:${teamId}] Step 2/6 — Discovering competitors`);
-    const competitors = await discoverCompetitors(
+    competitors = await discoverCompetitors(
       teamId,
       companyName,
       websiteData.positioning,
@@ -896,6 +948,7 @@ export async function runIntelligenceResearch(
       competitors,
       redditPainPoints
     );
+    completedGapAnalysis = gapAnalysis;
 
     // ── Step 4: Brand policy pack ─────────────────────────────────────────
     await setProgress("policy");
@@ -907,7 +960,8 @@ export async function runIntelligenceResearch(
       websiteData.positioning,
       gapAnalysis.competitiveGaps,
       gapAnalysis.failureAnalysis,
-      websiteData.localNicheIntelligence
+      websiteData.localNicheIntelligence,
+      websiteData.rawText
     );
 
     // ── Step 5: Assemble + persist ────────────────────────────────────────
@@ -958,6 +1012,23 @@ export async function runIntelligenceResearch(
       gapAnalysis,
     };
 
+    const completenessIssues = criticalProfileIssues(profileJson, websiteData.rawText);
+    if (completenessIssues.length > 0) {
+      const message = `Research is incomplete: ${completenessIssues.join("; ")}. Retry after verifying the business URL and source content.`;
+      await db.update(clientBrandProfiles)
+        .set({
+          status: "partial",
+          progressStep: null,
+          profileJson: profileJson as any,
+          rawResearchJson: rawResearchJson as any,
+          errorMessage: message,
+          updatedAt: new Date(),
+        })
+        .where(profilePredicate);
+      completeAnalysisPersistedAsPartial = true;
+      throw new Error(message);
+    }
+
     await db.update(clientBrandProfiles)
       .set({
         status: "complete",
@@ -974,12 +1045,57 @@ export async function runIntelligenceResearch(
     return profileJson;
 
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
     const message = error instanceof Error ? error.message : String(error);
     console.error(`❌ [team:${teamId}] Intelligence research failed:`, message);
-    await db.update(clientBrandProfiles)
-      .set({ status: "failed", progressStep: null, errorMessage: message, updatedAt: new Date() })
-      .where(profilePredicate);
+    const hasUsablePartial = Boolean(websiteData?.rawText.trim() && (
+      websiteData.brandVoice.toneAdjectives.length ||
+      websiteData.positioning.coreServices.length ||
+      competitors.length
+    ));
+    if (completeAnalysisPersistedAsPartial) {
+      // The fully assembled (but completeness-invalid) profile and diagnostic
+      // were already persisted above; do not replace valid stage output.
+    } else if (hasUsablePartial && websiteData) {
+      const partialProfile: ClientBrandProfileJson = {
+        brandVoice: websiteData.brandVoice,
+        positioning: websiteData.positioning,
+        targetAudience: {
+          primaryPersona: websiteData.targetAudience.primaryPersona ?? "",
+          demographics: websiteData.targetAudience.demographics ?? [],
+          statedPainPoints: websiteData.targetAudience.statedPainPoints ?? [],
+          actualPainPoints: completedGapAnalysis?.actualPainPoints ?? [],
+          decisionDrivers: completedGapAnalysis?.decisionDrivers ?? [],
+        },
+        competitorLandscape: competitors,
+        competitiveGaps: completedGapAnalysis?.competitiveGaps ?? { clientAdvantages: [], clientWeaknesses: [], opportunityTopics: [] },
+        failureAnalysis: completedGapAnalysis?.failureAnalysis ?? { likelyLossReasons: [], messagingProblems: [], trustSignalGaps: [], contentDepthGaps: [] },
+        contentOpportunities: completedGapAnalysis?.contentOpportunities ?? { uncoveredTopics: [], unansweredQuestions: [], highValueKeywords: [] },
+        localNicheIntelligence: websiteData.localNicheIntelligence,
+        brandPolicyPack: emptyBrandPolicy(),
+        seedExemplars: [],
+        generatedAt: new Date().toISOString(),
+      };
+      await db.update(clientBrandProfiles)
+        .set({
+          status: "partial",
+          progressStep: null,
+          profileJson: partialProfile as any,
+          rawResearchJson: { websiteAnalysis: { rawText: websiteData.rawText }, competitors, gapAnalysis: completedGapAnalysis } as any,
+          errorMessage: `${message}. Valid website and competitor research is retained below; retry to complete missing analysis.`,
+          updatedAt: new Date(),
+        })
+        .where(profilePredicate);
+    } else {
+      await db.update(clientBrandProfiles)
+        .set({
+          status: "failed",
+          progressStep: null,
+          profileJson: null,
+          errorMessage: `${message}. Verify that the URL is publicly reachable and retry.`,
+          updatedAt: new Date(),
+        })
+        .where(profilePredicate);
+    }
     throw error;
   }
 }
@@ -1069,7 +1185,7 @@ export async function getClientBrandProfile(teamId: number) {
     .limit(1);
   if (!row) return null;
 
-  const merged = row.profileJson && row.status === "complete"
+  const merged = row.profileJson && (row.status === "complete" || row.status === "partial")
     ? mergeProfileWithOverrides(
         row.profileJson as ClientBrandProfileJson,
         row.manualOverridesJson as Partial<ClientBrandProfileJson> | null

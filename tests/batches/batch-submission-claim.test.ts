@@ -402,3 +402,29 @@ void test("partial child enqueue failure is retryable and stable child IDs fill 
   assert.equal(durableChildIds.size, 28);
   assert.ok([...acceptedCounts.values()].every((count) => count === 1));
 });
+
+void test("late replay acknowledgement cannot overwrite RUNNING or CANCELLED", async () => {
+  await runWithTenantContext({
+    actorType: "worker",
+    userId: ownerUserId,
+    teamId: ownerTeamId,
+    role: "owner",
+  }, async () => {
+    for (const protectedStatus of ["RUNNING", "CANCELLED"] as const) {
+      // Models the worker/cancellation winning after replay read but before the
+      // route persists its accepted queue acknowledgement.
+      await systemDb.update(jobBatches)
+        .set({ status: protectedStatus })
+        .where(eq(jobBatches.id, batchId));
+      const updated = await recordBatchEnqueueAccepted({
+        batchId,
+        teamId: ownerTeamId,
+        generationParams: { submission: { state: "ACCEPTED" } },
+      });
+      assert.equal(updated, false);
+      const [stored] = await systemDb.select({ status: jobBatches.status })
+        .from(jobBatches).where(eq(jobBatches.id, batchId));
+      assert.equal(stored?.status, protectedStatus);
+    }
+  });
+});

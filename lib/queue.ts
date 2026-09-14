@@ -66,8 +66,21 @@ export interface ArticleJobData {
   journeyName?: string | null;
   creditRunId?: string;
   creditCostPerUnit?: number;
+  capReservationId?: number | null;
   /** Optional campaign association. Never trusted over the canonical batch/team. */
   campaignId?: number | null;
+}
+
+export class ArticleEnqueueUncertainError extends Error {
+  readonly code = "ARTICLE_ENQUEUE_UNKNOWN";
+  constructor(
+    readonly jobId: string,
+    readonly runId: string,
+    cause: unknown,
+  ) {
+    super(`Article queue acceptance is unknown for ${jobId}`, { cause });
+    this.name = "ArticleEnqueueUncertainError";
+  }
 }
 
 export interface PodcastJobData {
@@ -78,6 +91,7 @@ export interface PodcastJobData {
   journeyStepId?: number;
   creditRunId?: string;
   userId?: number;
+  capReservationId?: number | null;
 }
 
 export class PodcastEnqueueUncertainError extends Error {
@@ -93,6 +107,29 @@ export class PodcastEnqueueUncertainError extends Error {
     );
     this.name = "PodcastEnqueueUncertainError";
   }
+}
+
+export function podcastGenerationJobId(
+  articleId: number,
+  creditRunId?: string
+): string {
+  return creditRunId
+    ? `podcast:${articleId}:${createHash("sha256").update(creditRunId).digest("hex")}`
+    : `podcast:${articleId}`;
+}
+
+export function legacyPodcastGenerationJobId(articleId: number): string {
+  return `podcast:${articleId}`;
+}
+
+export function podcastGenerationJobIdCandidates(
+  articleId: number,
+  creditRunId: string
+): string[] {
+  return [
+    podcastGenerationJobId(articleId, creditRunId),
+    legacyPodcastGenerationJobId(articleId),
+  ];
 }
 
 export interface SocialPostJobData {
@@ -426,10 +463,7 @@ export async function addArticleJob(data: ArticleJobData) {
 
   const runId = data.runId || crypto.randomUUID();
   const enrichedData = { ...data, runId };
-  const {
-    prepareArticleRunForEnqueue,
-    markArticleRunEnqueueFailed,
-  } = await import("./article-run-state");
+  const { prepareArticleRunForEnqueue } = await import("./article-run-state");
   await prepareArticleRunForEnqueue({
     articleId: data.articleId,
     runId,
@@ -463,12 +497,10 @@ export async function addArticleJob(data: ArticleJobData) {
       return acceptedJob.id ?? queueJobId;
     }
 
-    await markArticleRunEnqueueFailed({
-      articleId: data.articleId,
-      runId,
-      error: enqueueError,
-    });
-    throw enqueueError;
+    // Absence during this short confirmation window does not prove Redis
+    // rejected the write. Preserve the durable run and billing hold so a
+    // request retry cannot enqueue a second paid generation.
+    throw new ArticleEnqueueUncertainError(queueJobId, runId, enqueueError);
   }
 
   console.log(
@@ -692,9 +724,7 @@ export async function addPodcastGenerationJob(
   // identity prevents legitimate regeneration while completed jobs are still
   // retained; creditRunId also lets an ambiguous enqueue find exactly the job
   // associated with the reservation that must be preserved.
-  const jobId = data.creditRunId
-    ? `podcast:${data.articleId}:${createHash("sha256").update(data.creditRunId).digest("hex")}`
-    : `podcast:${data.articleId}`;
+  const jobId = podcastGenerationJobId(data.articleId, data.creditRunId);
   let job: Job;
   try {
     job = await queue.add("podcast", data, {

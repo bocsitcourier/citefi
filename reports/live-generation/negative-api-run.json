@@ -1,0 +1,1307 @@
+{
+  "runAt": "2026-09-10T16:34:31.702Z",
+  "scope": {
+    "inventory": "reports/live-generation/masterinventory.json",
+    "fixtureTeamId": 2535,
+    "fixtureArticleId": 2235,
+    "fixtureBatchId": 626,
+    "realHttp": true,
+    "positiveGenerationCalls": 0,
+    "authenticatedRegenerationCalls": 0
+  },
+  "summary": {
+    "total": 75,
+    "passed": 72,
+    "failed": 3,
+    "complete": false
+  },
+  "observations": [
+    "401/403 results demonstrate only the observed HTTP authentication gate response; they do not prove provider internals.",
+    "Authenticated tests were limited to source-inspected schema/required-field branches that precede provider work.",
+    "No authenticated regenerate endpoint was called because empty bodies can be valid regeneration requests.",
+    "All 24 authenticated invalid-input checks returned HTTP 400 before the inspected provider branches.",
+    "Unauthenticated POST /api/batches/626/regenerate-titles returned HTTP 500 rather than an auth status. Source inspection shows its outer catch attempts to insert a failure event even when authentication did not complete, which can mask the original auth error.",
+    "Social platform strings have no API allowlist in the inspected social generation schema; an unsupported value was not sent because it could enqueue paid work.",
+    "No generation language allowlist was found in the inspected generation route validators, so no safe unsupported-language HTTP test was available.",
+    "Inventory method for /api/jobs/title-pool is GET, but the actual route exports POST; the inventory-method request returned HTTP 405.",
+    "Inventory lists POST /api/admin/seo-report, while the actual route exports GET; the inventory-method request returned HTTP 405."
+  ],
+  "steps": [
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "GET",
+      "route": "/api/jobs/title-pool",
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 405,
+      "durationMs": 121,
+      "message": "",
+      "passed": false
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/jobs/batch-submit",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 97,
+      "message": "Failed to submit batch",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/articles/2235/regenerate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 2611,
+      "message": "Failed to regenerate article",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/regenerate-titles",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 500,
+      "durationMs": 191,
+      "message": "",
+      "passed": false
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/seo-title",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 100,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/meta-description",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 82,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/keywords",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 254,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/slug",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 110,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/faq",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 158,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate/hashtags",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 102,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/articles/2235/reformat",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 191,
+      "message": "Failed to queue reformat",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/articles/2235/apply-hyperlinks",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 100,
+      "message": "Failed to heal article",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/apply-keyword-hyperlinks",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 263,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/fix-hyperlinks",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 145,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/articles/2235/regenerate-hero",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 361,
+      "message": "Failed to regenerate hero image",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/content/2235/regenerate-hero-image",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 267,
+      "message": "Failed to regenerate hero image",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/media/2235/regenerate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 400,
+      "message": "Failed to regenerate image",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/regenerate-images",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 349,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/fix-image-captions",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 168,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/media/assets/qa-invalid-asset-identity/regenerate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 222,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social_posts/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 112,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social-posts/variants/2235/regenerate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 245,
+      "message": "Regeneration failed",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 69,
+      "message": "Failed to start video generation",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/batch",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 59,
+      "message": "Failed to start batch video generation",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/cancel",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 50,
+      "message": "Failed to cancel",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/idea",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 36,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/idea/2235/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 193,
+      "message": "Failed to start video generation",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/like",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 54,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/like/2235/analyze",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 169,
+      "message": "Failed to analyze video: Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/social/video/like/2235/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 110,
+      "message": "Failed to start like video generation",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/podcast/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 46,
+      "message": "Failed to start podcast generation",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/content-audit",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 44,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/local-research",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 42,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/competitor-analysis",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 51,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/schema-markup",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 39,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/content-structure",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 37,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/pillar-cluster",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 53,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/seo/create-articles",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 51,
+      "message": "Failed to create articles from SEO tool output",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/briefs/generate-me",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 51,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/briefs/generate-now",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 24,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/campaigns/26091000-0000-4000-8000-000000000099/ads",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 70,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/campaigns/26091000-0000-4000-8000-000000000099/confirm-brand",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 113,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/journeys/26091000-0000-4000-8000-000000000099/trigger",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 121,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/batches/626/launch-journey",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 121,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/learning/mine-corpus",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 74,
+      "message": "Failed to mine corpus",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/learning/monitor/mine-corpus",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 60,
+      "message": "Failed to mine corpus",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/learning/agents/2235/seed",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 99,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/learning/agents/2235/optimize",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 282,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/admin/incidents/26091000-0000-4000-8000-000000000099/analysis",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 142,
+      "message": "Failed to analyze incident",
+      "passed": true
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/admin/seo-report",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 405,
+      "durationMs": 36,
+      "message": "",
+      "passed": false
+    },
+    {
+      "name": "unauthenticated auth-gate check",
+      "auth": "none",
+      "method": "POST",
+      "route": "/api/agency/reports/generate",
+      "body": {},
+      "expectedStatuses": [
+        401,
+        403
+      ],
+      "safety": "No credentials; no conclusion about provider internals",
+      "status": 401,
+      "durationMs": 28,
+      "message": "Authentication required",
+      "passed": true
+    },
+    {
+      "name": "batch submit rejects missing required fields",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/jobs/batch-submit",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection occurs before reservation or queueing",
+      "status": 400,
+      "durationMs": 162,
+      "message": "Invalid request data",
+      "passed": true
+    },
+    {
+      "name": "batch submit rejects invalid body types",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/jobs/batch-submit",
+      "body": {
+        "batchId": "626",
+        "selectedTitles": "not-an-array",
+        "targetUrl": 42,
+        "businessName": []
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection occurs before reservation or queueing",
+      "status": 400,
+      "durationMs": 137,
+      "message": "Invalid request data",
+      "passed": true
+    },
+    {
+      "name": "social generation rejects missing required fields",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social_posts/generate",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection occurs before reservation or queueing",
+      "status": 400,
+      "durationMs": 122,
+      "message": "Invalid request data",
+      "passed": true
+    },
+    {
+      "name": "social generation rejects invalid body types",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social_posts/generate",
+      "body": {
+        "standaloneTitle": [
+          "invalid"
+        ],
+        "platforms": "not-an-array"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection occurs before reservation or queueing",
+      "status": 400,
+      "durationMs": 138,
+      "message": "Invalid request data",
+      "passed": true
+    },
+    {
+      "name": "video generation rejects missing social post",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/generate",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection precedes lookup, reservation, and queueing",
+      "status": 400,
+      "durationMs": 100,
+      "message": "socialPostId is required",
+      "passed": true
+    },
+    {
+      "name": "video generation rejects unsupported video format",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/generate",
+      "body": {
+        "socialPostId": -626,
+        "videoType": "unsupported-qa-format"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Explicit videoType allowlist rejection precedes database/provider work",
+      "status": 400,
+      "durationMs": 59,
+      "message": "videoType must be 'slideshow' or 'veo'",
+      "passed": true
+    },
+    {
+      "name": "video batch rejects invalid ID collection type",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/batch",
+      "body": {
+        "socialPostIds": "not-an-array"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Type rejection precedes lookup, reservation, and queueing",
+      "status": 400,
+      "durationMs": 25,
+      "message": "socialPostIds array is required and must not be empty",
+      "passed": true
+    },
+    {
+      "name": "video cancellation rejects missing required field",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/cancel",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "No cancellation target supplied",
+      "status": 400,
+      "durationMs": 36,
+      "message": "socialPostId is required",
+      "passed": true
+    },
+    {
+      "name": "idea input rejects missing required fields",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/idea",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection precedes persistence; route does not generate media",
+      "status": 400,
+      "durationMs": 36,
+      "message": "Validation failed",
+      "passed": true
+    },
+    {
+      "name": "idea input rejects unsupported style",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/idea",
+      "body": {
+        "ideaTitle": "Synthetic QA idea",
+        "shortIdea": "Synthetic QA detail long enough for validation.",
+        "companyName": "Harbor Home Energy",
+        "style": "unsupported-qa-style"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Explicit style enum rejection precedes persistence or generation",
+      "status": 400,
+      "durationMs": 53,
+      "message": "Validation failed",
+      "passed": true
+    },
+    {
+      "name": "like-video input rejects invalid body types",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/like",
+      "body": {
+        "referenceVideoUrl": 42,
+        "ideaTitle": [],
+        "shortIdea": {},
+        "companyName": false
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection precedes URL fetch or persistence",
+      "status": 400,
+      "durationMs": 24,
+      "message": "Validation failed",
+      "passed": true
+    },
+    {
+      "name": "like-video input rejects unsupported URL protocol",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/social/video/like",
+      "body": {
+        "referenceVideoUrl": "ftp://example.invalid/synthetic.mp4",
+        "ideaTitle": "Synthetic QA idea",
+        "shortIdea": "Synthetic QA details",
+        "companyName": "Harbor Home Energy"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "External URL validator rejects before fetch or persistence",
+      "status": 400,
+      "durationMs": 22,
+      "message": "Only http and https URLs are allowed",
+      "passed": true
+    },
+    {
+      "name": "podcast rejects missing article ID",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/podcast/generate",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection precedes article lookup, reservation, or queueing",
+      "status": 400,
+      "durationMs": 23,
+      "message": "Article ID is required",
+      "passed": true
+    },
+    {
+      "name": "SEO content-audit rejects missing fields (Article ID is required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/content-audit",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 21,
+      "message": "Article ID is required",
+      "passed": true
+    },
+    {
+      "name": "SEO local-research rejects missing fields (location and business_type are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/local-research",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 21,
+      "message": "location and business_type are required",
+      "passed": true
+    },
+    {
+      "name": "SEO competitor-analysis rejects missing fields (competitor URL and business type are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/competitor-analysis",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 22,
+      "message": "competitor_url and your_business_type are required",
+      "passed": true
+    },
+    {
+      "name": "SEO schema-markup rejects missing fields (content type and data are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/schema-markup",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 26,
+      "message": "content_type and data are required",
+      "passed": true
+    },
+    {
+      "name": "SEO content-structure rejects missing fields (topic and target audience are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/content-structure",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 47,
+      "message": "topic and target_audience are required",
+      "passed": true
+    },
+    {
+      "name": "SEO pillar-cluster rejects missing fields (topic, industry, and audience are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/pillar-cluster",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 21,
+      "message": "main_topic, industry, and target_audience are required",
+      "passed": true
+    },
+    {
+      "name": "SEO create-articles rejects missing fields (SEO inputs are required)",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/create-articles",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Required-field rejection inspected before provider call",
+      "status": 400,
+      "durationMs": 40,
+      "message": "Missing required fields: seoToolType, seoToolOutput, targetUrl",
+      "passed": true
+    },
+    {
+      "name": "schema generation rejects unsupported content format",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/schema-markup",
+      "body": {
+        "content_type": "UnsupportedSyntheticType",
+        "data": {
+          "name": "Harbor Home Energy"
+        }
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Explicit content_type allowlist rejection precedes provider call",
+      "status": 400,
+      "durationMs": 33,
+      "message": "Invalid content_type. Must be: Article, HowTo, FAQPage, or LocalBusiness",
+      "passed": true
+    },
+    {
+      "name": "SEO article creation rejects unsupported tool format",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/seo/create-articles",
+      "body": {
+        "seoToolType": "unsupported_synthetic_type",
+        "seoToolOutput": {},
+        "targetUrl": "https://www.energy.gov/energysaver"
+      },
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Explicit switch default rejection precedes title generation",
+      "status": 400,
+      "durationMs": 30,
+      "message": "Invalid SEO tool type. Must be: local_research, competitor_analysis, content_structure, or pillar_cluster",
+      "passed": true
+    },
+    {
+      "name": "campaign ads rejects missing required fields",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/campaigns/26091000-0000-4000-8000-000000000099/ads",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Zod rejection occurs before campaign lookup, reservation, or provider call",
+      "status": 400,
+      "durationMs": 92,
+      "message": "Invalid input",
+      "passed": true
+    },
+    {
+      "name": "agency report rejects invalid body",
+      "auth": "fixture",
+      "method": "POST",
+      "route": "/api/agency/reports/generate",
+      "body": {},
+      "expectedStatuses": [
+        400
+      ],
+      "safety": "Schema rejection; deterministic report route",
+      "status": 400,
+      "durationMs": 50,
+      "message": "{\"formErrors\":[],\"fieldErrors\":{\"clientTeamId\":[\"Required\"],\"periodStart\":[\"Invalid date\"],\"periodEnd\":[\"Invalid date\"]}}",
+      "passed": true
+    }
+  ],
+  "affectedRetest": {
+    "runAt": "2026-09-10T16:40:07.772Z",
+    "scope": "Only the three corrected/affected unauthenticated cases; no paid or authenticated generation calls.",
+    "summary": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "complete": true
+    },
+    "steps": [
+      {
+        "route": "/api/batches/626/regenerate-titles",
+        "method": "POST",
+        "status": 401,
+        "durationMs": 1696,
+        "message": "Failed to regenerate titles",
+        "passed": true
+      },
+      {
+        "route": "/api/jobs/title-pool",
+        "method": "POST",
+        "status": 401,
+        "durationMs": 618,
+        "message": "Failed to generate title pool",
+        "passed": true
+      },
+      {
+        "route": "/api/admin/seo-report",
+        "method": "GET",
+        "status": 401,
+        "durationMs": 110,
+        "message": "Authentication required",
+        "passed": true
+      }
+    ]
+  },
+  "methodCorrectionList": [
+    {
+      "route": "/api/jobs/title-pool",
+      "inventoryRecordedMethod": "GET",
+      "correctedMethod": "POST",
+      "actualUnauthenticatedStatus": 401,
+      "expectedStatus": 401,
+      "result": "PASS"
+    },
+    {
+      "route": "/api/admin/seo-report",
+      "inventoryRecordedMethod": "POST",
+      "correctedMethod": "GET",
+      "actualUnauthenticatedStatus": 401,
+      "expectedStatus": 401,
+      "result": "PASS"
+    }
+  ],
+  "remediation": {
+    "route": "/api/batches/626/regenerate-titles",
+    "priorStatus": 500,
+    "correctedStatus": 401,
+    "result": "PASS",
+    "note": "Unauthenticated failures no longer attempt to write TITLE_POOL_REGENERATION_FAILED events; authenticated failures retain tenant-scoped event recording."
+  },
+  "currentStatus": "PASS for all three affected retests; the original 75-step summary and steps remain as historical first-run evidence."
+}

@@ -19,6 +19,8 @@ type FakeState = {
   debitOk?: boolean;
   reserveOk?: boolean;
   claimed?: boolean;
+  capSettled?: number;
+  capCanceled?: number;
 };
 
 function fakeDeps(state: FakeState) {
@@ -47,10 +49,10 @@ function fakeDeps(state: FakeState) {
       };
     },
     claimProviderEntry: async () => {
-      if (state.claimed) return false;
+      if (state.claimed) return "same_run_claimed";
       state.claimed = true;
       state.flagged = true;
-      return true;
+      return "claimed";
     },
     clearOwnedProviderEntryFlag: async () => {
       if (!state.claimed || !state.flagged) return false;
@@ -76,7 +78,12 @@ function fakeDeps(state: FakeState) {
       totalRemaining: 8,
     }),
     recordUsage: async () => undefined,
-    cancelCap: async () => undefined,
+    settleCap: async () => {
+      state.capSettled = (state.capSettled ?? 0) + 1;
+    },
+    cancelCap: async () => {
+      state.capCanceled = (state.capCanceled ?? 0) + 1;
+    },
   } as any;
 }
 
@@ -341,6 +348,105 @@ void test("claimed run blocks same resource even when the observed version chang
   assert.equal(physicalCalls, 1);
   releaseProvider();
   await first;
+});
+
+void test("cross-version callers passing preflight are serialized by one resource claim", async () => {
+  let preflights = 0;
+  let releasePreflights!: () => void;
+  const bothAtPreflight = new Promise<void>((resolve) => {
+    releasePreflights = resolve;
+  });
+  let claimedRun: string | null = null;
+  let physicalCalls = 0;
+  let ownReleases = 0;
+  let providerRelease!: () => void;
+  const providerHeld = new Promise<void>((resolve) => {
+    providerRelease = resolve;
+  });
+  const deps = {
+    ...fakeDeps({ flagged: false }),
+    assertNoUnresolvedAttempt: async () => {
+      preflights++;
+      if (preflights === 2) releasePreflights();
+      await bothAtPreflight;
+    },
+    resolveRunId: async ({ resourceVersion }: { resourceVersion: string }) => `cross-version:${resourceVersion}`,
+    claimProviderEntry: async (
+      _teamId: number,
+      _resourceType: string,
+      _resourceId: number,
+      runId: string,
+    ) => {
+      if (claimedRun === null) {
+        claimedRun = runId;
+        return "claimed";
+      }
+      return claimedRun === runId ? "same_run_claimed" : "resource_busy";
+    },
+    release: async () => {
+      ownReleases++;
+    },
+  } as any;
+  const invoke = (resourceVersion: string) => runDirectImageOperation({
+    teamId: 7,
+    userId: 11,
+    resourceType: "article_hero",
+    resourceId: 101,
+    resourceVersion,
+    generate: async () => {
+      physicalCalls++;
+      await providerHeld;
+      return "bytes";
+    },
+    persist: async () => "new-url",
+    _deps: deps,
+  });
+
+  const calls = [invoke("version-a"), invoke("version-b")];
+  const loser = await Promise.race(calls.map(async (call) => {
+    try {
+      await call;
+      return null;
+    } catch (error) {
+      return error;
+    }
+  }));
+  assert.equal((loser as any)?.code, "IMAGE_GENERATION_IN_PROGRESS");
+  assert.equal(preflights, 2);
+  assert.equal(physicalCalls, 1);
+  assert.equal(ownReleases, 1);
+  providerRelease();
+  const settled = await Promise.allSettled(calls);
+  assert.equal(settled.filter((result) => result.status === "fulfilled").length, 1);
+});
+
+void test("completed-usage settlement failure retains pending cap reservation", async () => {
+  const state: FakeState = { flagged: false };
+  const deps = fakeDeps(state);
+  let pendingCap = true;
+  deps.settleCap = async () => {
+    throw new Error("fake usage write outage");
+  };
+  deps.cancelCap = async () => {
+    pendingCap = false;
+    state.capCanceled = (state.capCanceled ?? 0) + 1;
+  };
+
+  await assert.rejects(
+    () => runDirectImageOperation({
+      teamId: 7,
+      userId: 11,
+      resourceType: "media_asset",
+      resourceId: 102,
+      resourceVersion: "old-url",
+      generate: async () => "bytes",
+      persist: async () => "new-url",
+      _deps: deps,
+    }),
+    (error: any) => error?.code === "USAGE_CAP_SETTLEMENT_PENDING",
+  );
+  assert.equal(pendingCap, true);
+  assert.equal(state.capCanceled ?? 0, 0);
 });
 
 void test("all direct image routes require tenant auth and ownership-filter resources", () => {

@@ -32,6 +32,59 @@ export interface PodcastGenerationJob {
   personaId?: number;
   userId?: number;
   debitLedgerRowId?: number;
+  capReservationId?: number | null;
+}
+
+export async function settleDeliveredPodcast(
+  job: PodcastGenerationJob,
+  articleId: number,
+  _deps: {
+    debit?: (params: { teamId: number; runId: string; userId?: number }) => Promise<{ ok: boolean }>;
+    completeCap?: (params: {
+      reservationId: number;
+      teamId: number;
+      jobId: string;
+      metadata?: Record<string, unknown>;
+    }) => Promise<void>;
+    markSettled?: () => Promise<unknown>;
+  } = {}
+): Promise<void> {
+  if (!job.teamId || !job.creditRunId) return;
+  try {
+    const debit =
+      _deps.debit ?? (await import("@/lib/billing")).debitReservation;
+    const debitResult = await debit({
+      teamId: job.teamId,
+      runId: job.creditRunId,
+      userId: job.userId,
+    });
+    if (!debitResult.ok) {
+      throw new Error("credit reservation was not debit-settleable");
+    }
+
+    if (job.capReservationId != null) {
+      const completeCap =
+        _deps.completeCap ?? (await import("@/lib/usage-caps")).completeCapReservation;
+      await completeCap({
+        reservationId: job.capReservationId,
+        teamId: job.teamId,
+        jobId: job.creditRunId,
+        metadata: { articleId },
+      });
+    }
+
+    await (_deps.markSettled ?? (() =>
+      db.update(articles).set({
+        podcastBillingSettledAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(articles.id, articleId))))();
+  } catch (cause) {
+    throw new BillingSettlementError(
+      `Settlement failed for delivered podcast article ${articleId}`,
+      job.creditRunId,
+      cause
+    );
+  }
 }
 
 export async function generateArticlePodcast(job: PodcastGenerationJob): Promise<void> {
@@ -76,35 +129,11 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       article.podcastStatus === "ready" &&
       article.podcastUrl &&
       article.podcastCreditRunId === job.creditRunId &&
-      !article.podcastBillingSettledAt &&
       job.creditRunId &&
       job.teamId
     ) {
-      const { debitReservation } = await import("@/lib/billing");
-      let debitResult;
-      try {
-        debitResult = await debitReservation({
-          teamId: job.teamId,
-          runId: job.creditRunId,
-          userId: job.userId,
-        });
-      } catch (cause) {
-        throw new BillingSettlementError(
-          `Debit settlement failed for delivered podcast article ${articleId}`,
-          job.creditRunId,
-          cause
-        );
-      }
-      if (!debitResult.ok) {
-        throw new BillingSettlementError(
-          `Debit settlement failed for delivered podcast article ${articleId}`,
-          job.creditRunId
-        );
-      }
-      await db.update(articles).set({
-        podcastBillingSettledAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(articles.id, articleId));
+      if (article.podcastBillingSettledAt) return;
+      await settleDeliveredPodcast(job, articleId);
       return;
     }
     
@@ -311,41 +340,19 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
 
         // Two-bucket billing: DEBIT on success
         if (job.teamId && job.creditRunId) {
-          const { debitReservation } = await import("@/lib/billing");
-          let debitResult;
-          try {
-            debitResult = await debitReservation({
-              teamId: job.teamId,
-              runId: job.creditRunId,
-              userId: job.userId,
-            });
-          } catch (cause) {
-            throw new BillingSettlementError(
-              `Debit settlement failed for delivered podcast article ${articleId}`,
-              job.creditRunId,
-              cause
-            );
-          }
-          if (!debitResult.ok) {
-            throw new BillingSettlementError(
-              `Debit settlement failed for delivered podcast article ${articleId}`,
-              job.creditRunId
-            );
-          }
-          await db.update(articles).set({
-            podcastBillingSettledAt: new Date(),
-            updatedAt: new Date(),
-          }).where(eq(articles.id, articleId));
-          // Record completed usage event — populates spending cap meter so caps can trip.
+          await settleDeliveredPodcast(job, articleId);
+          // Without a pending cap row, retain the legacy completed usage event.
           const { recordUsageEvent } = await import("@/lib/usage-caps");
-          await recordUsageEvent({
-            teamId: job.teamId,
-            action: "podcast",
-            units: 1,
-            costEstimateCents: CREDIT_COSTS.podcast ?? 8,
-            jobId: job.creditRunId,
-            metadata: { articleId },
-          }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+          if (job.capReservationId == null) {
+            await recordUsageEvent({
+              teamId: job.teamId,
+              action: "podcast",
+              units: 1,
+              costEstimateCents: CREDIT_COSTS.podcast ?? 8,
+              jobId: job.creditRunId,
+              metadata: { articleId },
+            }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+          }
         }
 
         // Close the learning loop: record this podcast in the learning pipeline
