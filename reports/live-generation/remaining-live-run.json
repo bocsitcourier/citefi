@@ -1,0 +1,271 @@
+{
+  "reportType": "remaining-live-generation-run",
+  "generatedAt": "2026-09-14T23:39:27.335Z",
+  "fixtureLabel": "LIVE GENERATION QA 2026-09-10",
+  "baseUrl": "http://localhost:5000",
+  "scope": {
+    "developmentOnly": true,
+    "syntheticIdentitiesOnly": true,
+    "teamId": 2535,
+    "userId": 10794,
+    "brandSource": {
+      "companyName": "HomeWorks Energy",
+      "websiteUrl": "https://www.homeworksenergy.com",
+      "actualAffiliation": false
+    },
+    "additionalFixtureReport": "reports/live-generation/additional-fixtures.json",
+    "credentialMode": "0600",
+    "providerCallsAuthentic": true,
+    "noMocks": true,
+    "noExternalPublishing": true,
+    "noEmailsSent": true,
+    "noCustomerDataQueried": true,
+    "noWorkflowRestarted": true
+  },
+  "qaSafetyShutdown": {
+    "teamIds": [2535, 2567, 2568],
+    "scope": "Only the isolated QA teams; no customer team or customer configuration was changed.",
+    "systemDbVerification": {
+      "dailyBriefPreferences": [
+        {
+          "teamId": 2535,
+          "userId": 10794,
+          "emailEnabled": 0,
+          "inAppEnabled": 0
+        }
+      ],
+      "dailyBriefPreferencesForTeamsWithoutRows": [2567, 2568],
+      "contentSchedulesRowsFound": 0,
+      "publishingConnectionsRowsFound": 0,
+      "publishingJobsRowsFound": 0,
+      "autoPublishEnabledBatchRowsFound": 0,
+      "existingBatchRowsPreserved": [
+        { "id": 622, "teamId": 2535, "status": "COMPLETE" },
+        { "id": 629, "teamId": 2535, "status": "PENDING" },
+        { "id": 626, "teamId": 2535, "status": "RUNNING" }
+      ]
+    },
+    "controlsApplied": {
+      "qaRecurringDisabled": true,
+      "recurringBriefGeneration": "The scheduler now skips preferences with both emailEnabled=0 and inAppEnabled=0; no recurring brief is enqueued for the disabled QA preference.",
+      "recurringBriefEmail": "emailEnabled=0",
+      "recurringBriefInAppDelivery": "inAppEnabled=0",
+      "recurringContentGeneration": "No contentSchedules rows existed for these teams.",
+      "recurringPublishing": "No contentSchedules, publishingConnections, or publishingJobs rows existed for these teams; no publishing row was deleted or altered."
+    },
+    "preservation": {
+      "activeJobsDeleted": false,
+      "outputRowsDeleted": false,
+      "accountingRowsDeleted": false,
+      "customerConfigsChanged": false,
+      "nonQaRowsTouched": false
+    }
+  },
+  "accounting": {
+    "campaignAdProviderEvent": {
+      "providerUsageLedgerId": 397,
+      "teamId": 2567,
+      "campaignId": 190,
+      "operationType": "campaign_ads",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash",
+      "unitCount": 7776,
+      "costMicrousd": 3634,
+      "costUsd": 0.003634
+    },
+    "campaignCredits": {
+      "teamId": 2567,
+      "initialGrant": 1000,
+      "reserved": 5,
+      "debit": 5,
+      "balanceAfter": 995,
+      "reservationStatus": "DEBITED"
+    },
+    "dailyBriefProviderCallMade": false,
+    "journeyProviderCallMade": false,
+    "learningProviderCallMade": false,
+    "withinRunObservedPaidCostUsd": 0.003634,
+    "budgetMaxUsd": 3
+  },
+  "dailyBrief": {
+    "status": "BLOCKED",
+    "http": [
+      {
+        "method": "GET",
+        "path": "/api/briefs/preferences",
+        "status": 200,
+        "observed": {
+          "emailEnabled": 1,
+          "inAppEnabled": 1
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/briefs/preferences",
+        "status": 200,
+        "observed": {
+          "emailEnabled": 0,
+          "inAppEnabled": 1,
+          "teamId": 2535,
+          "userId": 10794
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/briefs/generate-me",
+        "status": 500,
+        "body": {
+          "error": "Custom Id cannot contain :"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/briefs/today",
+        "status": 200,
+        "observed": {
+          "available": false,
+          "localDate": "2026-09-14"
+        }
+      }
+    ],
+    "db": {
+      "dailyBriefRowsForFixture": 0,
+      "deliveryRowsCreated": 0,
+      "emailEnabledAfter": 0,
+      "inAppEnabledAfter": 0,
+      "historicalPatchResponse": {
+        "emailEnabled": 0,
+        "inAppEnabled": 1
+      },
+      "currentSystemDbVerification": {
+        "emailEnabled": 0,
+        "inAppEnabled": 0
+      }
+    },
+    "emailAttempted": false,
+    "blocker": "The historical force-generation request failed because the old BullMQ custom id contained colons; source now uses a legal deterministic id and the recurring scheduler skips both-disabled preferences. No post-restart force-generation retry has been made."
+  },
+  "campaign": {
+    "status": "PARTIAL",
+    "additionalFixture": {
+      "agencyTeamId": 2567,
+      "clientTeamId": 2568,
+      "agencyUserIds": {
+        "owner": 10890,
+        "compliance": 10891
+      },
+      "clientApproverUserId": 10892
+    },
+    "campaign": {
+      "id": 190,
+      "publicId": "b71068e5-e0fb-4cc2-86ad-125431cff413",
+      "teamId": 2567,
+      "clientTeamId": 2568,
+      "businessUrl": "https://www.homeworksenergy.com",
+      "companyName": "HomeWorks Energy",
+      "status": "ready",
+      "brandStatus": "confirmed"
+    },
+    "brandConfirmation": {
+      "httpStatus": 200,
+      "brandConfirmedAt": "2026-09-14T23:37:42.465Z"
+    },
+    "adGeneration": {
+      "httpStatus": 201,
+      "adId": 2,
+      "adPublicId": "55ee26ea-657c-417b-842a-5d0fe684169b",
+      "httpRetrievalStatus": 200,
+      "status": "draft",
+      "model": "gemini-3.5-flash",
+      "googleHeadlines": 10,
+      "googleDescriptions": 4,
+      "metaVariants": 3,
+      "landingAlignment": "pass",
+      "validationWarnings": 3,
+      "externalPublishing": false
+    },
+    "approvalAndExport": {
+      "policyApprovalHttpStatus": 200,
+      "clientApprovalInitialHttpStatus": 404,
+      "clientApprovalInitialReason": "Campaign not found because campaign creation API has no clientTeamId field; relation was linked only within the isolated fixture setup before any retry.",
+      "exportApprovalHttpStatus": 409,
+      "exportApprovalReason": "Client approval, policy approval, disclaimers, and deterministic validation must pass before export authorization",
+      "exportHttpStatus": 500,
+        "exportBlocker": "The historical export request hit the archiver default-import compile error and produced no artifact. Source now uses the installed v8 named-export adapter; the existing approved ad 2 remains the sole post-restart zero-provider export target.",
+        "postRestartRetestPending": true,
+      "approvalsPersisted": [
+        {
+          "actorUserId": 10891,
+          "type": "policy",
+          "decision": "approved"
+        }
+      ],
+      "noRoleBypass": true,
+      "noAdNetworkPublication": true
+    }
+  },
+  "agencyReport": {
+    "status": "NOT_RUN",
+    "sourceRoutes": [
+      "POST /api/agency/reports/generate",
+      "GET /api/agency/reports/[id]/download"
+    ],
+    "providerCallsMade": false,
+    "emailSent": false,
+    "blocker": "The route requires an approved agency report configuration and persisted evidence; no report generation or email send was attempted before the main runtime restart.",
+    "nextProcedure": "After restart, use only the existing isolated agency/client fixture, generate or retrieve the deterministic report without send, download it, and record provider ledger deltas as zero."
+  },
+  "journey": {
+    "status": "BLOCKED",
+    "http": [
+      {
+        "method": "GET",
+        "path": "/api/journeys",
+        "status": 500
+      },
+      {
+        "method": "GET",
+        "path": "/api/learning/agents",
+        "status": 500
+      }
+    ],
+    "dbWrites": 0,
+    "blocker": "After the export-route compilation failure, the runtime served the same 500 HTML error for unrelated APIs. No journey create/trigger/next/convert calls were accepted."
+  },
+  "learning": {
+    "status": "BLOCKED",
+    "http": [
+      {
+        "method": "GET",
+        "path": "/api/learning/agents",
+        "status": 500
+      }
+    ],
+    "dbWrites": 0,
+    "providerCalls": 0,
+    "blocker": "Same existing archiver default-export compilation failure prevented learning endpoints from serving; no customer records were queried and no fixture-owned learning rows were created."
+  },
+  "runtimeBlockers": [
+    {
+      "source": "app/api/campaigns/[id]/ads/[adId]/export/route.ts",
+      "error": "Export default does not exist in target module; archiver has no default export.",
+      "impact": "Export request returned 500 HTML and subsequent unrelated API requests also returned 500 in this local dev runtime.",
+      "sourceEditsMade": true,
+      "sourceFix": "Central lib/zip-archive.ts now constructs the installed archiver v8 named ZipArchive export; campaign, ad, and batch exports use the adapter.",
+      "runtimeRetestPending": true
+    }
+  ],
+  "evidenceFiles": [
+    "reports/live-generation/additional-fixtures.json",
+    "reports/live-generation/masterinventory.json",
+    "/tmp/campaign-evidence.json",
+    "/tmp/db-evidence.json",
+    "/tmp/accounting-evidence.json"
+  ],
+  "nextActions": [
+    "Wait for the main runtime restart; do not restart or run workflows from this subtask.",
+    "After restart, export only the existing approved campaign ad 2 (campaign 190, ad public ID 55ee26ea-657c-417b-842a-5d0fe684169b) and verify the campaign_exports audit row; do not regenerate or call any provider.",
+    "After restart, attempt only the deterministic agency report generate/download path using the isolated fixture; do not send email and require zero provider calls.",
+    "Do not retry historical daily-brief, journey, learning, article, or campaign generation procedures in this continuation; the QA shutdown and preservation constraints remain in force."
+  ]
+}

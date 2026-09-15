@@ -1,0 +1,160 @@
+{
+  "phase": "seo-toolkit-ui-verification",
+  "status": "PASS_WITH_RECORDED_LIMITATIONS",
+  "capturedAt": "2026-09-14",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "budget": {
+    "additionalAllocationUsd": 0.5,
+    "originalSharedBudgetUsd": 50,
+    "uiCreditsBefore": 4991,
+    "uiCreditsAfter": 4987,
+    "observedUiCreditDelta": 4,
+    "billingAttribution": "Concurrent podcast/video/social activity was present in provider/usage aggregates; no unambiguous per-control UI credit attribution was available. No budget breach is evidenced by the UI delta."
+  },
+  "fixtureOrigins": {
+    "auditArticleId": 2238,
+    "auditArticleSelection": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+    "auditOrigin": "Selected from the real UI article dropdown; not article 2235 and not a manually seeded output.",
+    "publicSource": "https://www.homeworksenergy.com",
+    "localInputs": {
+      "location": "Boston, Massachusetts",
+      "businessType": "Home energy audit"
+    },
+    "competitorInputs": {
+      "competitorUrl": "https://www.homeworksenergy.com",
+      "businessType": "Home energy audit in Boston, Massachusetts"
+    },
+    "structureInputs": {
+      "topic": "Boston home energy assessment winter checklist",
+      "audience": "Massachusetts homeowners"
+    },
+    "pillarInputs": {
+      "topic": "Boston home energy assessment",
+      "industry": "Residential energy efficiency and home energy services",
+      "audience": "Massachusetts homeowners"
+    },
+    "schemaInputs": {
+      "title": "Boston Home Energy Assessment: Winter Checklist",
+      "author": "HomeWorks Energy Editorial Team",
+      "description": "Educational Boston winter home energy assessment guidance for homeowners, including practical preparation and efficiency checklist steps."
+    }
+  },
+  "controls": [
+    {
+      "name": "Local SEO Research",
+      "route": "/seo-tools",
+      "uiAction": "Filled Boston, Massachusetts + Home energy audit; clicked Research Local SEO once.",
+      "status": "PASS",
+      "output": "Rendered Location Keywords, four Seasonal Trends sections, and five Local Questions.",
+      "notification": "Not captured as a dedicated toast; button returned to enabled state with results present.",
+      "downloadOrExport": "None offered.",
+      "persistence": "Rendered in the active UI session; no reload/persistence endpoint or save/export control exposed."
+    },
+    {
+      "name": "Content Audit & Quality Analysis",
+      "route": "/seo-tools",
+      "uiAction": "Selected article 2238 from UI dropdown; clicked Run Quality Audit once.",
+      "status": "PASS",
+      "output": "Quality Score 2/5, Low Citation Potential, findings, internal-link opportunities, recommendations, and critical issues rendered.",
+      "notification": "Audit Complete! Your content quality report is ready.",
+      "downloadOrExport": "None offered.",
+      "persistence": "Rendered in active UI session; no visible save/download/export control."
+    },
+    {
+      "name": "Competitor Analysis",
+      "route": "/seo-tools",
+      "uiAction": "Filled public HomeWorks URL + Boston home-energy-audit business type; clicked Analyze Competitor once.",
+      "status": "PASS_WITH_LIMITED_RENDERED_FIELDS",
+      "output": "Rendered five Suggested Improvements with priorities: Content Depth high, Interactive Tools medium, Local SEO Optimization high, Content Variety medium, Meta Data Optimization high.",
+      "notification": "Analysis Complete! Competitor insights generated successfully.",
+      "limitation": "The UI snapshot did not expose strengths/weaknesses/gaps sections or a download/export control, although the prior API evidence contained those response keys.",
+      "downloadOrExport": "None offered.",
+      "persistence": "Rendered in active UI session; no visible save/download/export control."
+    },
+    {
+      "name": "Schema Markup - Article",
+      "route": "/seo-tools",
+      "uiAction": "Selected Article and clicked Generate Schema once.",
+      "status": "PASS",
+      "output": "Rendered JSON-LD with @context, @type Article, headline, description, Organization author, timestamps, and image/logo fields.",
+      "downloadOrExport": "Copy control only; no Download/Export control offered.",
+      "persistence": "Client/UI result replaced when another type was selected; no persistence/save control exposed."
+    },
+    {
+      "name": "Schema Markup - HowTo",
+      "route": "/seo-tools",
+      "uiAction": "Selected HowTo and clicked Generate Schema once.",
+      "status": "PASS_WITH_EMPTY_OPTIONAL_ARRAYS",
+      "output": "Rendered JSON-LD with @type HowTo, name/description, and step/tool/supply arrays (empty because no type-specific inputs were exposed).",
+      "downloadOrExport": "Copy control only; no Download/Export control offered.",
+      "persistence": "Client/UI result; selecting another type left the prior output until the next generate."
+    },
+    {
+      "name": "Schema Markup - FAQPage",
+      "route": "/seo-tools",
+      "uiAction": "Selected FAQPage and clicked Generate Schema once.",
+      "status": "PASS_WITH_EMPTY_MAIN_ENTITY",
+      "output": "Rendered valid-looking JSON-LD with @context, @type FAQPage, and mainEntity: []. No FAQ question/answer inputs were exposed.",
+      "downloadOrExport": "Copy control only; no Download/Export control offered.",
+      "persistence": "Client/UI result; no save/export/persistence control exposed."
+    },
+    {
+      "name": "Schema Markup - LocalBusiness",
+      "route": "/seo-tools",
+      "uiAction": "Selected LocalBusiness and clicked Generate Schema once.",
+      "status": "PASS_WITH_EMPTY_OPTIONAL_FIELDS",
+      "output": "Rendered JSON-LD with @type LocalBusiness, description, PostalAddress/addressCountry US, empty GeoCoordinates, and openingHoursSpecification [].",
+      "downloadOrExport": "Copy control only; no Download/Export control offered.",
+      "persistence": "Client/UI result; no save/export/persistence control exposed."
+    },
+    {
+      "name": "Content Structure Optimizer",
+      "route": "/seo-tools",
+      "uiAction": "Filled Boston topic + Massachusetts homeowners; clicked Generate Structure once.",
+      "status": "PASS",
+      "output": "Rendered title “The Ultimate Boston Winter Home Energy Assessment Checklist: Save on Heating & Beat the Cold,” an eight-item outline, and five-question FAQ section.",
+      "downloadOrExport": "None offered; Create Articles was visible but not used.",
+      "persistence": "Rendered in active UI session; no save/download/export control."
+    },
+    {
+      "name": "Pillar/Cluster Strategy",
+      "route": "/seo-tools",
+      "uiAction": "Filled Boston topic, residential energy-efficiency industry, Massachusetts homeowners; clicked Generate Strategy once.",
+      "status": "PASS",
+      "output": "Rendered pillar title “The Ultimate Guide to Boston Home Energy Assessments: Save Money & Improve Comfort” and Cluster Pages (8), with six visible cluster entries in the snapshot.",
+      "downloadOrExport": "None offered; Create Articles was visible but not used.",
+      "persistence": "Rendered in active UI session; no save/download/export control."
+    }
+  ],
+  "navigationAndSafety": {
+    "navNote": "Sidebar click briefly highlighted SEO Intelligence while content remained Brand Intelligence during compile; direct /seo-tools navigation loaded the correct toolkit.",
+    "articleCreation": false,
+    "globalAdmin": false,
+    "publishing": false,
+    "interceptionOrMocks": false,
+    "restarts": false,
+    "unrelatedNotification": "A Video Generation Failed toast appeared during schema testing from another active agent; it was not interacted with or attributed to SEO."
+  },
+  "accountingObservation": {
+    "currentSidebarCredits": 4987,
+    "currentHeaderCredits": 4987,
+    "usageSnapshot": "Read-only usage contained concurrent podcast/social reservations and other active-agent work; SEO-only provider aggregate could not be isolated safely from the returned snapshot.",
+    "providerAggregateCaveat": "The post-session aggregate included podcast_tts, video_idea, social_post, image_generation, and other operations from concurrent work, so it is not used as SEO-only cost evidence."
+  },
+  "evidence": {
+    "screenshots": [
+      "v4192v",
+      "xhgnjj",
+      "0fy44z",
+      "gydkin",
+      "psiu3b",
+      "942l7a",
+      "txv9kv",
+      "w6c8o6",
+      "b5tq4k"
+    ],
+    "reportVerdict": "PASS_WITH_RECORDED_LIMITATIONS",
+    "noAdditionalArticleSubmission": true
+  }
+}

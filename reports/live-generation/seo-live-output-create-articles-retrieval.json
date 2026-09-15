@@ -1,0 +1,231 @@
+{
+  "method": "GET",
+  "route": "/api/batches/629",
+  "status": 200,
+  "ok": true,
+  "contentType": "application/json",
+  "response": {
+    "batch": {
+      "id": 629,
+      "userId": 10794,
+      "coreTopic": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+      "targetUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+      "status": "PENDING",
+      "numArticlesRequested": 1,
+      "titlePoolJson": {
+        "titles": [
+          "How to Prepare for a Boston, Massachusetts Home Energy Assessment: Expert Checklist",
+          "How Do Mass Save Energy Assessments Work in Boston, Massachusetts? 2026 Guide"
+        ],
+        "seoToolType": "content_structure",
+        "seoToolOutput": {
+          "tldr": "Boston residents can access 100% free home energy assessments through the Mass Save program. This guide shows homeowners and renters how to prepare, what to expect during the inspection, and how to unlock thousands of dollars in energy-efficiency rebates.",
+          "title": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+          "headings": [
+            {
+              "text": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+              "level": "h1"
+            },
+            {
+              "text": "What is a Boston Home Energy Assessment?",
+              "level": "h2",
+              "summary": "An in-depth look at what a home energy assessment is and how it acts as a diagnostic health checkup for your property's energy efficiency."
+            },
+            {
+              "text": "How the Mass Save Program Works for Locals",
+              "level": "h3",
+              "summary": "An overview of the unique utility-funded partnership offering free energy assessments to Massachusetts residents."
+            },
+            {
+              "text": "Why You Should Get an Energy Assessment Today",
+              "level": "h2",
+              "summary": "Exploring the immediate financial, comfort, and environmental benefits of completing an assessment."
+            },
+            {
+              "text": "Lowering Utility Bills in Historic Boston Homes",
+              "level": "h3",
+              "summary": "How older, drafty properties in neighborhoods like Beacon Hill and South End stand to save the most."
+            },
+            {
+              "text": "Reducing Your Carbon Footprint in the Hub",
+              "level": "h3",
+              "summary": "Aligning your household energy use with Boston's goal of reaching carbon neutrality by 2050."
+            },
+            {
+              "text": "Step-by-Step: How to Prepare Your Boston Home",
+              "level": "h2",
+              "summary": "A practical checklist to ensure your home is ready for the energy specialist's visit."
+            },
+            {
+              "text": "Clearing Access to Your Attic, Basement, and Heating Systems",
+              "level": "h3",
+              "summary": "Why technicians need physical access to these key areas and how to prepare them safely."
+            },
+            {
+              "text": "Gathering Your Utility Bills and Energy History",
+              "level": "h3",
+              "summary": "How providing 12 months of heating and electricity data helps the specialist customize your plan."
+            },
+            {
+              "text": "Preparing Questions for Your Energy Specialist",
+              "level": "h3",
+              "summary": "Key topics to ask about, including heat pumps, insulation upgrades, and available rebates."
+            },
+            {
+              "text": "What Happens During the Energy Assessment?",
+              "level": "h2",
+              "summary": "A walkthrough of the typical 2-to-3 hour evaluation process."
+            },
+            {
+              "text": "The Blower Door Test Explained",
+              "level": "h3",
+              "summary": "How this depressurization test locates hidden drafts and air leaks throughout your home."
+            },
+            {
+              "text": "Thermal Imaging and Insulation Checks",
+              "level": "h3",
+              "summary": "Using infrared technology to reveal gaps in your walls and attic insulation without damage."
+            },
+            {
+              "text": "Combustion Safety Testing for Heating Systems",
+              "level": "h3",
+              "summary": "Ensuring your furnace, boiler, and water heater are venting gases safely and efficiently."
+            },
+            {
+              "text": "Understanding Your Post-Assessment Energy Report",
+              "level": "h2",
+              "summary": "How to read the customized roadmap of recommended energy upgrades and financial incentives."
+            },
+            {
+              "text": "Deciphering Recommended Upgrades and Rebates",
+              "level": "h3",
+              "summary": "Navigating the 75% to 100% insulation discounts and thousands of dollars in heat pump rebates."
+            },
+            {
+              "text": "Special Guidance for Boston Renters vs. Homeowners",
+              "level": "h2",
+              "summary": "How both tenants and landlords can benefit from the assessment without friction."
+            }
+          ],
+          "faq_section": [
+            {
+              "answer": "The assessment is 100% free for eligible Boston homeowners, renters, and landlords. It is funded by a energy-efficiency charge on your monthly utility bills.",
+              "question": "How much does a Boston home energy assessment cost?"
+            },
+            {
+              "answer": "Any residential customer of participating Massachusetts utilities (including Eversource and National Grid) qualifies for the free assessment.",
+              "question": "Who qualifies for a Mass Save home energy assessment?"
+            },
+            {
+              "answer": "Renters can request an assessment and receive free instant-savings items like LED bulbs. However, major structural upgrades like insulation or heating replacements require landlord approval.",
+              "question": "Do renters need landlord approval for an energy assessment?"
+            },
+            {
+              "answer": "A typical home energy assessment takes between 1.5 to 3 hours, depending on the size and age of your home.",
+              "question": "How long does a home energy assessment take?"
+            },
+            {
+              "answer": "Specialists often install free energy-saving items on the spot, including smart power strips, low-flow showerheads, faucet aerators, and programmable thermostats.",
+              "question": "What immediate free items do I get during the assessment?"
+            },
+            {
+              "answer": "You can generally receive a new assessment every 2 to 3 years, or sooner if you have recently purchased the home or completed major renovations.",
+              "question": "How often can I get a home energy assessment in Boston?"
+            },
+            {
+              "answer": "A blower door test uses a powerful fan mounted to an exterior door frame to depressurize your home. It is safe, but pets should be kept in a closed room to prevent them from slipping out of the open door frame.",
+              "question": "What is a blower door test, and is it safe for pets?"
+            },
+            {
+              "answer": "Available rebates include 75% to 100% off approved insulation upgrades, up to $10,000 for air-source heat pumps, and significant discounts on high-efficiency appliances.",
+              "question": "What rebates are available after the assessment?"
+            },
+            {
+              "answer": "If you live in a historic district (like Beacon Hill), exterior changes are restricted. However, interior improvements like attic insulation, basement air sealing, and interior storm windows are highly effective and allowed.",
+              "question": "How do historic home guidelines affect my energy upgrades in Boston?"
+            }
+          ],
+          "key_takeaways": [
+            "Assessments are completely free for Boston residents, funded by a surcharge on your existing utility bills.",
+            "Preparing your home requires clearing paths to your attic, basement, and heating equipment.",
+            "Both renters and homeowners can participate, though renters need landlord approval for major structural upgrades.",
+            "You will receive immediate, free energy-saving products like smart power strips and water-saving devices during the visit.",
+            "Completing the assessment unlocks massive financial incentives, including up to 100% off insulation and $10,000 for heat pumps.",
+            "Older and historic Boston homes stand to gain the most in comfort improvements and utility bill reductions."
+          ],
+          "schema_markup": [
+            {
+              "type": "Article",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"Article\",\n  \"headline\": \"The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort\",\n  \"description\": \"Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills.\",\n  \"author\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  },\n  \"publisher\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  }\n}"
+            },
+            {
+              "type": "HowTo",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"HowTo\",\n  \"name\": \"How to Prepare for a Boston Home Energy Assessment\",\n  \"step\": [\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Clear Access\",\n      \"text\": \"Clear physical access to your attic, crawlspaces, basement, and heating/cooling equipment.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Gather Bills\",\n      \"text\": \"Retrieve 12 months of utility and heating fuel bills to share with the energy specialist.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Secure Pets\",\n      \"text\": \"Secure any household pets in a safe room before the blower door test begins.\"\n    }\n  ]\n}"
+            },
+            {
+              "type": "FAQPage",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"FAQPage\",\n  \"mainEntity\": [\n    {\n      \"@type\": \"Question\",\n      \"name\": \"How much does a Boston home energy assessment cost?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"The assessment is 100% free for eligible Boston homeowners, renters, and landlords through the Mass Save program.\"\n      }\n    },\n    {\n      \"@type\": \"Question\",\n      \"name\": \"Do renters need landlord approval for an energy assessment?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"Renters can request an assessment directly, but major structural upgrades like insulation or heating replacements require landlord approval.\"\n      }\n    }\n  ]\n}"
+            }
+          ],
+          "definition_boxes": [
+            {
+              "term": "Mass Save",
+              "definition": "A collaborative of Massachusetts' natural gas and electric utilities and energy efficiency service providers dedicated to helping residents save money and energy."
+            },
+            {
+              "term": "Blower Door Test",
+              "definition": "A diagnostic tool used by energy specialists that depressurizes a home to measure air tightness and locate specific air leaks."
+            },
+            {
+              "term": "R-Value",
+              "definition": "A measure of insulation's ability to resist heat flow. The higher the R-value, the greater the insulating power."
+            },
+            {
+              "term": "Air Sealing",
+              "definition": "The practice of sealing cracks, gaps, and holes in a building envelope to reduce drafts and prevent conditioned air from escaping."
+            },
+            {
+              "term": "Heat Pump",
+              "definition": "An energy-efficient heating and cooling system that transfers heat between the indoors and outdoors rather than generating it from fossil fuels."
+            }
+          ],
+          "meta_description": "Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills."
+        },
+        "contentStrategy": "Deploy an authoritative content cluster addressing the unique energy challenges of historic Boston properties and the specific details of the Mass Save program. Front-load articles with direct, structured answers (AEO-optimized) detailing costs, preparation checklists, and local utility program coordination to maximize AI search citations and user trust.",
+        "primaryKeywords": [
+          "boston home energy assessment",
+          "mass save boston ma",
+          "boston home energy audit cost",
+          "energy efficiency historic homes boston",
+          "how to prepare for home energy audit",
+          "mass save program boston",
+          "boston energy assessment checklist",
+          "lower utility bills boston ma",
+          "home energy assessment boston massachusetts",
+          "mass save contractor boston"
+        ]
+      },
+      "createdAt": "2026-09-14T23:02:41.570Z",
+      "completedAt": null,
+      "businessName": null,
+      "businessAddress": null,
+      "businessPhone": null,
+      "companyLogoUrl": null
+    },
+    "seoCache": null,
+    "articles": [],
+    "summary": {
+      "total": 0,
+      "completed": 0,
+      "inProgress": 0,
+      "pending": 0,
+      "failed": 0
+    }
+  },
+  "proof": {
+    "batchId": 629,
+    "titlePoolPresent": true,
+    "titleCount": 2,
+    "storedArticleCount": 0
+  }
+}

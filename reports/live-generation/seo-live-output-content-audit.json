@@ -1,0 +1,68 @@
+{
+  "overallScore": 2,
+  "citationPotential": "low",
+  "criteria": {
+    "directAnswerCompliance": {
+      "score": 2,
+      "rationale": "Most H2 sections provide descriptive content but do not start with a concise, complete direct answer of 40-60 words. The content is more narrative and explanatory rather than structured to deliver immediate answers suitable for AI citation or featured snippets.",
+      "suggestedEdit": "Rewrite each major section to begin with a clear, standalone direct answer summarizing the key point in 40-60 words before elaborating."
+    },
+    "entitySalience": {
+      "score": 2,
+      "rationale": "The only entity clearly referenced is the fictional business 'Harbor Home Energy' and the geographic location 'Boston, Massachusetts.' There are no authoritative third-party entities, experts, or organizations cited to enhance entity salience for GEO optimization.",
+      "suggestedEdit": "Incorporate references to recognized local energy authorities, certifications, or expert organizations relevant to Boston home energy assessments to boost entity salience."
+    },
+    "eeeatSignals": {
+      "score": 1,
+      "rationale": "The article explicitly states it is fictional and used only for testing, with no real credentials, certifications, case studies, or expert citations. There are no trust signals such as author bios, data, or references to authoritative sources.",
+      "suggestedEdit": "Add real-world expert citations, data-backed examples, or case studies if the content is intended for actual publication. Include author credentials and transparent sourcing to improve E-E-A-T."
+    },
+    "passageQuality": {
+      "score": 3,
+      "rationale": "Paragraphs are generally concise and well-structured, avoiding fluff. However, many paragraphs are explanatory rather than answer-focused, reducing their immediate extractability for AI citations or voice search answers.",
+      "suggestedEdit": "Reformat paragraphs to follow an answer-first approach, making each paragraph a self-contained, citation-ready snippet with clear, direct responses to common user questions."
+    },
+    "schemaReadiness": {
+      "score": 1,
+      "rationale": "The HTML content lacks any structured data markup such as JSON-LD for Article, FAQPage, HowTo, or LocalBusiness. There are no FAQs or step-by-step instructions explicitly marked up for schema compatibility.",
+      "suggestedEdit": "Implement JSON-LD schema markup for the article, including FAQPage or HowTo schemas where applicable. Mark up local business information if relevant and add structured Q&A content for AI consumption."
+    },
+    "geoOptimization": {
+      "score": 2,
+      "rationale": "The content mentions Boston and targets local homeowners and renters but does not provide optimized answers for local or voice search queries. The fictional nature and lack of concrete local references limit GEO optimization effectiveness.",
+      "suggestedEdit": "Enhance local optimization by including common local queries, voice search phrasing, and specific Boston-area energy considerations. Provide clear, direct answers to typical local user questions."
+    }
+  },
+  "internalLinkOpportunities": [
+    {
+      "anchorText": "seasonal home energy checklists",
+      "targetArticleId": 2235,
+      "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+      "context": "Seasonal checklists focus on practical preparation before Boston's colder months. They distinguish low-risk observations from work requiring a qualified professional.",
+      "relevanceScore": 0.95
+    },
+    {
+      "anchorText": "home energy assessment planning",
+      "targetArticleId": 2235,
+      "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+      "context": "Harbor Home Energy is a fictional Boston-area home energy education business. Its test service offerings are residential home energy assessment planning, air-leak review preparation, insulation planning, and seasonal home energy checklists.",
+      "relevanceScore": 0.9
+    },
+    {
+      "anchorText": "Boston, Massachusetts area",
+      "targetArticleId": 2235,
+      "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+      "context": "The fictional target audience is homeowners and renters in the Boston, Massachusetts area who want understandable information about home comfort and energy assessments.",
+      "relevanceScore": 0.85
+    }
+  ],
+  "recommendations": [
+    "Rewrite major sections to start with concise, direct answers suitable for AI citation and featured snippets.",
+    "Add authoritative local entities, expert references, or certifications to improve entity salience and trust.",
+    "Implement JSON-LD structured data markup including FAQPage or HowTo schemas to enhance schema readiness."
+  ],
+  "complianceIssues": [
+    "The article explicitly states it is fictional and not a real business, which disqualifies it from being used as a real citation source.",
+    "No real expertise, credentials, or trust signals are present, limiting its suitability for authoritative AI citations."
+  ]
+}

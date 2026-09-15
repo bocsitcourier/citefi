@@ -1,0 +1,40 @@
+{
+  "phase": "brand-intelligence-controlled-source-retry",
+  "status": "FAIL",
+  "capturedAt": "2026-09-14",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "input": {
+    "companyName": "Harbor Home Energy",
+    "websiteUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+    "sourceType": "controlled runtime-domain QA fixture"
+  },
+  "ui": {
+    "route": "/intelligence",
+    "action": "Edit source -> Update & Run Research",
+    "submissionCount": 1,
+    "observedState": "Starting... then Research failed"
+  },
+  "failure": {
+    "message": "Required business source could not be fetched or analyzed: https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html. Verify that the URL is publicly reachable and retry.",
+    "retryAttempted": false,
+    "providerProfileCompleted": false
+  },
+  "billing": {
+    "creditsBefore": 4999,
+    "creditsAfterObserved": 4999,
+    "paidRetryAttempted": false,
+    "providerCostVerified": false
+  },
+  "safety": {
+    "articleCalls": 0,
+    "podcastCalls": 0,
+    "videoCalls": 0,
+    "publishing": false,
+    "customerDataChanged": false
+  },
+  "evidence": {
+    "screenshot": "6ogayd",
+    "note": "UI failure evidence captured in the browser observation; no successful profile or required-section validation exists."
+  }
+}

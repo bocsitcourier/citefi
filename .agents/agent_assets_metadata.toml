@@ -162,3 +162,17 @@ mtime_ms = 1789054240253
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/76575a87-8d29-4179-a15c-2c3fd0ed771f/3e579753-8ee8-498d-b4ea-93232b452cc0"
 storage_version_token = "1789054294626213"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "1hnpVAonQ_k_CxFn5MKAX"
+uri = "file://reports/live-generation/dashboard.html"
+type = "text"
+title = "Generation audit — blocked, not certified"
+description = "40-feature evidence matrix with real outputs, failures, fixes, unexecuted cases, and shared-budget accounting. Paid reruns remain paused because one verification call has no recoverable cost bound."
+logical_id = "19c7380c-e0a1-4c11-a99b-60c0b18dc4fb"
+content_hash = "sha256:07b8dcf65b15b73d8f8c8588d266d12ef70942530f93c78c528e26ecaff73c74"
+size = 770417
+mtime_ms = 1789433033970
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/19c7380c-e0a1-4c11-a99b-60c0b18dc4fb/1d315e6e-99c3-4042-9d67-204dc8687aef"
+storage_version_token = "1789433083905396"
+content_type = "text/html"

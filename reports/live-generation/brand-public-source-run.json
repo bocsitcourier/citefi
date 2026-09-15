@@ -1,0 +1,160 @@
+{
+  "phase": "brand-intelligence-public-source-retry",
+  "status": "PASS",
+  "capturedAt": "2026-09-14",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "input": {
+    "companyName": "HomeWorks Energy",
+    "websiteUrl": "https://www.homeworksenergy.com",
+    "sourceType": "public business website",
+    "qaTenant": true,
+    "affiliationClaimed": false
+  },
+  "safety": {
+    "submissionCount": 1,
+    "qaPrivateHostNotBypassed": true,
+    "article2235Touched": false,
+    "podcastCalled": false,
+    "videoCalled": false,
+    "publishingCalled": false,
+    "workerRestartedDuringRun": false
+  },
+  "uiRun": {
+    "route": "/intelligence",
+    "action": "Edit source -> Update & Run Research",
+    "observedStarted": true,
+    "observedStages": [
+      "Analyzing website",
+      "Discovering competitors",
+      "Mining Reddit pain points",
+      "Analyzing competitive gaps",
+      "Building brand policy",
+      "Assembling profile"
+    ],
+    "terminalUi": "Active",
+    "lastUpdated": "9/14/2026"
+  },
+  "sourceValidation": {
+    "browserGetStatus": 200,
+    "finalUrl": "https://www.homeworksenergy.com/",
+    "title": "Mass Save Assessments & Efficiency Services in Massachusetts",
+    "bodyTextBytes": 4594,
+    "containsHomeWorksEnergy": true,
+    "containsBpi": true,
+    "containsWarrantyLanguage": false,
+    "groundedSourceExamples": [
+      "Mass Save partner language and Mass Save incentives are visible on the public home page.",
+      "The public page visibly states BPI-certified home energy experts.",
+      "The public page visibly states 75%+ off insulation and 100% off air sealing.",
+      "The public page visibly lists home energy assessments, insulation/air sealing, heating, cooling, ductless, and HVAC maintenance services.",
+      "The public page visibly includes customer quote/testimonial text."
+    ],
+    "unsupportedClaimCheck": {
+      "inventedCertification": false,
+      "inventedWarranty": false,
+      "guaranteedSavings": false,
+      "note": "BPI and Mass Save/incentive wording were observed on the public source itself; no warranty wording was found in the direct public-page text scan."
+    }
+  },
+  "profileValidation": {
+    "sourcePersisted": "https://www.homeworksenergy.com",
+    "companyPersisted": "HomeWorks Energy",
+    "status": "Active",
+    "voiceTone": {
+      "meaningful": true,
+      "observed": "Populated tone, values, personality, avoided phrases, trust signals, and voice examples."
+    },
+    "positioning": {
+      "meaningful": true,
+      "observed": "Populated UVP, pricing tier, services, geographic focus, and trust signals."
+    },
+    "targetAudience": {
+      "meaningful": true,
+      "observed": "Massachusetts homeowner persona, eight pain points, five decision drivers, and demographics."
+    },
+    "competitiveGaps": {
+      "meaningful": true,
+      "observed": "Populated undersold advantages, opportunity topics, and weaknesses/gaps."
+    },
+    "brandPolicyPack": {
+      "meaningful": true,
+      "approvedClaimsVisible": true,
+      "prohibitedClaimsVisible": true,
+      "approvedExamples": [
+        "Mass Save incentives including 75%+ off insulation and 100% off air sealing",
+        "Custom energy reports/rebates",
+        "Financing/rebate language"
+      ],
+      "prohibitedExamples": [
+        "Unsupported partnerships",
+        "Unsupported certification/status claims",
+        "Fixed pricing",
+        "Unverified HVAC warranty timelines"
+      ]
+    },
+    "quotes": {
+      "meaningful": true,
+      "observed": "Public source testimonials were present and the profile was assembled with source-backed customer/market context."
+    }
+  },
+  "persistence": {
+    "browserRefresh": {
+      "verified": true,
+      "route": "/intelligence",
+      "source": "HomeWorks Energy · https://www.homeworksenergy.com",
+      "status": "Active",
+      "voiceAndPositioningPopulated": true
+    },
+    "logout": {
+      "verified": true,
+      "route": "/login",
+      "uiSignOut": true
+    },
+    "relogin": {
+      "verified": true,
+      "route": "/home",
+      "sameRuntimeCredentials": true
+    },
+    "postReloginRetrieval": {
+      "verified": true,
+      "route": "/intelligence",
+      "source": "HomeWorks Energy · https://www.homeworksenergy.com",
+      "status": "Active",
+      "voiceAndPositioningPopulated": true
+    }
+  },
+  "billing": {
+    "approvedBudgetUsd": 50,
+    "runAllocationUsd": 2,
+    "providerLedgerRows": [
+      { "id": "346", "operationType": "brand_intelligence", "provider": "gemini", "costMicrousd": "2743", "providerRequestId": "zoKoaqKPO5n9jrEPhumImQE" },
+      { "id": "347", "operationType": "brand_intelligence", "provider": "gemini", "costMicrousd": "4174", "providerRequestId": "voKoau7_KYu0jrEPrK-NuAo" },
+      { "id": "348", "operationType": "brand_intelligence", "provider": "gemini", "costMicrousd": "2312", "providerRequestId": "tIKoapyrBLCq-8YP1_bToAo" },
+      { "id": "349", "operationType": "brand_intelligence", "provider": "gemini", "costMicrousd": "4303", "providerRequestId": "p4KoavSbCpyGjrEPso3m0Q0" }
+    ],
+    "providerCostMicrousd": 13532,
+    "providerCostUsd": 0.013532,
+    "usageObservation": "Read-only usage query showed pending cap reservations 10 and 11 and completed prior event 7; no new generation was initiated after the public run.",
+    "visibleBalance": {
+      "mainHeaderCredits": 4984,
+      "sidebarCredits": 4999,
+      "note": "UI surfaces disagree; this is recorded as an observation, not treated as proof of billing failure."
+    }
+  },
+  "evidence": {
+    "screenshots": [
+      "ss2qit",
+      "eor5y2",
+      "sd79hw",
+      "bxb0o0",
+      "uis9t0",
+      "4wisc3",
+      "le4o6l",
+      "q8riu9",
+      "r5crt4"
+    ],
+    "reportVerdict": "PASS",
+    "note": "The earlier private QA-host failure remains preserved separately in brand-retry-run.json; this report covers only the single public-source retry."
+  }
+}

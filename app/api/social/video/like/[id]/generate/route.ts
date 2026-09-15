@@ -35,8 +35,10 @@ export async function POST(
   }
 
   let teamId: number | undefined;
+  let ideaIdForCleanup: number | undefined;
   let creditRunId: string | undefined;
   let capReservationId: number | null = null;
+  let queueAccepted = false;
 
   try {
     return await withAuthenticatedTeamContext(request, async (auth) => {
@@ -46,6 +48,7 @@ export async function POST(
 
     const { id } = await params;
     const ideaId = parseInt(id, 10);
+    ideaIdForCleanup = ideaId;
     if (isNaN(ideaId)) {
       return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
     }
@@ -139,11 +142,21 @@ export async function POST(
         progress: 0,
         currentStage: "queued",
         errorMessage: null,
+        videoCreditRunId: creditRunId,
+        videoCapReservationId: capReservationId,
+        videoBillingSettledAt: null,
         updatedAt: new Date(),
       })
       .where(eq(videoIdeas.id, ideaId));
 
-    const jobId = await addVideoIdeaJob({ videoIdeaId: ideaId, teamId, userId, creditRunId });
+    const jobId = await addVideoIdeaJob({
+      videoIdeaId: ideaId,
+      teamId,
+      userId,
+      creditRunId,
+      capReservationId,
+    });
+    queueAccepted = Boolean(jobId);
 
     if (!jobId) {
       if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
@@ -156,6 +169,9 @@ export async function POST(
           status: "FAILED",
           progress: 0,
           errorMessage: "Failed to queue job - please try again",
+          videoCreditRunId: null,
+          videoCapReservationId: null,
+          videoBillingSettledAt: null,
         })
         .where(eq(videoIdeas.id, ideaId));
 
@@ -180,10 +196,24 @@ export async function POST(
       estimatedTime: "60-80 minutes",
     });
     } catch (error) {
-      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
-      if (creditRunId && teamId) {
+      // Once BullMQ accepted the job, preserve its durable billing identities
+      // for the worker/recovery path; never refund a possibly-running job here.
+      if (!queueAccepted && capReservationId !== null) {
+        cancelCapReservation(capReservationId).catch(() => {});
+      }
+      if (!queueAccepted && creditRunId && teamId) {
         await releaseReservation({ teamId, runId: creditRunId, reason: "Unexpected error in like-video route" })
           .catch((e) => console.warn("[billing] emergency releaseReservation:", e));
+      }
+      if (!queueAccepted && ideaIdForCleanup !== undefined) {
+        await db.update(videoIdeas)
+          .set({
+            videoCreditRunId: null,
+            videoCapReservationId: null,
+            videoBillingSettledAt: null,
+          })
+          .where(eq(videoIdeas.id, ideaIdForCleanup))
+          .catch(() => {});
       }
       throw error;
     }

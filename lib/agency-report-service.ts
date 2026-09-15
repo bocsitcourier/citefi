@@ -120,26 +120,38 @@ async function assertAgencyDirectChild(
 export async function upsertAgencyReportConfig(input: z.input<typeof agencyReportConfigInputSchema>) {
   const parsed = agencyReportConfigInputSchema.parse(input);
   const actor = await enforceAgencyDirectChild(parsed.clientTeamId);
-  const db = getTxDb();
-  const [row] = await db.insert(agencyReportConfigs).values({
-    agencyTeamId: actor.agencyTeamId, clientTeamId: parsed.clientTeamId,
+  const values = {
     displayName: parsed.displayName, logoUrl: parsed.logoUrl ?? null,
     accentColor: parsed.accentColor ?? null, recipientsJson: parsed.recipients,
     cadence: parsed.cadence, clientVisibleSectionsJson: parsed.clientVisibleSections,
     markupBasisPoints: parsed.markupBasisPoints,
     // Any edit invalidates the commercial approval.
-    approvalStatus: "draft", approvedBy: null, approvedAt: null, updatedAt: new Date(),
-  }).onConflictDoUpdate({
-    target: [agencyReportConfigs.agencyTeamId, agencyReportConfigs.clientTeamId],
-    set: {
-      displayName: parsed.displayName, logoUrl: parsed.logoUrl ?? null,
-      accentColor: parsed.accentColor ?? null, recipientsJson: parsed.recipients,
-      cadence: parsed.cadence, clientVisibleSectionsJson: parsed.clientVisibleSections,
-      markupBasisPoints: parsed.markupBasisPoints, approvalStatus: "draft",
-      approvedBy: null, approvedAt: null, updatedAt: new Date(),
-    },
-  }).returning();
-  return row;
+    approvalStatus: "draft" as const, approvedBy: null, approvedAt: null, updatedAt: new Date(),
+  };
+  // Some deployed databases predate the composite unique index that backs the
+  // Drizzle onConflict target. Locking the agency row makes the read/update or
+  // insert path idempotent on both schemas without bypassing the normal API.
+  return withTenantTransaction(async (tx) => {
+    await tx.select({ id: teams.id }).from(teams)
+      .where(eq(teams.id, actor.agencyTeamId)).for("update");
+    const [existing] = await tx.select({ id: agencyReportConfigs.id })
+      .from(agencyReportConfigs)
+      .where(and(
+        eq(agencyReportConfigs.agencyTeamId, actor.agencyTeamId),
+        eq(agencyReportConfigs.clientTeamId, parsed.clientTeamId),
+      ))
+      .for("update")
+      .limit(1);
+    if (existing) {
+      const [row] = await tx.update(agencyReportConfigs).set(values)
+        .where(eq(agencyReportConfigs.id, existing.id)).returning();
+      return row;
+    }
+    const [row] = await tx.insert(agencyReportConfigs).values({
+      agencyTeamId: actor.agencyTeamId, clientTeamId: parsed.clientTeamId, ...values,
+    }).returning();
+    return row;
+  });
 }
 
 export async function approveAgencyReportConfig(clientTeamId: number) {

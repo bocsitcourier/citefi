@@ -1,0 +1,183 @@
+{
+  "phase": "repaired-schema-ui-retest",
+  "status": "PASS_WITH_NOTES",
+  "capturedAt": "2026-09-15",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "providerSpend": {
+    "providerCallsInitiated": 0,
+    "note": "All four schema operations are deterministic UI schema construction; no paid generation/provider call was initiated."
+  },
+  "route": "/seo-tools",
+  "emptyRequiredBlocking": {
+    "status": "PASS",
+    "articleInitialState": {
+      "requiredValues": ["", "", ""],
+      "generateButtonDisabled": true
+    },
+    "faqPage": "Empty title/description/question/answer state rendered Generate Schema disabled.",
+    "howTo": "Empty title/description/step-name/step-description state rendered Generate Schema disabled.",
+    "localBusiness": "Empty business/address required fields rendered Generate Schema disabled."
+  },
+  "copyPayloadVerification": {
+    "status": "PASS_SEMANTIC_RENDERED_PAYLOAD",
+    "method": "Parsed the visible JSON-LD code payload for each generated type. The live source confirms the Copy button writes the same schemaMarkup.json_ld string to the clipboard.",
+    "clipboardReadback": "Not separately read from navigator.clipboard; the exact rendered json_ld string exposed by Copy was parsed semantically."
+  },
+  "controls": [
+    {
+      "type": "FAQPage",
+      "status": "PASS",
+      "specificFields": [
+        "input-schema-faq-question-0",
+        "input-schema-faq-answer-0"
+      ],
+      "inputSummary": {
+        "title": "Boston Home Energy Assessment FAQ",
+        "question": "How should I prepare for a Boston home energy assessment?",
+        "answer": "Gather recent utility bills, clear access to the attic and heating equipment, and list comfort or efficiency concerns for the assessor."
+      },
+      "semanticValidation": {
+        "validJson": true,
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How should I prepare for a Boston home energy assessment?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Gather recent utility bills, clear access to the attic and heating equipment, and list comfort or efficiency concerns for the assessor."
+            }
+          }
+        ]
+      },
+      "copyControlPresent": true,
+      "notification": "Schema Generated! Your schema markup is ready to copy."
+    },
+    {
+      "type": "Article",
+      "status": "PASS",
+      "specificFields": [
+        "input-schema-author"
+      ],
+      "inputSummary": {
+        "headline": "Boston Home Energy Assessment Winter Checklist",
+        "author": "HomeWorks Energy Editorial Team",
+        "description": "Educational checklist guidance for preparing for a Boston home energy assessment."
+      },
+      "semanticValidation": {
+        "validJson": true,
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "Boston Home Energy Assessment Winter Checklist",
+        "author": {
+          "@type": "Organization",
+          "name": "HomeWorks Energy Editorial Team"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "Citefi"
+        }
+      },
+      "copyControlPresent": true,
+      "knownNonBlockingNote": "Generated image and publisher logo URLs were empty when optional fields were left blank."
+    },
+    {
+      "type": "HowTo",
+      "status": "PASS",
+      "specificFields": [
+        "input-schema-howto-step-name-0",
+        "input-schema-howto-step-description-0"
+      ],
+      "inputSummary": {
+        "name": "How to Prepare for a Boston Home Energy Assessment",
+        "stepName": "Gather utility bills and clear access",
+        "stepDescription": "Collect recent utility bills and clear safe access to the attic, basement, and heating equipment for the assessor."
+      },
+      "semanticValidation": {
+        "validJson": true,
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        "step": [
+          {
+            "@type": "HowToStep",
+            "position": 1,
+            "name": "Gather utility bills and clear access",
+            "text": "Collect recent utility bills and clear safe access to the attic, basement, and heating equipment for the assessor."
+          }
+        ]
+      },
+      "copyControlPresent": true,
+      "notification": "Schema Generated! Your schema markup is ready to copy."
+    },
+    {
+      "type": "LocalBusiness",
+      "status": "PASS",
+      "specificFields": [
+        "input-schema-business-name",
+        "input-schema-address-street",
+        "input-schema-address-city",
+        "input-schema-address-state",
+        "input-schema-address-zip",
+        "input-schema-phone",
+        "input-schema-website",
+        "input-schema-geo-latitude",
+        "input-schema-geo-longitude"
+      ],
+      "inputSummary": {
+        "name": "HomeWorks Energy",
+        "street": "100 Main Street",
+        "city": "Boston",
+        "state": "MA",
+        "zip": "02108",
+        "country": "US",
+        "telephone": "781-305-3319",
+        "url": "https://www.homeworksenergy.com",
+        "latitude": "42.3601",
+        "longitude": "-71.0589"
+      },
+      "semanticValidation": {
+        "validJson": true,
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": "HomeWorks Energy",
+        "url": "https://www.homeworksenergy.com",
+        "telephone": "781-305-3319",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "100 Main Street",
+          "addressLocality": "Boston",
+          "addressRegion": "MA",
+          "postalCode": "02108",
+          "addressCountry": "US"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": "42.3601",
+          "longitude": "-71.0589"
+        }
+      },
+      "copyControlPresent": true,
+      "notification": "Schema Generated! Your schema markup is ready to copy.",
+      "knownNonBlockingNote": "The street value 100 Main Street was an explicitly synthetic fixture value; no customer address was used."
+    }
+  ],
+  "safety": {
+    "otherGenerationButtonsClicked": false,
+    "mediaRegenerated": false,
+    "socialRegenerated": false,
+    "publishing": false,
+    "customerData": false,
+    "workflowRestart": false
+  },
+  "evidence": {
+    "screenshots": [
+      "84keof",
+      "9zpc8s",
+      "hddpej",
+      "76yzs1",
+      "49vw94"
+    ]
+  }
+}

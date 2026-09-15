@@ -1,0 +1,4 @@
+{
+  "type": "FAQPage",
+  "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"FAQPage\",\n  \"mainEntity\": [\n    {\n      \"@type\": \"Question\",\n      \"name\": \"What is a home energy assessment?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"It is an evaluation that helps a homeowner understand comfort and energy-efficiency questions.\"\n      }\n    },\n    {\n      \"@type\": \"Question\",\n      \"name\": \"What should Boston homeowners prepare?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"Prepare observations about drafts, room temperatures, insulation questions, and goals.\"\n      }\n    }\n  ]\n}"
+}

@@ -68,3 +68,14 @@ test("client-facing service selects only safe report columns and missing metrics
   assert.match(serviceSource, /citefi_rls\.agency_report_period_evidence/);
   assert.match(serviceSource, /onConflictDoNothing\(\)/);
 });
+
+test("report config upsert locks the agency row and performs a legacy-schema-safe update-or-insert", () => {
+  const upsert = serviceSource.slice(serviceSource.indexOf("export async function upsertAgencyReportConfig"));
+  assert.match(upsert, /withTenantTransaction\(async \(tx\)/);
+  assert.match(upsert, /from\(teams\)[\s\S]*?\.for\("update"\)/);
+  assert.match(upsert, /from\(agencyReportConfigs\)[\s\S]*?\.for\("update"\)/);
+  assert.match(upsert, /if \(existing\)/);
+  assert.match(upsert, /tx\.update\(agencyReportConfigs\)/);
+  assert.match(upsert, /tx\.insert\(agencyReportConfigs\)/);
+  assert.doesNotMatch(upsert, /onConflictDoUpdate/);
+});

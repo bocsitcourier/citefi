@@ -1,0 +1,100 @@
+{
+  "phase": "existing-media-ui-retest",
+  "status": "PASS_WITH_KNOWN_AUDIO_DURATION_FAILURE",
+  "capturedAt": "2026-09-15",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "providerSpend": {
+    "providerCallsInitiated": 0,
+    "generationButtonsClicked": 0,
+    "publishing": false,
+    "note": "Only existing media was viewed, played, downloaded, and refreshed."
+  },
+  "podcast2238": {
+    "status": "PASS_WITH_KNOWN_FAILURE",
+    "route": "/media",
+    "asset": "Podcast: Harbor Home Energy fictional QA source: Boston home energy assessment education",
+    "articleId": 2238,
+    "assetId": "asset_Yol4C93Ajq1fz-Oi74rPijNx",
+    "source": "Existing MP3 in Media Library Audio tab",
+    "cardDurationLabel": "4:20",
+    "nativeDurationSeconds": 204.384,
+    "nativeDurationDisplay": "3:24",
+    "knownFailure": "Card metadata says 4:20 / 260 seconds, but native audio reports 204.384 seconds / 3:24. This remains FAIL as requested.",
+    "playback": {
+      "status": "PASS",
+      "initialCurrentTime": 0,
+      "afterApproximatelySeconds": 2,
+      "observedCurrentTime": 1.975557,
+      "paused": false,
+      "ended": false
+    },
+    "download": {
+      "status": "PASS",
+      "filename": "Podcast_ Harbor Home Energy fictional QA source_ Boston home energy assessment education.mp3",
+      "failure": null,
+      "toast": "Downloaded / File downloaded successfully."
+    },
+    "authRefresh": {
+      "status": "PASS",
+      "action": "Reloaded authenticated /media page, then selected Audio.",
+      "observed": "Media Library remained authenticated and the existing single Article 2238 podcast persisted in Audio with the 4:20 card label and native 0:00/3:24 discrepancy."
+    }
+  },
+  "socialPost213": {
+    "status": "PASS_PERSISTED_VIEW_ONLY",
+    "route": "/social/213",
+    "title": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+    "postStatus": "READY",
+    "metadata": {
+      "location": "Boston, Massachusetts",
+      "tone": "Professional",
+      "mood": "Informative",
+      "industry": "other",
+      "company": "Harbor Home Energy",
+      "landingPage": "https://www.energy.gov/energysaver"
+    },
+    "persistedPreviews": {
+      "count": 5,
+      "platforms": [
+        "Facebook",
+        "LinkedIn",
+        "Pinterest",
+        "Instagram",
+        "X"
+      ],
+      "allReady": true,
+      "contentObserved": "Each variant rendered persisted caption, hashtags, emoji, copy, and quick-share controls."
+    },
+    "knownFailures": [
+      "Video card says No video generated yet.",
+      "Publish is disabled in the existing post view."
+    ],
+    "safety": {
+      "regenerateClicked": false,
+      "editClicked": false,
+      "deleteClicked": false,
+      "shareClicked": false,
+      "scheduleClicked": false,
+      "publishClicked": false,
+      "videoGenerationClicked": false
+    }
+  },
+  "mediaLibraryPersistence": {
+    "afterRefreshImages": "Six existing images persisted: five social PNG previews linked to /social/213 and one article hero image linked to /content/2235.",
+    "afterRefreshAudio": "One existing podcast persisted for Article 2238.",
+    "noNewAssetsCreated": true
+  },
+  "evidence": {
+    "screenshots": [
+      "h18yyk",
+      "1rci1j",
+      "crgbfe",
+      "gv8h41",
+      "nolvd8",
+      "ere45h",
+      "bq2ru2",
+      "tapa7x"
+    ]
+  }
+}

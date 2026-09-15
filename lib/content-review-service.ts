@@ -15,6 +15,7 @@ import { analyzeContentQuality } from "./deterministic-humanizer";
 import { factStore } from "./fact-store";
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { validateArticleOutput } from "./article-output-safety";
 
 export type Dimension = "completeness" | "factuality" | "structure" | "humanness" | "engagement";
 const ALL_DIMS: Dimension[] = ["completeness", "factuality", "structure", "humanness", "engagement"];
@@ -46,6 +47,7 @@ export const DEFECT = {
   WEAK_HOOK:         { code: "channel:weak_hook",             dim: "engagement"   as Dimension, severity: "high" },
   NO_CTA:            { code: "channel:no_cta",                dim: "engagement"   as Dimension, severity: "medium" },
   NO_PACING:         { code: "channel:no_pacing_markers",     dim: "engagement"   as Dimension, severity: "low" },
+  INVALID_OUTPUT:    { code: "structure:invalid_article_output", dim: "structure" as Dimension, severity: "high" },
 } as const;
 
 interface Defect { code: string; dim: Dimension; severity: string; evidence: string }
@@ -131,7 +133,21 @@ export class ContentReviewService {
 
   private deterministicChecks(content: string | null | undefined, contentType: string, brief: Brief): Defect[] {
     const defects: Defect[] = [];
-    if (!content) return defects;
+    if (!content) {
+      if (contentType.toLowerCase() === ContentType.ARTICLE) {
+        defects.push({ ...DEFECT.INVALID_OUTPUT, evidence: "empty article output" });
+      }
+      return defects;
+    }
+    if (contentType.toLowerCase() === ContentType.ARTICLE) {
+      const validation = validateArticleOutput(content, { format: "auto" });
+      if (!validation.valid) {
+        defects.push({
+          ...DEFECT.INVALID_OUTPUT,
+          evidence: validation.reasons.join("; ").slice(0, 240),
+        });
+      }
+    }
     const text = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     const words = text ? text.split(/\s+/).length : 0;
 

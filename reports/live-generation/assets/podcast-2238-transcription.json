@@ -1,0 +1,126 @@
+{
+  "transcriptionVersion": "v2",
+  "status": "INCOMPLETE_PROVIDER_OUTPUT",
+  "capturedAt": "2026-09-14T23:35:39.694Z",
+  "preflight": {
+    "scope": "tenant",
+    "actorType": "worker",
+    "userId": 10794,
+    "teamId": 2535,
+    "articleId": 2238,
+    "podcastStatus": "ready",
+    "podcastUrl": "/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+    "paidProviderCalls": 0
+  },
+  "preflightBound": {
+    "maxOutputTokens": 1800,
+    "inputBytes": 3270144,
+    "inputBytesLimit": 5000000,
+    "requestedBudgetUsd": 0.1,
+    "historicalSingleCallReserveUsd": 5,
+    "currentSharedUnresolvedReserveUsd": 6,
+    "model": "gemini-3.5-flash",
+    "preflightPassed": true
+  },
+  "contextOwnership": {
+    "teamId": 2535,
+    "userId": 10794,
+    "articleId": 2238,
+    "resourceType": "article",
+    "scope": "tenant",
+    "actorType": "worker"
+  },
+  "provider": {
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "providerRequestId": "xYSoaufGGO-v39IPzqGZ4Q4",
+    "metered": true,
+    "operationType": "other",
+    "runId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2",
+    "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2",
+    "providerUsageLedgerExpected": true
+  },
+  "usage": {
+    "inputTokens": 5284,
+    "outputTokens": 58,
+    "totalTokens": 7070
+  },
+  "latencyMs": 6487,
+  "audio": {
+    "path": "reports/live-generation/assets/podcast-2238.mp3",
+    "bytes": 3270144,
+    "ffprobeDurationSeconds": 204.384,
+    "mimeType": "audio/mpeg"
+  },
+  "requestContract": {
+    "requestedDuration": "1-2 minutes",
+    "requestedMinSeconds": 60,
+    "requestedMaxSeconds": 120,
+    "durationContractPass": false,
+    "actualAudioDurationSeconds": 204.384
+  },
+  "language": "en",
+  "transcript": "Are you shivering under three blankets while your winter electric bill climbs past $500 a month? Stop letting your hard-earned money leak out of your house. Welcome back, everyone. This is the podcast where",
+  "speakers": [],
+  "quality": {
+    "coherent": null,
+    "intelligibility": "unknown",
+    "topicAlignment": "unknown",
+    "notes": "The single metered provider response stopped mid-JSON after 37 spoken words; no quality conclusion is claimed and no retry was made."
+  },
+  "parseMode": "provider_json_truncated",
+  "transcriptWords": 34,
+  "impliedSpokenSeconds": 13.6,
+  "comparison": {
+    "audioDurationSeconds": 204.384,
+    "requestedDurationRangeSeconds": [
+      60,
+      120
+    ],
+    "audioWithinRequestedRange": false,
+    "scriptSummaryDuration": "1 minute 30 seconds",
+    "persistedApiDurationSeconds": 260,
+    "transcriptImpliedSeconds": 14.8,
+    "language": null
+  },
+  "accounting": {
+    "recorded": true,
+    "accountingResult": null,
+    "costBoundUsd": 0.1,
+    "historicalSingleCallReserveUsd": 5,
+    "currentSharedUnresolvedReserveUsd": 6,
+    "ledger": {
+      "ledgerId": 395,
+      "runId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2",
+      "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2",
+      "contentId": 2238,
+      "resourceType": "article",
+      "resourceId": "2238",
+      "operationType": "other",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash",
+      "unitType": "tokens",
+      "inputUnits": 5284,
+      "outputUnits": 58,
+      "unitCount": 7070,
+      "costMicrousd": 1730,
+      "costUsd": 0.00173,
+      "providerRateId": 2,
+      "providerRequestId": "xYSoaufGGO-v39IPzqGZ4Q4",
+      "metadata": {
+        "verificationType": "podcast_audio_transcription",
+        "sourceAudio": "reports/live-generation/assets/podcast-2238.mp3",
+        "boundUsd": 0.1,
+        "historicalSingleCallReserveUsd": 5,
+        "currentSharedUnresolvedReserveUsd": 6
+      },
+      "occurredAt": "2026-09-14T23:35:39.645Z"
+    },
+    "costUsd": 0.00173,
+    "costWithinBound": true
+  },
+  "manualRetries": 0,
+  "providerRawText": "{\n  \"language\": \"en\",\n  \"transcript\": \"Are you shivering under three blankets while your winter electric bill climbs past $500 a month? Stop letting your hard-earned money leak out of your house. Welcome back, everyone. This is the podcast where",
+  "transcriptComplete": false,
+  "partialTranscript": true
+}

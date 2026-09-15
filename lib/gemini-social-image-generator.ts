@@ -4,12 +4,17 @@ import { socialPostAssets } from "@/shared/schema";
 import { objectStorageClient } from "./storage";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { isProviderAccountingError, logFailedProviderAttempt, logCostTelemetry } from "./cost-telemetry";
+import {
+  canonicalizePlatform,
+  UnsupportedSocialPlatformError,
+} from "./social-validation";
+import { normalizeSocialImage } from "./social-image-normalizer";
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY is required for image generation");
-}
+export { normalizeSocialImage } from "./social-image-normalizer";
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = process.env.GEMINI_API_KEY
+  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  : null;
 
 // Type definitions for Gemini image response structure
 interface GeminiImagePart {
@@ -82,6 +87,19 @@ const ASPECT_RATIOS: Record<string, { ratio: string; description: string }> = {
   pinterest: { ratio: "2:3", description: "2:3 vertical for Pinterest" },
 };
 
+/**
+ * Gemini's native image configuration supports 16:9, 1:1 and 2:3, but not
+ * 1.91:1. The two 1.91:1 platforms use the nearest native landscape output
+ * and are then resized to their exact canonical dimensions with Sharp.
+ */
+export const NATIVE_GEMINI_IMAGE_ASPECT_RATIOS: Record<string, string> = {
+  x: "16:9",
+  facebook: "16:9",
+  instagram: "1:1",
+  linkedin: "16:9",
+  pinterest: "2:3",
+};
+
 interface GenerateSocialImagesRequest {
   socialPostId: number;
   teamId: number;
@@ -96,6 +114,9 @@ interface ImageResult {
   storageUrl: string;
   altText: string;
   aspectRatio: string;
+  fileFormat: string;
+  width: number;
+  height: number;
 }
 
 export async function generateSocialImages(
@@ -106,6 +127,9 @@ export async function generateSocialImages(
   }
 
   const { socialPostId, teamId, prompt, platforms, industry, companyName } = request;
+  if (!genAI) {
+    throw new Error("GEMINI_API_KEY is required for image generation");
+  }
 
   console.log(`🖼️ Generating images with Gemini for ${platforms.length} platforms${companyName ? ` for ${companyName}` : ''}`);
 
@@ -113,19 +137,22 @@ export async function generateSocialImages(
 
   // Generate one image per platform with platform-specific aspect ratio
   for (const platform of platforms) {
-    const aspectConfig = ASPECT_RATIOS[platform] ?? ASPECT_RATIOS['x'] ?? { ratio: '1:1', description: 'Square' };
+    const canonicalPlatform = canonicalizePlatform(platform);
+    if (!canonicalPlatform) throw new UnsupportedSocialPlatformError(platform);
+    const aspectConfig = ASPECT_RATIOS[canonicalPlatform]!;
+    const nativeAspectRatio = NATIVE_GEMINI_IMAGE_ASPECT_RATIOS[canonicalPlatform]!;
 
     // Create image prompt optimized for social media
     const baseImagePrompt = `Create a professional, eye-catching social media image.
 Theme: ${prompt}
 Industry: ${industry}
 ${companyName ? `Company: ${companyName}` : ''}
-Platform: ${platform} (${aspectConfig.description})
+Platform: ${canonicalPlatform} (${aspectConfig.description})
 Style: Modern, clean, visually appealing, photorealistic
 Requirements:
 - High quality and professional
 - Suitable for ${industry} industry
-- Optimized for ${platform}
+- Optimized for ${canonicalPlatform}
 - Include relevant visual elements
 - No text overlays needed unless company branding is essential
 - Cinematic lighting and composition`;
@@ -138,13 +165,14 @@ Requirements:
     const startedAt = Date.now();
     let providerSubmissionRecorded = false;
     try {
-      console.log(`📸 Generating ${platform} image (${aspectConfig.ratio}) with Gemini...`);
+      console.log(`📸 Generating ${canonicalPlatform} image (${aspectConfig.ratio}) with Gemini...`);
 
       const result = await genAI.models.generateContent({
         model: "gemini-2.5-flash-image",
         contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
         config: {
           responseModalities: ["Image"],
+          imageConfig: { aspectRatio: nativeAspectRatio },
         },
       });
       await logCostTelemetry(
@@ -153,7 +181,7 @@ Requirements:
           teamId,
           resourceType: "social_post", resourceId: socialPostId,
           providerRequestId: (result as any).responseId ?? null, attempt: 1,
-          providerMetadata: { platform, aspectRatio: aspectConfig.ratio },
+          providerMetadata: { platform: canonicalPlatform, aspectRatio: aspectConfig.ratio },
         },
         { imageCount: 1 }, Date.now() - startedAt, true
       );
@@ -163,27 +191,28 @@ Requirements:
       const imageData = extractInlineImageData(result);
 
       if (!imageData) {
-        console.error(`❌ No image data in Gemini response for ${platform}`);
+        console.error(`❌ No image data in Gemini response for ${canonicalPlatform}`);
         console.error(`Response structure:`, JSON.stringify(result, null, 2));
-        throw new Error(`No image data returned for ${platform} - check Gemini API response format`);
+        throw new Error(`No image data returned for ${canonicalPlatform} - check Gemini API response format`);
       }
 
-      console.log(`  ✅ Image generated for ${platform}, uploading to permanent storage...`);
+      console.log(`  ✅ Image generated for ${canonicalPlatform}, uploading to permanent storage...`);
 
       // Convert base64 to buffer
       const imageBuffer = Buffer.from(imageData, "base64");
+      const normalizedImage = await normalizeSocialImage(imageBuffer, canonicalPlatform);
 
       // Upload to Replit Object Storage
       const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "";
       const timestamp = Date.now();
-      const fileName = `social-${socialPostId}-${platform}-${timestamp}.png`;
+      const fileName = `social-${socialPostId}-${canonicalPlatform}-${timestamp}.png`;
       const objectPath = `public/social-media/${fileName}`;
 
       const bucket = objectStorageClient.bucket(BUCKET_ID);
       const file = bucket.file(objectPath);
       
-      await file.save(imageBuffer, {
-        contentType: "image/png",
+      await file.save(normalizedImage.imageBuffer, {
+        contentType: normalizedImage.mimeType,
         metadata: {
           cacheControl: "public, max-age=31536000",
         },
@@ -193,28 +222,35 @@ Requirements:
       const storageUrl = `/api/public-objects/social-media/${fileName}`;
 
       // Alt text for accessibility
-      const altText = `${industry} social media image for ${platform}`;
+      const altText = `${industry} social media image for ${canonicalPlatform}`;
 
       // Save to database
       await db.insert(socialPostAssets).values({
         socialPostId,
-        platform,
+        platform: canonicalPlatform,
         assetType: "image",
         promptUsed: imagePrompt.slice(0, 1000),
         storageUrl,
         altText,
-        aspectRatio: aspectConfig.ratio,
-        fileFormat: "png",
+        aspectRatio: normalizedImage.aspectRatio,
+        fileFormat: normalizedImage.fileFormat,
+        width: normalizedImage.width,
+        height: normalizedImage.height,
       });
 
       results.push({
-        platform,
+        platform: canonicalPlatform,
         storageUrl,
         altText,
-        aspectRatio: aspectConfig.ratio,
+        aspectRatio: normalizedImage.aspectRatio,
+        fileFormat: normalizedImage.fileFormat,
+        width: normalizedImage.width,
+        height: normalizedImage.height,
       });
 
-      console.log(`✅ Generated ${platform} image (${aspectConfig.ratio})`);
+      console.log(
+        `✅ Generated ${canonicalPlatform} image (${normalizedImage.width}x${normalizedImage.height}, ${normalizedImage.fileFormat})`
+      );
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
       // The request may have reached Gemini even when the SDK rejects. Do not
@@ -225,11 +261,11 @@ Requirements:
           teamId,
           resourceType: "social_post", resourceId: socialPostId, attempt: 1,
           providerRequestId: `${socialPostId}:${platform}:1`,
-          providerMetadata: { platform, aspectRatio: aspectConfig.ratio },
+          providerMetadata: { platform: canonicalPlatform, aspectRatio: aspectConfig.ratio },
         },
         { imageCount: 0 }, Date.now() - startedAt, error
       );
-      console.error(`❌ Failed to generate image for ${platform}:`, error);
+      console.error(`❌ Failed to generate image for ${canonicalPlatform}:`, error);
       // Continue with other platforms even if one fails
     }
   }

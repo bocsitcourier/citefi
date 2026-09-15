@@ -1,0 +1,32 @@
+{
+  "phase": "database-target-and-migration-verification",
+  "status": "VERIFIED_WITH_SCOPE_WARNING",
+  "capturedAt": "2026-09-15",
+  "migration": {
+    "filename": "0033_video_idea_billing.sql",
+    "actualApplicationDatabase": {
+      "verified": true,
+      "scope": "The effective database target used by the application",
+      "qaTeamsPresent": [
+        2535,
+        2567,
+        2568
+      ]
+    },
+    "separatelyConfiguredNeonDsn": {
+      "additiveApplicationObserved": true,
+      "qaTeamPresent": false,
+      "scopeWarning": "This connection did not contain the active QA workspace and is not the application's certification target."
+    }
+  },
+  "safety": {
+    "additiveOnly": true,
+    "secretsRendered": false,
+    "databaseUrlsRendered": false,
+    "dataDeleted": false,
+    "rowsDeleted": false,
+    "providerCallsInitiated": false,
+    "qaRecurringAutomationDisabled": true
+  },
+  "certificationBoundary": "Migration verification is recorded on both connection scopes, but this is not live product certification. The separately configured Neon connection lacking the QA team is disclosed rather than treated as the application target."
+}

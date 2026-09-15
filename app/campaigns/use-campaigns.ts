@@ -34,6 +34,25 @@ export function useCreateCampaign() {
   });
 }
 
+export interface AgencyClientWorkspace {
+  id: number;
+  publicId: string;
+  name: string;
+  clientStatus: string;
+  createdAt: string;
+}
+
+export function useAgencyClientWorkspaces() {
+  return useQuery<{ clients: AgencyClientWorkspace[] }>({
+    queryKey: ["/api/agency/clients"],
+    queryFn: async () =>
+      apiRequest("/api/agency/clients") as Promise<{
+        clients: AgencyClientWorkspace[];
+      }>,
+    retry: false,
+  });
+}
+
 export function useUpdateCampaign(id: string) {
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) =>

@@ -1,0 +1,2076 @@
+{
+  "run": "seo-live-run",
+  "startedAt": "2026-09-14T22:56:50.134Z",
+  "resumedAt": "2026-09-14T23:02:20.889Z",
+  "apiBase": "http://localhost:5000",
+  "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+  "topic": "Boston home energy assessment",
+  "fixture": {
+    "teamId": 2535,
+    "identityEmail": "live-generation-qa-2026-09-10@example.invalid",
+    "sourceIsExplicitlyFictional": true,
+    "actualProviderOrOutputMock": false,
+    "article2235Touched": false,
+    "uiStatus": "UI_NOT_TESTED"
+  },
+  "budget": {
+    "perRunLimitUsd": 3,
+    "approvedTotalCapUsd": 50
+  },
+  "routeContractsInspected": [
+    "POST /api/seo/content-audit requires articleId",
+    "POST /api/seo/local-research requires location and business_type",
+    "POST /api/seo/competitor-analysis requires competitor_url and your_business_type",
+    "POST /api/seo/schema-markup supports Article|HowTo|FAQPage|LocalBusiness",
+    "POST /api/seo/content-structure requires topic and target_audience",
+    "POST /api/seo/pillar-cluster requires main_topic, industry, target_audience",
+    "POST /api/seo/create-articles supports local_research|competitor_analysis|content_structure|pillar_cluster"
+  ],
+  "setupFailure": {
+    "operation": "synthetic audit article fixture insert",
+    "databaseStatus": "22001",
+    "error": "value too long for type character varying(60)",
+    "knownProviderCostUsd": 0,
+    "observedCumulativeCostUsd": 0.13588,
+    "correctiveAction": "shortened the synthetic seo_title to fit the declared varchar(60); no provider request was replayed"
+  },
+  "accountingBefore": {
+    "source": "pre-run reports/live-generation/accounting.json",
+    "providerEventCount": 26,
+    "maxProviderLedgerId": 308,
+    "totalCostMicrousd": 120551,
+    "totalCostUsd": 0.120551,
+    "balance": {
+      "balance": 4999,
+      "allowance_credits": 0,
+      "purchased_credits": 5000,
+      "allowance_used": 0,
+      "purchased_used": 1,
+      "reserved_credits": 0
+    },
+    "reservations": [
+      {
+        "id": "590",
+        "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+        "operation_type": "article",
+        "original_amount": 10,
+        "remaining_amount": 0,
+        "status": "RELEASED",
+        "reconciliation_required_at": null,
+        "created_at": "2026-09-10T16:23:11.065Z",
+        "updated_at": "2026-09-10T16:24:08.631Z"
+      },
+      {
+        "id": "605",
+        "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+        "operation_type": "section_regenerate",
+        "original_amount": 1,
+        "remaining_amount": 0,
+        "status": "DEBITED",
+        "reconciliation_required_at": "2026-09-10T16:40:08.008Z",
+        "created_at": "2026-09-10T16:40:07.949Z",
+        "updated_at": "2026-09-10T16:40:14.196Z"
+      }
+    ]
+  },
+  "results": [
+    {
+      "name": "local-research",
+      "route": "/api/seo/local-research",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+        "topic": "Boston home energy assessment",
+        "outputPath": "reports/live-generation/seo-live-output-local-research.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-local-research.json",
+      "responseProof": {
+        "status": 200,
+        "shape": [
+          "location",
+          "business_type",
+          "location_keywords",
+          "seasonal_trends",
+          "local_questions",
+          "local_slang",
+          "cultural_references",
+          "trending_topics"
+        ],
+        "sampleKeys": [
+          "location",
+          "business_type",
+          "location_keywords",
+          "seasonal_trends",
+          "local_questions",
+          "local_slang",
+          "cultural_references",
+          "trending_topics"
+        ]
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 1,
+        "costMicrousd": 5533,
+        "costUsd": 0.005533,
+        "providerEvents": [
+          {
+            "id": "325",
+            "source_event_id": "provider-usage:98e308e92fbc11c4c5d15826302e22772f9e34a0bb4f0fffcbc69e216e855d06",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "seo_analysis",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "unit_type": "tokens",
+            "input_units": 636,
+            "output_units": 2137,
+            "unit_count": 4159,
+            "cost_microusd": "5533",
+            "provider_rate_id": 2,
+            "provider_request_id": "o3yoasuOG_Hj_uMPnfPxOQ",
+            "occurred_at": {}
+          }
+        ],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "competitor-analysis",
+      "route": "/api/seo/competitor-analysis",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+        "topic": "Boston home energy assessment",
+        "outputPath": "reports/live-generation/seo-live-output-competitor-analysis.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-competitor-analysis.json",
+      "responseProof": {
+        "status": 200,
+        "shape": [
+          "competitor_url",
+          "strengths",
+          "weaknesses",
+          "content_gaps",
+          "suggested_improvements",
+          "unique_angles",
+          "keyword_opportunities"
+        ],
+        "sampleKeys": [
+          "competitor_url",
+          "strengths",
+          "weaknesses",
+          "content_gaps",
+          "suggested_improvements",
+          "unique_angles",
+          "keyword_opportunities"
+        ]
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 1,
+        "costMicrousd": 1297,
+        "costUsd": 0.001297,
+        "providerEvents": [
+          {
+            "id": "326",
+            "source_event_id": "provider-usage:b069698304d9d2ed283363a9742487106efade8548409bf540e0f7bb3287132c",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "other",
+            "provider": "openai",
+            "model": "gpt-4.1-mini-2025-04-14",
+            "unit_type": "tokens",
+            "input_units": 318,
+            "output_units": 731,
+            "unit_count": 1049,
+            "cost_microusd": "1297",
+            "provider_rate_id": 17,
+            "provider_request_id": "chatcmpl-EO9xddRRkvRAEtpxc9cWUV0RcIbyN",
+            "occurred_at": {}
+          }
+        ],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "content-structure",
+      "route": "/api/seo/content-structure",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+        "topic": "Boston home energy assessment",
+        "outputPath": "reports/live-generation/seo-live-output-content-structure.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-content-structure.json",
+      "responseProof": {
+        "status": 200,
+        "shape": [
+          "title",
+          "meta_description",
+          "tldr",
+          "headings",
+          "faq_section",
+          "key_takeaways",
+          "definition_boxes",
+          "schema_markup"
+        ],
+        "sampleKeys": [
+          "title",
+          "meta_description",
+          "tldr",
+          "headings",
+          "faq_section",
+          "key_takeaways",
+          "definition_boxes",
+          "schema_markup"
+        ]
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 1,
+        "costMicrousd": 6660,
+        "costUsd": 0.00666,
+        "providerEvents": [
+          {
+            "id": "327",
+            "source_event_id": "provider-usage:cde1778dac5ab8c8f5f067af8c5eeb527da369ea5523d44064fc4c234403997b",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "seo_analysis",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "unit_type": "tokens",
+            "input_units": 318,
+            "output_units": 2626,
+            "unit_count": 4572,
+            "cost_microusd": "6660",
+            "provider_rate_id": 2,
+            "provider_request_id": "vXyoaoO0FMuPjrEPosPBmAo",
+            "occurred_at": {}
+          }
+        ],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "pillar-cluster",
+      "route": "/api/seo/pillar-cluster",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+        "topic": "Boston home energy assessment",
+        "outputPath": "reports/live-generation/seo-live-output-pillar-cluster.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-pillar-cluster.json",
+      "responseProof": {
+        "status": 200,
+        "shape": [
+          "pillar_page",
+          "cluster_pages",
+          "internal_linking_map",
+          "content_calendar"
+        ],
+        "sampleKeys": [
+          "pillar_page",
+          "cluster_pages",
+          "internal_linking_map",
+          "content_calendar"
+        ]
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 1,
+        "costMicrousd": 1839,
+        "costUsd": 0.001839,
+        "providerEvents": [
+          {
+            "id": "328",
+            "source_event_id": "provider-usage:9dbca2be70198ae20d7830864a80dc0bb00ad9452c174493c9606189e87f3cda",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "other",
+            "provider": "openai",
+            "model": "gpt-4.1-mini-2025-04-14",
+            "unit_type": "tokens",
+            "input_units": 373,
+            "output_units": 1056,
+            "unit_count": 1429,
+            "cost_microusd": "1839",
+            "provider_rate_id": 17,
+            "provider_request_id": "chatcmpl-EO9y5ZmLrMbLk5tbfEEyIhYcl4i7w",
+            "occurred_at": {}
+          }
+        ],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "schema-article",
+      "route": "/api/seo/schema-markup",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "content_type": "Article",
+        "outputPath": "reports/live-generation/seo-live-output-schema-Article.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-schema-Article.json",
+      "responseProof": {
+        "status": 200,
+        "returnedType": "Article",
+        "jsonLdBytes": 664
+      },
+      "validation": {
+        "valid": true,
+        "failures": [],
+        "proof": {
+          "type": "Article",
+          "context": "https://schema.org",
+          "keys": [
+            "@context",
+            "@type",
+            "headline",
+            "description",
+            "author",
+            "datePublished",
+            "dateModified",
+            "image",
+            "publisher"
+          ]
+        }
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "schema-howto",
+      "route": "/api/seo/schema-markup",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "content_type": "HowTo",
+        "outputPath": "reports/live-generation/seo-live-output-schema-HowTo.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-schema-HowTo.json",
+      "responseProof": {
+        "status": 200,
+        "returnedType": "HowTo",
+        "jsonLdBytes": 625
+      },
+      "validation": {
+        "valid": true,
+        "failures": [],
+        "proof": {
+          "type": "HowTo",
+          "context": "https://schema.org",
+          "keys": [
+            "@context",
+            "@type",
+            "name",
+            "description",
+            "step",
+            "totalTime",
+            "tool",
+            "supply"
+          ]
+        }
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "schema-faqpage",
+      "route": "/api/seo/schema-markup",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "content_type": "FAQPage",
+        "outputPath": "reports/live-generation/seo-live-output-schema-FAQPage.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-schema-FAQPage.json",
+      "responseProof": {
+        "status": 200,
+        "returnedType": "FAQPage",
+        "jsonLdBytes": 609
+      },
+      "validation": {
+        "valid": true,
+        "failures": [],
+        "proof": {
+          "type": "FAQPage",
+          "context": "https://schema.org",
+          "keys": [
+            "@context",
+            "@type",
+            "mainEntity"
+          ]
+        }
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "schema-localbusiness",
+      "route": "/api/seo/schema-markup",
+      "status": 200,
+      "ok": true,
+      "requestProof": {
+        "content_type": "LocalBusiness",
+        "outputPath": "reports/live-generation/seo-live-output-schema-LocalBusiness.json"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-schema-LocalBusiness.json",
+      "responseProof": {
+        "status": 200,
+        "returnedType": "LocalBusiness",
+        "jsonLdBytes": 857
+      },
+      "validation": {
+        "valid": true,
+        "failures": [],
+        "proof": {
+          "type": "LocalBusiness",
+          "context": "https://schema.org",
+          "keys": [
+            "@context",
+            "@type",
+            "name",
+            "description",
+            "@id",
+            "url",
+            "telephone",
+            "address",
+            "geo",
+            "openingHoursSpecification",
+            "priceRange"
+          ]
+        }
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "content-audit",
+      "route": "/api/seo/content-audit",
+      "status": 200,
+      "ok": true,
+      "request": {
+        "articleId": 2238
+      },
+      "outputPath": "reports/live-generation/seo-live-output-content-audit.json",
+      "responseProof": {
+        "method": "POST",
+        "route": "/api/seo/content-audit",
+        "status": 200,
+        "contentType": "application/json",
+        "ok": true,
+        "response": {
+          "overallScore": 2,
+          "citationPotential": "low",
+          "criteria": {
+            "directAnswerCompliance": {
+              "score": 2,
+              "rationale": "Most H2 sections provide descriptive content but do not start with a concise, complete direct answer of 40-60 words. The content is more narrative and explanatory rather than structured to deliver immediate answers suitable for AI citation or featured snippets.",
+              "suggestedEdit": "Rewrite each major section to begin with a clear, standalone direct answer summarizing the key point in 40-60 words before elaborating."
+            },
+            "entitySalience": {
+              "score": 2,
+              "rationale": "The only entity clearly referenced is the fictional business 'Harbor Home Energy' and the geographic location 'Boston, Massachusetts.' There are no authoritative third-party entities, experts, or organizations cited to enhance entity salience for GEO optimization.",
+              "suggestedEdit": "Incorporate references to recognized local energy authorities, certifications, or expert organizations relevant to Boston home energy assessments to boost entity salience."
+            },
+            "eeeatSignals": {
+              "score": 1,
+              "rationale": "The article explicitly states it is fictional and used only for testing, with no real credentials, certifications, case studies, or expert citations. There are no trust signals such as author bios, data, or references to authoritative sources.",
+              "suggestedEdit": "Add real-world expert citations, data-backed examples, or case studies if the content is intended for actual publication. Include author credentials and transparent sourcing to improve E-E-A-T."
+            },
+            "passageQuality": {
+              "score": 3,
+              "rationale": "Paragraphs are generally concise and well-structured, avoiding fluff. However, many paragraphs are explanatory rather than answer-focused, reducing their immediate extractability for AI citations or voice search answers.",
+              "suggestedEdit": "Reformat paragraphs to follow an answer-first approach, making each paragraph a self-contained, citation-ready snippet with clear, direct responses to common user questions."
+            },
+            "schemaReadiness": {
+              "score": 1,
+              "rationale": "The HTML content lacks any structured data markup such as JSON-LD for Article, FAQPage, HowTo, or LocalBusiness. There are no FAQs or step-by-step instructions explicitly marked up for schema compatibility.",
+              "suggestedEdit": "Implement JSON-LD schema markup for the article, including FAQPage or HowTo schemas where applicable. Mark up local business information if relevant and add structured Q&A content for AI consumption."
+            },
+            "geoOptimization": {
+              "score": 2,
+              "rationale": "The content mentions Boston and targets local homeowners and renters but does not provide optimized answers for local or voice search queries. The fictional nature and lack of concrete local references limit GEO optimization effectiveness.",
+              "suggestedEdit": "Enhance local optimization by including common local queries, voice search phrasing, and specific Boston-area energy considerations. Provide clear, direct answers to typical local user questions."
+            }
+          },
+          "internalLinkOpportunities": [
+            {
+              "anchorText": "seasonal home energy checklists",
+              "targetArticleId": 2235,
+              "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+              "context": "Seasonal checklists focus on practical preparation before Boston's colder months. They distinguish low-risk observations from work requiring a qualified professional.",
+              "relevanceScore": 0.95
+            },
+            {
+              "anchorText": "home energy assessment planning",
+              "targetArticleId": 2235,
+              "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+              "context": "Harbor Home Energy is a fictional Boston-area home energy education business. Its test service offerings are residential home energy assessment planning, air-leak review preparation, insulation planning, and seasonal home energy checklists.",
+              "relevanceScore": 0.9
+            },
+            {
+              "anchorText": "Boston, Massachusetts area",
+              "targetArticleId": 2235,
+              "targetArticleTitle": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+              "context": "The fictional target audience is homeowners and renters in the Boston, Massachusetts area who want understandable information about home comfort and energy assessments.",
+              "relevanceScore": 0.85
+            }
+          ],
+          "recommendations": [
+            "Rewrite major sections to start with concise, direct answers suitable for AI citation and featured snippets.",
+            "Add authoritative local entities, expert references, or certifications to improve entity salience and trust.",
+            "Implement JSON-LD structured data markup including FAQPage or HowTo schemas to enhance schema readiness."
+          ],
+          "complianceIssues": [
+            "The article explicitly states it is fictional and not a real business, which disqualifies it from being used as a real citation source.",
+            "No real expertise, credentials, or trust signals are present, limiting its suitability for authoritative AI citations."
+          ]
+        }
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 2,
+        "costMicrousd": 3104,
+        "costUsd": 0.003104,
+        "providerEvents": [
+          {
+            "id": "329",
+            "source_event_id": "provider-usage:f2f39b751fcf484aa76c46b801111c8bd28e637158060df24febf683688ccb77",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "article_review",
+            "provider": "openai",
+            "model": "gpt-4.1-mini-2025-04-14",
+            "unit_type": "tokens",
+            "input_units": 2108,
+            "output_units": 771,
+            "unit_count": 2879,
+            "cost_microusd": "2077",
+            "provider_rate_id": 17,
+            "provider_request_id": "chatcmpl-EO9yqlp7sPIavuSZ4gkPgUcifwmrJ",
+            "occurred_at": {}
+          },
+          {
+            "id": "330",
+            "source_event_id": "provider-usage:a2f75cf2055940dde87ec4b11093e15682cb31d546d5911cbccbfa12f6282d9e",
+            "run_id": null,
+            "job_id": null,
+            "content_id": 2238,
+            "operation_type": "article_hyperlink",
+            "provider": "openai",
+            "model": "gpt-4.1-mini-2025-04-14",
+            "unit_type": "tokens",
+            "input_units": 1408,
+            "output_units": 290,
+            "unit_count": 1698,
+            "cost_microusd": "1027",
+            "provider_rate_id": 17,
+            "provider_request_id": "chatcmpl-EO9yx4FTU50D0sALTZUueyXOfY6uJ",
+            "occurred_at": {}
+          }
+        ],
+        "creditBalanceBefore": {
+          "balance": 4999,
+          "allowance_credits": 0,
+          "purchased_credits": 5000,
+          "allowance_used": 0,
+          "purchased_used": 1,
+          "reserved_credits": 0
+        },
+        "creditBalanceAfter": {
+          "balance": 4999,
+          "allowance_credits": 0,
+          "purchased_credits": 5000,
+          "allowance_used": 0,
+          "purchased_used": 1,
+          "reserved_credits": 0
+        },
+        "reservationsBefore": [
+          {
+            "id": "590",
+            "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "reconciliation_required_at": null,
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "605",
+            "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+            "operation_type": "section_regenerate",
+            "original_amount": 1,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "reconciliation_required_at": {},
+            "created_at": {},
+            "updated_at": {}
+          }
+        ],
+        "reservationsAfter": [
+          {
+            "id": "590",
+            "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "reconciliation_required_at": null,
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "605",
+            "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+            "operation_type": "section_regenerate",
+            "original_amount": 1,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "reconciliation_required_at": {},
+            "created_at": {},
+            "updated_at": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "create-articles",
+      "route": "/api/seo/create-articles",
+      "status": 200,
+      "ok": true,
+      "request": {
+        "seoToolType": "content_structure",
+        "seoToolOutput": {
+          "title": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+          "meta_description": "Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills.",
+          "tldr": "Boston residents can access 100% free home energy assessments through the Mass Save program. This guide shows homeowners and renters how to prepare, what to expect during the inspection, and how to unlock thousands of dollars in energy-efficiency rebates.",
+          "headings": [
+            {
+              "level": "h1",
+              "text": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort"
+            },
+            {
+              "level": "h2",
+              "text": "What is a Boston Home Energy Assessment?",
+              "summary": "An in-depth look at what a home energy assessment is and how it acts as a diagnostic health checkup for your property's energy efficiency."
+            },
+            {
+              "level": "h3",
+              "text": "How the Mass Save Program Works for Locals",
+              "summary": "An overview of the unique utility-funded partnership offering free energy assessments to Massachusetts residents."
+            },
+            {
+              "level": "h2",
+              "text": "Why You Should Get an Energy Assessment Today",
+              "summary": "Exploring the immediate financial, comfort, and environmental benefits of completing an assessment."
+            },
+            {
+              "level": "h3",
+              "text": "Lowering Utility Bills in Historic Boston Homes",
+              "summary": "How older, drafty properties in neighborhoods like Beacon Hill and South End stand to save the most."
+            },
+            {
+              "level": "h3",
+              "text": "Reducing Your Carbon Footprint in the Hub",
+              "summary": "Aligning your household energy use with Boston's goal of reaching carbon neutrality by 2050."
+            },
+            {
+              "level": "h2",
+              "text": "Step-by-Step: How to Prepare Your Boston Home",
+              "summary": "A practical checklist to ensure your home is ready for the energy specialist's visit."
+            },
+            {
+              "level": "h3",
+              "text": "Clearing Access to Your Attic, Basement, and Heating Systems",
+              "summary": "Why technicians need physical access to these key areas and how to prepare them safely."
+            },
+            {
+              "level": "h3",
+              "text": "Gathering Your Utility Bills and Energy History",
+              "summary": "How providing 12 months of heating and electricity data helps the specialist customize your plan."
+            },
+            {
+              "level": "h3",
+              "text": "Preparing Questions for Your Energy Specialist",
+              "summary": "Key topics to ask about, including heat pumps, insulation upgrades, and available rebates."
+            },
+            {
+              "level": "h2",
+              "text": "What Happens During the Energy Assessment?",
+              "summary": "A walkthrough of the typical 2-to-3 hour evaluation process."
+            },
+            {
+              "level": "h3",
+              "text": "The Blower Door Test Explained",
+              "summary": "How this depressurization test locates hidden drafts and air leaks throughout your home."
+            },
+            {
+              "level": "h3",
+              "text": "Thermal Imaging and Insulation Checks",
+              "summary": "Using infrared technology to reveal gaps in your walls and attic insulation without damage."
+            },
+            {
+              "level": "h3",
+              "text": "Combustion Safety Testing for Heating Systems",
+              "summary": "Ensuring your furnace, boiler, and water heater are venting gases safely and efficiently."
+            },
+            {
+              "level": "h2",
+              "text": "Understanding Your Post-Assessment Energy Report",
+              "summary": "How to read the customized roadmap of recommended energy upgrades and financial incentives."
+            },
+            {
+              "level": "h3",
+              "text": "Deciphering Recommended Upgrades and Rebates",
+              "summary": "Navigating the 75% to 100% insulation discounts and thousands of dollars in heat pump rebates."
+            },
+            {
+              "level": "h2",
+              "text": "Special Guidance for Boston Renters vs. Homeowners",
+              "summary": "How both tenants and landlords can benefit from the assessment without friction."
+            }
+          ],
+          "faq_section": [
+            {
+              "question": "How much does a Boston home energy assessment cost?",
+              "answer": "The assessment is 100% free for eligible Boston homeowners, renters, and landlords. It is funded by a energy-efficiency charge on your monthly utility bills."
+            },
+            {
+              "question": "Who qualifies for a Mass Save home energy assessment?",
+              "answer": "Any residential customer of participating Massachusetts utilities (including Eversource and National Grid) qualifies for the free assessment."
+            },
+            {
+              "question": "Do renters need landlord approval for an energy assessment?",
+              "answer": "Renters can request an assessment and receive free instant-savings items like LED bulbs. However, major structural upgrades like insulation or heating replacements require landlord approval."
+            },
+            {
+              "question": "How long does a home energy assessment take?",
+              "answer": "A typical home energy assessment takes between 1.5 to 3 hours, depending on the size and age of your home."
+            },
+            {
+              "question": "What immediate free items do I get during the assessment?",
+              "answer": "Specialists often install free energy-saving items on the spot, including smart power strips, low-flow showerheads, faucet aerators, and programmable thermostats."
+            },
+            {
+              "question": "How often can I get a home energy assessment in Boston?",
+              "answer": "You can generally receive a new assessment every 2 to 3 years, or sooner if you have recently purchased the home or completed major renovations."
+            },
+            {
+              "question": "What is a blower door test, and is it safe for pets?",
+              "answer": "A blower door test uses a powerful fan mounted to an exterior door frame to depressurize your home. It is safe, but pets should be kept in a closed room to prevent them from slipping out of the open door frame."
+            },
+            {
+              "question": "What rebates are available after the assessment?",
+              "answer": "Available rebates include 75% to 100% off approved insulation upgrades, up to $10,000 for air-source heat pumps, and significant discounts on high-efficiency appliances."
+            },
+            {
+              "question": "How do historic home guidelines affect my energy upgrades in Boston?",
+              "answer": "If you live in a historic district (like Beacon Hill), exterior changes are restricted. However, interior improvements like attic insulation, basement air sealing, and interior storm windows are highly effective and allowed."
+            }
+          ],
+          "key_takeaways": [
+            "Assessments are completely free for Boston residents, funded by a surcharge on your existing utility bills.",
+            "Preparing your home requires clearing paths to your attic, basement, and heating equipment.",
+            "Both renters and homeowners can participate, though renters need landlord approval for major structural upgrades.",
+            "You will receive immediate, free energy-saving products like smart power strips and water-saving devices during the visit.",
+            "Completing the assessment unlocks massive financial incentives, including up to 100% off insulation and $10,000 for heat pumps.",
+            "Older and historic Boston homes stand to gain the most in comfort improvements and utility bill reductions."
+          ],
+          "definition_boxes": [
+            {
+              "term": "Mass Save",
+              "definition": "A collaborative of Massachusetts' natural gas and electric utilities and energy efficiency service providers dedicated to helping residents save money and energy."
+            },
+            {
+              "term": "Blower Door Test",
+              "definition": "A diagnostic tool used by energy specialists that depressurizes a home to measure air tightness and locate specific air leaks."
+            },
+            {
+              "term": "R-Value",
+              "definition": "A measure of insulation's ability to resist heat flow. The higher the R-value, the greater the insulating power."
+            },
+            {
+              "term": "Air Sealing",
+              "definition": "The practice of sealing cracks, gaps, and holes in a building envelope to reduce drafts and prevent conditioned air from escaping."
+            },
+            {
+              "term": "Heat Pump",
+              "definition": "An energy-efficient heating and cooling system that transfers heat between the indoors and outdoors rather than generating it from fossil fuels."
+            }
+          ],
+          "schema_markup": [
+            {
+              "type": "Article",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"Article\",\n  \"headline\": \"The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort\",\n  \"description\": \"Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills.\",\n  \"author\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  },\n  \"publisher\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  }\n}"
+            },
+            {
+              "type": "HowTo",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"HowTo\",\n  \"name\": \"How to Prepare for a Boston Home Energy Assessment\",\n  \"step\": [\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Clear Access\",\n      \"text\": \"Clear physical access to your attic, crawlspaces, basement, and heating/cooling equipment.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Gather Bills\",\n      \"text\": \"Retrieve 12 months of utility and heating fuel bills to share with the energy specialist.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Secure Pets\",\n      \"text\": \"Secure any household pets in a safe room before the blower door test begins.\"\n    }\n  ]\n}"
+            },
+            {
+              "type": "FAQPage",
+              "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"FAQPage\",\n  \"mainEntity\": [\n    {\n      \"@type\": \"Question\",\n      \"name\": \"How much does a Boston home energy assessment cost?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"The assessment is 100% free for eligible Boston homeowners, renters, and landlords through the Mass Save program.\"\n      }\n    },\n    {\n      \"@type\": \"Question\",\n      \"name\": \"Do renters need landlord approval for an energy assessment?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"Renters can request an assessment directly, but major structural upgrades like insulation or heating replacements require landlord approval.\"\n      }\n    }\n  ]\n}"
+            }
+          ]
+        },
+        "targetUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+        "numArticles": 1,
+        "tone": "helpful, evidence-led, and locally informed",
+        "geographicFocus": "Boston, Massachusetts"
+      },
+      "outputPath": "reports/live-generation/seo-live-output-create-articles.json",
+      "responseProof": {
+        "method": "POST",
+        "route": "/api/seo/create-articles",
+        "status": 200,
+        "contentType": "application/json",
+        "ok": true,
+        "response": {
+          "success": true,
+          "batchId": 629,
+          "titleCount": 2,
+          "message": "Title pool generated with 2 titles. Select titles and configure generation settings to proceed."
+        }
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 1,
+        "costMicrousd": 1539,
+        "costUsd": 0.001539,
+        "providerEvents": [
+          {
+            "id": "331",
+            "source_event_id": "provider-usage:5d3bbc141beac22d8de692661d15b0b2af5ad12cfa9a4547aaf216a1e3a22831",
+            "run_id": null,
+            "job_id": null,
+            "content_id": null,
+            "operation_type": "article_title_pool",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "unit_type": "tokens",
+            "input_units": 1823,
+            "output_units": 397,
+            "unit_count": 3476,
+            "cost_microusd": "1539",
+            "provider_rate_id": 2,
+            "provider_request_id": "Cn2oaoWhBZfWjrEPj-TCoAs",
+            "occurred_at": {}
+          }
+        ],
+        "creditBalanceBefore": {
+          "balance": 4999,
+          "allowance_credits": 0,
+          "purchased_credits": 5000,
+          "allowance_used": 0,
+          "purchased_used": 1,
+          "reserved_credits": 0
+        },
+        "creditBalanceAfter": {
+          "balance": 4999,
+          "allowance_credits": 0,
+          "purchased_credits": 5000,
+          "allowance_used": 0,
+          "purchased_used": 1,
+          "reserved_credits": 0
+        },
+        "reservationsBefore": [
+          {
+            "id": "590",
+            "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "reconciliation_required_at": null,
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "605",
+            "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+            "operation_type": "section_regenerate",
+            "original_amount": 1,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "reconciliation_required_at": {},
+            "created_at": {},
+            "updated_at": {}
+          }
+        ],
+        "reservationsAfter": [
+          {
+            "id": "590",
+            "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "reconciliation_required_at": null,
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "605",
+            "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+            "operation_type": "section_regenerate",
+            "original_amount": 1,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "reconciliation_required_at": {},
+            "created_at": {},
+            "updated_at": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "create-articles-retrieval",
+      "route": "/api/batches/629",
+      "status": 200,
+      "ok": true,
+      "outputPath": "reports/live-generation/seo-live-output-create-articles-retrieval.json",
+      "responseProof": {
+        "method": "GET",
+        "route": "/api/batches/629",
+        "status": 200,
+        "ok": true,
+        "contentType": "application/json",
+        "response": {
+          "batch": {
+            "id": 629,
+            "userId": 10794,
+            "coreTopic": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+            "targetUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+            "status": "PENDING",
+            "numArticlesRequested": 1,
+            "titlePoolJson": {
+              "titles": [
+                "How to Prepare for a Boston, Massachusetts Home Energy Assessment: Expert Checklist",
+                "How Do Mass Save Energy Assessments Work in Boston, Massachusetts? 2026 Guide"
+              ],
+              "seoToolType": "content_structure",
+              "seoToolOutput": {
+                "tldr": "Boston residents can access 100% free home energy assessments through the Mass Save program. This guide shows homeowners and renters how to prepare, what to expect during the inspection, and how to unlock thousands of dollars in energy-efficiency rebates.",
+                "title": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+                "headings": [
+                  {
+                    "text": "The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort",
+                    "level": "h1"
+                  },
+                  {
+                    "text": "What is a Boston Home Energy Assessment?",
+                    "level": "h2",
+                    "summary": "An in-depth look at what a home energy assessment is and how it acts as a diagnostic health checkup for your property's energy efficiency."
+                  },
+                  {
+                    "text": "How the Mass Save Program Works for Locals",
+                    "level": "h3",
+                    "summary": "An overview of the unique utility-funded partnership offering free energy assessments to Massachusetts residents."
+                  },
+                  {
+                    "text": "Why You Should Get an Energy Assessment Today",
+                    "level": "h2",
+                    "summary": "Exploring the immediate financial, comfort, and environmental benefits of completing an assessment."
+                  },
+                  {
+                    "text": "Lowering Utility Bills in Historic Boston Homes",
+                    "level": "h3",
+                    "summary": "How older, drafty properties in neighborhoods like Beacon Hill and South End stand to save the most."
+                  },
+                  {
+                    "text": "Reducing Your Carbon Footprint in the Hub",
+                    "level": "h3",
+                    "summary": "Aligning your household energy use with Boston's goal of reaching carbon neutrality by 2050."
+                  },
+                  {
+                    "text": "Step-by-Step: How to Prepare Your Boston Home",
+                    "level": "h2",
+                    "summary": "A practical checklist to ensure your home is ready for the energy specialist's visit."
+                  },
+                  {
+                    "text": "Clearing Access to Your Attic, Basement, and Heating Systems",
+                    "level": "h3",
+                    "summary": "Why technicians need physical access to these key areas and how to prepare them safely."
+                  },
+                  {
+                    "text": "Gathering Your Utility Bills and Energy History",
+                    "level": "h3",
+                    "summary": "How providing 12 months of heating and electricity data helps the specialist customize your plan."
+                  },
+                  {
+                    "text": "Preparing Questions for Your Energy Specialist",
+                    "level": "h3",
+                    "summary": "Key topics to ask about, including heat pumps, insulation upgrades, and available rebates."
+                  },
+                  {
+                    "text": "What Happens During the Energy Assessment?",
+                    "level": "h2",
+                    "summary": "A walkthrough of the typical 2-to-3 hour evaluation process."
+                  },
+                  {
+                    "text": "The Blower Door Test Explained",
+                    "level": "h3",
+                    "summary": "How this depressurization test locates hidden drafts and air leaks throughout your home."
+                  },
+                  {
+                    "text": "Thermal Imaging and Insulation Checks",
+                    "level": "h3",
+                    "summary": "Using infrared technology to reveal gaps in your walls and attic insulation without damage."
+                  },
+                  {
+                    "text": "Combustion Safety Testing for Heating Systems",
+                    "level": "h3",
+                    "summary": "Ensuring your furnace, boiler, and water heater are venting gases safely and efficiently."
+                  },
+                  {
+                    "text": "Understanding Your Post-Assessment Energy Report",
+                    "level": "h2",
+                    "summary": "How to read the customized roadmap of recommended energy upgrades and financial incentives."
+                  },
+                  {
+                    "text": "Deciphering Recommended Upgrades and Rebates",
+                    "level": "h3",
+                    "summary": "Navigating the 75% to 100% insulation discounts and thousands of dollars in heat pump rebates."
+                  },
+                  {
+                    "text": "Special Guidance for Boston Renters vs. Homeowners",
+                    "level": "h2",
+                    "summary": "How both tenants and landlords can benefit from the assessment without friction."
+                  }
+                ],
+                "faq_section": [
+                  {
+                    "answer": "The assessment is 100% free for eligible Boston homeowners, renters, and landlords. It is funded by a energy-efficiency charge on your monthly utility bills.",
+                    "question": "How much does a Boston home energy assessment cost?"
+                  },
+                  {
+                    "answer": "Any residential customer of participating Massachusetts utilities (including Eversource and National Grid) qualifies for the free assessment.",
+                    "question": "Who qualifies for a Mass Save home energy assessment?"
+                  },
+                  {
+                    "answer": "Renters can request an assessment and receive free instant-savings items like LED bulbs. However, major structural upgrades like insulation or heating replacements require landlord approval.",
+                    "question": "Do renters need landlord approval for an energy assessment?"
+                  },
+                  {
+                    "answer": "A typical home energy assessment takes between 1.5 to 3 hours, depending on the size and age of your home.",
+                    "question": "How long does a home energy assessment take?"
+                  },
+                  {
+                    "answer": "Specialists often install free energy-saving items on the spot, including smart power strips, low-flow showerheads, faucet aerators, and programmable thermostats.",
+                    "question": "What immediate free items do I get during the assessment?"
+                  },
+                  {
+                    "answer": "You can generally receive a new assessment every 2 to 3 years, or sooner if you have recently purchased the home or completed major renovations.",
+                    "question": "How often can I get a home energy assessment in Boston?"
+                  },
+                  {
+                    "answer": "A blower door test uses a powerful fan mounted to an exterior door frame to depressurize your home. It is safe, but pets should be kept in a closed room to prevent them from slipping out of the open door frame.",
+                    "question": "What is a blower door test, and is it safe for pets?"
+                  },
+                  {
+                    "answer": "Available rebates include 75% to 100% off approved insulation upgrades, up to $10,000 for air-source heat pumps, and significant discounts on high-efficiency appliances.",
+                    "question": "What rebates are available after the assessment?"
+                  },
+                  {
+                    "answer": "If you live in a historic district (like Beacon Hill), exterior changes are restricted. However, interior improvements like attic insulation, basement air sealing, and interior storm windows are highly effective and allowed.",
+                    "question": "How do historic home guidelines affect my energy upgrades in Boston?"
+                  }
+                ],
+                "key_takeaways": [
+                  "Assessments are completely free for Boston residents, funded by a surcharge on your existing utility bills.",
+                  "Preparing your home requires clearing paths to your attic, basement, and heating equipment.",
+                  "Both renters and homeowners can participate, though renters need landlord approval for major structural upgrades.",
+                  "You will receive immediate, free energy-saving products like smart power strips and water-saving devices during the visit.",
+                  "Completing the assessment unlocks massive financial incentives, including up to 100% off insulation and $10,000 for heat pumps.",
+                  "Older and historic Boston homes stand to gain the most in comfort improvements and utility bill reductions."
+                ],
+                "schema_markup": [
+                  {
+                    "type": "Article",
+                    "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"Article\",\n  \"headline\": \"The Ultimate Guide to Boston Home Energy Assessments: Save Money and Boost Comfort\",\n  \"description\": \"Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills.\",\n  \"author\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  },\n  \"publisher\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Boston Energy Guides\"\n  }\n}"
+                  },
+                  {
+                    "type": "HowTo",
+                    "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"HowTo\",\n  \"name\": \"How to Prepare for a Boston Home Energy Assessment\",\n  \"step\": [\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Clear Access\",\n      \"text\": \"Clear physical access to your attic, crawlspaces, basement, and heating/cooling equipment.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Gather Bills\",\n      \"text\": \"Retrieve 12 months of utility and heating fuel bills to share with the energy specialist.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"name\": \"Secure Pets\",\n      \"text\": \"Secure any household pets in a safe room before the blower door test begins.\"\n    }\n  ]\n}"
+                  },
+                  {
+                    "type": "FAQPage",
+                    "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"FAQPage\",\n  \"mainEntity\": [\n    {\n      \"@type\": \"Question\",\n      \"name\": \"How much does a Boston home energy assessment cost?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"The assessment is 100% free for eligible Boston homeowners, renters, and landlords through the Mass Save program.\"\n      }\n    },\n    {\n      \"@type\": \"Question\",\n      \"name\": \"Do renters need landlord approval for an energy assessment?\",\n      \"acceptedAnswer\": {\n        \"@type\": \"Answer\",\n        \"text\": \"Renters can request an assessment directly, but major structural upgrades like insulation or heating replacements require landlord approval.\"\n      }\n    }\n  ]\n}"
+                  }
+                ],
+                "definition_boxes": [
+                  {
+                    "term": "Mass Save",
+                    "definition": "A collaborative of Massachusetts' natural gas and electric utilities and energy efficiency service providers dedicated to helping residents save money and energy."
+                  },
+                  {
+                    "term": "Blower Door Test",
+                    "definition": "A diagnostic tool used by energy specialists that depressurizes a home to measure air tightness and locate specific air leaks."
+                  },
+                  {
+                    "term": "R-Value",
+                    "definition": "A measure of insulation's ability to resist heat flow. The higher the R-value, the greater the insulating power."
+                  },
+                  {
+                    "term": "Air Sealing",
+                    "definition": "The practice of sealing cracks, gaps, and holes in a building envelope to reduce drafts and prevent conditioned air from escaping."
+                  },
+                  {
+                    "term": "Heat Pump",
+                    "definition": "An energy-efficient heating and cooling system that transfers heat between the indoors and outdoors rather than generating it from fossil fuels."
+                  }
+                ],
+                "meta_description": "Prepare for your Boston home energy assessment with our comprehensive guide. Learn how Mass Save works, what to expect, and how to save on utility bills."
+              },
+              "contentStrategy": "Deploy an authoritative content cluster addressing the unique energy challenges of historic Boston properties and the specific details of the Mass Save program. Front-load articles with direct, structured answers (AEO-optimized) detailing costs, preparation checklists, and local utility program coordination to maximize AI search citations and user trust.",
+              "primaryKeywords": [
+                "boston home energy assessment",
+                "mass save boston ma",
+                "boston home energy audit cost",
+                "energy efficiency historic homes boston",
+                "how to prepare for home energy audit",
+                "mass save program boston",
+                "boston energy assessment checklist",
+                "lower utility bills boston ma",
+                "home energy assessment boston massachusetts",
+                "mass save contractor boston"
+              ]
+            },
+            "createdAt": "2026-09-14T23:02:41.570Z",
+            "completedAt": null,
+            "businessName": null,
+            "businessAddress": null,
+            "businessPhone": null,
+            "companyLogoUrl": null
+          },
+          "seoCache": null,
+          "articles": [],
+          "summary": {
+            "total": 0,
+            "completed": 0,
+            "inProgress": 0,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "proof": {
+          "batchId": 629,
+          "titlePoolPresent": true,
+          "titleCount": 2,
+          "storedArticleCount": 0
+        }
+      },
+      "validation": {
+        "valid": true,
+        "failures": []
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    },
+    {
+      "name": "create-articles-export",
+      "route": "/api/export/batch/629",
+      "status": 500,
+      "ok": false,
+      "outputPath": "reports/live-generation/seo-live-output-create-articles-export-error.json",
+      "responseProof": {
+        "method": "GET",
+        "route": "/api/export/batch/629",
+        "status": 500,
+        "ok": false,
+        "contentType": "text/html; charset=utf-8",
+        "response": {
+          "byteLength": 5629,
+          "zipSignature": "3c21"
+        },
+        "proof": {
+          "batchId": 629,
+          "exportIsZip": false,
+          "contractOutcome": "HTTP 500 route compilation failure before the intended no-articles 404 branch",
+          "failureClass": "application_route_compile_error"
+        }
+      },
+      "validation": {
+        "valid": false,
+        "failures": [
+          "Route compilation failed on the archiver default import; intended no-articles 404 branch was not reached"
+        ]
+      },
+      "accounting": {
+        "providerEventCount": 0,
+        "costMicrousd": 0,
+        "costUsd": 0,
+        "providerEvents": [],
+        "creditDebitObserved": false
+      }
+    }
+  ],
+  "notes": [
+    "No global-admin, cron, social, media, ads, publishing, or unrelated customer-data routes were invoked.",
+    "No request was made against article 2235; synthetic audit content uses the controlled fictional Harbor Home Energy HTML source.",
+    "Provider cost is locked-rate ledger valuation, not an external invoice.",
+    "The first attempt stopped before content-audit fixture creation on a schema-length error; continuation only executed the remaining variants once.",
+    "Create-articles retrieval was executed once for persisted batch 629: HTTP 200 with the two-title pool present and zero generated articles; no provider usage or cost.",
+    "Create-articles export was executed once for batch 629: HTTP 500 before route execution because the existing route cannot compile its archiver default import; no provider usage or cost and no application code was changed. The route's intended no-articles HTTP 404 branch was therefore not reached."
+  ],
+  "login": {
+    "method": "POST",
+    "route": "/api/auth/login",
+    "status": 200,
+    "ok": true,
+    "response": {
+      "message": "Login successful",
+      "user": {
+        "id": 10794,
+        "email": "live-generation-qa-2026-09-10@example.invalid",
+        "fullName": "Harbor Home Energy QA",
+        "role": "team_member",
+        "twoFactorEnabled": false
+      }
+    },
+    "authCookieReceived": true
+  },
+  "authProof": {
+    "method": "GET",
+    "route": "/api/auth/me",
+    "status": 200,
+    "contentType": "application/json",
+    "ok": true,
+    "response": {
+      "user": {
+        "id": 10794,
+        "email": "live-generation-qa-2026-09-10@example.invalid",
+        "fullName": "Harbor Home Energy QA",
+        "role": "team_member",
+        "profilePictureUrl": null,
+        "twoFactorEnabled": false,
+        "twoFactorMethod": null,
+        "emailVerified": true,
+        "accountStatus": "active",
+        "createdAt": "2026-09-10T16:16:47.978Z",
+        "lastLoginAt": "2026-09-14T23:02:22.287Z",
+        "defaultTeamId": 2535,
+        "mfaEnrollmentDeadline": null,
+        "mfaEnrollmentRequired": false,
+        "authAssurance": "password"
+      },
+      "activeTeamId": 2535,
+      "teams": [
+        {
+          "id": 2535,
+          "name": "LIVE GENERATION QA 2026-09-10",
+          "role": "admin",
+          "billingPlan": "enterprise",
+          "parentTeamId": null,
+          "isClientTeam": false
+        }
+      ],
+      "clientTeams": []
+    }
+  },
+  "syntheticAuditFixture": {
+    "id": 2238,
+    "batch_id": 622,
+    "team_id": 2535,
+    "chosen_title": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+    "text_length": 5467,
+    "reused": false,
+    "sourceUrl": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+    "sourceHtmlBytes": 5487
+  },
+  "accountingAfter": {
+    "providerEventCount": 33,
+    "maxProviderLedgerId": 331,
+    "totalCostMicrousd": 140523,
+    "totalCostUsd": 0.140523,
+    "providerEvents": [
+      {
+        "id": "283",
+        "source_event_id": "provider-usage:6514cad9c558109d3e8dd00e1450ecd21caefb4af179b37e2795149ccf5844a9",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "topic_research",
+        "provider": "brave",
+        "model": "web-search",
+        "unit_type": "requests",
+        "input_units": null,
+        "output_units": null,
+        "unit_count": 1,
+        "cost_microusd": "5000",
+        "provider_rate_id": 34,
+        "provider_request_id": null,
+        "occurred_at": {}
+      },
+      {
+        "id": "284",
+        "source_event_id": "provider-usage:a32a3b8e87551a9a157041242b586c790e0e30752604cbf93450aed56a66c6c6",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_title_pool",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 2475,
+        "output_units": 710,
+        "unit_count": 5133,
+        "cost_microusd": "2518",
+        "provider_rate_id": 2,
+        "provider_request_id": "ttiiaszPOeigjrEPhp7doQQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "285",
+        "source_event_id": "provider-usage:524fc18ba21dfae22063f8651e3cf68d81c4ffed8f32649ee5819d0a8a6db055",
+        "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "seo_analysis",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 1128,
+        "output_units": 472,
+        "unit_count": 3172,
+        "cost_microusd": "1518",
+        "provider_rate_id": 2,
+        "provider_request_id": "dNmiapSqIeO939IP_YXBwQg",
+        "occurred_at": {}
+      },
+      {
+        "id": "286",
+        "source_event_id": "provider-usage:a8d48792662f770be117e90eb908bc37134f55360f3136e9b500526c26921f8e",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "brand_intelligence",
+        "provider": "brave",
+        "model": "web-search",
+        "unit_type": "requests",
+        "input_units": null,
+        "output_units": null,
+        "unit_count": 1,
+        "cost_microusd": "5000",
+        "provider_rate_id": 34,
+        "provider_request_id": null,
+        "occurred_at": {}
+      },
+      {
+        "id": "287",
+        "source_event_id": "provider-usage:9e332f08ff8adeee2b856a743437cd8332b5b38a3ccbc1bc5653fea7695891ee",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "brand_intelligence",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 871,
+        "output_units": 836,
+        "unit_count": 2967,
+        "cost_microusd": "2351",
+        "provider_rate_id": 2,
+        "provider_request_id": "fNqiauqoFc29sOIPr4OE4AM",
+        "occurred_at": {}
+      },
+      {
+        "id": "288",
+        "source_event_id": "provider-usage:f7b92651b8977e0dccba3a31d5d5a79a393c39f87b9397bba20f22ac00cc28fc",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "brand_intelligence",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 936,
+        "output_units": 1586,
+        "unit_count": 4949,
+        "cost_microusd": "4246",
+        "provider_rate_id": 2,
+        "provider_request_id": "hdqiat-QNp6b-8YPnuzNuQg",
+        "occurred_at": {}
+      },
+      {
+        "id": "289",
+        "source_event_id": "provider-usage:4f5abe321d758ffb11133bbc5094344cff1707728b4e871143a8497a3d85b8ff",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "brand_intelligence",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 0,
+        "output_units": 0,
+        "unit_count": 0,
+        "cost_microusd": "0",
+        "provider_rate_id": 2,
+        "provider_request_id": null,
+        "occurred_at": {}
+      },
+      {
+        "id": "290",
+        "source_event_id": "provider-usage:dc2ed52025ef35ee10108635524a74cdb0371ebe26012a4f08168c0b92f2b45d",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "brand_intelligence",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 394,
+        "output_units": 856,
+        "unit_count": 2542,
+        "cost_microusd": "2258",
+        "provider_rate_id": 2,
+        "provider_request_id": "mNqiasClIdyPjrEPldDEiAk",
+        "occurred_at": {}
+      },
+      {
+        "id": "291",
+        "source_event_id": "provider-usage:15139ee59eb635880ce805463b6e40920b9cdb4d2c92d183ea9714e7b3d9d6ff",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "seo_analysis",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 1128,
+        "output_units": 80,
+        "unit_count": 3172,
+        "cost_microusd": "538",
+        "provider_rate_id": 2,
+        "provider_request_id": "1dyiaozIEcS5sOIP0KDIyQg",
+        "occurred_at": {}
+      },
+      {
+        "id": "292",
+        "source_event_id": "provider-usage:7571b29b93884edc042c9caa25deea2cc846fec8cfb5a95123b334abaae07a3d",
+        "run_id": null,
+        "job_id": null,
+        "content_id": 2235,
+        "operation_type": "article_generation",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 6400,
+        "output_units": 2057,
+        "unit_count": 19067,
+        "cost_microusd": "7063",
+        "provider_rate_id": 2,
+        "provider_request_id": "3tyiatXwGsPqjrEPj9PT2AQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "293",
+        "source_event_id": "provider-usage:ce2e6857be541fa1404634a4449f8c38a46124b2b04e4e2be0d3eab76a03b41c",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_critique",
+        "provider": "brave",
+        "model": "web-search",
+        "unit_type": "requests",
+        "input_units": null,
+        "output_units": null,
+        "unit_count": 1,
+        "cost_microusd": "5000",
+        "provider_rate_id": 34,
+        "provider_request_id": null,
+        "occurred_at": {}
+      },
+      {
+        "id": "294",
+        "source_event_id": "provider-usage:c82b919562dc5c6142837760b786ccc9373ddaae8c3ba4099426c99df932cbde",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_critique",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash-lite",
+        "unit_type": "tokens",
+        "input_units": 0,
+        "output_units": 0,
+        "unit_count": 0,
+        "cost_microusd": "0",
+        "provider_rate_id": 14,
+        "provider_request_id": null,
+        "occurred_at": {}
+      },
+      {
+        "id": "295",
+        "source_event_id": "provider-usage:84c3e41254f45d28ec75b541fff9d1cb8e95193059035861666faa2b97cbc6ed",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 1255,
+        "output_units": 1002,
+        "unit_count": 4296,
+        "cost_microusd": "2882",
+        "provider_rate_id": 2,
+        "provider_request_id": "D92iasn8NJKAjrEPvr2D-QU",
+        "occurred_at": {}
+      },
+      {
+        "id": "296",
+        "source_event_id": "provider-usage:68e6f88af1c605713c17b4cab762b9f60dd3b482906d2211aaa08b40c00ca5f5",
+        "run_id": null,
+        "job_id": null,
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 1442,
+        "output_units": 2213,
+        "unit_count": 8943,
+        "cost_microusd": "5965",
+        "provider_rate_id": 2,
+        "provider_request_id": "G92iapu5HqW7jrEPs9bC6QQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "297",
+        "source_event_id": "provider-usage:613c64a0242a0464eaa22e956a65e3530d3fbf7f70006a51c2ee26f27d3c8fcd",
+        "run_id": null,
+        "job_id": null,
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 2636,
+        "output_units": 327,
+        "unit_count": 10824,
+        "cost_microusd": "1608",
+        "provider_rate_id": 2,
+        "provider_request_id": "NN2iauTmK__9jrEP_duTqQQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "298",
+        "source_event_id": "provider-usage:5e53c39cbebdf7568da1abb43325eb6fb541d0bb5f820ae6b611299ef122511a",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 467,
+        "output_units": 171,
+        "unit_count": 638,
+        "cost_microusd": "460",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EMc6LbTc0i7gTvFdUaW8Ux64xf8rh",
+        "occurred_at": {}
+      },
+      {
+        "id": "299",
+        "source_event_id": "provider-usage:ceda9ab4bf846a28be3c7c078721f822e350cf152204a139a2de2b352855176b",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 2460,
+        "output_units": 2349,
+        "unit_count": 4809,
+        "cost_microusd": "4742",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EMc6PIhkkGdn4ZYdxsENryttRtO2f",
+        "occurred_at": {}
+      },
+      {
+        "id": "300",
+        "source_event_id": "provider-usage:dccf66fbcfd360deb13d9545d7a2579f68b83dd24918117657a6360ff70fdae0",
+        "run_id": null,
+        "job_id": null,
+        "content_id": 2235,
+        "operation_type": "image_generation",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash-image",
+        "unit_type": "images",
+        "input_units": null,
+        "output_units": null,
+        "unit_count": 1,
+        "cost_microusd": "40000",
+        "provider_rate_id": 33,
+        "provider_request_id": "aN2iau_-CLexsOIP2_6ZkQg",
+        "occurred_at": {}
+      },
+      {
+        "id": "301",
+        "source_event_id": "provider-usage:43b387154acbd273b2513075e1bbd3a9df62120ae917c43ed2d6249aa1c38de8",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 2249,
+        "output_units": 1841,
+        "unit_count": 4090,
+        "cost_microusd": "3845",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EMc6oCzcv0roZNacU5CijDpoKNiib",
+        "occurred_at": {}
+      },
+      {
+        "id": "302",
+        "source_event_id": "provider-usage:be3cb65e6a15ba8b9215de4d13166d7906b74b7983ee7f616b888501b7f6a4cb",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 2663,
+        "output_units": 1586,
+        "unit_count": 4249,
+        "cost_microusd": "3603",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EMc77wN4Ifq4mzInrnCkWNbWU3Lfs",
+        "occurred_at": {}
+      },
+      {
+        "id": "303",
+        "source_event_id": "provider-usage:7bb564626bb240bf53b774a8ebcd9953ff5098cd89111f00844df14fb8002650",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_generation",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 4024,
+        "output_units": 3636,
+        "unit_count": 7660,
+        "cost_microusd": "7427",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EMc7Q4Ys5zNx5EU4R8xeCfo6vvoYF",
+        "occurred_at": {}
+      },
+      {
+        "id": "304",
+        "source_event_id": "provider-usage:f8725ca1fbbc53c0f5044d01bd85b619a4b93c1291dc085d99e2f5d887f681ad",
+        "run_id": null,
+        "job_id": "1",
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 8,
+        "output_units": 913,
+        "unit_count": 1759,
+        "cost_microusd": "2285",
+        "provider_rate_id": 2,
+        "provider_request_id": "wN2iapi4POa5sOIPzv-9yAQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "305",
+        "source_event_id": "provider-usage:3bc85242c1a74a6067e2e4f9b56ea48fd1dfbe4bd3cdeaa582b7b3dd77b2c970",
+        "run_id": null,
+        "job_id": "3",
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 8,
+        "output_units": 1009,
+        "unit_count": 1939,
+        "cost_microusd": "2525",
+        "provider_rate_id": 2,
+        "provider_request_id": "wN2iaqa3PLa9sOIP4bLY-Ao",
+        "occurred_at": {}
+      },
+      {
+        "id": "306",
+        "source_event_id": "provider-usage:10e22df2a6346e19d0d068ee1cbf0ced2e1b86d3f86f3c3258a9653fee75f2a5",
+        "run_id": null,
+        "job_id": "2",
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 14,
+        "output_units": 1482,
+        "unit_count": 2565,
+        "cost_microusd": "3709",
+        "provider_rate_id": 2,
+        "provider_request_id": "wd2iav9E5rmw4g_O_73IBA",
+        "occurred_at": {}
+      },
+      {
+        "id": "307",
+        "source_event_id": "provider-usage:ac3bde1b20e314d1b78893105a06937345860b46aa9986c35816ba99e5865e3e",
+        "run_id": null,
+        "job_id": "4",
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 8,
+        "output_units": 1075,
+        "unit_count": 2089,
+        "cost_microusd": "2690",
+        "provider_rate_id": 2,
+        "provider_request_id": "yt2iau-OHpugjrEPsa6lsQQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "308",
+        "source_event_id": "provider-usage:c7e19e1498242283314056c6eb1a8daf3cafc6272d7a6394699195d5d99c0a2d",
+        "run_id": null,
+        "job_id": "5",
+        "content_id": 2235,
+        "operation_type": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 11,
+        "output_units": 1326,
+        "unit_count": 2391,
+        "cost_microusd": "3318",
+        "provider_rate_id": 2,
+        "provider_request_id": "y92iapj_B7nD39IPsfDxyA8",
+        "occurred_at": {}
+      },
+      {
+        "id": "325",
+        "source_event_id": "provider-usage:98e308e92fbc11c4c5d15826302e22772f9e34a0bb4f0fffcbc69e216e855d06",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "seo_analysis",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 636,
+        "output_units": 2137,
+        "unit_count": 4159,
+        "cost_microusd": "5533",
+        "provider_rate_id": 2,
+        "provider_request_id": "o3yoasuOG_Hj_uMPnfPxOQ",
+        "occurred_at": {}
+      },
+      {
+        "id": "326",
+        "source_event_id": "provider-usage:b069698304d9d2ed283363a9742487106efade8548409bf540e0f7bb3287132c",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 318,
+        "output_units": 731,
+        "unit_count": 1049,
+        "cost_microusd": "1297",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EO9xddRRkvRAEtpxc9cWUV0RcIbyN",
+        "occurred_at": {}
+      },
+      {
+        "id": "327",
+        "source_event_id": "provider-usage:cde1778dac5ab8c8f5f067af8c5eeb527da369ea5523d44064fc4c234403997b",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "seo_analysis",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 318,
+        "output_units": 2626,
+        "unit_count": 4572,
+        "cost_microusd": "6660",
+        "provider_rate_id": 2,
+        "provider_request_id": "vXyoaoO0FMuPjrEPosPBmAo",
+        "occurred_at": {}
+      },
+      {
+        "id": "328",
+        "source_event_id": "provider-usage:9dbca2be70198ae20d7830864a80dc0bb00ad9452c174493c9606189e87f3cda",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 373,
+        "output_units": 1056,
+        "unit_count": 1429,
+        "cost_microusd": "1839",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EO9y5ZmLrMbLk5tbfEEyIhYcl4i7w",
+        "occurred_at": {}
+      },
+      {
+        "id": "329",
+        "source_event_id": "provider-usage:f2f39b751fcf484aa76c46b801111c8bd28e637158060df24febf683688ccb77",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_review",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 2108,
+        "output_units": 771,
+        "unit_count": 2879,
+        "cost_microusd": "2077",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EO9yqlp7sPIavuSZ4gkPgUcifwmrJ",
+        "occurred_at": {}
+      },
+      {
+        "id": "330",
+        "source_event_id": "provider-usage:a2f75cf2055940dde87ec4b11093e15682cb31d546d5911cbccbfa12f6282d9e",
+        "run_id": null,
+        "job_id": null,
+        "content_id": 2238,
+        "operation_type": "article_hyperlink",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unit_type": "tokens",
+        "input_units": 1408,
+        "output_units": 290,
+        "unit_count": 1698,
+        "cost_microusd": "1027",
+        "provider_rate_id": 17,
+        "provider_request_id": "chatcmpl-EO9yx4FTU50D0sALTZUueyXOfY6uJ",
+        "occurred_at": {}
+      },
+      {
+        "id": "331",
+        "source_event_id": "provider-usage:5d3bbc141beac22d8de692661d15b0b2af5ad12cfa9a4547aaf216a1e3a22831",
+        "run_id": null,
+        "job_id": null,
+        "content_id": null,
+        "operation_type": "article_title_pool",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unit_type": "tokens",
+        "input_units": 1823,
+        "output_units": 397,
+        "unit_count": 3476,
+        "cost_microusd": "1539",
+        "provider_rate_id": 2,
+        "provider_request_id": "Cn2oaoWhBZfWjrEPj-TCoAs",
+        "occurred_at": {}
+      }
+    ],
+    "balance": {
+      "balance": 4999,
+      "allowance_credits": 0,
+      "purchased_credits": 5000,
+      "allowance_used": 0,
+      "purchased_used": 1,
+      "reserved_credits": 0
+    },
+    "reservations": [
+      {
+        "id": "590",
+        "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+        "operation_type": "article",
+        "original_amount": 10,
+        "remaining_amount": 0,
+        "status": "RELEASED",
+        "reconciliation_required_at": null,
+        "created_at": {},
+        "updated_at": {}
+      },
+      {
+        "id": "605",
+        "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+        "operation_type": "section_regenerate",
+        "original_amount": 1,
+        "remaining_amount": 0,
+        "status": "DEBITED",
+        "reconciliation_required_at": {},
+        "created_at": {},
+        "updated_at": {}
+      }
+    ]
+  },
+  "aggregateCostUsd": 0.019972000000000004,
+  "aggregateProviderEvents": 7,
+  "budgetWithinLimit": true,
+  "status": "COMPLETE",
+  "finishedAt": "2026-09-14T23:03:16.002Z",
+  "summary": [
+    {
+      "name": "local-research",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.005533,
+      "providerEvents": 1
+    },
+    {
+      "name": "competitor-analysis",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.001297,
+      "providerEvents": 1
+    },
+    {
+      "name": "content-structure",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.00666,
+      "providerEvents": 1
+    },
+    {
+      "name": "pillar-cluster",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.001839,
+      "providerEvents": 1
+    },
+    {
+      "name": "schema-article",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0,
+      "providerEvents": 0
+    },
+    {
+      "name": "schema-howto",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0,
+      "providerEvents": 0
+    },
+    {
+      "name": "schema-faqpage",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0,
+      "providerEvents": 0
+    },
+    {
+      "name": "schema-localbusiness",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0,
+      "providerEvents": 0
+    },
+    {
+      "name": "content-audit",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.003104,
+      "providerEvents": 2
+    },
+    {
+      "name": "create-articles",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0.001539,
+      "providerEvents": 1
+    },
+    {
+      "name": "create-articles-retrieval",
+      "status": 200,
+      "ok": true,
+      "valid": true,
+      "costUsd": 0,
+      "providerEvents": 0
+    },
+    {
+      "name": "create-articles-export",
+      "status": 500,
+      "ok": false,
+      "valid": false,
+      "costUsd": 0,
+      "providerEvents": 0
+    }
+  ]
+}

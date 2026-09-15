@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { assertValidArticleOutput } from "@/lib/article-output-safety";
 
 export async function PATCH(
   request: NextRequest,
@@ -24,6 +25,16 @@ export async function PATCH(
         { error: "Invalid article ID" },
         { status: 400 }
       );
+    }
+    if (htmlContent !== undefined) {
+      try {
+        assertValidArticleOutput(htmlContent, { format: "html" });
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid article output: HTML article content is required" },
+          { status: 400 },
+        );
+      }
     }
 
     const updateData: any = {

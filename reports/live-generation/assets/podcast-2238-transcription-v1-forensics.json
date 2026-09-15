@@ -1,0 +1,65 @@
+{
+  "artifactVersion": "podcast-transcription-v1-forensics.v1",
+  "capturedAt": "2026-09-15T00:09:55.861Z",
+  "scope": {
+    "teamId": 2535,
+    "articleId": 2238,
+    "paidProviderCallsDuringForensics": 0,
+    "providerMetadataGetsDuringForensics": 0,
+    "ledgerBackfill": false,
+    "generationRetried": false
+  },
+  "targetAttempt": {
+    "label": "first QA audio verification",
+    "status": "PROVIDER_ACCOUNTING_FAILED",
+    "providerRequestId": null,
+    "ledgerRows": 0,
+    "physicalCallOutcome": "unreconciled/unknown",
+    "failureContext": "The standalone harness invocation lacked the required tenant database context, so immutable provider accounting failed before a durable usage row existed."
+  },
+  "historicalHarnessRecovery": {
+    "searchesPerformed": [
+      "saved reports/live-generation artifacts and accounting.json",
+      "repository scripts and provider-call helpers",
+      "available local agent transcript/history records",
+      "available temporary harness and shell-output files"
+    ],
+    "exactOriginalHarnessRecovered": false,
+    "model": null,
+    "requestConfig": null,
+    "outputCapTokens": null,
+    "inputLimitTokens": null,
+    "usageMetadata": null,
+    "reason": "The original invocation script, provider response, request ID, and accounting row were not retained. Current source defaults and the later verification-v2 call cannot establish the historical v1 model or output cap."
+  },
+  "nonEvidence": {
+    "currentSourceDefault": {
+      "modelTier": "geminiFlash",
+      "note": "A current resolver/default is not evidence of the model selected by the historical v1 invocation."
+    },
+    "verificationV2": {
+      "model": "gemini-3.5-flash",
+      "maxOutputTokens": 1800,
+      "providerRequestId": "xYSoaufGGO-v39IPzqGZ4Q4",
+      "ledgerId": 395,
+      "note": "This is a separate later call and must not be attributed to v1."
+    },
+    "providerMetadata": {
+      "status": "not_requested",
+      "reason": "No model identifier was recoverable, so a metadata GET could not identify the historical request."
+    }
+  },
+  "budgetTreatment": {
+    "singleCallStressBoundUsd": 2.78528,
+    "conditionalTwoCallStressUpperBoundUsd": 5.57056,
+    "currentSharedUnresolvedReserveUsd": 6,
+    "modelLimitsConfirmed": false,
+    "reserveCoverage": "UNRESOLVED_BOUND_NOT_CONFIRMED_PAUSE_REQUIRED",
+    "rule": "Do not label the $6 reserve covered by 2 * $2.78528 until v1 model and request limits are proven. No expense estimate or fake ledger event is asserted."
+  },
+  "evidencePaths": [
+    "reports/live-generation/podcast-live-run.json",
+    "reports/live-generation/accounting.json",
+    "reports/live-generation/assets/podcast-2238-transcription.json"
+  ]
+}

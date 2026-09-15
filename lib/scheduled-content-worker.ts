@@ -195,6 +195,7 @@ export async function executeScheduledRun(scheduleId: number): Promise<void> {
       companyLogoUrl: schedule.companyLogoUrl || undefined,
       creditRunId,
       capReservationId,
+      capReservationScope: "batch",
       creditCostPerUnit,
     });
     

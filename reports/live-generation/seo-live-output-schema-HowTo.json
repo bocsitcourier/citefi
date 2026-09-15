@@ -1,0 +1,4 @@
+{
+  "type": "HowTo",
+  "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"HowTo\",\n  \"name\": \"Prepare for a Boston Home Energy Assessment\",\n  \"description\": \"Fictional educational steps for organizing questions before an assessment.\",\n  \"step\": [\n    {\n      \"@type\": \"HowToStep\",\n      \"position\": 1,\n      \"name\": \"List comfort concerns\",\n      \"text\": \"Write down rooms with drafts or uneven temperatures.\"\n    },\n    {\n      \"@type\": \"HowToStep\",\n      \"position\": 2,\n      \"name\": \"Gather questions\",\n      \"text\": \"Prepare questions about assessment terminology and next steps.\"\n    }\n  ],\n  \"totalTime\": \"PT30M\",\n  \"tool\": [],\n  \"supply\": []\n}"
+}

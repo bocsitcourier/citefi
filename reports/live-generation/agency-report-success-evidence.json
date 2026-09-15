@@ -1,0 +1,61 @@
+{
+  "http": {
+    "configApprove": 200,
+    "generate": 201,
+    "reportApprove": 200
+  },
+  "config": {
+    "id": 18,
+    "approvalStatus": "approved",
+    "displayName": "HomeWorks Energy QA deterministic report",
+    "markupBasisPoints": 0,
+    "approvedBy": 10890
+  },
+  "report": {
+    "id": 80,
+    "agencyTeamId": 2567,
+    "clientTeamId": 2568,
+    "periodStart": "2026-09-01T00:00:00.000Z",
+    "periodEnd": "2026-10-01T00:00:00.000Z",
+    "status": "approved",
+    "snapshotSha256": "2f8856c9a4db19a8d527b8a83eb7f10940f9c23769a1208ceae325a0f1c0b3e2"
+  },
+  "download": {
+    "path": "reports/live-generation/agency-report-80.html",
+    "httpStatus": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 1961,
+    "sha256": "755feedffcbed519bb508e72efa138a49302eecdac9489aa99bb6affb09c0e33",
+    "hasHtmlRoot": true,
+    "pdfRoute": "No PDF route exists; normal source contract is HTML",
+    "pdfBytes": false
+  },
+  "deliveries": [
+    {
+      "reportId": 80,
+      "agencyTeamId": 2567,
+      "clientTeamId": 2568,
+      "channel": "download",
+      "recipient": "user:10890",
+      "status": "delivered",
+      "idempotencyKey": "qa-zero-provider-agency-report-download-v1"
+    }
+  ],
+  "financialSnapshot": {
+    "reportId": 80,
+    "agencyTeamId": 2567,
+    "clientTeamId": 2568,
+    "rebillingKeys": [
+      "creditDebits",
+      "marginMicrousd",
+      "revenueMicrousd",
+      "revenueAvailable",
+      "providerCostMicrousd",
+      "approvedMarkupBasisPoints"
+    ]
+  },
+  "providerCallsMade": false,
+  "llmCallsConfirmedAbsentBySource": true,
+  "emailSent": false,
+  "note": "No email delivery occurred; this evidence records a download-only delivery."
+}

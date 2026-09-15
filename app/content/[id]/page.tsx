@@ -515,6 +515,15 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
 
   const handleExport = () => {
     if (!data) return;
+    const exportableStatuses = new Set(["COMPLETE", "GPT4_ENHANCED", "CHATGPT_REVIEWED"]);
+    if (!exportableStatuses.has(data.article.status) || !data.article.htmlContent) {
+      toast({
+        title: "Article is not ready to export",
+        description: "Wait for HTML generation to complete before exporting.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const exportData = {
       article: data.article,
@@ -1310,7 +1319,18 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `hero-image-${article.slug || articleId}.webp`;
+                        // Use the bytes' declared media type (rather than the
+                        // historical .webp default) so PNG heroes are not
+                        // downloaded with a misleading extension.
+                        const extensionByType: Record<string, string> = {
+                          "image/png": "png",
+                          "image/jpeg": "jpg",
+                          "image/webp": "webp",
+                          "image/gif": "gif",
+                        };
+                        const urlExtension = imageUrl.match(/\.(png|jpe?g|webp|gif)(?:$|[?#])/i)?.[1]?.toLowerCase();
+                        const imageExtension = extensionByType[blob.type.toLowerCase()] || urlExtension || "png";
+                        a.download = `hero-image-${article.slug || articleId}.${imageExtension}`;
                         a.click();
                         window.URL.revokeObjectURL(url);
                         toast({
@@ -2695,7 +2715,15 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                               const url = window.URL.createObjectURL(blob);
                               const a = document.createElement('a');
                               a.href = url;
-                              a.download = `image-${index + 1}.${asset.format || 'webp'}`;
+                              const extensionByType: Record<string, string> = {
+                                "image/png": "png",
+                                "image/jpeg": "jpg",
+                                "image/webp": "webp",
+                                "image/gif": "gif",
+                              };
+                              const urlExtension = asset.url.match(/\.(png|jpe?g|webp|gif)(?:$|[?#])/i)?.[1]?.toLowerCase();
+                              const imageExtension = extensionByType[blob.type.toLowerCase()] || asset.format || urlExtension || "png";
+                              a.download = `image-${index + 1}.${imageExtension}`;
                               a.click();
                               window.URL.revokeObjectURL(url);
                               toast({

@@ -36,6 +36,7 @@ const createSchema = z.object({
   goals: z.array(z.enum(CAMPAIGN_GOALS as unknown as [string, ...string[]])).min(1),
   locations: z.array(locationSchema).default([]),
   assetBundle: assetBundleSchema.optional(),
+  clientTeamId: z.number().int().positive().optional(),
 });
 
 /**
@@ -72,9 +73,19 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    return await withAuthenticatedTeamContext(request, async ({ teamId, userId }) => {
+    return await withAuthenticatedTeamContext(request, async ({ teamId, userId, role }) => {
     const body = await request.json().catch(() => ({}));
     const parsed = createSchema.parse(body);
+    if (
+      parsed.clientTeamId != null &&
+      role !== "owner" &&
+      role !== "admin"
+    ) {
+      return NextResponse.json(
+        { error: "Only an agency owner or admin can assign a client workspace" },
+        { status: 403 },
+      );
+    }
 
     const { campaign, reused } = await createOrReuseCampaign(teamId, userId, {
       requestId: parsed.requestId,
@@ -84,6 +95,7 @@ export async function POST(request: NextRequest) {
       goals: parsed.goals as CampaignGoal[],
       locations: parsed.locations,
       assetBundle: parsed.assetBundle,
+      clientTeamId: parsed.clientTeamId ?? null,
     });
 
     // Link the current team's Brand Intelligence profile (if any).

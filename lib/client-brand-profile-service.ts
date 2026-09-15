@@ -244,8 +244,21 @@ async function pinnedRequest(url: URL): Promise<Response | null> {
         "User-Agent": "CitefiBot/1.0 (Brand Intelligence Analyzer)",
         "Accept": "text/html,application/xhtml+xml",
       },
-      lookup: ((_: string, __: unknown, callback: (error: Error | null, address: string, family: number) => void) =>
-        callback(null, pinned.address, pinned.family)) as any,
+      // Node may request all resolved addresses when auto-selecting a
+      // connection family. Return the shape requested by `options.all`; a
+      // scalar callback result is interpreted as an invalid address by newer
+      // Node versions and makes every public HTTPS fetch fail before TLS.
+      lookup: ((_hostname: string, options: { all?: boolean }, callback: (
+        error: Error | null,
+        address: string | Array<{ address: string; family: number }>,
+        family?: number,
+      ) => void) => {
+        if (options?.all) {
+          callback(null, [{ address: pinned.address, family: pinned.family }]);
+        } else {
+          callback(null, pinned.address, pinned.family);
+        }
+      }) as any,
     }, (res) => {
       const chunks: Buffer[] = [];
       let size = 0;
@@ -312,6 +325,50 @@ async function safeFetchPage(url: string): Promise<string | null> {
   }
 }
 
+/**
+ * The homepage is required for a useful profile, so preserve the reason for
+ * rejecting it instead of collapsing SSRF blocks, HTTP errors, and network
+ * failures into an opaque "analysis failed" result. Secondary pages continue
+ * to use safeFetchPage's best-effort behavior.
+ */
+async function safeFetchRequiredPage(url: string): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Business source URL is invalid: ${url}`);
+  }
+
+  const response = await safeFetchPageWithRedirects(url);
+  if (!response) {
+    const pinned = await resolvePinnedPublicAddress(parsed);
+    if (!pinned) {
+      throw new Error(
+        `Business source host "${parsed.hostname}" was blocked because it did not resolve to a public address (SSRF protection).`,
+      );
+    }
+    throw new Error(
+      `Business source "${url}" could not be reached (request failed, timed out, or exceeded the redirect limit).`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`Business source returned HTTP ${response.status} for ${url}.`);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("text/html")) {
+    throw new Error(
+      `Business source returned "${contentType || "an unknown content type"}" instead of HTML for ${url}.`,
+    );
+  }
+
+  const text = (await response.text()).slice(0, 300_000);
+  if (!text.trim()) {
+    throw new Error(`Business source returned an empty HTML document for ${url}.`);
+  }
+  return text;
+}
+
 function cleanHtml(html: string): string {
   return html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
@@ -374,17 +431,7 @@ async function analyzeClientWebsite(teamId: number, websiteUrl: string, companyN
   localNicheIntelligence: LocalNicheIntelligence;
   rawText: string;
 }> {
-  const homeHtml = await safeFetchPage(websiteUrl);
-  if (!homeHtml) {
-    console.warn(`⚠️ Could not fetch homepage for ${websiteUrl}`);
-    return {
-      brandVoice: emptyBrandVoice(),
-      positioning: emptyPositioning(),
-      targetAudience: {},
-      localNicheIntelligence: emptyLocalIntel(),
-      rawText: "",
-    };
-  }
+  const homeHtml = await safeFetchRequiredPage(websiteUrl);
 
   const origin = new URL(websiteUrl).origin;
   const internalLinks = extractInternalLinks(homeHtml, websiteUrl);

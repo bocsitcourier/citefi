@@ -31,3 +31,15 @@ Require bounded retries, durable operation identity/checkpoints, tenant-scoped
 deduplication, protected settlement, and explicit treatment of ambiguous
 provider outcomes. Simulated provider calls must be identified as such; they
 prove failure behavior but not live provider or final-media compatibility.
+
+Capture the selected model, request limits, and stable attempt identity before
+every paid audit call, including auxiliary transcription or quality checks.
+Budget reservations must cover all test workspaces and all helper calls.
+
+**Why:** An auxiliary verification call lost its accounting details, leaving no
+recoverable model or request bound. A small-looking ledger total could not prove
+compliance with the user's absolute spending ceiling.
+
+**How to apply:** Persist non-secret request metadata before submission and retain
+receipts independently of ledger insertion. Do not describe an assumed model
+limit as a confirmed bound for an unidentified call.

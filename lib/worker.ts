@@ -90,6 +90,11 @@ import {
   isProviderAccountingError,
 } from "./cost-telemetry";
 import { getArticleGenerationBilling } from "./pipeline-billing";
+import {
+  assertValidArticleOutput,
+  normalizeArticleTargetUrls,
+  validateArticleOutput,
+} from "./article-output-safety";
 
 export { getArticleGenerationBilling } from "./pipeline-billing";
 
@@ -171,11 +176,23 @@ export const processArticleGenerationJob = async (
   dependencies: ArticleGenerationDependencies = {}
 ) => {
         console.log(`📝 Processing article generation job ${job.id}`);
-        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit, capReservationId: articleCapReservationId } = job.data;
+        const { articleId, batchId, runId, title, targetUrl, tone, wordCountMin, wordCountMax, geographicFocus, audience, competitorUrls, semanticClusterId, serpFeatureTarget, businessName, companyLogoUrl, customInstructions, teamId: articleTeamId, personaId: articlePersonaId, journeyContext: articleJourneyContext, journeyName: articleJourneyName, creditRunId: articleCreditRunId, creditCostPerUnit: rawCreditCostPerUnit, capReservationId: articleCapReservationId, capReservationScope: articleCapReservationScope } = job.data;
         // The watchdog uses this timestamp instead of a stage transition alone:
         // a long but healthy Gemini/GPT call should never be mistaken for a crash.
         let runLeaseToken: string | null = null;
         let runLeaseLost = false;
+        let currentStage = "ORCHESTRATION";
+        const stageForOperation = (operation: string): string => {
+          const normalized = operation.toLowerCase();
+          if (normalized.includes("gemini")) return "GEMINI_GENERATION";
+          if (normalized.includes("chatgpt")) return "CHATGPT_REVIEW";
+          if (normalized.includes("gpt-4")) return "GPT4_ENHANCEMENT";
+          if (normalized.includes("hyperlink")) return "HYPERLINK_INJECTION";
+          if (normalized.includes("guardian")) return "GUARDIAN";
+          if (normalized.includes("reflexive")) return "REFLEXIVE_VALIDATION";
+          if (normalized.includes("critic")) return "GENERATION_CRITIC";
+          return operation.slice(0, 50).toUpperCase();
+        };
         const leaseLostError = (operation: string) =>
           new ArticleRunLeaseConflictError(
             `Article ${articleId} run ${runId.slice(0, 8)} lost its lease before ${operation}`
@@ -193,6 +210,7 @@ export const processArticleGenerationJob = async (
           }
         };
         const enterProviderStage = async (operation: string) => {
+          currentStage = stageForOperation(operation);
           await dependencies.beforeProvider?.(operation);
           await assertActiveRunLease(operation);
         };
@@ -259,7 +277,7 @@ export const processArticleGenerationJob = async (
         let persistedBillingJobId = String(job.id);
         let persistedSettlementAttempts = 0;
 
-      try {
+       try {
         // Authoritative entity/team cross-check at processor entry: the article
         // row's owner must match the tenant this job runs as. A mismatch is
         // fatal and must never release/debit against the wrong tenant.
@@ -330,6 +348,13 @@ export const processArticleGenerationJob = async (
         persistedBillingAmount = existingRun?.billingAmount ?? persistedBillingAmount;
         persistedBillingJobId = existingRun?.billingJobId ?? persistedBillingJobId;
         persistedSettlementAttempts = existingRun?.settlementAttempts ?? 0;
+        const persistedJobData = (existingRun?.jobDataJson ?? {}) as Partial<ArticleJobData>;
+        const effectiveArticleCapReservationId =
+          articleCapReservationId ?? persistedJobData.capReservationId ?? null;
+        const effectiveArticleCapReservationScope =
+          articleCapReservationScope ??
+          persistedJobData.capReservationScope ??
+          "article";
         
         // STEP 2: Handle already-settled runs before trying to claim ownership.
         if (existingRun?.status === "completed") {
@@ -340,6 +365,21 @@ export const processArticleGenerationJob = async (
             const terminalStatuses = ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED'];
             if (runArticle && terminalStatuses.includes(runArticle.articleStatus || '')) {
               console.log(`⏭️ SKIPPING: Article ${articleId} run ${runId.slice(0,8)} already completed and article is ${runArticle.articleStatus} — no regeneration needed`);
+              await db
+                .update(articles)
+                .set({ errorMessage: null, updatedAt: new Date() })
+                .where(eq(articles.id, articleId));
+              try {
+                await checkBatchCompletion(batchId, {
+                  settleAggregateCap: effectiveArticleCapReservationScope === "batch",
+                });
+              } catch (capError) {
+                throw new BillingSettlementError(
+                  `Aggregate spending-cap settlement failed for article ${articleId}`,
+                  articleCreditRunId,
+                  capError,
+                );
+              }
               clearInterval(heartbeatTimer);
               return;
             }
@@ -442,6 +482,41 @@ export const processArticleGenerationJob = async (
                 `Debit settlement failed for article ${articleId}`
               );
             }
+            try {
+            if (
+              articleCapReservationId != null &&
+              effectiveArticleCapReservationScope !== "batch"
+            ) {
+                const { completeCapReservation } = await import("@/lib/usage-caps");
+                await completeCapReservation({
+                reservationId: articleCapReservationId,
+                  teamId: settlementTeamId,
+                  jobId: settlementJobId,
+                  metadata: { articleId, batchId },
+                });
+            } else if (
+              effectiveArticleCapReservationId != null &&
+              effectiveArticleCapReservationScope !== "batch"
+            ) {
+              const { completeCapReservation } = await import("@/lib/usage-caps");
+              await completeCapReservation({
+                reservationId: effectiveArticleCapReservationId,
+                teamId: settlementTeamId,
+                jobId: settlementJobId,
+                metadata: { articleId, batchId },
+              });
+              }
+              await checkBatchCompletion(batchId, {
+                settleAggregateCap:
+                  effectiveArticleCapReservationScope === "batch",
+              });
+            } catch (capError) {
+              throw new BillingSettlementError(
+                `Spending-cap settlement failed for delivered article ${articleId}`,
+                settlementRunId,
+                capError,
+              );
+            }
           } else {
             await updateActiveArticleRun({
               articleId,
@@ -530,6 +605,41 @@ export const processArticleGenerationJob = async (
                 `Debit settlement failed for completed article ${articleId}`
               );
             }
+            try {
+              if (
+                articleCapReservationId != null &&
+                effectiveArticleCapReservationScope !== "batch"
+              ) {
+                const { completeCapReservation } = await import("@/lib/usage-caps");
+                await completeCapReservation({
+                  reservationId: articleCapReservationId,
+                  teamId: articleTeamId,
+                  jobId: String(job.id),
+                  metadata: { articleId, batchId },
+                });
+              } else if (
+                effectiveArticleCapReservationId != null &&
+                effectiveArticleCapReservationScope !== "batch"
+              ) {
+                const { completeCapReservation } = await import("@/lib/usage-caps");
+                await completeCapReservation({
+                  reservationId: effectiveArticleCapReservationId,
+                  teamId: articleTeamId,
+                  jobId: String(job.id),
+                  metadata: { articleId, batchId },
+                });
+              }
+              await checkBatchCompletion(batchId, {
+                settleAggregateCap:
+                  effectiveArticleCapReservationScope === "batch",
+              });
+            } catch (capError) {
+              throw new BillingSettlementError(
+                `Spending-cap settlement failed for delivered article ${articleId}`,
+                articleCreditRunId,
+                capError,
+              );
+            }
           }
           await updateClaimedArticleRun({
             articleId,
@@ -578,6 +688,10 @@ export const processArticleGenerationJob = async (
           
           // Skip the database update since data already exists
           skipGeminiUpdate = true;
+          await updateOwnedArticle(
+            { errorMessage: null },
+            "clearing prior article error on cache restore"
+          );
           if (!hasGeminiCheckpoint && runLeaseToken) {
             const backfilled = await updateActiveArticleRun({
               articleId,
@@ -593,7 +707,7 @@ export const processArticleGenerationJob = async (
         } else {
           // Update status to IN_PROGRESS
           await updateOwnedArticle(
-            { articleStatus: "IN_PROGRESS" },
+            { articleStatus: "IN_PROGRESS", errorMessage: null },
             "marking generation in progress"
           );
 
@@ -689,6 +803,28 @@ export const processArticleGenerationJob = async (
             GEMINI_TIMEOUT_MS,
             `Gemini Generation (Article ${articleId})`
           );
+          geminiResult.rawContent = normalizeArticleTargetUrls(
+            geminiResult.rawContent,
+            targetUrl,
+          );
+          if (Array.isArray(geminiResult.faq)) {
+            geminiResult.faq = geminiResult.faq.map((item: { question: string; answer: string }) => ({
+              ...item,
+              question: normalizeArticleTargetUrls(item.question, targetUrl),
+              answer: normalizeArticleTargetUrls(item.answer, targetUrl),
+            }));
+          }
+          const generatedOutput = validateArticleOutput(geminiResult.rawContent, {
+            format: "markdown",
+            minWords: wordCountMin || 800,
+            maxWords: wordCountMax || 2000,
+          });
+          if (!generatedOutput.valid) {
+            throw new Error(
+              `INVALID_ARTICLE_OUTPUT: ${generatedOutput.reasons.join("; ")}`,
+            );
+          }
+          geminiResult.wordCount = generatedOutput.wordCount;
           
           // CRITICAL: Validate image prompts for brand safety IMMEDIATELY after generation
           // Prevents generic placeholders like "company name" from entering the system
@@ -726,6 +862,31 @@ export const processArticleGenerationJob = async (
           }
         }
 
+        // Checkpointed content is untrusted too: retries must not promote a
+        // previously saved reasoning/debug response into later stages.
+        geminiResult.rawContent = normalizeArticleTargetUrls(
+          geminiResult.rawContent,
+          targetUrl,
+        );
+        if (Array.isArray(geminiResult.faq)) {
+          geminiResult.faq = geminiResult.faq.map((item: { question: string; answer: string }) => ({
+            ...item,
+            question: normalizeArticleTargetUrls(item.question, targetUrl),
+            answer: normalizeArticleTargetUrls(item.answer, targetUrl),
+          }));
+        }
+        const checkpointedOutput = validateArticleOutput(geminiResult.rawContent, {
+          format: "auto",
+          minWords: wordCountMin || 800,
+          maxWords: wordCountMax || 2000,
+        });
+        if (!checkpointedOutput.valid) {
+          throw new Error(
+            `INVALID_ARTICLE_OUTPUT: ${checkpointedOutput.reasons.join("; ")}`,
+          );
+        }
+        geminiResult.wordCount = checkpointedOutput.wordCount;
+
         // Only update database if we generated new Gemini content (not resuming)
         if (!skipGeminiUpdate) {
           // Ensure slug uniqueness by appending article ID if duplicate
@@ -750,6 +911,7 @@ export const processArticleGenerationJob = async (
             articleValues: {
                 articleStatus: "GEMINI_COMPLETE",
                 finalHtmlContent: geminiResult.rawContent,
+                errorMessage: null,
                 seoTitle: cleanSeoTitle(geminiResult.seoTitle),
                 metaDescription: cleanMetaDescription(geminiResult.metaDescription),
                 slug: uniqueSlug,
@@ -791,12 +953,17 @@ export const processArticleGenerationJob = async (
               );
               
               if (reflexiveResult.wasRewritten) {
+                assertValidArticleOutput(reflexiveResult.content, {
+                  format: "markdown",
+                  minWords: wordCountMin || 800,
+                  maxWords: wordCountMax || 2000,
+                });
                 // Update content with reflexively cleaned version
                 geminiResult.rawContent = reflexiveResult.content;
                 
                 // Update database with cleaned content
                 await updateOwnedArticle(
-                  { finalHtmlContent: reflexiveResult.content },
+                  { finalHtmlContent: reflexiveResult.content, errorMessage: null },
                   "saving reflexive rewrite"
                 );
                 
@@ -857,10 +1024,15 @@ export const processArticleGenerationJob = async (
             });
 
             if (orchestratorResult.repairs > 0) {
+              assertValidArticleOutput(orchestratorResult.content, {
+                format: "auto",
+                minWords: wordCountMin || 800,
+                maxWords: wordCountMax || 2000,
+              });
               geminiResult.rawContent = orchestratorResult.content;
               // Persist repaired content so resume logic picks it up cleanly
               await updateOwnedArticle(
-                { finalHtmlContent: orchestratorResult.content },
+                { finalHtmlContent: orchestratorResult.content, errorMessage: null },
                 "saving critic repair"
               );
               console.log(
@@ -879,6 +1051,12 @@ export const processArticleGenerationJob = async (
           } catch (criticError) {
             if (isProviderAccountingError(criticError)) throw criticError;
             if (isArticleRunLeaseConflictError(criticError)) throw criticError;
+            if (
+              criticError instanceof Error &&
+              criticError.message.startsWith("BRAND_POLICY_MISSING:")
+            ) {
+              throw criticError;
+            }
             console.warn(
               `⚠️ Stage 1.6 orchestrator failed, continuing with current content:`,
               (criticError as Error).message
@@ -1018,6 +1196,7 @@ export const processArticleGenerationJob = async (
                 seoScore: batchedResult!.seo.seoScore,
                 hyperlinkedKeywordsJson: batchedResult!.hyperlinks.keywords || [],
                 metaEnrichment,
+                errorMessage: null,
             },
             runValues: {
               chatgptReviewedAt: new Date(),
@@ -1058,6 +1237,7 @@ export const processArticleGenerationJob = async (
           
           // Use raw Gemini content directly for blazing fast generation
           const speedModeHtml = `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`;
+          assertValidArticleOutput(speedModeHtml, { format: "html" });
           const committed = await commitArticleRunStage({
             articleId,
             runId,
@@ -1065,6 +1245,7 @@ export const processArticleGenerationJob = async (
             articleValues: {
                 articleStatus: "COMPLETE",
                 finalHtmlContent: speedModeHtml,
+                errorMessage: null,
             },
             runValues: {
               textGeneratedAt: new Date(),
@@ -1130,7 +1311,11 @@ export const processArticleGenerationJob = async (
           //   2. injectLinksFromSlugMap → Cheerio DOM walker; skips headings/anchors/
           //      code; word-boundary regex; max 1 link per keyword.
           // -----------------------------------------------------------------------
-          let finalHtmlWithLinks = gptResult.finalHtml;
+          let finalHtmlWithLinks = normalizeArticleTargetUrls(
+            gptResult.finalHtml,
+            targetUrl,
+          );
+          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
 
           if (resumeGpt4Checkpoint) {
             console.log(`♻️ Reusing checkpointed hyperlink output for article ${articleId}`);
@@ -1218,6 +1403,7 @@ export const processArticleGenerationJob = async (
             articleValues: {
                 articleStatus: "GPT4_ENHANCED",
                 finalHtmlContent: finalHtmlWithLinks,
+                errorMessage: null,
             },
             runValues: {
               textGeneratedAt: new Date(),
@@ -1379,6 +1565,11 @@ export const processArticleGenerationJob = async (
             }
           }
           finalHtmlWithLinks = guardianHtml;
+          finalHtmlWithLinks = normalizeArticleTargetUrls(
+            finalHtmlWithLinks,
+            targetUrl,
+          );
+          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
 
           // ================================================================
           // INFORMATION-GAIN EDITORIAL GATE — score BEFORE disclosure injection
@@ -1420,12 +1611,14 @@ export const processArticleGenerationJob = async (
             reviewModel: getModel("gptReview"),
             generatedAt: new Date(),
           });
+          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
 
           // Mark article as COMPLETE and save normalized HTML
           await updateOwnedArticle(
             {
               articleStatus: "COMPLETE",
               finalHtmlContent: finalHtmlWithLinks,
+              errorMessage: null,
               aiDisclosureIncluded: true,
               informationGainScore: igScore ?? null,
               qualityGateStatus: igStatus ?? null,
@@ -1634,17 +1827,27 @@ export const processArticleGenerationJob = async (
             );
           }
 
-          // Record usage event — populates the spending cap meter.
-          // costEstimateCents uses credits as a cent proxy (1 credit ≈ $0.01).
-          const { completeCapReservation, recordUsageEvent } = await import("@/lib/usage-caps");
-          const usageSettlement = articleCapReservationId != null
-            ? completeCapReservation({
-                reservationId: articleCapReservationId,
+          // Record usage only after credit debit succeeds. Batch-owned cap
+          // reservations are aggregate holds and settle in checkBatchCompletion;
+          // never let a child settle/cancel the shared hold.
+          try {
+            if (
+              effectiveArticleCapReservationId != null &&
+              effectiveArticleCapReservationScope !== "batch"
+            ) {
+              const { completeCapReservation } = await import("@/lib/usage-caps");
+              await completeCapReservation({
+                reservationId: effectiveArticleCapReservationId,
                 teamId: articleTeamId,
                 jobId: String(job.id),
                 metadata: { articleId, batchId },
-              })
-            : recordUsageEvent({
+              });
+            } else if (
+              effectiveArticleCapReservationId == null &&
+              effectiveArticleCapReservationScope !== "batch"
+            ) {
+              const { recordUsageEvent } = await import("@/lib/usage-caps");
+              await recordUsageEvent({
                 teamId: articleTeamId,
                 campaignId: job.data.campaignId ?? null,
                 action: "article_generation",
@@ -1653,8 +1856,31 @@ export const processArticleGenerationJob = async (
                 jobId: String(job.id),
                 metadata: { articleId, batchId },
               });
-          await usageSettlement.catch((err) =>
-            console.warn(`[usage-caps] article usage settlement failed (non-fatal): ${err?.message}`)
+            }
+          } catch (capError) {
+            // Credit debit already succeeded. Keep the delivered article in
+            // settlement-only recovery; never regenerate or debit again.
+            throw new BillingSettlementError(
+              `Spending-cap settlement failed for delivered article ${articleId}`,
+              articleCreditRunId,
+              capError,
+            );
+          }
+        }
+
+        // Aggregate batch cap settlement runs while this article run is still
+        // billing_pending. If it fails, the catch below can preserve this
+        // delivered article for settlement-only recovery.
+        try {
+          await checkBatchCompletion(batchId, {
+            settleAggregateCap:
+              effectiveArticleCapReservationScope === "batch",
+          });
+        } catch (capError) {
+          throw new BillingSettlementError(
+            `Aggregate spending-cap settlement failed for article ${articleId}`,
+            articleCreditRunId,
+            capError,
           );
         }
 
@@ -1675,8 +1901,6 @@ export const processArticleGenerationJob = async (
           throw new Error(`LEASE_LOST: cannot complete settled run ${runId}`);
         }
 
-        // Check if all articles in batch are complete
-        await checkBatchCompletion(batchId);
         clearInterval(heartbeatTimer);
 
       } catch (error) {
@@ -1730,6 +1954,7 @@ export const processArticleGenerationJob = async (
         }
 
         console.error(`❌ Article generation failed for article ${articleId}:`, error);
+        const terminalError = `[${currentStage}] ${errorMessage}`.slice(0, 2000);
 
         // Classify the error for disposition, user-facing message, and admin log type.
         const classified = classifyError(error, "text_gen");
@@ -1824,7 +2049,11 @@ export const processArticleGenerationJob = async (
           batchId,
           articleId,
           component: "article-worker",
-          context: { title: title?.slice(0, 120), errorCode: classified.code },
+          context: {
+            title: title?.slice(0, 120),
+            errorCode: classified.code,
+            stage: currentStage,
+          },
         }).catch((e) => console.error("[worker] logError failed:", e));
         
         // Log article failure event (raw detail for admin debugging)
@@ -1833,62 +2062,52 @@ export const processArticleGenerationJob = async (
           articleId,
           batchId,
           eventType: "ARTICLE_FAILED",
-          stage: "GENERATION",
+          stage: currentStage,
           severity: "error",
-          message: `Article failed: ${errorMessage.slice(0, 500)}`,
+          message: `Article failed at ${currentStage}: ${errorMessage.slice(0, 500)}`,
           payloadJson: { 
             articleId,
             title,
             errorCode: classified.code,
+            stage: currentStage,
+            terminalError,
             userFriendlyError,
             stackTrace: error instanceof Error ? error.stack?.slice(0, 1000) : undefined
           }
         });
         
         try {
-          // Do not overwrite GEMINI_COMPLETE — that checkpoint preserves expensive Gemini work.
-          // An article at GEMINI_COMPLETE will resume from ChatGPT review on the next worker
-          // pickup (skipping Gemini entirely). Only mark FAILED for pre-Gemini failures.
           const [statusCheck] = await db
             .select({ articleStatus: articles.articleStatus })
             .from(articles)
             .where(eq(articles.id, articleId))
             .limit(1);
           const statusNow = statusCheck?.articleStatus;
-          // Preserve any checkpoint status so expensive work is not discarded.
-          // COMPLETE / GPT4_ENHANCED / CHATGPT_REVIEWED: article succeeded — a
-          // post-success error (e.g. debit failure) must not overwrite to FAILED.
-          // GEMINI_COMPLETE: Gemini work done — resumes from ChatGPT on next retry.
-          const PRESERVED_CHECKPOINTS = ["COMPLETE", "GPT4_ENHANCED", "GEMINI_COMPLETE", "CHATGPT_REVIEWED"];
-          if (!PRESERVED_CHECKPOINTS.includes(statusNow ?? "")) {
-            // Write the user-friendly message to articles.errorMessage so the
-            // Content / batch-detail page can surface it directly to users.
-            if (runLeaseToken) {
-              await updateOwnedArticle(
-                { articleStatus: "FAILED", errorMessage: userFriendlyError },
-                "recording generation failure"
-              );
-            } else {
-              await db
-                .update(articles)
-                .set({ articleStatus: "FAILED", errorMessage: userFriendlyError })
-                .where(eq(articles.id, articleId));
-            }
+          // A checkpoint is valuable history, but it is not a successful
+          // terminal result.  Preserve its content while making the article
+          // explicitly FAILED so the UI and batch cannot remain intermediate.
+          if (runLeaseToken) {
+            await updateOwnedArticle(
+              {
+                articleStatus: "FAILED",
+                errorMessage: `${userFriendlyError} (stage: ${currentStage}; detail: ${errorMessage})`,
+              },
+              "recording generation failure"
+            );
           } else {
-            // Preserve checkpoint — update only the error message for observability
-            if (runLeaseToken) {
-              await updateOwnedArticle(
-                { errorMessage: userFriendlyError, updatedAt: new Date() },
-                "recording checkpointed generation failure"
-              );
-            } else {
-              await db
-                .update(articles)
-                .set({ errorMessage: userFriendlyError, updatedAt: new Date() })
-                .where(eq(articles.id, articleId));
-            }
-            console.warn(`⚠️ Article ${articleId} failed after reaching ${statusNow} — checkpoint preserved, will retry`);
+            await db
+              .update(articles)
+              .set({
+                articleStatus: "FAILED",
+                errorMessage: `${userFriendlyError} (stage: ${currentStage}; detail: ${errorMessage})`,
+                updatedAt: new Date(),
+              })
+              .where(eq(articles.id, articleId));
           }
+          console.warn(
+            `⚠️ Article ${articleId} failed after reaching ${statusNow ?? "unknown"} — ` +
+            `checkpoint content preserved, terminal status recorded`,
+          );
         } catch (dbError) {
           if (isArticleRunLeaseConflictError(dbError)) throw dbError;
           console.error(`❌ Failed to update article status:`, dbError);
@@ -1905,8 +2124,8 @@ export const processArticleGenerationJob = async (
               leaseToken: null,
               leaseExpiresAt: null,
               settlementLastError: requiresProviderReconciliation
-                ? `Billing reconciliation required: ${classified.code}: ${errorMessage}`.slice(0, 2000)
-                : undefined,
+                ? `Billing reconciliation required: ${classified.code}: ${terminalError}`.slice(0, 2000)
+                : terminalError,
               settlementNextAttemptAt: null,
             },
           }).catch(() => false);
@@ -1949,7 +2168,20 @@ export const processArticleGenerationJob = async (
 
 export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
-          const { socialPostId, platform, creditRunId: videoCreditRunId, teamId, userId } = job.data;
+           const {
+             socialPostId,
+             platform,
+             creditRunId: payloadVideoCreditRunId,
+             capReservationId: jobCapReservationId,
+             teamId,
+             userId,
+           } = job.data;
+           const [durableVideoBilling] = await db.select({
+             videoCreditRunId: socialPosts.videoCreditRunId,
+             videoCapReservationId: socialPosts.videoCapReservationId,
+           }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
+           const videoCreditRunId =
+             payloadVideoCreditRunId ?? durableVideoBilling?.videoCreditRunId;
 
           // Social video is never free. Validate the authoritative reservation
           // before jitter, disk work, or any provider call.
@@ -1975,6 +2207,7 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
               videoStatus: socialPosts.videoStatus,
               videoUrl: socialPosts.videoUrl,
               videoCreditRunId: socialPosts.videoCreditRunId,
+              videoCapReservationId: socialPosts.videoCapReservationId,
               videoBillingSettledAt: socialPosts.videoBillingSettledAt,
             }).from(socialPosts).where(eq(socialPosts.id, socialPostId)).limit(1);
             assertEntityTeam({
@@ -1987,8 +2220,18 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
               checkpoint?.videoStatus === "READY" &&
               checkpoint.videoUrl &&
               checkpoint.videoCreditRunId === videoCreditRunId &&
+              checkpoint.videoBillingSettledAt
+            ) {
+              return;
+            }
+            if (
+              checkpoint?.videoStatus === "READY" &&
+              checkpoint.videoUrl &&
+              checkpoint.videoCreditRunId === videoCreditRunId &&
               !checkpoint.videoBillingSettledAt
             ) {
+              const capReservationId =
+                checkpoint.videoCapReservationId ?? jobCapReservationId ?? null;
               const { debitReservation } = await import("@/lib/billing");
               let debitResult;
               try {
@@ -2011,13 +2254,50 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                   videoCreditRunId
                 );
               }
-              await db.update(socialPosts).set({
-                videoBillingSettledAt: new Date(),
-                updatedAt: new Date(),
-              }).where(and(
-                eq(socialPosts.id, socialPostId),
-                eq(socialPosts.videoCreditRunId, videoCreditRunId)
-              ));
+              if (capReservationId != null) {
+                const { completeCapReservation, capReservationSettlementJobId } = await import("@/lib/usage-caps");
+                try {
+                  await completeCapReservation({
+                    reservationId: capReservationId,
+                    teamId,
+                    jobId: capReservationSettlementJobId(capReservationId),
+                    metadata: { socialPostId, sourceJobId: String(job.id ?? "") },
+                  });
+                } catch (cause) {
+                  throw new BillingSettlementError(
+                    `Cap settlement failed for delivered video post ${socialPostId}`,
+                    videoCreditRunId,
+                    cause
+                  );
+                }
+              } else {
+                const { recordUsageEvent } = await import("@/lib/usage-caps");
+                await recordUsageEvent({
+                  teamId,
+                  action: "video",
+                  units: 1,
+                  costEstimateCents: 15,
+                  jobId: String(job.id ?? ""),
+                  metadata: { socialPostId },
+                }).catch((err) =>
+                  console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`)
+                );
+              }
+              try {
+                await db.update(socialPosts).set({
+                  videoBillingSettledAt: new Date(),
+                  updatedAt: new Date(),
+                }).where(and(
+                  eq(socialPosts.id, socialPostId),
+                  eq(socialPosts.videoCreditRunId, videoCreditRunId)
+                ));
+              } catch (cause) {
+                throw new BillingSettlementError(
+                  `Billing checkpoint failed for delivered video post ${socialPostId}`,
+                  videoCreditRunId,
+                  cause
+                );
+              }
               return;
             }
           }
@@ -2224,24 +2504,61 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
                     videoCreditRunId
                   );
                 }
-                await db.update(socialPosts).set({
-                  videoBillingSettledAt: new Date(),
-                  updatedAt: new Date(),
-                }).where(and(
-                  eq(socialPosts.id, socialPostId),
-                  eq(socialPosts.videoCreditRunId, videoCreditRunId)
-                ));
-                // Record completed usage event — populates spending cap meter so caps can trip.
-                const { recordUsageEvent } = await import("@/lib/usage-caps");
-                await recordUsageEvent({
-                  teamId: videoPost.teamId,
-                  campaignId: videoPost.campaignId ?? null,
-                  action: "video",
-                  units: 1,
-                  costEstimateCents: 15,
-                  jobId: String(job.id ?? ""),
-                  metadata: { socialPostId },
-                }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+                const capReservationId =
+                  jobCapReservationId ?? (await db
+                    .select({ videoCapReservationId: socialPosts.videoCapReservationId })
+                    .from(socialPosts)
+                    .where(eq(socialPosts.id, socialPostId))
+                    .limit(1))[0]?.videoCapReservationId ?? null;
+                if (capReservationId != null) {
+                  // Convert the original pending hold in place. Inserting a
+                  // second completed usage event would double-count this video.
+                  const { completeCapReservation, capReservationSettlementJobId } = await import("@/lib/usage-caps");
+                  try {
+                    await completeCapReservation({
+                      reservationId: capReservationId,
+                      teamId: videoPost.teamId,
+                      jobId: capReservationSettlementJobId(capReservationId),
+                      metadata: { socialPostId, sourceJobId: String(job.id ?? "") },
+                    });
+                  } catch (cause) {
+                    throw new BillingSettlementError(
+                      `Cap settlement failed for delivered video post ${socialPostId}`,
+                      videoCreditRunId,
+                      cause
+                    );
+                  }
+                } else {
+                  // Legacy/unlimited jobs have no pending cap row to settle.
+                  const { recordUsageEvent } = await import("@/lib/usage-caps");
+                  await recordUsageEvent({
+                    teamId: videoPost.teamId,
+                    campaignId: videoPost.campaignId ?? null,
+                    action: "video",
+                    units: 1,
+                    costEstimateCents: 15,
+                    jobId: String(job.id ?? ""),
+                    metadata: { socialPostId },
+                  }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+                }
+                // Mark billing settled only after debit and cap/event
+                // settlement. A retry after this checkpoint must return
+                // without providers.
+                try {
+                  await db.update(socialPosts).set({
+                    videoBillingSettledAt: new Date(),
+                    updatedAt: new Date(),
+                  }).where(and(
+                    eq(socialPosts.id, socialPostId),
+                    eq(socialPosts.videoCreditRunId, videoCreditRunId)
+                  ));
+                } catch (cause) {
+                  throw new BillingSettlementError(
+                    `Billing checkpoint failed for delivered video post ${socialPostId}`,
+                    videoCreditRunId,
+                    cause
+                  );
+                }
               }
             }
             
@@ -2330,17 +2647,24 @@ export async function processBatchGenerationJob(
         const uniqueSelectedTitles = [...new Set(
           selectedTitles.map((title) => title.trim()).filter(Boolean),
         )];
+        let effectiveBatchCapReservationId: number | null = capReservationId ?? null;
 
-      try {
+       let childWorkEnqueued = false;
+       try {
         // Authoritative entity/team cross-check: the batch row's owner must
         // match the tenant (payload teamId) this job runs as before we spawn
         // per-article jobs that carry that teamId.
         // Canonical campaign association derived from the batch row (never from
         // the job payload). Threaded into per-article inserts + article jobs.
         let canonicalCampaignId: number | null = null;
+        let batchGenerationParams: Record<string, unknown> = {};
         {
           const [batchOwner] = await db
-            .select({ teamId: jobBatches.teamId, campaignId: jobBatches.campaignId })
+            .select({
+              teamId: jobBatches.teamId,
+              campaignId: jobBatches.campaignId,
+              generationParams: jobBatches.generationParams,
+            })
             .from(jobBatches)
             .where(eq(jobBatches.id, batchId))
             .limit(1);
@@ -2351,7 +2675,20 @@ export async function processBatchGenerationJob(
             entityTeamId: batchOwner?.teamId,
           });
           canonicalCampaignId = batchOwner?.campaignId ?? null;
+          batchGenerationParams =
+            (batchOwner?.generationParams as Record<string, unknown> | null) ?? {};
         }
+        const persistedBatchSubmission =
+          (batchGenerationParams.submission as Record<string, unknown> | undefined) ??
+          {};
+        effectiveBatchCapReservationId =
+          capReservationId ??
+          (typeof batchGenerationParams.capReservationId === "number"
+            ? batchGenerationParams.capReservationId
+            : null) ??
+          (typeof persistedBatchSubmission.capReservationId === "number"
+            ? persistedBatchSubmission.capReservationId
+            : null);
 
         // Claim is a conditional state transition, not a read followed by an
         // unconditional write. Cancellation therefore always wins the race.
@@ -2368,11 +2705,28 @@ export async function processBatchGenerationJob(
           return;
         }
 
-        // Release the temporary cap hold only after this worker owns the batch.
-        if (capReservationId != null) {
-          await cancelCapReservation(capReservationId).catch(err =>
-            console.warn(`[worker] Failed to release cap reservation ${capReservationId}:`, err)
-          );
+        // The batch cap reservation is an aggregate hold for all child work.
+        // Persist its ownership before enqueueing any child; it must remain
+        // pending until checkBatchCompletion sees every child terminal.
+        if (effectiveBatchCapReservationId != null) {
+          const existingParams = batchGenerationParams;
+          const existingSubmission =
+            (existingParams.submission as Record<string, unknown> | undefined) ?? {};
+          await db
+            .update(jobBatches)
+            .set({
+              generationParams: {
+                ...existingParams,
+                capReservationId: effectiveBatchCapReservationId,
+                capReservationScope: "batch",
+                submission: {
+                  ...existingSubmission,
+                  capReservationId: effectiveBatchCapReservationId,
+                  capReservationScope: "batch",
+                },
+              },
+            })
+            .where(and(eq(jobBatches.id, batchId), eq(jobBatches.teamId, teamId)));
         }
 
         // Advance the linked campaign to 'generating' as batch work begins.
@@ -2439,6 +2793,7 @@ export async function processBatchGenerationJob(
             if (IN_PROGRESS_STATUSES.includes(existing.articleStatus || "")) {
               // Already queued or running — don't double-queue
               console.log(`⏭️ Skipping "${title.slice(0, 60)}" — currently ${existing.articleStatus}`);
+              childWorkEnqueued = true;
               skipped++;
               continue;
             }
@@ -2447,7 +2802,7 @@ export async function processBatchGenerationJob(
             console.log(`🔄 Retrying FAILED article id=${existing.id} "${title.slice(0, 60)}"`);
             await db
               .update(articles)
-              .set({ articleStatus: "PENDING", updatedAt: new Date() })
+              .set({ articleStatus: "PENDING", errorMessage: null, updatedAt: new Date() })
               .where(eq(articles.id, existing.id));
 
             const runId = articleGenerationJobId(batchId, existing.id);
@@ -2477,7 +2832,10 @@ export async function processBatchGenerationJob(
               journeyName,
               creditRunId,
               creditCostPerUnit: batchCreditCostPerUnit,
+              capReservationId: effectiveBatchCapReservationId,
+              capReservationScope: "batch",
             });
+            childWorkEnqueued = true;
             retried++;
             continue;
           }
@@ -2532,14 +2890,38 @@ export async function processBatchGenerationJob(
             journeyName,
             creditRunId,
             creditCostPerUnit: batchCreditCostPerUnit,
+            capReservationId: effectiveBatchCapReservationId,
+            capReservationScope: "batch",
           });
+          childWorkEnqueued = true;
           spawned++;
         }
 
         console.log(`✅ Batch ${batchId} processed: ${spawned} new, ${retried} retried, ${skipped} skipped (already complete/running)`);
+        if (childWorkEnqueued) {
+          await checkBatchCompletion(batchId);
+        } else if (effectiveBatchCapReservationId != null) {
+          // No child owns any paid work (all titles were already terminal).
+          // Release this aggregate hold only after orchestration has proved it
+          // did not enqueue a child.
+          await cancelCapReservation(effectiveBatchCapReservationId);
+        }
       } catch (error) {
         console.error(`❌ Batch generation failed for batch ${batchId}:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // If orchestration failed before enqueueing a child, no paid child work
+        // can still be using the aggregate cap hold. Once a child was queued,
+        // leave the hold pending for checkBatchCompletion to reconcile after
+        // every child reaches a terminal state.
+        if (effectiveBatchCapReservationId != null && !childWorkEnqueued) {
+          await cancelCapReservation(effectiveBatchCapReservationId).catch((capError) =>
+            console.warn(
+              `[usage-caps] Failed to cancel unowned batch reservation ${effectiveBatchCapReservationId}:`,
+              capError,
+            ),
+          );
+        }
         
         // Write to error_logs + fire Slack alert
         await logError({
@@ -2655,6 +3037,7 @@ export async function registerWorkers() {
       getBilling: (j) => ({
         teamId: j.data.teamId,
         runId: j.data.creditRunId,
+        capReservationId: j.data.capReservationId,
         reason: `Social post ${j.data.socialPostId} generation failed`,
       }),
     });
@@ -3074,12 +3457,14 @@ export async function registerWorkers() {
             }
 
             // Update article with formatted HTML and hyperlinks
+            assertValidArticleOutput(finalReformatChecked, { format: "html" });
             await db
               .update(articles)
               .set({
                 finalHtmlContent: finalReformatChecked,
                 hyperlinkedKeywordsJson: hyperlinks.length > 0 ? hyperlinks : null,
                 articleStatus: "GPT4_ENHANCED",
+                errorMessage: null,
               })
               .where(eq(articles.id, articleId));
 
@@ -4769,13 +5154,21 @@ export async function registerWorkers() {
       },
       budget: { contentType: "video", getRunId: (j) => j.data.creditRunId },
       getBilling: async (j) => {
-        if (!j.data.creditRunId) return null;
-        const [videoPost] = await db.select({ teamId: socialPosts.teamId })
+        const [videoPost] = await db.select({
+          teamId: socialPosts.teamId,
+          videoCreditRunId: socialPosts.videoCreditRunId,
+          videoCapReservationId: socialPosts.videoCapReservationId,
+        })
           .from(socialPosts).where(eq(socialPosts.id, j.data.socialPostId)).limit(1);
+        const runId = j.data.creditRunId ?? videoPost?.videoCreditRunId;
+        const capReservationId =
+          j.data.capReservationId ?? videoPost?.videoCapReservationId ?? null;
+        if (!runId && capReservationId == null) return null;
         return {
           teamId: videoPost?.teamId,
-          runId: j.data.creditRunId,
+          runId,
           reason: `Video generation failed for social post ${j.data.socialPostId}`,
+          capReservationId,
         };
       },
     });
@@ -5795,13 +6188,17 @@ async function cleanupSessions(data: CleanupJobData, retentionDays: number) {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-async function checkBatchCompletion(batchId: number) {
+async function checkBatchCompletion(
+  batchId: number,
+  options: { settleAggregateCap?: boolean } = {},
+) {
   const batchArticles = await db
     .select()
     .from(articles)
     .where(eq(articles.batchId, batchId));
 
   const totalArticles = batchArticles.length;
+  const settleAggregateCap = options.settleAggregateCap !== false;
   const completedArticles = batchArticles.filter(a => a.articleStatus === "COMPLETE").length;
   const failedArticles = batchArticles.filter(a => a.articleStatus === "FAILED").length;
   const pendingArticles = batchArticles.filter(a => a.articleStatus === "PENDING").length;
@@ -5838,9 +6235,47 @@ async function checkBatchCompletion(batchId: number) {
       finalStatus = "FAILED";
     }
 
+    // A batch cap reservation is an aggregate hold.  It is deliberately
+    // settled only after every child is terminal; child failures must never
+    // cancel capacity while sibling paid work is still active.
+    if (settleAggregateCap) {
+      const [batchBilling] = await db
+        .select({
+          teamId: jobBatches.teamId,
+          generationParams: jobBatches.generationParams,
+        })
+        .from(jobBatches)
+        .where(eq(jobBatches.id, batchId))
+        .limit(1);
+      const submission =
+        ((batchBilling?.generationParams as Record<string, unknown> | null)
+          ?.submission as Record<string, unknown> | undefined) ?? {};
+      const batchParams =
+        (batchBilling?.generationParams as Record<string, unknown> | null) ?? {};
+      const rawCapReservationId =
+        batchParams.capReservationId ?? submission.capReservationId;
+      const aggregateCapReservationId =
+        typeof rawCapReservationId === "number" ? rawCapReservationId : null;
+      if (aggregateCapReservationId != null && batchBilling?.teamId != null) {
+        const { cancelCapReservation, completeCapReservation } = await import(
+          "@/lib/usage-caps"
+        );
+        if (finalStatus === "COMPLETE") {
+          await completeCapReservation({
+            reservationId: aggregateCapReservationId,
+            teamId: batchBilling.teamId,
+            jobId: `batch:${batchId}:cap`,
+            metadata: { batchId, totalArticles, completedArticles, failedArticles },
+          });
+        } else {
+          await cancelCapReservation(aggregateCapReservationId);
+        }
+      }
+    }
+
     await db
       .update(jobBatches)
-      .set({ 
+      .set({
         status: finalStatus,
         completedAt: new Date()
       })
@@ -5893,11 +6328,17 @@ async function checkBatchCompletion(batchId: number) {
 
     // Log batch completion event
     const { jobEvents } = await import("@/shared/schema");
+    const batchEventType =
+      finalStatus === "COMPLETE"
+        ? "BATCH_COMPLETED"
+        : finalStatus === "FAILED"
+          ? "BATCH_FAILED"
+          : "BATCH_PARTIAL_COMPLETE";
     await db.insert(jobEvents).values({
       batchId,
-      eventType: finalStatus === "COMPLETE" ? "BATCH_COMPLETED" : "BATCH_PARTIAL_COMPLETE",
+      eventType: batchEventType,
       stage: "ORCHESTRATION",
-      severity: finalStatus === "COMPLETE" ? "info" : "warning",
+      severity: finalStatus === "FAILED" ? "error" : finalStatus === "COMPLETE" ? "info" : "warning",
       message: `Batch finished: ${completedArticles} completed, ${failedArticles} failed`,
       payloadJson: { totalArticles, completedArticles, failedArticles }
     });

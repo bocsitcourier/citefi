@@ -1,0 +1,38 @@
+{
+  "method": "GET",
+  "route": "/api/auth/me",
+  "status": 200,
+  "contentType": "application/json",
+  "ok": true,
+  "response": {
+    "user": {
+      "id": 10794,
+      "email": "live-generation-qa-2026-09-10@example.invalid",
+      "fullName": "Harbor Home Energy QA",
+      "role": "team_member",
+      "profilePictureUrl": null,
+      "twoFactorEnabled": false,
+      "twoFactorMethod": null,
+      "emailVerified": true,
+      "accountStatus": "active",
+      "createdAt": "2026-09-10T16:16:47.978Z",
+      "lastLoginAt": "2026-09-14T23:02:22.287Z",
+      "defaultTeamId": 2535,
+      "mfaEnrollmentDeadline": null,
+      "mfaEnrollmentRequired": false,
+      "authAssurance": "password"
+    },
+    "activeTeamId": 2535,
+    "teams": [
+      {
+        "id": 2535,
+        "name": "LIVE GENERATION QA 2026-09-10",
+        "role": "admin",
+        "billingPlan": "enterprise",
+        "parentTeamId": null,
+        "isClientTeam": false
+      }
+    ],
+    "clientTeams": []
+  }
+}

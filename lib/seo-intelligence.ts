@@ -86,6 +86,22 @@ export interface SchemaMarkup {
   json_ld: string;
 }
 
+export type SchemaContentType = "Article" | "HowTo" | "FAQPage" | "LocalBusiness";
+
+/**
+ * Raised for input that cannot produce useful structured data.  In particular,
+ * an empty FAQ/HowTo array is not a valid schema output and should be rejected
+ * before the generator returns a valid-looking placeholder.
+ */
+export class SchemaMarkupValidationError extends Error {
+  readonly statusCode = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SchemaMarkupValidationError";
+  }
+}
+
 export interface ContentStructure {
   title: string;
   meta_description: string;
@@ -296,11 +312,141 @@ Return ONLY valid JSON:
   return JSON.parse(completion.choices[0]!.message.content!) as CompetitorAnalysis;
 }
 
+function nonBlankString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function compactRecord(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => {
+      if (entry === undefined || entry === null) return false;
+      if (typeof entry === "string") return entry.trim().length > 0;
+      return true;
+    }),
+  );
+}
+
+/**
+ * Normalize and validate the deterministic schema-builder inputs.  Invalid
+ * optional rows are dropped so a stray blank row can never become an empty
+ * Question/HowToStep, while a request with no usable rows is rejected.
+ */
+export function validateSchemaMarkupData(
+  content_type: SchemaContentType,
+  data: unknown,
+): Record<string, unknown> {
+  if (!isRecord(data)) {
+    throw new SchemaMarkupValidationError("Schema data must be an object");
+  }
+
+  switch (content_type) {
+    case "FAQPage": {
+      if (!Array.isArray(data.faqs)) {
+        throw new SchemaMarkupValidationError(
+          "FAQPage requires at least one question and answer pair",
+        );
+      }
+
+      const faqs = data.faqs
+        .filter(isRecord)
+        .map((faq) => {
+          const question = nonBlankString(faq.question);
+          const answer = nonBlankString(faq.answer);
+          return question && answer ? { question, answer } : null;
+        })
+        .filter((faq): faq is { question: string; answer: string } => faq !== null);
+
+      if (faqs.length === 0) {
+        throw new SchemaMarkupValidationError(
+          "FAQPage requires at least one non-empty question and answer",
+        );
+      }
+
+      return { ...data, faqs };
+    }
+
+    case "HowTo": {
+      if (!Array.isArray(data.steps)) {
+        throw new SchemaMarkupValidationError(
+          "HowTo requires at least one step with a name and description",
+        );
+      }
+
+      const steps = data.steps
+        .filter(isRecord)
+        .map((step) => {
+          const name = nonBlankString(step.name);
+          const description = nonBlankString(step.description ?? step.text);
+          return name && description ? { name, description } : null;
+        })
+        .filter((step): step is { name: string; description: string } => step !== null);
+
+      if (steps.length === 0) {
+        throw new SchemaMarkupValidationError(
+          "HowTo requires at least one non-empty step name and description",
+        );
+      }
+
+      return { ...data, steps };
+    }
+
+    case "LocalBusiness": {
+      const businessName = nonBlankString(data.business_name ?? data.name);
+      const address = isRecord(data.address) ? data.address : undefined;
+      const street = nonBlankString(address?.street ?? address?.streetAddress);
+      const city = nonBlankString(address?.city ?? address?.addressLocality);
+      const state = nonBlankString(address?.state ?? address?.addressRegion);
+      const zip = nonBlankString(address?.zip ?? address?.postalCode);
+
+      if (!businessName) {
+        throw new SchemaMarkupValidationError("LocalBusiness requires a business name");
+      }
+
+      if (!street || !city || !state || !zip) {
+        throw new SchemaMarkupValidationError(
+          "LocalBusiness requires a complete address (street, city, state, and ZIP)",
+        );
+      }
+
+      return {
+        ...data,
+        business_name: businessName,
+        address: {
+          street,
+          city,
+          state,
+          zip,
+          country: nonBlankString(address?.country ?? address?.addressCountry) || "US",
+        },
+      };
+    }
+
+    case "Article":
+      // Article has historically accepted the existing flexible fields. Keep
+      // that behavior while still requiring a data object above.
+      return data;
+  }
+}
+
 export async function generateSchemaMarkup(params: {
-  content_type: "Article" | "HowTo" | "FAQPage" | "LocalBusiness";
-  data: any;
+  content_type: SchemaContentType;
+  data: unknown;
 }): Promise<SchemaMarkup> {
-  const { content_type, data } = params;
+  const { content_type } = params;
+  const data = validateSchemaMarkupData(content_type, params.data);
 
   let schema: any = {
     "@context": "https://schema.org",
@@ -336,30 +482,42 @@ export async function generateSchemaMarkup(params: {
         ...schema,
         name: data.title,
         description: data.description,
-        step: data.steps?.map((step: any, index: number) => ({
+         step: (data.steps as Array<Record<string, unknown>>).map((step, index: number) => ({
           "@type": "HowToStep",
           position: index + 1,
           name: step.name,
           text: step.description,
-          image: step.image_url,
-        })) || [],
-        totalTime: data.total_time,
-        tool: data.tools || [],
-        supply: data.supplies || [],
+           ...(nonBlankString(step.image_url) ? { image: nonBlankString(step.image_url) } : {}),
+         })),
       };
+      if (nonBlankString(data.total_time)) {
+        schema.totalTime = nonBlankString(data.total_time);
+      }
+      if (Array.isArray(data.tools) && data.tools.length > 0) {
+        const tools = data.tools
+          .map((tool) => nonBlankString(tool))
+          .filter((tool): tool is string => Boolean(tool));
+        if (tools.length > 0) schema.tool = tools;
+      }
+      if (Array.isArray(data.supplies) && data.supplies.length > 0) {
+        const supplies = data.supplies
+          .map((supply) => nonBlankString(supply))
+          .filter((supply): supply is string => Boolean(supply));
+        if (supplies.length > 0) schema.supply = supplies;
+      }
       break;
 
     case "FAQPage":
       schema = {
         ...schema,
-        mainEntity: data.faqs?.map((faq: any) => ({
+        mainEntity: (data.faqs as Array<Record<string, string>>).map((faq) => ({
           "@type": "Question",
           name: faq.question,
           acceptedAnswer: {
             "@type": "Answer",
             text: faq.answer,
           },
-        })) || [],
+        })),
       };
       break;
 
@@ -367,32 +525,58 @@ export async function generateSchemaMarkup(params: {
       schema = {
         ...schema,
         name: data.business_name,
-        description: data.description,
-        image: data.image_url,
-        "@id": data.website_url,
-        url: data.website_url,
-        telephone: data.phone,
+        ...(nonBlankString(data.description) ? { description: nonBlankString(data.description) } : {}),
+        ...(nonBlankString(data.image_url) ? { image: nonBlankString(data.image_url) } : {}),
+        ...(nonBlankString(data.website_url)
+          ? { "@id": nonBlankString(data.website_url), url: nonBlankString(data.website_url) }
+          : {}),
+        ...(nonBlankString(data.phone) ? { telephone: nonBlankString(data.phone) } : {}),
         address: {
           "@type": "PostalAddress",
-          streetAddress: data.address?.street,
-          addressLocality: data.address?.city,
-          addressRegion: data.address?.state,
-          postalCode: data.address?.zip,
-          addressCountry: data.address?.country || "US",
+          streetAddress: (data.address as Record<string, string>).street,
+          addressLocality: (data.address as Record<string, string>).city,
+          addressRegion: (data.address as Record<string, string>).state,
+          postalCode: (data.address as Record<string, string>).zip,
+          addressCountry: (data.address as Record<string, string>).country,
         },
-        geo: {
-          "@type": "GeoCoordinates",
-          latitude: data.geo?.latitude,
-          longitude: data.geo?.longitude,
-        },
-        openingHoursSpecification: data.hours || [],
-        priceRange: data.price_range,
-        aggregateRating: data.rating ? {
-          "@type": "AggregateRating",
-          ratingValue: data.rating.value,
-          reviewCount: data.rating.count,
-        } : undefined,
       };
+      const geo = isRecord(data.geo)
+        ? {
+            latitude: nonBlankString(data.geo.latitude),
+            longitude: nonBlankString(data.geo.longitude),
+          }
+        : undefined;
+      if (geo?.latitude && geo.longitude) {
+        schema.geo = {
+          "@type": "GeoCoordinates",
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+        };
+      }
+
+      if (Array.isArray(data.hours)) {
+        const hours = data.hours
+          .filter(isRecord)
+          .map((hoursEntry) => compactRecord(hoursEntry))
+          .filter((hoursEntry) => Object.keys(hoursEntry).length > 0);
+        if (hours.length > 0) schema.openingHoursSpecification = hours;
+      }
+
+      if (nonBlankString(data.price_range)) {
+        schema.priceRange = nonBlankString(data.price_range);
+      }
+
+      if (isRecord(data.rating)) {
+        const ratingValue = nonBlankString(data.rating.value);
+        const reviewCount = nonBlankString(data.rating.count);
+        if (ratingValue || reviewCount) {
+          schema.aggregateRating = {
+            "@type": "AggregateRating",
+            ...(ratingValue ? { ratingValue } : {}),
+            ...(reviewCount ? { reviewCount } : {}),
+          };
+        }
+      }
       break;
   }
 

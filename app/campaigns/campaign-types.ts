@@ -3,6 +3,8 @@ export type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETE" | string
 export interface Campaign {
   id: string | number;
   publicId: string;
+  teamId?: number;
+  clientTeamId?: number | null;
   name: string;
   businessUrl: string;
   companyName: string;

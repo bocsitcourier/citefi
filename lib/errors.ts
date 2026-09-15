@@ -30,6 +30,7 @@ export type ErrorCode =
   | "PROVIDER_ACCOUNTING_FAILED" // paid response returned but immutable accounting failed
   | "PROVIDER_SUBMISSION_UNCERTAIN" // request may have reached a paid provider
   | "PROVIDER_RESULT_NOT_DURABLE" // paid result exists but downstream persistence failed
+  | "MODEL_OUTPUT_INVALID"    // provider output violates the requested response contract
   // Retryable — transient
   | "RATE_LIMITED"           // 429 — honor Retry-After
   | "PROVIDER_ERROR"         // 5xx from provider
@@ -55,6 +56,7 @@ export const FATAL_CODES = new Set<ErrorCode>([
   "PROVIDER_ACCOUNTING_FAILED",
   "PROVIDER_SUBMISSION_UNCERTAIN",
   "PROVIDER_RESULT_NOT_DURABLE",
+  "MODEL_OUTPUT_INVALID",
 ]);
 
 export class PipelineError extends Error {
@@ -118,7 +120,8 @@ export function classifyError(
   if (
     explicitCode === "PROVIDER_ACCOUNTING_FAILED" ||
     explicitCode === "PROVIDER_SUBMISSION_UNCERTAIN" ||
-    explicitCode === "PROVIDER_RESULT_NOT_DURABLE"
+    explicitCode === "PROVIDER_RESULT_NOT_DURABLE" ||
+    explicitCode === "MODEL_OUTPUT_INVALID"
   ) {
     return new PipelineError(msg, explicitCode, "fatal", stage, prov, err);
   }

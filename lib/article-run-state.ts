@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db, getTxDb } from "./db";
-import { articleRuns, articles } from "@/shared/schema";
+import { articleRuns, articles, jobBatches } from "@/shared/schema";
 
 export const ARTICLE_RUN_LEASE_MS = 45 * 60 * 1000;
 const SETTLEMENT_RETRY_BASE_MS = 5 * 60 * 1000;
@@ -418,6 +418,135 @@ export async function updateActiveArticleRun(input: {
   return updated.length > 0;
 }
 
+/**
+ * Settle the spending-cap hold after credit debit recovery.  This is kept
+ * separate from provider recovery: the article content is already delivered,
+ * so a cap error must defer settlement without re-entering generation.
+ */
+async function settleRecoveredArticleCap(input: {
+  articleId: number;
+  batchId: number | null;
+  teamId: number;
+  billingJobId: string;
+  jobDataJson: unknown;
+}): Promise<void> {
+  const jobData =
+    input.jobDataJson && typeof input.jobDataJson === "object"
+      ? (input.jobDataJson as Record<string, unknown>)
+      : {};
+  const rawCapReservationId = jobData.capReservationId;
+  let capReservationId =
+    typeof rawCapReservationId === "number" ? rawCapReservationId : null;
+  let scope = jobData.capReservationScope === "batch" ? "batch" : "article";
+  let batch: {
+    teamId: number | null;
+    generationParams: unknown;
+  } | undefined;
+  if (input.batchId != null) {
+    [batch] = await db
+      .select({
+        teamId: jobBatches.teamId,
+        generationParams: jobBatches.generationParams,
+      })
+      .from(jobBatches)
+      .where(eq(jobBatches.id, input.batchId))
+      .limit(1);
+    const submission =
+      ((batch?.generationParams as Record<string, unknown> | null)?.submission as
+        | Record<string, unknown>
+        | undefined) ?? {};
+    const batchParams =
+      (batch?.generationParams as Record<string, unknown> | null) ?? {};
+    const persistedBatchCapId =
+      typeof batchParams.capReservationId === "number"
+        ? batchParams.capReservationId
+        : typeof submission.capReservationId === "number"
+          ? submission.capReservationId
+          : null;
+    if (capReservationId == null && persistedBatchCapId != null) {
+      capReservationId = persistedBatchCapId;
+      scope =
+        batchParams.capReservationScope === "article" ||
+        submission.capReservationScope === "article"
+          ? "article"
+          : "batch";
+    }
+  }
+  if (capReservationId == null) return;
+
+  const { cancelCapReservation, completeCapReservation } = await import(
+    "./usage-caps"
+  );
+  if (scope === "article" || input.batchId == null) {
+    await completeCapReservation({
+      reservationId: capReservationId,
+      teamId: input.teamId,
+      jobId: input.billingJobId,
+      metadata: { articleId: input.articleId, batchId: input.batchId },
+    });
+    return;
+  }
+
+  const batchParams =
+    (batch?.generationParams as Record<string, unknown> | null) ?? {};
+  const submission =
+    (batchParams.submission as Record<string, unknown> | undefined) ?? {};
+  const persistedCapId =
+    typeof batchParams.capReservationId === "number"
+      ? batchParams.capReservationId
+      : typeof submission.capReservationId === "number"
+        ? submission.capReservationId
+        : capReservationId;
+  const batchArticles = await db
+    .select({ articleStatus: articles.articleStatus })
+    .from(articles)
+    .where(eq(articles.batchId, input.batchId));
+  const pending = batchArticles.some((article) =>
+    [
+      "PENDING",
+      "IN_PROGRESS",
+      "GEMINI_COMPLETE",
+      "CHATGPT_REVIEWED",
+      "GPT4_ENHANCED",
+    ].includes(article.articleStatus ?? ""),
+  );
+  if (pending) {
+    throw new Error(
+      `Aggregate cap reservation ${persistedCapId} is waiting for sibling articles`,
+    );
+  }
+
+  const failed = batchArticles.some((article) => article.articleStatus === "FAILED");
+  if (failed) {
+    await cancelCapReservation(persistedCapId);
+  } else {
+    await completeCapReservation({
+      reservationId: persistedCapId,
+      teamId: batch?.teamId ?? input.teamId,
+      jobId: `batch:${input.batchId}:cap`,
+      metadata: { batchId: input.batchId, recoveredByArticleId: input.articleId },
+    });
+  }
+  const completed = batchArticles.filter(
+    (article) => article.articleStatus === "COMPLETE",
+  ).length;
+  const finalStatus =
+    failed && completed > 0
+      ? "PARTIAL_COMPLETE"
+      : failed
+        ? "FAILED"
+        : "COMPLETE";
+  await db
+    .update(jobBatches)
+    .set({ status: finalStatus, completedAt: new Date() })
+    .where(
+      and(
+        eq(jobBatches.id, input.batchId),
+        inArray(jobBatches.status, ["RUNNING", "PENDING", "SUBMITTING", "QUEUED"]),
+      ),
+    );
+}
+
 export async function reconcilePendingArticleBilling(
   now = new Date(),
   limit = 100,
@@ -427,10 +556,12 @@ export async function reconcilePendingArticleBilling(
     .select({
       articleId: articleRuns.articleId,
       runId: articleRuns.runId,
+      batchId: articles.batchId,
       billingTeamId: articleRuns.billingTeamId,
       billingRunId: articleRuns.billingRunId,
       billingAmount: articleRuns.billingAmount,
       billingJobId: articleRuns.billingJobId,
+      jobDataJson: articleRuns.jobDataJson,
       settlementAttempts: articleRuns.settlementAttempts,
       articleStatus: articles.articleStatus,
     })
@@ -525,6 +656,14 @@ export async function reconcilePendingArticleBilling(
         await defer(new Error("Reservation debit returned ok:false"));
         continue;
       }
+
+      await settleRecoveredArticleCap({
+        articleId: run.articleId,
+        batchId: run.batchId,
+        teamId: run.billingTeamId,
+        billingJobId: run.billingJobId,
+        jobDataJson: run.jobDataJson,
+      });
 
       const completed = await updateClaimedArticleRun({
         articleId: run.articleId,

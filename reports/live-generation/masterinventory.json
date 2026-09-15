@@ -2,7 +2,7 @@
   {
     "feature": "Article title pool and topic research",
     "ui": ["app/batches/[id]/select", "app/client/generate"],
-    "api": ["GET /api/jobs/title-pool"],
+    "api": ["POST /api/jobs/title-pool"],
     "provider": ["Brave Search", "Gemini"],
     "generation": "Research a synthetic business/topic and generate selectable article titles.",
     "output": "Title pool",
@@ -11,9 +11,9 @@
     "export": "Batch title-selection UI",
     "billing": "Provider usage ledger plus configured generation credits/cap",
     "status": "PARTIAL",
-    "evidence": ["article-run.json records live titleGeneration=success, titleCount=5 and selectedCount=1", "accounting.json records live topic_research and article_title_pool usage totaling part of the recorded $0.007518"],
-    "blocker": "The earlier empty fixture page was a precondition outcome, not a product defect. The current artifact records counts and selection but not the five title strings or a standalone retrieval artifact, so PASS is not claimed.",
-    "nextProcedure": "Capture the persisted five-title payload and later retrieval, then reconcile against a freshly observed accounting snapshot before considering PASS."
+    "evidence": ["article-run.json records live titleGeneration=success, titleCount=5 and selectedCount=1", "negative-api-run.json records the corrected POST /api/jobs/title-pool contract; unauthenticated retest returned 401 before any paid call", "title-pool-readback-run.json records authenticated GET /api/batches/626 HTTP 200 with five persisted title strings", "title-pool-readback-run.json records the running-state UI hid title selection and no selection/generation control was used", "accounting.json records the unique topic_research and article_title_pool ledger events"],
+    "blocker": "Five persisted titles are proven by authenticated API readback, but the already-RUNNING batch UI intentionally hides title selection; UI selection is not live-certified and PASS is not claimed.",
+    "nextProcedure": "Keep the persisted API readback; only certify UI title selection after a separately authorized fixture batch reaches a selectable state without invoking a paid operation in this continuation."
   },
   {
     "feature": "Batch article generation",
@@ -27,9 +27,9 @@
     "export": ["Content detail", "GET /api/export/batch/[id]"],
     "billing": "Batch credit/cap reservation; child settlement; provider usage events",
     "status": "FAIL",
-    "evidence": ["article-run.json records live submit HTTP 202, batch 626 FAILED, article 2235 FAILED, and UI progress 0 of 1"],
-    "blocker": "The first real article attempt reached the worker and failed; no final article output was produced. accounting.json predates completion of this attempt, so total attempt cost is not yet fully observed.",
-    "nextProcedure": "Refresh observer accounting, preserve the failed run evidence, determine the failure from permitted fixture diagnostics, and retry only after confirming no ambiguous paid work."
+    "evidence": ["article-run.json records the first live submit HTTP 202, batch 626 FAILED, article 2235 FAILED, and UI progress 0 of 1", "article-retry-run.json preserves a later 749-word retry output but its quality verdict is FAIL because prompt/debug residue and policy defects were rendered", "article-quality-retest-run.json records the latest terminal article-run status failed at CHATGPT_REVIEWED; the 10-credit reservation was RELEASED", "export-live-run.json independently verifies a valid ZIP while explicitly leaving underlying article quality unassessed"],
+    "blocker": "Generation reached durable output on a historical retry, but the latest terminal run failed quality/terminal review; the exported HTML/Markdown inherit the old article defect and must not be treated as a clean article pass.",
+    "nextProcedure": "Repair the article quality and terminal settlement contract, then run one fresh fixture-only generation and validate content, retrieval, export, and unique provider-ledger/cap deltas together."
   },
   {
     "feature": "Single article regeneration",
@@ -42,10 +42,10 @@
     "db": ["articles", "article_runs", "credit_ledger", "provider_usage_ledger"],
     "export": "Content detail and article export paths",
     "billing": "Credit/cap reservation and provider accounting",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Needs a successfully generated synthetic article first.",
-    "nextProcedure": "Regenerate one synthetic article, verify changed durable output and retrieval, and compare provider/credit deltas."
+    "status": "FAIL",
+    "evidence": ["article-quality-retest-run.json records the authenticated regeneration path for article 2235 reaching terminal article-run status failed with finalArticleStatus CHATGPT_REVIEWED", "article-quality-retest-run.json records the 10-credit reservation was RELEASED; this is a negative/refund outcome, not a missing debit", "article-retry-run.json is a separate historical retry and its missing billing field is not evidence that the latest run was unmetered"],
+    "blocker": "The latest regeneration terminal failed after provider work and retained a persisted but unacceptable article; quality/policy defects remain (844 words, malformed URL, promotional claims, BRAND_POLICY_MISSING and two unverifiable claims).",
+    "nextProcedure": "Repair quality/policy validation and terminal settlement, then regenerate once on the fixture and prove the clean terminal state, retrieval, and ledger IDs."
   },
   {
     "feature": "Batch title regeneration",
@@ -137,10 +137,10 @@
     "db": ["articles", "article_assets", "credit_ledger", "usage_events", "provider_usage_ledger"],
     "export": "Authenticated object retrieval, content UI and exports",
     "billing": "section_regenerate credit/cap reservation and provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Known resource-version concurrency and cap-accounting release blockers require one-at-a-time execution and explicit observation; no live output has passed yet.",
-    "nextProcedure": "Run one route at a time on fixture assets, retrieve and validate bytes, reconcile billing/cap, then separately execute an approved concurrency procedure."
+    "status": "PARTIAL",
+    "evidence": ["article-retry-run.json records a persisted active hero asset for article 2235 and an authenticated PNG retrieval (HTTP 200, 1,760,887 bytes, PNG magic)", "accounting.json records unique image_generation ledger event 300 at $0.040000 and the corresponding section_regenerate credit debit", "The artifact covers the article hero path only, not all three listed regeneration routes or an approved concurrency procedure"],
+    "blocker": "One direct hero path produced and retrieved bytes, but route coverage, media identity coverage, and concurrency/cap lifecycle evidence remain incomplete.",
+    "nextProcedure": "Exercise each listed route one at a time on fixture assets, validate dimensions/linkage and durable retrieval, and reconcile unique provider/cap/credit events before considering PASS."
   },
   {
     "feature": "Batch image and caption repair",
@@ -188,10 +188,10 @@
     "db": ["social_posts", "social_post_variants", "social_post_assets", "provider_usage_ledger"],
     "export": "GET /api/social_posts/[id], social UI and campaign export",
     "billing": "Credit/cap reservation and provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Requires a fixture topic or article and explicit platform selection.",
-    "nextProcedure": "Generate minimum text-only variants, validate all requested platform constraints and retrieval, then test includeImage separately."
+    "status": "FAIL",
+    "evidence": ["social-live-run.json records one real POST /api/social_posts/generate returning 200, socialPostId 213, five persisted variants, authenticated GET polling to READY, and five real provider-backed posts", "social-live-run.json records X variant length 403 characters, exceeding the platform limit; other final copy also retained a factual validation/truncation defect", "social-live-run.json records UI_NOT_TESTED and a pending cap-reservation caveat; actual provider spend is $0.211397"],
+    "blocker": "The real API job reached READY with all five variants, but X length/constraint validation failed and the UI was not tested. Queue readiness cannot promote the feature to PASS.",
+    "nextProcedure": "Repair platform-specific length/validation and cap settlement, then rerun the five-platform API plus UI flow and verify every variant after retrieval."
   },
   {
     "feature": "Social variant regeneration",
@@ -220,10 +220,10 @@
     "db": ["social_posts", "social_post_assets", "article_assets", "provider_usage_ledger"],
     "export": "Social detail and campaign ZIP",
     "billing": "No image provider cost on reuse; otherwise image/provider usage and credits",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Reuse and provider-generation are distinct variants and need separate evidence.",
-    "nextProcedure": "Prove hero reuse first, then force one generated image; validate asset bytes/aspect/link and separate costs."
+    "status": "FAIL",
+    "evidence": ["social-live-run.json records five real physical image outputs, one per x/facebook/instagram/linkedin/pinterest platform, all persisted with the READY post; 0 article-hero reuses were observed", "social-live-run.json records platform aspect metadata wrong for at least X (16:9) and Facebook (1.91:1) where generated output did not meet the required contract, plus a cap-settlement caveat", "social-live-run.json records actual provider spend $0.211397 and preserves the five image files under reports/live-generation/realassets/"],
+    "blocker": "All five image calls returned physical assets, but aspect/constraint validation failed; preserve five images, count zero reuse, and do not retry or replace them with placeholders.",
+    "nextProcedure": "Fix per-platform aspect generation/validation and cap settlement, then run separate reuse and generated-image procedures with byte, dimension, linkage, and unique-ledger evidence."
   },
   {
     "feature": "Social slideshow video",
@@ -262,10 +262,10 @@
     "db": ["video_ideas", "video_jobs", "credit_ledger", "provider_usage_ledger"],
     "export": "Idea status UI and authenticated media retrieval",
     "billing": "High-cost Veo seconds plus Gemini/OpenAI and credit/cap controls",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Veo operation persistence/cancellation gaps and budget risk; no live attempt evidence yet.",
-    "nextProcedure": "Only after remaining-budget approval, run the shortest one-clip fixture, persist operation evidence, validate playback and reconcile every provider event."
+    "status": "FAIL",
+    "evidence": ["video-live-run.json records two authenticated real attempts for idea 112, both terminal FAILED_ENQUEUE with queue IDs/attempt evidence and no final video asset", "The first attempt failed on BullMQ custom id containing ':'; the retry reached Gemini script/JSON stages but still failed before any Veo submission or asset", "video-live-run.json records videoProviderDelta rows=0, physicalSubmissions=0, and the latest script fix was not live-proven"],
+    "blocker": "No Veo operation or MP4 asset was produced. Queue acceptance/credit release and Gemini JSON output are failure evidence, not a video pass.",
+    "nextProcedure": "Deploy and verify the queue-id/script fix in a fresh runtime, then run only the shortest approved fixture, capture Veo operation/provider IDs, retrieve playable MP4, and reconcile unique ledger/credit events."
   },
   {
     "feature": "Like-this video",
@@ -298,10 +298,10 @@
     "db": ["articles", "article_assets", "credit_ledger", "usage_events", "provider_usage_ledger"],
     "export": "Content player and authenticated object retrieval",
     "billing": "Podcast credits/cap plus Gemini/OpenAI usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Known post-debit checkpoint, sweeper-ID and cap-lifecycle release blockers; no live playable MP3 evidence.",
-    "nextProcedure": "Do not run until checkpoint/recovery procedure is approved; then generate one short fixture podcast, retrieve/play it and reconcile debit, cap and provider events."
+    "status": "PARTIAL",
+    "evidence": ["podcast-live-run.json records a real authorized POST /api/podcast/generate and terminal retrieval HTTP 200 for an MP3; ffprobe confirms MP3, mono 24 kHz, 128 kbps, 3,270,144 bytes, and 204.384 seconds", "podcast-live-run.json records the requested 1-2 minute contract was accepted but failed: actual duration is 204.384s, above the 120s maximum, with no clamp/enforcement", "existing-media-ui-run.json records existing-media playback and download PASS after refresh, while preserving the native 204.384-second duration failure and 4:20 card discrepancy", "accounting.json records podcast credit reserve/debit of 8 and unique provider ledger events; the metered verification-v2 transcription cost $0.001730 with truncated output, while an earlier accounting failure is explicitly unreconciled/unknown and must not be shown as zero", "No generation button was clicked during the UI retest; the UI/player evidence does not certify the duration contract"],
+    "blocker": "Existing media play/download pass, but the requested duration contract still FAILS and transcription remains incomplete; the playable artifact and 8-credit debit are preserved, while generation and duration enforcement are not live-certified.",
+    "nextProcedure": "Do not make a paid retest while the shared gate is paused. After explicit authorization and bound confirmation, enforce 60-120 seconds before TTS, complete transcription accounting, and retest the player contract."
   },
   {
     "feature": "SEO content audit",
@@ -314,10 +314,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI",
     "billing": "Provider usage and route-specific credits",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Requires a safe public URL or synthetic content.",
-    "nextProcedure": "Run against the declared non-affiliated Energy Saver URL or synthetic content, save response and provider accounting."
+    "status": "PASS",
+    "evidence": ["seo-live-run.json records real POST /api/seo/content-audit HTTP 200 with valid findings and two unique provider ledger events", "seo-ui-run.json records the real /seo-tools Run Quality Audit action rendering score, findings, links, recommendations and the completion notification", "No article creation or publishing side effect was performed by the audit"],
+    "blocker": null,
+    "nextProcedure": "Retain the fixture evidence; if persistence/export is required, test those as separate contracts rather than inferring them from the in-session report."
   },
   {
     "feature": "SEO local research",
@@ -330,10 +330,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI",
     "billing": "Research/provider usage and route-specific credits",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Needs synthetic location/business input.",
-    "nextProcedure": "Run one Boston synthetic fixture and verify cited response, schema and cost."
+    "status": "PASS",
+    "evidence": ["seo-live-run.json records real POST /api/seo/local-research HTTP 200, valid response shape, and unique provider ledger event 325 ($0.005533)", "seo-ui-run.json records the real Local SEO Research action rendering location keywords, seasonal trends, and local questions"],
+    "blocker": null,
+    "nextProcedure": "Retain the fixture evidence; persistence/download was not exposed by the UI and remains a separate gap."
   },
   {
     "feature": "SEO competitor analysis",
@@ -346,10 +346,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI",
     "billing": "Research/provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Only public, non-customer target data may be used.",
-    "nextProcedure": "Use explicitly public fixture URLs, capture output/citations and reconcile provider events."
+    "status": "PARTIAL",
+    "evidence": ["seo-live-run.json records real POST /api/seo/competitor-analysis HTTP 200, valid response, and unique provider ledger event 326 ($0.001297)", "seo-ui-run.json records the real UI action rendering five Suggested Improvements, but strengths/weaknesses/gaps were not exposed in the snapshot and no export control was offered"],
+    "blocker": "API output is valid, but UI field coverage is incomplete and no persistence/export evidence exists.",
+    "nextProcedure": "Expose or capture all competitor sections and verify retrieval/persistence/export without adding a customer target."
   },
   {
     "feature": "SEO schema markup",
@@ -362,10 +362,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI/copy",
     "billing": "Provider usage if model-backed",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Needs synthetic page/business data.",
-    "nextProcedure": "Generate one fixture document, parse JSON-LD, validate schema shape and account for provider use."
+    "status": "PASS",
+    "evidence": ["seo-live-run.json and seo-ui-run.json preserve the earlier schema evidence", "schema-ui-retest-run.json records four valid UI-generated schema payloads — FAQPage, Article, HowTo, and LocalBusiness — with semantic JSON-LD validation, visible Copy controls, and required empty-state buttons disabled", "schema-ui-retest-run.json records zero provider calls and no publishing/media side effects"],
+    "blocker": "No schema blocker remains in the deterministic four-type UI retest; this PASS is limited to the captured schema UI contract and does not certify unrelated paid generation.",
+    "nextProcedure": "Retain the four valid deterministic UI schema results; no paid schema call is authorized in this continuation."
   },
   {
     "feature": "SEO content structure",
@@ -378,10 +378,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI",
     "billing": "Provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Needs a synthetic topic/keyword fixture.",
-    "nextProcedure": "Run one minimal topic, validate response contract and provider accounting."
+    "status": "PASS",
+    "evidence": ["seo-live-run.json records real POST /api/seo/content-structure HTTP 200, valid structured output, and unique provider ledger event 327 ($0.006660)", "seo-ui-run.json records the real UI action rendering the title, eight-item outline, and five-question FAQ section"],
+    "blocker": null,
+    "nextProcedure": "Retain the fixture evidence; creation/export controls remain untested and are tracked under their own rows."
   },
   {
     "feature": "SEO pillar and cluster planning",
@@ -394,10 +394,10 @@
     "db": ["provider_usage_ledger where instrumented"],
     "export": "SEO tools UI",
     "billing": "Provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Needs a synthetic business/topic fixture.",
-    "nextProcedure": "Run one minimal fixture, validate deduplication/schema and cost."
+    "status": "PASS",
+    "evidence": ["seo-live-run.json records real POST /api/seo/pillar-cluster HTTP 200, valid output, and unique provider ledger event 328 ($0.001839)", "seo-ui-run.json records the real UI action rendering the pillar title and cluster-page strategy (eight planned, six visible in the snapshot)"],
+    "blocker": null,
+    "nextProcedure": "Retain the fixture evidence; creation/export controls remain untested and are tracked under their own rows."
   },
   {
     "feature": "SEO create articles",
@@ -410,42 +410,42 @@
     "db": ["job_batches", "articles", "credit_ledger", "provider_usage_ledger"],
     "export": "Batch/content UI and exports",
     "billing": "Article credits/cap and provider usage",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "May fan out into paid article generation; requires explicit count and budget bound.",
-    "nextProcedure": "Use minimum article count, capture created identities, follow to durable output, and reconcile total fan-out cost."
+    "status": "PARTIAL",
+    "evidence": ["seo-live-run.json records real POST /api/seo/create-articles HTTP 200, retrieval HTTP 200, valid intent/output, and unique title-pool ledger event 331 ($0.001539)", "The separate create-articles export request returned HTTP 500 and no successful export artifact was produced by that route", "export-live-run.json independently verifies batch ZIP structure for batch 626; that format result is separate from the known bad underlying old article and does not make article quality PASS"],
+    "blocker": "Creation and retrieval are proven, but route export failed and the resulting article quality/export content cannot be promoted to PASS.",
+    "nextProcedure": "Fix the create-articles export route, then verify the generated identity, clean article quality, retrieval, ZIP contents, and unique provider/credit settlement separately."
   },
   {
     "feature": "Daily brief generation",
-    "ui": ["app/home", "app/admin/briefs"],
-    "api": ["POST /api/briefs/generate-me", "POST /api/briefs/generate-now"],
+    "ui": ["app/home","app/admin/briefs"],
+    "api": ["POST /api/briefs/generate-me","POST /api/briefs/generate-now"],
     "provider": ["Daily brief AI/research services"],
     "generation": "Generate a user brief; admin route is an important forced-generation variant.",
     "output": "Daily brief",
     "storage": "BullMQ and PostgreSQL",
-    "db": ["daily_briefs", "brief_preferences", "provider_usage_ledger"],
-    "export": ["GET /api/briefs/today", "Home/admin brief UI"],
+    "db": ["daily_briefs","brief_preferences","provider_usage_ledger"],
+    "export": ["GET /api/briefs/today","Home/admin brief UI"],
     "billing": "Provider accounting; credit treatment must be observed",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Requires synthetic preferences and distinction between normal and forced variants.",
-    "nextProcedure": "Run generate-me first, retrieve today, then use admin force only if needed and account separately."
+    "status": "BLOCKED",
+    "evidence": ["remaining-live-run.json records fixture-only GET /api/briefs/preferences 200 and PATCH persistence with emailEnabled=0", "remaining-live-run.json records POST /api/briefs/generate-me 500 with BullMQ \"Custom Id cannot contain :\" before enqueue; GET /api/briefs/today returned 200 available=false", "No daily_briefs or delivery row was created and no email attempt occurred"],
+    "blocker": "The historical force-generation path constructed a BullMQ custom job id containing colons; the queue rejected it before generation or delivery. Source now uses a legal deterministic id, and the disabled QA preference is guarded from recurring enqueue; no post-restart retry has been made.",
+    "nextProcedure": "Do not create a new paid brief in this continuation. After the main restart, only inspect the existing fixture if needed; recurring generation/email delivery must remain disabled for QA teams 2535, 2567 and 2568."
   },
   {
     "feature": "Campaign ad copy generation",
     "ui": ["app/campaigns/ads-lab"],
-    "api": ["POST /api/campaigns/[id]/ads", "GET /api/campaigns/[id]/ads"],
+    "api": ["POST /api/campaigns/[id]/ads","GET /api/campaigns/[id]/ads"],
     "provider": ["Gemini JSON"],
     "generation": "Generate and validate Google RSA and Meta ad copy for export only.",
     "output": "Campaign ad records and validation",
     "storage": "PostgreSQL",
-    "db": ["campaigns", "campaign_ads", "campaign_ad_approvals", "provider_usage_ledger"],
-    "export": ["POST /api/campaigns/[id]/ads/[adId]/approve", "GET /api/campaigns/[id]/ads/[adId]/export"],
+    "db": ["campaigns","campaign_ads","campaign_ad_approvals","provider_usage_ledger"],
+    "export": ["POST /api/campaigns/[id]/ads/[adId]/approve","GET /api/campaigns/[id]/ads/[adId]/export"],
     "billing": "Provider usage and configured campaign generation credits",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Requires a synthetic campaign and an existing HTTPS landing URL; export is not publication.",
-    "nextProcedure": "Generate minimum Google/Meta variants, verify deterministic constraints, approve/export fixture data only, and reconcile usage."
+    "status": "PARTIAL",
+    "evidence": ["remaining-live-run.json records isolated agency fixture POST /api/campaigns/[id]/ads HTTP 201 and GET retrieval HTTP 200", "Durable ad id 2 persisted 10 Google headlines, 4 descriptions and 3 Meta variants; landing alignment passed and only three deterministic META_PRIMARY_RECOMMENDED warnings remained", "remaining-live-run.json records unique provider ledger id 397, Gemini gemini-3.5-flash, $0.003634, and a 5-credit reservation/debit to agency fixture team 2567", "remaining-nonpaid-retest-run.json records the existing ad export HTTP 200/ZIP download and unchanged finalized ad state; independent canonical hash round-trip FAIL is preserved because the pre-fix artifact serialized Date values differently", "remaining-nonpaid-retest-run.json records no provider call, no new ad, and no external publication/spend"],
+    "blocker": "Ad generation and export/download are evidenced, but the immutable finalized artifact retains an independent canonical hash FAIL; future Date canonicalization was unit-fixed/tested without rewriting historical output, so this row remains PARTIAL and no live publisher certification is claimed.",
+    "nextProcedure": "Do not regenerate or publish. Preserve the historical artifact and, only under separate authorization, prove a fresh export canonical round trip without adding provider work."
   },
   {
     "feature": "Campaign brand confirmation and intelligence context",
@@ -455,61 +455,45 @@
     "generation": "Confirm or enrich campaign brand context consumed by downstream generators.",
     "output": "Campaign brand snapshot/context",
     "storage": "PostgreSQL",
-    "db": ["campaigns", "client_brand_profiles", "provider_usage_ledger"],
+    "db": ["campaigns","client_brand_profiles","provider_usage_ledger"],
     "export": "Campaign UI and downstream generation prompts",
     "billing": "Research/provider usage where invoked",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "No standalone customer brand-generator button was found; this is context orchestration.",
-    "nextProcedure": "Use only synthetic brand data, capture whether a provider is actually called, and validate durable context."
+    "status": "PASS",
+    "evidence": ["discovered-inventory.md","Additional isolated agency fixture provisioned before paid call: agency team 2567, client team 2568, HomeWorks Energy profile cloned from current complete fixture-owned profile.","HTTP POST /api/campaigns returned 200 and HTTP POST /api/campaigns/b71068e5-e0fb-4cc2-86ad-125431cff413/confirm-brand returned 200; campaign status became ready, brandStatus confirmed, brandConfirmedAt persisted.","Brand snapshot was HomeWorks Energy from https://www.homeworksenergy.com; no affiliation or publication was asserted."],
+    "blocker": null,
+    "nextProcedure": "No further brand generation required for this fixture."
   },
   {
     "feature": "Journey orchestration and recommendations",
     "ui": ["app/journeys"],
-    "api": [
-      "POST /api/journeys",
-      "POST /api/journeys/[id]/trigger",
-      "POST /api/batches/[id]/launch-journey",
-      "GET/POST /api/journey/next",
-      "POST /api/journey/convert"
-    ],
+    "api": ["POST /api/journeys","POST /api/journeys/[id]/trigger","POST /api/batches/[id]/launch-journey","GET/POST /api/journey/next","POST /api/journey/convert"],
     "provider": ["Policy/orchestration services; model use not guaranteed"],
     "generation": "Schedule/contextualize journey steps and recommendations.",
     "output": "Journey, steps, recommendations and conversions",
     "storage": "PostgreSQL and scheduler queue",
-    "db": ["journeys", "journey_steps", "journey_conversions"],
+    "db": ["journeys","journey_steps","journey_conversions"],
     "export": "Journey UI/stats",
     "billing": "Provider usage only where a model call is observed",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Static scan did not verify step-to-asset generation or email generation; absence is not yet an execution result.",
-    "nextProcedure": "Create/trigger a synthetic journey, trace every enqueued step, and classify observed orchestration separately from asset generation."
+    "status": "BLOCKED",
+    "evidence": ["remaining-live-run.json records fixture-authenticated GET /api/journeys and GET /api/learning/agents returning HTTP 500 HTML after the existing export-route compilation error", "No journey create/trigger/next/convert call was accepted and no journey fixture rows were created"],
+    "blocker": "A concrete historical runtime compilation error in the campaign export route (archiver default export missing) prevented a valid journey procedure; the source adapter is now fixed but the runtime has not restarted.",
+    "nextProcedure": "Do not run a journey/provider procedure in this continuation; retain the historical BLOCKED result and leave customer/QA outputs untouched."
   },
   {
     "feature": "Learning, corpus mining and decisioning analysis",
     "ui": ["app/learning"],
-    "api": [
-      "POST /api/learning/feedback",
-      "POST /api/learning/engagement",
-      "POST /api/learning/mine-corpus",
-      "POST /api/learning/monitor/mine-corpus",
-      "GET /api/learning/intelligence",
-      "GET /api/learning/strategy",
-      "GET /api/learning/optimization/[contentType]",
-      "POST /api/learning/agents/[id]/seed",
-      "POST /api/learning/agents/[id]/optimize"
-    ],
+    "api": ["POST /api/learning/feedback","POST /api/learning/engagement","POST /api/learning/mine-corpus","POST /api/learning/monitor/mine-corpus","GET /api/learning/intelligence","GET /api/learning/strategy","GET /api/learning/optimization/[contentType]","POST /api/learning/agents/[id]/seed","POST /api/learning/agents/[id]/optimize"],
     "provider": ["Learning/decision services; model calls only in some analyses"],
     "generation": "Ingest synthetic feedback/engagement and generate analysis/strategy where implemented.",
     "output": "Patterns, optimization and strategy data",
     "storage": "PostgreSQL",
-    "db": ["learning_events", "learning_patterns", "provider_usage_ledger"],
+    "db": ["learning_events","learning_patterns","provider_usage_ledger"],
     "export": "Learning UI and downstream prompt context",
     "billing": "Only observed provider-backed analyses count as generation cost",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Most endpoints are learning/analysis, not guaranteed asset generation; customer records must not be read.",
-    "nextProcedure": "Use fixture-owned events only, run endpoints individually, and record whether each performs deterministic DB work or a provider call."
+    "status": "BLOCKED",
+    "evidence": ["remaining-live-run.json records fixture-authenticated GET /api/learning/agents returning HTTP 500 HTML after the existing export-route compilation error", "No learning fixture events/patterns were created, no paid learning provider call was made, and no customer records were queried"],
+    "blocker": "The concrete historical archiver default-export compilation failure prevented learning endpoints from serving in this runtime; the source adapter is now fixed but the runtime has not restarted.",
+    "nextProcedure": "Do not run a learning/provider procedure in this continuation; retain the historical BLOCKED result and leave customer/QA outputs untouched."
   },
   {
     "feature": "Admin incident AI analysis",
@@ -530,7 +514,7 @@
   {
     "feature": "Admin SEO report generation",
     "ui": ["Admin SEO reporting"],
-    "api": ["POST /api/admin/seo-report"],
+    "api": ["GET /api/admin/seo-report"],
     "provider": ["Report/SEO services; provider use must be observed"],
     "generation": "Generate an administrative SEO report.",
     "output": "SEO report",
@@ -539,9 +523,9 @@
     "export": "Admin report response/UI",
     "billing": "Provider usage if model-backed",
     "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Requires synthetic report inputs and admin fixture scope.",
-    "nextProcedure": "Run with synthetic/non-customer inputs, validate report and determine actual provider/cost path."
+    "evidence": ["negative-api-run.json records corrected unauthenticated GET /api/admin/seo-report returning 401 before any provider or report call"],
+    "blocker": "Only the unauthenticated method correction was proven; authenticated synthetic admin report generation remains unrun.",
+    "nextProcedure": "Run the corrected GET route with synthetic admin inputs, validate report output/storage and determine actual provider/cost path."
   },
   {
     "feature": "Agency report rendering and delivery",
@@ -559,10 +543,10 @@
     "db": ["agency_reports", "agency_report_deliveries"],
     "export": "Download/client portal/email",
     "billing": "No AI provider cost expected; delivery cost is separate",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Must use synthetic report evidence; sending email is prohibited in this session.",
-    "nextProcedure": "Render and download a fixture report without send, prove deterministic/no-provider behavior, and record zero provider events only if observed."
+    "status": "PARTIAL",
+    "evidence": ["discovered-inventory.md", "remaining-nonpaid-retest-run.json records deterministic agency report 80 generated, approved, downloaded as HTML HTTP 200, with no provider call or email", "remaining-nonpaid-retest-run.json preserves the failed concurrency suite separately: deployed-schema missing agency_client_reports period unique index; focused locked-upsert and source-contract tests passed", "agency-report-80.html is the downloaded standalone HTML artifact"],
+    "blocker": "The deterministic single-report generate/approve/download path is evidenced, but the concurrency suite failed on the deployed schema and email delivery was intentionally not run; this is not a complete live certification.",
+    "nextProcedure": "Keep email send and concurrency reruns disabled. Resolve the deployed-schema concurrency constraint, then prove concurrent report generation without any provider or customer-data operation."
   },
   {
     "feature": "Content publication adapters",
@@ -576,9 +560,10 @@
     "export": "Remote publication",
     "billing": "No generation provider cost expected; platform effects are separate",
     "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md"],
-    "blocker": "Session forbids creating publishing connections or external publication.",
-    "nextProcedure": "Keep NOT_RUN unless a separately authorized sandbox connection exists; never infer publication from queue acceptance."
+    "sourceClassification": "NO_PUBLISH_AUTHORIZATION",
+    "evidence": ["discovered-inventory.md source confirms website/Facebook/LinkedIn/TikTok publishing job routes exist", "remaining-nonpaid-retest-run.json records external publicationPerformed=false and no publishing connection/job mutation", "This row is not product-unsupported; the current session forbids creating connections or external publication"],
+    "blocker": "No-publish authorization was granted for this record, so queue/adapter support is not live publication certification.",
+    "nextProcedure": "Keep NOT_RUN; never infer remote publication from queue acceptance, and do not create a connection or publish without a separate authorization."
   },
   {
     "feature": "Landing-page generation",
@@ -591,10 +576,11 @@
     "db": ["campaign landingPageUrl fields"],
     "export": "Ads reference the existing URL",
     "billing": "No generation cost path identified",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "No executable generator was found by static scan; this has not been execution-proven NOT_TESTABLE.",
-    "nextProcedure": "Confirm route/product contract with source owner before changing status to NOT_TESTABLE; do not fabricate a provider attempt."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "No generation API or UI generator exists; campaign stores/reuses an existing landingPageUrl"],
+    "blocker": "The source/UI contract provides only an existing HTTPS landingPageUrl; no executable landing-page generator or generation output contract exists.",
+    "nextProcedure": "Do not run as a provider feature. If product support is introduced, add an explicit route/output/billing contract and inventory it as a new feature."
   },
   {
     "feature": "AI email-campaign generation",
@@ -607,10 +593,11 @@
     "db": [],
     "export": "No campaign-email export identified",
     "billing": "No generation cost path identified",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "No executable generator was found; absence is not yet execution proof.",
-    "nextProcedure": "Confirm product contract/source routes before classifying NOT_TESTABLE."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "No AI email-campaign route, asset persistence, or campaign-email export exists; journey/transactional/report email is a separate concept"],
+    "blocker": "The source/UI contract has no AI email-campaign or marketing-automation asset generator.",
+    "nextProcedure": "Do not run as an AI/provider feature. If product support is introduced, add an explicit route/output/billing contract and inventory it as a new feature."
   },
   {
     "feature": "Live Google/Meta ad publishing and spend",
@@ -623,10 +610,11 @@
     "db": ["campaign_ads", "campaign_ad_approvals"],
     "export": "ZIP/CSV",
     "billing": "No ad-network spend path identified",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "External ad spend is prohibited and no executable publishing adapter was found.",
-    "nextProcedure": "Retain NOT_RUN pending source-owner confirmation; test export separately without ad publication."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "Ads Lab source exposes generation/approval/export only; no Google/Meta publishing adapter or spend route exists"],
+    "blocker": "The source/UI contract produces export files and contains no executable live ad-network publisher or spend operation.",
+    "nextProcedure": "Do not run or invent a publisher test. Exercise the separately supported approval/export routes only; classify any future publisher after an explicit adapter/route exists."
   },
   {
     "feature": "Provider-backed image editing or inpainting",
@@ -639,10 +627,11 @@
     "db": [],
     "export": "Not identified",
     "billing": "No edit/inpaint price path identified",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "No executable edit/inpaint contract found; regeneration must not be mislabeled.",
-    "nextProcedure": "Confirm product/provider contract before classifying NOT_TESTABLE."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "Image UI and APIs expose replacement regeneration/local transforms only; no edit/inpaint route or billing path exists"],
+    "blocker": "The source/UI contract has no provider-backed edit/inpaint operation; replacement regeneration must not be mislabeled as editing.",
+    "nextProcedure": "Do not run as an edit/inpaint feature. If product support is introduced, add an explicit edit contract and inventory it separately from regeneration."
   },
   {
     "feature": "Atomic article-to-all-channels flywheel",
@@ -655,10 +644,11 @@
     "db": ["Independent article/social/video/podcast/campaign tables"],
     "export": "Independent exports",
     "billing": "Independent pipeline charges",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "No executable atomic orchestrator found; manually invoking every feature is not equivalent.",
-    "nextProcedure": "Confirm intended contract before NOT_TESTABLE classification; do not fabricate a one-click result."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "Source exposes independent article/social/video/podcast/campaign APIs and stores, with no atomic all-channel orchestrator"],
+    "blocker": "No executable atomic article-to-all-channels operation exists; manually invoking independent features is not equivalent.",
+    "nextProcedure": "Do not run as a one-click flywheel. If an atomic orchestrator is introduced, add its transaction/output/billing contract and inventory it separately."
   },
   {
     "feature": "Threads and YouTube generation contracts",
@@ -671,9 +661,26 @@
     "db": [],
     "export": "No corresponding publisher adapter identified",
     "billing": "No generation cost path identified",
-    "status": "NOT_RUN",
-    "evidence": ["discovered-inventory.md static unsupported/code-only section"],
-    "blocker": "No route/contract found; this remains NOT_RUN pending proof rather than assumed NOT_TESTABLE.",
-    "nextProcedure": "Ask source owner to confirm intended support before final classification."
+    "status": "NOT_TESTABLE",
+    "sourceClassification": "UNSUPPORTED",
+    "evidence": ["discovered-inventory.md source-confirmed unsupported/code-only section", "Fresh source scan found no Threads or YouTube generation route, UI contract, persistence contract, or publisher adapter"],
+    "blocker": "No executable Threads or YouTube generation contract exists in the source/UI inventory.",
+    "nextProcedure": "Do not run or infer support. If either platform is introduced, add an explicit generation/publishing route and inventory it as a supported feature."
+  },
+  {
+    "feature": "Standalone Brand Intelligence",
+    "ui": ["app/intelligence"],
+    "api": ["POST /api/intelligence/run"],
+    "provider": ["Brave Search", "Gemini"],
+    "generation": "Research a business source and assemble a durable brand profile, policy pack, audience, positioning, competitive gaps, and source-grounded context.",
+    "output": "Brand Intelligence profile and policy pack",
+    "storage": "PostgreSQL client_brand_profiles and research output",
+    "db": ["client_brand_profiles", "brand_research_jobs", "provider_usage_ledger"],
+    "export": "Brand Intelligence UI and downstream prompt context",
+    "billing": "Unique provider ledger events plus research cap/reservation",
+    "status": "PASS",
+    "evidence": ["brand-public-source-run.json records one real public-source UI run for HomeWorks Energy with POST /api/intelligence/run HTTP 200 and terminal UI Active", "The public source GET returned 200 with source-grounded title/body evidence; persisted profile fields, policy claims, audience, positioning, gaps, quotes, refresh, logout and relogin retrieval were verified", "brand-public-source-run.json records four unique Gemini ledger rows totaling $0.013532; no article, podcast, video, publishing, or customer data operation was invoked", "brand-retry-run.json remains preserved as a separate controlled-host FAIL and is not overwritten by the public-source PASS"],
+    "blocker": null,
+    "nextProcedure": "Retain the public-source evidence; keep the controlled-host failure separate and rerun only if a reachable authorized fixture source is available."
   }
 ]

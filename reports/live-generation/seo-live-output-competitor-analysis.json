@@ -1,0 +1,73 @@
+{
+  "competitor_url": "https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html",
+  "strengths": [
+    "Clear and concise content focused on home energy assessment basics",
+    "Logical page structure with headings that aid readability",
+    "Use of simple language suitable for a broad audience",
+    "Fast loading times and minimal visual clutter enhance UX",
+    "Inclusion of some local terminology that suggests regional relevance"
+  ],
+  "weaknesses": [
+    "Lack of structured data/schema markup to improve rich results on search engines",
+    "Minimal in-depth content or answer-first format that addresses specific user questions",
+    "Sparse internal linking and no evident calls-to-action guiding user engagement",
+    "Limited multimedia content such as images, videos, or infographics to support learning",
+    "No visible local SEO tactics like localized keywords or references to service areas"
+  ],
+  "content_gaps": [
+    "Detailed explanation of the step-by-step home energy assessment process",
+    "Benefits of home energy assessments with quantified energy savings data",
+    "Local incentives, rebates, or financing options for energy upgrades",
+    "DIY energy efficiency tips tailored to specific climates or home types",
+    "How to interpret assessment results and plan next steps effectively"
+  ],
+  "suggested_improvements": [
+    {
+      "area": "Schema Markup",
+      "current_state": "No visible structured data implementation",
+      "recommended_action": "Add FAQPage and LocalBusiness schema to enhance search appearance and local SEO",
+      "priority": "high"
+    },
+    {
+      "area": "Answer-First Content",
+      "current_state": "Content is descriptive but not directly answer-focused",
+      "recommended_action": "Rewrite key sections in a question-answer format to improve snippet eligibility and user engagement",
+      "priority": "high"
+    },
+    {
+      "area": "Local SEO",
+      "current_state": "Limited use of localized keywords or references",
+      "recommended_action": "Integrate geo-targeted keywords and include local incentives or service area details",
+      "priority": "medium"
+    },
+    {
+      "area": "User Engagement",
+      "current_state": "No clear calls-to-action or interactive elements",
+      "recommended_action": "Add CTAs such as scheduling an assessment or downloadable energy audit checklists",
+      "priority": "medium"
+    },
+    {
+      "area": "Multimedia Content",
+      "current_state": "Text-heavy with no images or videos",
+      "recommended_action": "Incorporate explanatory videos, infographics, and images to support comprehension",
+      "priority": "low"
+    }
+  ],
+  "unique_angles": [
+    "Localized home energy savings case studies showcasing real-world impact",
+    "Interactive energy assessment tools or calculators",
+    "Step-by-step guides personalized by home type or regional climate",
+    "Educational content focused on emerging energy technologies like smart thermostats or solar integration",
+    "Content addressing common myths and misconceptions about energy assessments"
+  ],
+  "keyword_opportunities": [
+    "home energy assessment near me",
+    "how to read home energy audit report",
+    "local energy rebates for home upgrades",
+    "DIY home energy efficiency tips",
+    "benefits of professional home energy assessment",
+    "energy assessment cost and savings",
+    "smart home energy solutions",
+    "home energy assessment checklist"
+  ]
+}

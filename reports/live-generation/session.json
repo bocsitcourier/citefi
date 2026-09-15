@@ -180,6 +180,13 @@
     "meStatus": 200,
     "confirmed": true
   },
-  "credentialFile": ".local/test-fixtures/live-generation.json",
-  "credentialFileMode": "0600"
+  "credentialFileMode": "0600",
+  "finalization": {
+    "state": "BLOCKED / NOT CERTIFIED",
+    "completeSuccess": false,
+    "newPaidCallsInFinalization": false,
+    "externalPublicationInFinalization": false,
+    "qaRecurringAutomationDisabled": true,
+    "note": "Final dashboard and summary preserve blockers, source-proven unsupported classifications, no-publish authorization, and shared-cap paid-call pause."
+  }
 }

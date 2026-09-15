@@ -1230,6 +1230,9 @@ export const videoIdeas = pgTable("video_ideas", {
   
   // Job Tracking
   jobId: varchar("job_id", { length: 255 }), // pg-boss job ID
+  videoCreditRunId: varchar("video_credit_run_id", { length: 255 }), // credit reservation runId — persisted for recovery
+  videoCapReservationId: integer("video_cap_reservation_id"), // spending-cap event ID — persisted for recovery
+  videoBillingSettledAt: timestamp("video_billing_settled_at"),
   
   // Video Metadata (after generation)
   videoDuration: integer("video_duration").default(60), // Duration in seconds

@@ -5,7 +5,8 @@ import { protectsDeliveredReservation } from "@/lib/article-run-state";
 import {
   addVideoIdeaJob,
   getQueue,
-  getVideoIdeaJobIdForRunId,
+  getSocialVideoJobIdCandidatesForRunId,
+  getVideoIdeaJobIdCandidatesForRunId,
   legacyPodcastGenerationJobId,
   podcastGenerationJobIdCandidates,
   PODCAST_GENERATION_QUEUE,
@@ -28,6 +29,7 @@ export interface VideoSettlementRecovery {
   userId: number;
   creditRunId: string;
   jobId: string;
+  capReservationId?: number | null;
 }
 
 export interface SweepStaleReservationsOptions {
@@ -80,7 +82,17 @@ export async function requeueVideoSettlement(
   recovery: VideoSettlementRecovery
 ): Promise<void> {
   const queue = getQueue(VIDEO_IDEA_GENERATION_QUEUE);
-  const existingJob = await queue.getJob(recovery.jobId);
+  const candidateJobIds = [
+    recovery.jobId,
+    ...getVideoIdeaJobIdCandidatesForRunId(recovery.creditRunId),
+  ].filter((jobId, index, ids) => ids.indexOf(jobId) === index);
+  let existingJob = await queue.getJob(candidateJobIds[0]!);
+  if (!existingJob) {
+    for (const candidateJobId of candidateJobIds.slice(1)) {
+      existingJob = await queue.getJob(candidateJobId);
+      if (existingJob) break;
+    }
+  }
 
   if (existingJob) {
     const state = await existingJob.getState();
@@ -110,10 +122,14 @@ export async function requeueVideoSettlement(
     teamId: recovery.teamId,
     userId: recovery.userId,
     creditRunId: recovery.creditRunId,
+    ...(recovery.capReservationId != null
+      ? { capReservationId: recovery.capReservationId }
+      : {}),
   });
-  if (queuedJobId !== recovery.jobId) {
+  const expectedJobId = getVideoIdeaJobIdCandidatesForRunId(recovery.creditRunId)[0]!;
+  if (queuedJobId !== expectedJobId) {
     throw new Error(
-      `Video settlement recovery job ID mismatch: expected ${recovery.jobId}, got ${queuedJobId}`
+      `Video settlement recovery job ID mismatch: expected ${expectedJobId}, got ${queuedJobId}`
     );
   }
 }
@@ -190,7 +206,9 @@ export async function sweepStaleReservations(
       : [];
 
   const videoRunIdByJobId = new Map(
-    staleRunIds.map((runId) => [getVideoIdeaJobIdForRunId(runId), runId])
+    staleRunIds.flatMap((runId) =>
+      getVideoIdeaJobIdCandidatesForRunId(runId).map((jobId) => [jobId, runId] as const)
+    )
   );
   const deliveredVideoSettlements =
     videoRunIdByJobId.size > 0
@@ -201,6 +219,8 @@ export async function sweepStaleReservations(
             userId: videoIdeas.userId,
             jobId: videoIdeas.jobId,
             videoUrl: videoIdeas.videoUrl,
+            videoCreditRunId: videoIdeas.videoCreditRunId,
+            videoCapReservationId: videoIdeas.videoCapReservationId,
           })
           .from(videoIdeas)
           .where(
@@ -290,7 +310,7 @@ export async function sweepStaleReservations(
     if (social.videoStatus === "READY" && social.videoCreditRunId) {
       settlementJobByRunId.set(social.videoCreditRunId, {
         queueName: SOCIAL_VIDEO_GENERATION_QUEUE,
-        jobId: `video:${social.videoCreditRunId}`,
+        jobId: getSocialVideoJobIdCandidatesForRunId(social.videoCreditRunId)[0]!,
       });
     }
   }
@@ -307,9 +327,9 @@ export async function sweepStaleReservations(
   }
   const videoSettlementByRunId = new Map(
     deliveredVideoSettlements.flatMap((video) => {
-      const runId = video.jobId
-        ? videoRunIdByJobId.get(video.jobId)
-        : undefined;
+      const runId =
+        video.videoCreditRunId ??
+        (video.jobId ? videoRunIdByJobId.get(video.jobId) : undefined);
       return runId && video.teamId && video.jobId
         ? [[runId, {
             videoIdeaId: video.id,
@@ -317,6 +337,9 @@ export async function sweepStaleReservations(
             userId: video.userId,
             creditRunId: runId,
             jobId: video.jobId,
+            ...(video.videoCapReservationId != null
+              ? { capReservationId: video.videoCapReservationId }
+              : {}),
           }] as const]
         : [];
     })

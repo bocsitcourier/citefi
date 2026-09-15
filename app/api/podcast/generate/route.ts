@@ -14,6 +14,7 @@ import {
 } from "@/lib/billing";
 import { checkTeamPaywall, paywallErrorBody } from "@/lib/billing/paywall";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
+import { parsePodcastDuration } from "@/lib/podcast-duration";
 
 export async function POST(request: NextRequest) {
   let capReservationId: number | null = null;
@@ -28,6 +29,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Article ID is required" },
         { status: 400 }
+      );
+    }
+
+    if (duration != null && !parsePodcastDuration(duration)) {
+      return NextResponse.json(
+        {
+          error: "Unsupported podcast duration",
+          supportedDurations: ["1-2 minutes", "3-4 minutes", "5-7 minutes"],
+        },
+        { status: 400 },
       );
     }
 

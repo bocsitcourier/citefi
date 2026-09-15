@@ -63,6 +63,22 @@ export default function SEOToolsPage() {
   const [schemaAuthor, setSchemaAuthor] = useState("");
   const [schemaPublishedDate, setSchemaPublishedDate] = useState("");
   const [schemaImageUrl, setSchemaImageUrl] = useState("");
+  const [schemaFaqs, setSchemaFaqs] = useState<Array<{ question: string; answer: string }>>([
+    { question: "", answer: "" },
+  ]);
+  const [schemaSteps, setSchemaSteps] = useState<Array<{ name: string; description: string }>>([
+    { name: "", description: "" },
+  ]);
+  const [schemaBusinessName, setSchemaBusinessName] = useState("");
+  const [schemaAddressStreet, setSchemaAddressStreet] = useState("");
+  const [schemaAddressCity, setSchemaAddressCity] = useState("");
+  const [schemaAddressState, setSchemaAddressState] = useState("");
+  const [schemaAddressZip, setSchemaAddressZip] = useState("");
+  const [schemaAddressCountry, setSchemaAddressCountry] = useState("US");
+  const [schemaWebsiteUrl, setSchemaWebsiteUrl] = useState("");
+  const [schemaPhone, setSchemaPhone] = useState("");
+  const [schemaGeoLatitude, setSchemaGeoLatitude] = useState("");
+  const [schemaGeoLongitude, setSchemaGeoLongitude] = useState("");
   const [schemaMarkup, setSchemaMarkup] = useState<any>(null);
 
   // Content Structure State
@@ -178,6 +194,25 @@ export default function SEOToolsPage() {
             author_name: schemaAuthor,
             published_date: schemaPublishedDate || undefined,
             image_url: schemaImageUrl || undefined,
+            faqs: schemaFaqs,
+            steps: schemaSteps,
+            business_name: schemaBusinessName,
+            address: {
+              street: schemaAddressStreet,
+              city: schemaAddressCity,
+              state: schemaAddressState,
+              zip: schemaAddressZip,
+              country: schemaAddressCountry,
+            },
+            website_url: schemaWebsiteUrl || undefined,
+            phone: schemaPhone || undefined,
+            geo:
+              schemaGeoLatitude.trim() && schemaGeoLongitude.trim()
+                ? {
+                    latitude: schemaGeoLatitude,
+                    longitude: schemaGeoLongitude,
+                  }
+                : undefined,
           },
         }),
       });
@@ -197,6 +232,27 @@ export default function SEOToolsPage() {
       });
     },
   });
+
+  const validSchemaFaqCount = schemaFaqs.filter(
+    (faq) => faq.question.trim().length > 0 && faq.answer.trim().length > 0,
+  ).length;
+  const validSchemaStepCount = schemaSteps.filter(
+    (step) => step.name.trim().length > 0 && step.description.trim().length > 0,
+  ).length;
+  const schemaFormIsValid =
+    schemaType === "FAQPage"
+      ? validSchemaFaqCount >= 1
+      : schemaType === "HowTo"
+        ? Boolean(schemaTitle.trim() && schemaDescription.trim() && validSchemaStepCount >= 1)
+        : schemaType === "LocalBusiness"
+          ? Boolean(
+              schemaBusinessName.trim() &&
+                schemaAddressStreet.trim() &&
+                schemaAddressCity.trim() &&
+                schemaAddressState.trim() &&
+                schemaAddressZip.trim(),
+            )
+          : Boolean(schemaTitle.trim() && schemaDescription.trim() && schemaAuthor.trim());
 
   const structureMutation = useMutation({
     mutationFn: async () => {
@@ -889,63 +945,314 @@ export default function SEOToolsPage() {
                   <option value="LocalBusiness">LocalBusiness</option>
                 </select>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="schema-title">Title *</Label>
-                  <Input
-                    id="schema-title"
-                    data-testid="input-schema-title"
-                    placeholder="e.g., How to Brew Perfect Coffee"
-                    value={schemaTitle}
-                    onChange={(e) => setSchemaTitle(e.target.value)}
-                  />
+              {schemaType !== "LocalBusiness" && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-title">Title *</Label>
+                      <Input
+                        id="schema-title"
+                        data-testid="input-schema-title"
+                        placeholder="e.g., How to Brew Perfect Coffee"
+                        value={schemaTitle}
+                        onChange={(e) => setSchemaTitle(e.target.value)}
+                      />
+                    </div>
+                    {schemaType === "Article" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="schema-author">Author *</Label>
+                        <Input
+                          id="schema-author"
+                          data-testid="input-schema-author"
+                          placeholder="e.g., Coffee Expert"
+                          value={schemaAuthor}
+                          onChange={(e) => setSchemaAuthor(e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="schema-description">Description *</Label>
+                    <Input
+                      id="schema-description"
+                      data-testid="input-schema-description"
+                      placeholder="Brief description of your content"
+                      value={schemaDescription}
+                      onChange={(e) => setSchemaDescription(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-date">Published Date (Optional)</Label>
+                      <Input
+                        id="schema-date"
+                        data-testid="input-schema-date"
+                        type="date"
+                        value={schemaPublishedDate}
+                        onChange={(e) => setSchemaPublishedDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-image">Image URL (Optional)</Label>
+                      <Input
+                        id="schema-image"
+                        data-testid="input-schema-image"
+                        placeholder="https://example.com/image.jpg"
+                        value={schemaImageUrl}
+                        onChange={(e) => setSchemaImageUrl(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {schemaType === "FAQPage" && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div>
+                    <h3 className="font-semibold">Questions and answers *</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Add at least one complete question and answer pair. Blank pairs are not included.
+                    </p>
+                  </div>
+                  {schemaFaqs.map((faq, index) => (
+                    <div key={index} className="space-y-3 rounded-md bg-muted/50 p-3">
+                      <div className="space-y-2">
+                        <Label htmlFor={`schema-faq-question-${index}`}>Question {index + 1} *</Label>
+                        <Input
+                          id={`schema-faq-question-${index}`}
+                          data-testid={`input-schema-faq-question-${index}`}
+                          placeholder="e.g., How long does delivery take?"
+                          value={faq.question}
+                          onChange={(e) =>
+                            setSchemaFaqs((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, question: e.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`schema-faq-answer-${index}`}>Answer {index + 1} *</Label>
+                        <Input
+                          id={`schema-faq-answer-${index}`}
+                          data-testid={`input-schema-faq-answer-${index}`}
+                          placeholder="Provide a clear, complete answer"
+                          value={faq.answer}
+                          onChange={(e) =>
+                            setSchemaFaqs((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, answer: e.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      {schemaFaqs.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSchemaFaqs((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                          data-testid={`button-remove-schema-faq-${index}`}
+                        >
+                          Remove pair
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSchemaFaqs((current) => [...current, { question: "", answer: "" }])}
+                    data-testid="button-add-schema-faq"
+                  >
+                    Add another Q&amp;A
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="schema-author">Author *</Label>
-                  <Input
-                    id="schema-author"
-                    data-testid="input-schema-author"
-                    placeholder="e.g., Coffee Expert"
-                    value={schemaAuthor}
-                    onChange={(e) => setSchemaAuthor(e.target.value)}
-                  />
+              )}
+
+              {schemaType === "HowTo" && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div>
+                    <h3 className="font-semibold">Steps *</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Add at least one complete step with a name and description.
+                    </p>
+                  </div>
+                  {schemaSteps.map((step, index) => (
+                    <div key={index} className="space-y-3 rounded-md bg-muted/50 p-3">
+                      <div className="space-y-2">
+                        <Label htmlFor={`schema-howto-step-name-${index}`}>Step {index + 1} name *</Label>
+                        <Input
+                          id={`schema-howto-step-name-${index}`}
+                          data-testid={`input-schema-howto-step-name-${index}`}
+                          placeholder="e.g., Gather the materials"
+                          value={step.name}
+                          onChange={(e) =>
+                            setSchemaSteps((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, name: e.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`schema-howto-step-description-${index}`}>
+                          Step {index + 1} description *
+                        </Label>
+                        <Input
+                          id={`schema-howto-step-description-${index}`}
+                          data-testid={`input-schema-howto-step-description-${index}`}
+                          placeholder="Explain how to complete this step"
+                          value={step.description}
+                          onChange={(e) =>
+                            setSchemaSteps((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, description: e.target.value } : item,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      {schemaSteps.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSchemaSteps((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                          data-testid={`button-remove-schema-step-${index}`}
+                        >
+                          Remove step
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSchemaSteps((current) => [...current, { name: "", description: "" }])}
+                    data-testid="button-add-schema-step"
+                  >
+                    Add another step
+                  </Button>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="schema-description">Description *</Label>
-                <Input
-                  id="schema-description"
-                  data-testid="input-schema-description"
-                  placeholder="Brief description of your content"
-                  value={schemaDescription}
-                  onChange={(e) => setSchemaDescription(e.target.value)}
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="schema-date">Published Date (Optional)</Label>
-                  <Input
-                    id="schema-date"
-                    data-testid="input-schema-date"
-                    type="date"
-                    value={schemaPublishedDate}
-                    onChange={(e) => setSchemaPublishedDate(e.target.value)}
-                  />
+              )}
+
+              {schemaType === "LocalBusiness" && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div>
+                    <h3 className="font-semibold">Business details</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Name and a complete street address are required. Geo coordinates and hours are optional.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="schema-business-name">Business Name *</Label>
+                    <Input
+                      id="schema-business-name"
+                      data-testid="input-schema-business-name"
+                      placeholder="e.g., Harbor Home Energy"
+                      value={schemaBusinessName}
+                      onChange={(e) => setSchemaBusinessName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="schema-address-street">Street Address *</Label>
+                    <Input
+                      id="schema-address-street"
+                      data-testid="input-schema-address-street"
+                      placeholder="e.g., 100 Main Street"
+                      value={schemaAddressStreet}
+                      onChange={(e) => setSchemaAddressStreet(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-address-city">City *</Label>
+                      <Input
+                        id="schema-address-city"
+                        data-testid="input-schema-address-city"
+                        value={schemaAddressCity}
+                        onChange={(e) => setSchemaAddressCity(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-address-state">State *</Label>
+                      <Input
+                        id="schema-address-state"
+                        data-testid="input-schema-address-state"
+                        value={schemaAddressState}
+                        onChange={(e) => setSchemaAddressState(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-address-zip">ZIP Code *</Label>
+                      <Input
+                        id="schema-address-zip"
+                        data-testid="input-schema-address-zip"
+                        value={schemaAddressZip}
+                        onChange={(e) => setSchemaAddressZip(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-address-country">Country</Label>
+                      <Input
+                        id="schema-address-country"
+                        data-testid="input-schema-address-country"
+                        value={schemaAddressCountry}
+                        onChange={(e) => setSchemaAddressCountry(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-phone">Phone (Optional)</Label>
+                      <Input
+                        id="schema-phone"
+                        data-testid="input-schema-phone"
+                        value={schemaPhone}
+                        onChange={(e) => setSchemaPhone(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="schema-website">Website URL (Optional)</Label>
+                    <Input
+                      id="schema-website"
+                      data-testid="input-schema-website"
+                      placeholder="https://example.com"
+                      value={schemaWebsiteUrl}
+                      onChange={(e) => setSchemaWebsiteUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-geo-latitude">Latitude (Optional)</Label>
+                      <Input
+                        id="schema-geo-latitude"
+                        data-testid="input-schema-geo-latitude"
+                        value={schemaGeoLatitude}
+                        onChange={(e) => setSchemaGeoLatitude(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="schema-geo-longitude">Longitude (Optional)</Label>
+                      <Input
+                        id="schema-geo-longitude"
+                        data-testid="input-schema-geo-longitude"
+                        value={schemaGeoLongitude}
+                        onChange={(e) => setSchemaGeoLongitude(e.target.value)}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="schema-image">Image URL (Optional)</Label>
-                  <Input
-                    id="schema-image"
-                    data-testid="input-schema-image"
-                    placeholder="https://example.com/image.jpg"
-                    value={schemaImageUrl}
-                    onChange={(e) => setSchemaImageUrl(e.target.value)}
-                  />
-                </div>
-              </div>
+              )}
+
               <Button
                 onClick={() => schemaMutation.mutate()}
-                disabled={!schemaTitle || !schemaDescription || !schemaAuthor || schemaMutation.isPending}
+                disabled={!schemaFormIsValid || schemaMutation.isPending}
                 className="w-full"
                 data-testid="button-generate-schema"
               >

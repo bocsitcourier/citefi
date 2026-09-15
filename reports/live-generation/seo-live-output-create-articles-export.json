@@ -1,0 +1,16 @@
+{
+  "method": "GET",
+  "route": "/api/export/batch/629",
+  "status": 500,
+  "ok": false,
+  "contentType": "text/html; charset=utf-8",
+  "response": {
+    "byteLength": 5629,
+    "zipSignature": "3c21"
+  },
+  "proof": {
+    "batchId": 629,
+    "exportIsZip": false,
+    "contractOutcome": "unexpected failure"
+  }
+}

@@ -19,7 +19,7 @@
  */
 import { test as nodeTest, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { db, systemDb, closeDb } from "../../lib/db.js";
 import { runWithSystemContext } from "../../lib/tenant-context.js";
@@ -39,6 +39,7 @@ import {
   clientBrandProfiles,
   jobBatches,
   articles,
+  teams,
 } from "../../shared/schema.js";
 import {
   createOrReuseCampaign,
@@ -252,6 +253,142 @@ test("different businesses in one team keep isolated brand snapshots", async () 
     .where(eq(clientBrandProfiles.teamId, seed.teamA.id));
 });
 
+test("sibling client assignments win by CAS and conflicting retries never return the wrong client", async () => {
+  const [agency] = await systemDb
+    .insert(teams)
+    .values({
+      name: `${seed.runId}-assignment-agency`,
+      createdBy: seed.userA.id,
+      billingPlan: "agency",
+    })
+    .returning({ id: teams.id });
+  if (!agency) throw new Error("Failed to seed assignment agency");
+
+  const [clientA, clientB] = await systemDb
+    .insert(teams)
+    .values([
+      {
+        name: `${seed.runId}-assignment-client-a`,
+        createdBy: seed.userA.id,
+        parentTeamId: agency.id,
+      },
+      {
+        name: `${seed.runId}-assignment-client-b`,
+        createdBy: seed.userA.id,
+        parentTeamId: agency.id,
+      },
+    ])
+    .returning({ id: teams.id });
+  if (!clientA || !clientB) throw new Error("Failed to seed sibling clients");
+
+  const campaignIds: number[] = [];
+  try {
+    const casRequestId = `${seed.runId}-assignment-cas`;
+    const unassigned = await createOrReuseCampaign(agency.id, seed.userA.id, {
+      requestId: casRequestId,
+      name: "Assignment CAS",
+      businessUrl: "https://assignment-cas.test",
+      companyName: "Assignment CAS",
+      goals: ["local_seo" as const],
+      locations: [],
+    });
+    campaignIds.push(unassigned.campaign.id);
+
+    const casAttempts = await Promise.allSettled([
+      createOrReuseCampaign(agency.id, seed.userA.id, {
+        requestId: casRequestId,
+        name: "Assignment CAS",
+        businessUrl: "https://assignment-cas.test",
+        companyName: "Assignment CAS",
+        goals: ["local_seo" as const],
+        locations: [],
+        clientTeamId: clientA.id,
+      }),
+      createOrReuseCampaign(agency.id, seed.userA.id, {
+        requestId: casRequestId,
+        name: "Assignment CAS",
+        businessUrl: "https://assignment-cas.test",
+        companyName: "Assignment CAS",
+        goals: ["local_seo" as const],
+        locations: [],
+        clientTeamId: clientB.id,
+      }),
+    ]);
+    const casWinners = casAttempts.filter(
+      (attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof createOrReuseCampaign>>> =>
+        attempt.status === "fulfilled",
+    );
+    const casLosers = casAttempts.filter((attempt) => attempt.status === "rejected");
+    assert.equal(casWinners.length, 1, "exactly one NULL assignment may win");
+    assert.equal(casLosers.length, 1, "the CAS loser must reject");
+    assert.equal((casLosers[0] as PromiseRejectedResult).reason.statusCode, 409);
+    assert.ok(
+      [clientA.id, clientB.id].includes(casWinners[0]!.value.campaign.clientTeamId!),
+    );
+
+    const casWinnerClient = casWinners[0]!.value.campaign.clientTeamId!;
+    const casLoserClient = casWinnerClient === clientA.id ? clientB.id : clientA.id;
+    const repeatedWinner = await createOrReuseCampaign(agency.id, seed.userA.id, {
+      requestId: casRequestId,
+      name: "Assignment CAS",
+      businessUrl: "https://assignment-cas.test",
+      companyName: "Assignment CAS",
+      goals: ["local_seo" as const],
+      locations: [],
+      clientTeamId: casWinnerClient,
+    });
+    assert.equal(repeatedWinner.reused, true);
+    assert.equal(repeatedWinner.campaign.clientTeamId, casWinnerClient);
+    await assert.rejects(
+      createOrReuseCampaign(agency.id, seed.userA.id, {
+        requestId: casRequestId,
+        name: "Assignment CAS",
+        businessUrl: "https://assignment-cas.test",
+        companyName: "Assignment CAS",
+        goals: ["local_seo" as const],
+        locations: [],
+        clientTeamId: casLoserClient,
+      }),
+      (error: any) => error?.statusCode === 409,
+    );
+
+    // A fresh key exercises INSERT ... ON CONFLICT's winner reread as well.
+    const insertRequestId = `${seed.runId}-assignment-insert`;
+    const insertAttempts = await Promise.allSettled([
+      createOrReuseCampaign(agency.id, seed.userA.id, {
+        requestId: insertRequestId,
+        name: "Assignment Insert",
+        businessUrl: "https://assignment-insert.test",
+        companyName: "Assignment Insert",
+        goals: ["local_seo" as const],
+        locations: [],
+        clientTeamId: clientA.id,
+      }),
+      createOrReuseCampaign(agency.id, seed.userA.id, {
+        requestId: insertRequestId,
+        name: "Assignment Insert",
+        businessUrl: "https://assignment-insert.test",
+        companyName: "Assignment Insert",
+        goals: ["local_seo" as const],
+        locations: [],
+        clientTeamId: clientB.id,
+      }),
+    ]);
+    const insertWinners = insertAttempts.filter(
+      (attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof createOrReuseCampaign>>> =>
+        attempt.status === "fulfilled",
+    );
+    const insertLosers = insertAttempts.filter((attempt) => attempt.status === "rejected");
+    assert.equal(insertWinners.length, 1, "exactly one insert winner is expected");
+    assert.equal(insertLosers.length, 1, "the insert loser must reject");
+    assert.equal((insertLosers[0] as PromiseRejectedResult).reason.statusCode, 409);
+    campaignIds.push(insertWinners[0]!.value.campaign.id);
+  } finally {
+    await systemDb.delete(campaigns).where(inArray(campaigns.id, campaignIds));
+    await systemDb.delete(teams).where(inArray(teams.id, [clientA.id, clientB.id, agency.id]));
+  }
+});
+
 // ── 2. Tenant isolation + composite FK ────────────────────────────────────────
 
 test("team B cannot read, detail-load, update, or export team A's campaign", async () => {
@@ -429,9 +566,9 @@ test("campaign export loads seeded completed content and records the audit row i
 
   // Build a ZIP from the loaded content to prove the export payload is complete
   // and streamable without any external call. (Mirrors the route's archiver use.)
-  const archiver = (await import("archiver")).default;
+  const { createZipArchive } = await import("../../lib/zip-archive.js");
   const { PassThrough } = await import("node:stream");
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = createZipArchive({ zlib: { level: 9 } });
   const sink = new PassThrough();
   const chunks: Buffer[] = [];
   sink.on("data", (c: Buffer) => chunks.push(c));

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { csrfFetch, queryClient } from "@/lib/queryClient";
 import {
@@ -185,13 +186,148 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 // ---------------------------------------------------------------------------
+// Brand source form
+// ---------------------------------------------------------------------------
+
+interface BrandSourceFormProps {
+  initialWebsiteUrl?: string;
+  initialCompanyName?: string;
+  isPending: boolean;
+  isEditing?: boolean;
+  onSubmit: (websiteUrl: string, companyName: string) => void;
+  onCancel?: () => void;
+}
+
+/**
+ * Keep the initial setup and source editing flows on the same form. Source
+ * changes are submitted through the same authenticated intelligence run
+ * mutation; this component only owns the user-editable draft and validation.
+ */
+function BrandSourceForm({
+  initialWebsiteUrl = "",
+  initialCompanyName = "",
+  isPending,
+  isEditing = false,
+  onSubmit,
+  onCancel,
+}: BrandSourceFormProps) {
+  const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl);
+  const [companyName, setCompanyName] = useState(initialCompanyName);
+  const [errors, setErrors] = useState<{ websiteUrl?: string; companyName?: string }>({});
+
+  const validateAndSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextErrors: { websiteUrl?: string; companyName?: string } = {};
+    const trimmedUrl = websiteUrl.trim();
+    const trimmedName = companyName.trim();
+
+    if (!trimmedUrl) {
+      nextErrors.websiteUrl = "Website URL is required.";
+    } else {
+      try {
+        const parsed = new URL(trimmedUrl);
+        if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
+          nextErrors.websiteUrl = "Enter a valid URL using http:// or https://.";
+        }
+      } catch {
+        nextErrors.websiteUrl = "Enter a valid URL using http:// or https://.";
+      }
+    }
+
+    if (!trimmedName) {
+      nextErrors.companyName = "Company name is required.";
+    } else if (trimmedName.length > 255) {
+      nextErrors.companyName = "Company name must be 255 characters or fewer.";
+    }
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length === 0) {
+      onSubmit(trimmedUrl, trimmedName);
+    }
+  };
+
+  return (
+    <form onSubmit={validateAndSubmit} noValidate className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="setup-url">Website URL</Label>
+        <Input
+          id="setup-url"
+          type="url"
+          value={websiteUrl}
+          onChange={e => {
+            setWebsiteUrl(e.target.value);
+            if (errors.websiteUrl) setErrors(current => ({ ...current, websiteUrl: undefined }));
+          }}
+          placeholder="https://yourbusiness.com"
+          maxLength={2048}
+          aria-invalid={Boolean(errors.websiteUrl)}
+          aria-describedby={errors.websiteUrl ? "source-url-error" : undefined}
+          data-testid="input-website-url"
+        />
+        {errors.websiteUrl && (
+          <p id="source-url-error" role="alert" className="text-xs text-destructive" data-testid="error-website-url">
+            {errors.websiteUrl}
+          </p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="setup-name">Company Name</Label>
+        <Input
+          id="setup-name"
+          value={companyName}
+          onChange={e => {
+            setCompanyName(e.target.value);
+            if (errors.companyName) setErrors(current => ({ ...current, companyName: undefined }));
+          }}
+          placeholder="Acme Roofing"
+          maxLength={255}
+          aria-invalid={Boolean(errors.companyName)}
+          aria-describedby={errors.companyName ? "source-company-error" : undefined}
+          data-testid="input-company-name"
+        />
+        {errors.companyName && (
+          <p id="source-company-error" role="alert" className="text-xs text-destructive" data-testid="error-company-name">
+            {errors.companyName}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          className={isEditing ? undefined : "w-full"}
+          disabled={isPending}
+          data-testid="button-run-intelligence"
+        >
+          {isPending
+            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>
+            : isEditing
+              ? <><RefreshCw className="w-4 h-4 mr-2" />Update &amp; Run Research</>
+              : <><Sparkles className="w-4 h-4 mr-2" />Run Brand Intelligence</>
+          }
+        </Button>
+        {onCancel && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={isPending}
+            data-testid="button-cancel-edit-source"
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
 export default function BrandIntelligencePage() {
   const { toast } = useToast();
-  const [setupUrl, setSetupUrl] = useState("");
-  const [setupName, setSetupName] = useState("");
+  const [editingSource, setEditingSource] = useState(false);
 
   const { data, isLoading, refetch } = useQuery<{ profile: ProfileRow | null }>({
     queryKey: ["/api/intelligence"],
@@ -224,6 +360,7 @@ export default function BrandIntelligencePage() {
       return res.json();
     },
     onSuccess: () => {
+      setEditingSource(false);
       toast({ title: "Research started", description: "Brand intelligence analysis is running — usually takes 2–4 minutes." });
       queryClient.invalidateQueries({ queryKey: ["/api/intelligence"] });
     },
@@ -249,8 +386,7 @@ export default function BrandIntelligencePage() {
   });
 
   const handleRun = (url: string, name: string) => {
-    if (!url || !name) return;
-    runMutation.mutate({ websiteUrl: url, companyName: name });
+    runMutation.mutate({ websiteUrl: url.trim(), companyName: name.trim() });
   };
 
   const saveOverride = (path: string[], value: unknown) => {
@@ -291,37 +427,10 @@ export default function BrandIntelligencePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="setup-url">Website URL</Label>
-              <Input
-                id="setup-url"
-                value={setupUrl}
-                onChange={e => setSetupUrl(e.target.value)}
-                placeholder="https://yourbusiness.com"
-                data-testid="input-website-url"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="setup-name">Company Name</Label>
-              <Input
-                id="setup-name"
-                value={setupName}
-                onChange={e => setSetupName(e.target.value)}
-                placeholder="Acme Roofing"
-                data-testid="input-company-name"
-              />
-            </div>
-            <Button
-              className="w-full"
-              onClick={() => handleRun(setupUrl, setupName)}
-              disabled={!setupUrl || !setupName || runMutation.isPending}
-              data-testid="button-run-intelligence"
-            >
-              {runMutation.isPending
-                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>
-                : <><Sparkles className="w-4 h-4 mr-2" />Run Brand Intelligence</>
-              }
-            </Button>
+             <BrandSourceForm
+               isPending={runMutation.isPending}
+               onSubmit={handleRun}
+             />
             <div className="bg-muted/50 rounded-md p-3 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">What this unlocks:</p>
               <ul className="space-y-0.5 list-disc list-inside">
@@ -380,14 +489,36 @@ export default function BrandIntelligencePage() {
             )}
           </CardHeader>
           <CardContent>
-            <Button
-              onClick={() => handleRun(profile.websiteUrl, profile.companyName)}
-              disabled={runMutation.isPending}
-              data-testid="button-retry-intelligence"
-            >
-              {runMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-              Retry Research
-            </Button>
+            {editingSource ? (
+              <BrandSourceForm
+                initialWebsiteUrl={profile.websiteUrl}
+                initialCompanyName={profile.companyName}
+                isPending={runMutation.isPending}
+                isEditing
+                onSubmit={handleRun}
+                onCancel={() => setEditingSource(false)}
+              />
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => handleRun(profile.websiteUrl, profile.companyName)}
+                  disabled={runMutation.isPending}
+                  data-testid="button-retry-intelligence"
+                >
+                  {runMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Retry Research
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditingSource(true)}
+                  disabled={runMutation.isPending}
+                  data-testid="button-edit-source"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit source
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -421,6 +552,16 @@ export default function BrandIntelligencePage() {
               ? <><CheckCircle2 className="w-3 h-3 mr-1" />Active</>
               : <><AlertTriangle className="w-3 h-3 mr-1" />Partial</>}
           </Badge>
+           <Button
+             size="sm"
+             variant="outline"
+             onClick={() => setEditingSource(true)}
+             disabled={runMutation.isPending}
+             data-testid="button-edit-source"
+           >
+             <Pencil className="w-3.5 h-3.5 mr-1.5" />
+             Edit source
+           </Button>
           <Button
             size="sm"
             variant="outline"
@@ -436,6 +577,27 @@ export default function BrandIntelligencePage() {
           </Button>
         </div>
       </div>
+
+      {editingSource && (
+        <Card data-testid="card-edit-source">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Edit brand source</CardTitle>
+            <CardDescription>
+              Update the website or company name, then run brand intelligence again with the new source.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BrandSourceForm
+              initialWebsiteUrl={profile.websiteUrl}
+              initialCompanyName={profile.companyName}
+              isPending={runMutation.isPending}
+              isEditing
+              onSubmit={handleRun}
+              onCancel={() => setEditingSource(false)}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Impact callout */}
       <div className={`border rounded-md px-4 py-3 text-sm ${profile.status === "complete" ? "bg-primary/5 border-primary/10 text-muted-foreground" : "bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/20 dark:border-amber-900"}`}>

@@ -1,0 +1,25 @@
+{
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "index": 0,
+            "codec_name": "mp3",
+            "codec_long_name": "MP3 (MPEG audio layer 3)",
+            "codec_type": "audio",
+            "sample_rate": "24000",
+            "channels": 1,
+            "channel_layout": "mono",
+            "duration": "204.384000",
+            "bit_rate": "128000"
+        }
+    ],
+    "format": {
+        "format_name": "mp3",
+        "format_long_name": "MP2/3 (MPEG audio layer 2/3)",
+        "duration": "204.384000",
+        "size": "3270144",
+        "bit_rate": "128000"
+    }
+}

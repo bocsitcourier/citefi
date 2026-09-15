@@ -111,7 +111,14 @@ export async function POST(request: NextRequest) {
 
     const [locked] = await db
       .update(socialPosts)
-      .set({ videoType, videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
+      .set({
+        videoType,
+        videoStatus: "GENERATING",
+        videoProgress: 0,
+        videoStage: "queued",
+        videoBillingSettledAt: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(socialPosts.id, socialPostId),
@@ -200,7 +207,23 @@ export async function POST(request: NextRequest) {
 
     let jobId: string | null;
     try {
-      jobId = await addVideoGenerationJob({ socialPostId, platform, videoType, teamId, creditRunId });
+      // Persist the exact billing identities before Redis accepts the job. A
+      // worker/recovery scan must be able to settle this same cap hold even if
+      // the process dies immediately after enqueue.
+      await db.update(socialPosts)
+        .set({
+          videoCreditRunId: creditRunId,
+          videoCapReservationId: capReservationId ?? null,
+        })
+        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
+      jobId = await addVideoGenerationJob({
+        socialPostId,
+        platform,
+        videoType,
+        teamId,
+        creditRunId,
+        capReservationId,
+      });
       if (!jobId) throw new Error("BullMQ returned null — queue may be unhealthy");
     } catch (sendError) {
       await releaseVideoSlot(userId).catch(() => {});
@@ -209,7 +232,14 @@ export async function POST(request: NextRequest) {
       if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
       await db
         .update(socialPosts)
-        .set({ videoStatus: "FAILED", videoProgress: 0, videoStage: null, errorMessage: `Failed to queue video job: ${errMsg}` })
+        .set({
+          videoStatus: "FAILED",
+          videoProgress: 0,
+          videoStage: null,
+          videoCreditRunId: null,
+          videoCapReservationId: null,
+          errorMessage: `Failed to queue video job: ${errMsg}`,
+        })
         .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)));
       await releaseReservation({
         teamId,
@@ -218,16 +248,6 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
       throw sendError;
     }
-
-    // Persist the creditRunId and capReservationId so recovery can settle them
-    // if the job gets stuck (videoStatus stuck at GENERATING after a restart).
-    await db.update(socialPosts)
-      .set({
-        videoCreditRunId: creditRunId,
-        videoCapReservationId: capReservationId ?? null,
-      })
-      .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamId)))
-      .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId/capReservationId for post ${socialPostId}:`, e));
 
     console.log(`✅ Video generation job queued successfully: ${jobId}`);
     return NextResponse.json({

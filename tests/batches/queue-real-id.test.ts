@@ -6,6 +6,8 @@ import {
   articleGenerationJobId,
   articleQueueJobId,
   batchGenerationJobId,
+  dailyBriefGenerationJobId,
+  enqueueDailyBriefJob,
   enqueueBatchGenerationJob,
   findArticleGenerationJob,
   imageGenerationJobId,
@@ -47,6 +49,36 @@ void test("installed BullMQ accepts stable batch, article, and image IDs", async
       queue.add("legacy-invalid", {}, { jobId: "batch:280" }),
       /Custom Id cannot contain :/,
     );
+
+    // Exercise the real local Redis path without starting any provider worker.
+    const briefQueue = new Queue(`daily-brief-id-regression-${Date.now()}`, {
+      connection: redis,
+    });
+    try {
+      const briefId = await enqueueDailyBriefJob(briefQueue, {
+        userId: 1,
+        teamId: 1,
+        localDate: "2099-01-02",
+        force: true,
+      });
+      assert.equal(
+        briefId,
+        dailyBriefGenerationJobId(1, "2099-01-02", true),
+      );
+      assert.ok(briefId && !briefId.includes(":"));
+      assert.ok(await briefQueue.getJob(briefId));
+      await assert.rejects(
+        briefQueue.add(
+          "legacy-invalid-brief",
+          {},
+          { jobId: "daily-brief:1:2099-01-02" },
+        ),
+        /Custom Id cannot contain :/,
+      );
+    } finally {
+      await briefQueue.obliterate({ force: true });
+      await briefQueue.close();
+    }
   } finally {
     await queue.obliterate({ force: true });
     await queue.close();

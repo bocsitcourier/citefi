@@ -27,6 +27,7 @@ export interface VideoIdeaGenerationDependencies {
   assertRunBudget?: typeof import("@/lib/cost-ceilings").assertRunBudget;
   orchestrate?: typeof orchestrateVideoIdeaGeneration;
   debitReservation?: typeof import("@/lib/billing").debitReservation;
+  completeCapReservation?: typeof import("@/lib/usage-caps").completeCapReservation;
   recordUsageEvent?: typeof import("@/lib/usage-caps").recordUsageEvent;
   recordContentGenerated?: typeof import("@/lib/learning-integration").recordContentGenerated;
   notifyVideoComplete?: typeof notifyVideoComplete;
@@ -73,8 +74,21 @@ export async function processVideoIdeaGenerationJob(
             .where(eq(videoIdeas.id, videoIdeaId));
         }
 
+        // The job payload is the fast path, while the durable idea row is the
+        // recovery source of truth. Legacy/recovered jobs may omit one or both
+        // billing identifiers, but must still settle the original hold.
+        const effectiveCreditRunId = idea.videoCreditRunId ?? creditRunId;
+        const effectiveCapReservationId =
+          idea.videoCapReservationId ?? job.data.capReservationId ?? null;
         const settlementOnly =
-          Boolean(creditRunId) && idea.status === "READY" && Boolean(idea.videoUrl);
+          idea.status === "READY" && Boolean(idea.videoUrl);
+
+        // An acknowledgement lost after settlement must not regenerate media
+        // or insert another usage event. The durable timestamp is written only
+        // after debit + cap/event settlement succeeds.
+        if (settlementOnly && idea.videoBillingSettledAt) {
+          return { success: true, videoUrl: idea.videoUrl };
+        }
 
         if (!settlementOnly) {
           // Generation-only prerequisites must never run during settlement
@@ -98,11 +112,11 @@ export async function processVideoIdeaGenerationJob(
 
           // Cost ceiling gate stays inside the processor try/catch so a genuine
           // generation failure receives domain cleanup before wrapper policy.
-          if (creditRunId) {
+          if (effectiveCreditRunId) {
             const assertRunBudget =
               dependencies.assertRunBudget ??
               (await import("@/lib/cost-ceilings")).assertRunBudget;
-            await assertRunBudget(creditRunId, "video", "video_gen");
+            await assertRunBudget(effectiveCreditRunId, "video", "video_gen");
           }
         }
 
@@ -132,7 +146,7 @@ export async function processVideoIdeaGenerationJob(
         console.log(`✅ Video idea generation complete: ${result.videoUrl}`);
 
         // Two-bucket billing: DEBIT reservation on success
-        if (creditRunId && idea.teamId) {
+        if (effectiveCreditRunId && idea.teamId) {
           const debitReservation =
             dependencies.debitReservation ??
             (await import("@/lib/billing")).debitReservation;
@@ -140,7 +154,7 @@ export async function processVideoIdeaGenerationJob(
           try {
             debitResult = await debitReservation({
               teamId: idea.teamId,
-              runId: creditRunId,
+              runId: effectiveCreditRunId,
               jobId: job.id,
             });
           } catch (debitError) {
@@ -148,33 +162,99 @@ export async function processVideoIdeaGenerationJob(
               debitError instanceof Error ? debitError.message : String(debitError);
             throw new BillingSettlementError(
               `Debit settlement threw for video idea ${videoIdeaId}: ${debitMessage}`,
-              creditRunId,
+              effectiveCreditRunId,
               debitError
             );
           }
           if (!debitResult.ok) {
             console.error(
-              `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${creditRunId}). ` +
+              `[billing] DEBIT_FAILED for video idea ${videoIdeaId} (teamId=${idea.teamId} runId=${effectiveCreditRunId}). ` +
               `Video was generated but debit failed — throwing so BullMQ can retry the debit.`
             );
             throw new BillingSettlementError(
               `Debit settlement failed for video idea ${videoIdeaId}`,
-              creditRunId
+              effectiveCreditRunId
             );
           }
           console.log(`[billing] Debited ${debitResult.fromAllowance + debitResult.fromPurchased} credits for video idea ${videoIdeaId}`);
-          // Record completed usage event — populates spending cap meter so caps can trip.
-          const recordUsageEvent =
-            dependencies.recordUsageEvent ??
-            (await import("@/lib/usage-caps")).recordUsageEvent;
-          await recordUsageEvent({
-            teamId: idea.teamId,
-            action: "video",
-            units: 1,
-            costEstimateCents: 15,
-            jobId: String(job.id ?? ""),
-            metadata: { videoIdeaId },
-          }).catch((err: unknown) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal):`, err));
+          if (effectiveCapReservationId != null) {
+            // Convert the original pending hold in place. Inserting a separate
+            // completed event here would double-count the same video.
+            const { capReservationSettlementJobId } = await import("@/lib/usage-caps");
+            const completeCapReservation =
+              dependencies.completeCapReservation ??
+              (await import("@/lib/usage-caps")).completeCapReservation;
+            try {
+              await completeCapReservation({
+                reservationId: effectiveCapReservationId,
+                teamId: idea.teamId,
+                jobId: capReservationSettlementJobId(effectiveCapReservationId),
+                metadata: { videoIdeaId, sourceJobId: String(job.id ?? "") },
+              });
+            } catch (cause) {
+              // The video is already durable; retry only this settlement path,
+              // never the provider orchestration.
+              throw new BillingSettlementError(
+                `Cap settlement failed for delivered video idea ${videoIdeaId}`,
+                effectiveCreditRunId,
+                cause
+              );
+            }
+          } else {
+            // Legacy/unlimited jobs have no pending cap row to settle.
+            const recordUsageEvent =
+              dependencies.recordUsageEvent ??
+              (await import("@/lib/usage-caps")).recordUsageEvent;
+            await recordUsageEvent({
+              teamId: idea.teamId,
+              action: "video",
+              units: 1,
+              costEstimateCents: 15,
+              jobId: String(job.id ?? ""),
+              metadata: { videoIdeaId },
+            }).catch((err: unknown) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal):`, err));
+          }
+          try {
+            await db.update(videoIdeas)
+              .set({ videoBillingSettledAt: new Date(), updatedAt: new Date() })
+              .where(eq(videoIdeas.id, videoIdeaId));
+          } catch (cause) {
+            throw new BillingSettlementError(
+              `Billing checkpoint failed for delivered video idea ${videoIdeaId}`,
+              effectiveCreditRunId,
+              cause
+            );
+          }
+        } else if (effectiveCapReservationId != null && idea.teamId) {
+          const { capReservationSettlementJobId } = await import("@/lib/usage-caps");
+          const completeCapReservation =
+            dependencies.completeCapReservation ??
+            (await import("@/lib/usage-caps")).completeCapReservation;
+          try {
+            await completeCapReservation({
+              reservationId: effectiveCapReservationId,
+              teamId: idea.teamId,
+              jobId: capReservationSettlementJobId(effectiveCapReservationId),
+              metadata: { videoIdeaId, sourceJobId: String(job.id ?? "") },
+            });
+          } catch (cause) {
+            throw new BillingSettlementError(
+              `Cap settlement failed for delivered video idea ${videoIdeaId}`,
+              undefined,
+              cause
+            );
+          }
+          try {
+            await db.update(videoIdeas)
+              .set({ videoBillingSettledAt: new Date(), updatedAt: new Date() })
+              .where(eq(videoIdeas.id, videoIdeaId));
+          } catch (cause) {
+            throw new BillingSettlementError(
+              `Billing checkpoint failed for delivered video idea ${videoIdeaId}`,
+              undefined,
+              cause
+            );
+          }
         }
 
         // Record content generation metrics so Thompson Sampling can learn for video
@@ -292,15 +372,23 @@ export async function processVideoIdeaGenerationJob(
 export async function getVideoIdeaGenerationBilling(
   job: Pick<Job<VideoIdeaJobData>, "data">
 ) {
-  if (!job.data.creditRunId) return null;
-  const [ideaRow] = await db.select({ teamId: videoIdeas.teamId })
+  const [ideaRow] = await db.select({
+    teamId: videoIdeas.teamId,
+    videoCreditRunId: videoIdeas.videoCreditRunId,
+    videoCapReservationId: videoIdeas.videoCapReservationId,
+  })
     .from(videoIdeas)
     .where(eq(videoIdeas.id, job.data.videoIdeaId))
     .limit(1);
+  const runId = ideaRow?.videoCreditRunId ?? job.data.creditRunId;
+  if (!runId && ideaRow?.videoCapReservationId == null && job.data.capReservationId == null) {
+    return null;
+  }
   return {
     teamId: ideaRow?.teamId,
-    runId: job.data.creditRunId,
+    runId,
     reason: `Video idea generation failed for ID ${job.data.videoIdeaId}`,
+    capReservationId: ideaRow?.videoCapReservationId ?? job.data.capReservationId ?? null,
   };
 }
 

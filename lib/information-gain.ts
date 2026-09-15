@@ -26,6 +26,7 @@
 import { db } from "./db";
 import { articles } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
+import { validateArticleOutput } from "./article-output-safety";
 
 const GATE_THRESHOLDS = {
   PASSED: 55,   // novel enough to publish
@@ -89,17 +90,23 @@ export async function scoreInformationGain(
   teamId: number,
   excludeId?: number
 ): Promise<InformationGainResult> {
-  // Null/empty guard — treat missing content as novel (do not block)
+  // Missing content is a failed editorial input, not novel content.  Treating
+  // it as PASSED allowed an empty/debug response to receive a publishable
+  // quality-gate status.
   if (!newHtml || newHtml.trim().length === 0) {
-    return { score: 75, status: "PASSED", blocked: false };
+    return { score: 0, status: "BLOCKED", blocked: true };
+  }
+  const outputValidation = validateArticleOutput(newHtml, { format: "auto" });
+  if (!outputValidation.valid) {
+    return { score: 0, status: "BLOCKED", blocked: true };
   }
 
   const newText = stripHtml(newHtml);
   const newBigrams = toBigrams(newText);
 
   if (newBigrams.size < 20) {
-    // Article too short to meaningfully score → assume novel
-    return { score: 75, status: "PASSED", blocked: false };
+    // Article too short to meaningfully score → fail closed.
+    return { score: 0, status: "BLOCKED", blocked: true };
   }
 
   // Fetch the 30 most-recent COMPLETE articles for this team.

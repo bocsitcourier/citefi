@@ -1,0 +1,122 @@
+{
+  "phase": "single-normal-article-regeneration-quality-retest",
+  "status": "FAIL",
+  "capturedAt": "2026-09-14",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "articleId": 2235,
+  "input": {
+    "title": "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+    "requestedTopic": "Educational Boston winter home energy audit checklist",
+    "requestedWordRange": "500-800",
+    "customInstructions": "Clean coherent educational article; no prompt/internal reasoning/debug/raw JSON; no BPI/certification, warranty, affiliation, guaranteed savings, or rebate eligibility claims.",
+    "brandReadiness": "Brand Intelligence profile remained FAILED; no brand retry or separate article source run was performed."
+  },
+  "uiJourney": {
+    "route": "/content/2235",
+    "precondition": "Existing article was COMPLETE with known prompt/debug residue.",
+    "action": "Normal View/Edit -> Regenerate -> Regenerate Article",
+    "submissionCount": 1,
+    "retryFailedPathUsed": false,
+    "podcastCalled": false,
+    "videoCalled": false,
+    "publishingCalled": false
+  },
+  "worker": {
+    "articleRunId": 1976,
+    "runId": "9d3ce79b-6df6-c9eb-9d28-3c2408e6c94a",
+    "runType": "regeneration",
+    "billingAmountCredits": 10,
+    "billingRunId": "article-regeneration:2235:55638e143836ab652628a32ec04374541d60c5f17b415801cdac129ccba4197d",
+    "billingJobId": "article-run-09d12774ca83dfa8305dc37f",
+    "intermediateStatus": {
+      "articleStatus": "GEMINI_COMPLETE",
+      "observedAt": "2026-09-14T23:18:55Z",
+      "note": "Intermediate only; no terminal verdict was made at this phase."
+    },
+    "terminal": {
+      "articleRunStatus": "failed",
+      "articleRunCompletedAt": "2026-09-14T23:21:42.649Z",
+      "finalArticleStatus": "CHATGPT_REVIEWED",
+      "settlementAttempts": 0,
+      "settlementLastError": null,
+      "terminalError": "No explicit article-run error string was persisted; terminal DB status is failed after final CHATGPT_REVIEWED stage. Server logs show SEO-context JSON parse failure was recovered with cache miss, Gemini lite refinement 404 was recovered using cleaned content, quality score 69/100, BRAND_POLICY_MISSING, and 2 unverifiable claims flagged.",
+      "note": "The run is terminal failed; it was not treated as complete merely because GEMINI_COMPLETE appeared."
+    },
+    "observedStatus": "GEMINI_COMPLETE",
+    "providerEvent": {
+      "id": "333",
+      "operationType": "article_generation",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash",
+      "unitCount": 17825,
+      "costMicrousd": "7443",
+      "providerRequestId": "rYCoaqHIDrau39IPnbDvkQg",
+      "occurredAt": "2026-09-14T23:18:50.409Z"
+    },
+    "providerLedgerRunEventSummary": {
+      "eventIdsObserved": "332-343",
+      "eventCount": 12,
+      "lastEvent": {
+        "id": "343",
+        "provider": "openai",
+        "operationType": "other",
+        "occurredAt": "2026-09-14T23:21:42.538Z"
+      },
+      "note": "Provider usage was observed through the terminal timestamp; no additional generation was submitted."
+    },
+    "serverObservations": [
+      "Gemini generation and critique completed; critique quality score 69/100.",
+      "AI refinement logged a 404 because gemini-2.5-flash-lite is unavailable to new users; worker used cleaned content.",
+      "BRAND_POLICY_MISSING was logged and 2 unverifiable claims were flagged for human review."
+    ]
+  },
+  "output": {
+    "status": "GEMINI_COMPLETE",
+    "wordCount": 844,
+    "seoTitle": "Boston Winter Home Energy Audit: DIY Checklist Guide",
+    "slug": "boston-winter-home-energy-audit-checklist",
+    "faqCount": 5,
+    "keywordLinkCount": 6,
+    "hashtagCount": 12,
+    "heroImageVisible": true,
+    "heroSectionInconsistency": "Hero Image section says No Hero Image / being generated while Your Images contains one Hero Image preview.",
+    "contentQualityFailures": [
+      "844 words exceeds the requested 500-800 range.",
+      "Rendered body contains malformed URLs such as (https://www. Energy. Gov/energysaver).",
+      "Rendered output contains promotional Harbor Home Energy wording: 'Harbor Home Energy provides...' and 'Contact Harbor Home Energy online...'.",
+      "Server logged BRAND_POLICY_MISSING and two unverifiable claims."
+    ],
+    "forbiddenPromptDebugRawJsonScan": {
+      "internalReasoningOrPromptDebug": "not observed in refreshed rendered output",
+      "rawJson": "not observed in refreshed rendered output",
+      "unsupportedBpiWarrantyGuaranteedSavingsClaims": "not observed in refreshed rendered output; output still fails other quality/policy requirements"
+    }
+  },
+  "billing": {
+    "providerCostUsd": 0.007443,
+    "usageEventId": 9,
+    "usageEventAction": "cap_reservation",
+    "usageEventCostEstimateCents": 10,
+    "usageEventStatus": "not present in final usage-event result for this run; prior intermediate observation was pending cap_reservation id 9",
+    "articlePageBalanceAfter": 4989,
+    "sidebarBalanceAfter": 4999,
+    "billingReconciliation": "Terminal run has billing_amount=10, settlement_attempts=0, settlement_last_error=null. Final credit debit/settlement was not proven from the available ledger rows; do not infer failure from the stale sidebar balance.",
+    "withinTwoUsdAllocation": true
+  },
+  "persistence": {
+    "browserRefresh": "Persisted GEMINI_COMPLETE output, 844-word count, SEO metadata, FAQs, links, hashtags, and hero preview were retrieved after refresh.",
+    "realGet": "GET /api/content/2235 returned the persisted generated article during the run.",
+    "export": "Not performed after quality failure; no publish/export side effect was triggered."
+  },
+  "evidence": {
+    "screenshots": [
+      "qanele",
+      "43uvjq",
+      "li7pfb",
+      "m4boxp"
+    ],
+    "reportVerdict": "FAIL",
+    "noRetryAfterFailure": true
+  }
+}

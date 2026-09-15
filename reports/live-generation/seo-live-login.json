@@ -1,0 +1,21 @@
+{
+  "method": "POST",
+  "route": "/api/auth/login",
+  "request": {
+    "email": "live-generation-qa-2026-09-10@example.invalid"
+  },
+  "status": 200,
+  "contentType": "application/json",
+  "ok": true,
+  "response": {
+    "message": "Login successful",
+    "user": {
+      "id": 10794,
+      "email": "live-generation-qa-2026-09-10@example.invalid",
+      "fullName": "Harbor Home Energy QA",
+      "role": "team_member",
+      "twoFactorEnabled": false
+    }
+  },
+  "authCookieReceived": true
+}

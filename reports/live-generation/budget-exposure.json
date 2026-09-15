@@ -13,6 +13,7 @@
   "incidentReference": {
     "batchId": 626,
     "articleId": 2235,
+    "incidentKey": "original-article-generation",
     "reportedCallTime": "2026-09-10T16:23:00Z",
     "model": "gemini-3.5-flash",
     "status": "unreconciled",
@@ -29,10 +30,12 @@
     "note": "This is the authoritative recorded team aggregate at observation time. It does not include a fabricated estimate for the unreconciled call."
   },
   "separateUnreconciledCallReserve": {
-    "reservedUsd": 5,
+    "reservedUsd": 6,
     "approvedTotalRealProviderSpendUsd": 50,
-    "knownRecordedCostPlusReserveUsd": 5.098597,
-    "remainingApprovedBudgetAfterKnownCostAndReserveUsd": 44.901403
+    "knownRecordedCostPlusReserveUsd": 6.098597,
+    "remainingApprovedBudgetAfterKnownCostAndReserveUsd": 43.901403,
+    "calculationScope": "Historical primary-team snapshot only; current shared-cap all-team actual and exposure remaining are authoritative in accounting.json.",
+    "allocation": "Combined reserve for two separately identified unresolved physical calls; no per-call expense estimate is asserted."
   },
   "teamControls": {
     "monthlySpendingCapCents": 5000,
@@ -82,17 +85,52 @@
     "outputFormula": "65536 * 2.50 / 1000000",
     "boundedMaximumUsd": 0.4784128,
     "boundedMaximumFormula": "(1048576 * 0.30 + 65536 * 2.50) / 1000000",
-    "extraConservativeHighestRateStressBoundUsd": 2.78528,
-    "extraConservativeHighestRateStressFormula": "(1048576 + 65536) * 2.50 / 1000000",
-    "reserveUsd": 5,
-    "reserveSufficient": true,
-    "reserveMarginAgainstBoundedMaximumUsd": 4.5215872,
-    "reserveMarginAgainstHighestRateStressBoundUsd": 2.21472,
-    "conclusion": "The $5 reserve exceeds both the strict input/output-limit maximum at the locked rates and a deliberately harsher bound that prices every permitted token at the higher output rate."
+    "singleCallExtraConservativeHighestRateStressBoundUsd": 2.78528,
+    "singleCallExtraConservativeHighestRateStressFormula": "(1048576 + 65536) * 2.50 / 1000000",
+    "singleCallStressBoundUsd": 2.78528,
+    "singleCallStressFormula": "(1048576 + 65536) * 2.50 / 1000000",
+    "reserveUsd": 6,
+    "reserveSufficientForSingleCallOnly": true,
+    "conclusion": "This is a single-call bound only. It must not be labeled as the combined bound for two unresolved calls."
   },
   "pricingEvidenceCaveat": {
     "observation": "Configured OpenAI token-rate rows currently carry the Gemini pricing evidence URL.",
     "codeEvidence": "migrations/0017_provider_usage_ledger.sql:63-76",
     "action": "No rate or evidence record was changed. Correction requires verified official OpenAI evidence and is outside this read-only follow-up."
+  },
+  "reservePolicy": {
+    "unresolvedReserveUsd": 6,
+    "purpose": "Separate reserve for two distinct unresolved physical calls; no provider ledger event or expense estimate is fabricated or backfilled.",
+    "incidents": [
+      {
+        "incidentKey": "original-article-generation",
+        "description": "Original article generation call reported at 2026-09-10T16:23:00Z; exact usage and provider request ID were lost.",
+        "model": "gemini-3.5-flash",
+        "ledgerRows": 0,
+        "modelLimitsConfirmedFromHarness": true,
+        "boundTreatment": "Single-call stress bound only; no expense estimate."
+      },
+      {
+        "incidentKey": "first-qa-audio-verification",
+        "description": "First QA audio/transcription verification attempt failed provider accounting before a ledger row; physical call outcome remains unreconciled/unknown.",
+        "model": null,
+        "ledgerRows": 0,
+        "modelLimitsConfirmedFromHarness": false,
+        "boundTreatment": "Cannot apply the single-call bound until the verification model and limits are confirmed from the harness; no expense estimate."
+      }
+    ],
+    "singleCallStressBoundUsd": 2.78528,
+    "conditionalCombinedStressUpperBoundUsd": 5.57056,
+    "conditionalCombinedStressFormula": "2 * 2.78528",
+    "combinedBoundConfirmed": false,
+    "combinedBoundStatus": "UNRESOLVED — only the original article model is confirmed; the first QA audio verification model/limits are not recorded by the harness.",
+    "coverageStatus": "UNRESOLVED_BOUND_NOT_CONFIRMED_PAUSE_REQUIRED",
+    "coverageRule": "The $6 reserve would exceed the conditional two-call stress upper bound only if both calls are confirmed to share the documented limits. Until that verification is recorded, keep the reserve separate and pause further paid calls.",
+    "pricedVerificationV2": {
+      "ledgerId": 395,
+      "status": "PRICED_AND_COUNTED_ONCE",
+      "treatment": "The verification-v2 provider ledger row is included once in the refreshed accounting aggregate; its artifact-reported cost is not added again."
+    },
+    "fallback": "If verification model limits cannot be confirmed from the harness, explicitly keep the combined bound unresolved, retain the $6 reserve outside provider-ledger actuals, and pause further paid submissions."
   }
 }

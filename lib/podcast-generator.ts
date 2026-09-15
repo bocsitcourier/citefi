@@ -8,6 +8,7 @@ import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizePodcastScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
+import { parsePodcastDuration } from "./podcast-duration";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -63,6 +64,12 @@ export async function generatePodcastScript(
     podcastId,
     competitiveIntel,
   } = options;
+  const durationRange = parsePodcastDuration(duration);
+  if (!durationRange) {
+    throw new Error(
+      `Unsupported podcast duration "${duration}". Supported ranges are 1-2, 3-4, or 5-7 minutes`,
+    );
+  }
   if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
     throw new Error("Podcast generation requires a validated teamId");
   }
@@ -114,6 +121,7 @@ ${brandLockContext}
 
 **Requirements:**
 - Duration: ${duration}
+- Keep the complete spoken narration at or below ${durationRange.maxWords} words. Never exceed this limit.
 - Tone: ${tone}
 - Industry: ${industry}
 - Two hosts: Host 1 (Female voice - warm, enthusiastic, storyteller) and Host 2 (Male voice - insightful, witty, asks great questions)

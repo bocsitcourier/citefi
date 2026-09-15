@@ -6,6 +6,10 @@
  * - Brand consistency and validation
  * - Evergreen vs campaign-specific hashtag mix
  */
+import {
+  canonicalizePlatform,
+  UnsupportedSocialPlatformError,
+} from "./social-validation";
 
 export interface PlatformGuidance {
   platform: string;
@@ -244,34 +248,9 @@ export function createBrandValidationPrompt(companyName: string): string {
  */
 export function normalizePlatform(platform?: string): string {
   if (!platform) return 'x';
-  
-  const normalized = platform.toLowerCase().trim();
-  
-  // Map all common variations to canonical platform keys
-  const platformMap: Record<string, string> = {
-    // LinkedIn variations
-    'linkedin': 'linkedin',
-    
-    // Instagram variations
-    'instagram': 'instagram',
-    'ig': 'instagram',
-    
-    // Facebook variations
-    'facebook': 'facebook',
-    'fb': 'facebook',
-    
-    // X/Twitter variations
-    'x': 'x',
-    'twitter': 'x',
-    'x/twitter': 'x',
-    'twitter/x': 'x',
-    
-    // Pinterest variations
-    'pinterest': 'pinterest',
-    'pin': 'pinterest'
-  };
-  
-  return platformMap[normalized] || 'x'; // Default to x if unknown
+  const canonical = canonicalizePlatform(platform);
+  if (!canonical) throw new UnsupportedSocialPlatformError(platform);
+  return canonical;
 }
 
 /**

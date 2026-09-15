@@ -1,0 +1,58 @@
+{
+  "phase": "existing-title-pool-readback",
+  "status": "PASS_WITH_UI_LIMITATION",
+  "capturedAt": "2026-09-15",
+  "identity": "live-generation-qa-2026-09-10@example.invalid",
+  "teamId": 2535,
+  "batchId": 626,
+  "providerSpend": {
+    "providerCallsInitiated": 0,
+    "paidOperations": 0,
+    "postTitlePoolCalled": false,
+    "note": "Only an authenticated GET readback and ordinary UI page loads were used. No title-pool POST, selection, generation, or paid operation was performed."
+  },
+  "readback": {
+    "method": "Authenticated ordinary API GET /api/batches/626",
+    "httpStatus": 200,
+    "batchStatus": "RUNNING",
+    "hasTitlePool": true,
+    "titleCount": 5,
+    "titles": [
+      "How to Run a Boston, Massachusetts Home Energy Audit: Winter Checklist",
+      "How Much Does a Boston, Massachusetts Home Energy Audit Cost? 2026 Price Analysis",
+      "Why Boston, Massachusetts Homes Need a Winter Energy Audit: Expert FAQ Guide",
+      "South End Boston, Massachusetts Winter Energy Audit Guide for Historic Homes",
+      "What Winter Energy Audit Options Exist in Boston, Massachusetts? 2026 Expert Guide"
+    ]
+  },
+  "uiReadback": {
+    "status": "LIMITED_BY_RUNNING_STATE",
+    "selectRoute": "/batches/626/select",
+    "observed": "Authenticated ordinary UI displayed Batch Already Submitted and This batch has already been submitted and is currently running. No title-selection pool was rendered and no selection/generation controls were used.",
+    "statusRoute": "/batches/626",
+    "observed": "Authenticated ordinary batch status UI displayed batch title Boston Home Energy Audit Checklist Before Winter, status RUNNING, Total 1, Completed 0, In Progress 1, Pending 0, Failed 0, and 0 of 1 articles completed. The title pool itself was not shown while the batch was running.",
+    "refreshPersistence": {
+      "action": "Browser reload of /batches/626",
+      "result": "Authentication persisted; batch 626 remained RUNNING with the same in-progress counts and the same existing article listing. The pool remained hidden by the running-state UI.",
+      "apiPersistence": "The same existing five-title pool had already been retrieved by the authenticated GET before and remained the readback source; no new write occurred."
+    }
+  },
+  "safety": {
+    "titlesSelected": false,
+    "generateSubmitted": false,
+    "titlePoolPostCalled": false,
+    "article2235Opened": false,
+    "stopGenerationClicked": false,
+    "refreshButtonClicked": false,
+    "workflowRestarted": false
+  },
+  "evidence": {
+    "screenshots": [
+      "bd3dqu",
+      "reqeq9",
+      "nx61cu"
+    ],
+    "apiConsoleEvidence": "Safe authenticated GET logged httpStatus 200, batchId 626, batchStatus RUNNING, titleCount 5, hasTitlePool true, and the exact five strings above.",
+    "uiLimitation": "The ordinary selection UI intentionally hid the pool because the existing batch was already submitted and still RUNNING; no route was invented and no POST/title-pool generation was attempted."
+  }
+}

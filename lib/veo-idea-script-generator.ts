@@ -114,6 +114,184 @@ export interface IdeaVideoClip {
   visualCue: string;
 }
 
+/**
+ * A provider response that cannot satisfy the script contract is not safely
+ * retryable as-is. In particular, a MAX_TOKENS response must never be run
+ * through a JSON repair heuristic: doing so can manufacture a script that
+ * looks complete while silently dropping clips or fields before Veo.
+ */
+export class VideoScriptContractError extends Error {
+  readonly code = "MODEL_OUTPUT_INVALID" as const;
+
+  constructor(message: string, cause?: unknown) {
+    super(`[script_generation] ${message}`, { cause });
+    this.name = "VideoScriptContractError";
+  }
+}
+
+interface GeminiScriptResponseLike {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: Array<{
+        text?: string;
+        thought?: boolean;
+      }>;
+    };
+  }>;
+  text?: string;
+}
+
+const IDEA_VIDEO_SCRIPT_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    totalDuration: { type: "number", minimum: 60, maximum: 60 },
+    companyName: { type: "string" },
+    style: {
+      type: "string",
+      enum: ["cinematic", "comedy", "emotional", "tech", "minimal", "retro", "luxury", "action"],
+    },
+    tone: {
+      type: "string",
+      enum: ["professional", "playful", "inspirational", "urgent", "mysterious", "friendly"],
+    },
+    clips: {
+      type: "array",
+      minItems: 10,
+      maxItems: 10,
+      items: {
+        type: "object",
+        properties: {
+          sceneNumber: { type: "integer", minimum: 1, maximum: 10 },
+          targetDuration: { type: "number", minimum: 6, maximum: 6 },
+          beat: {
+            type: "string",
+            enum: ["hook", "problem", "solution", "benefits", "proof", "cta"],
+          },
+          prompt: { type: "string" },
+          narration: { type: "string" },
+          visualCue: { type: "string" },
+        },
+        required: [
+          "sceneNumber",
+          "targetDuration",
+          "beat",
+          "prompt",
+          "narration",
+          "visualCue",
+        ],
+      },
+    },
+  },
+  required: ["title", "totalDuration", "companyName", "style", "tone", "clips"],
+} as const;
+
+function assertScriptResponseFinished(
+  response: GeminiScriptResponseLike
+): void {
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && String(finishReason).toUpperCase() !== "STOP") {
+    throw new VideoScriptContractError(
+      `Gemini script response ended with finishReason=${finishReason}; refusing incomplete output`
+    );
+  }
+}
+
+/**
+ * Extract only answer parts from the SDK response. The SDK's `response.text`
+ * accessor currently excludes thoughts, but doing this explicitly keeps the
+ * contract safe if a mocked/older SDK response exposes thought parts directly.
+ */
+export function extractIdeaScriptResponseText(
+  response: GeminiScriptResponseLike
+): string {
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  const answerText = parts
+    .filter((part) => part.thought !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  return (answerText || response.text || "").trim();
+}
+
+function stripJsonCodeFence(text: string): string {
+  return text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+}
+
+function parseIdeaVideoScriptJson(text: string): IdeaVideoScript {
+  if (!text) {
+    throw new VideoScriptContractError("Gemini returned an empty script response");
+  }
+
+  let script: IdeaVideoScript;
+  try {
+    // Never call jsonrepair here. A truncated response must remain a visible
+    // phase error rather than becoming a fabricated complete script.
+    script = JSON.parse(text) as IdeaVideoScript;
+  } catch (error) {
+    throw new VideoScriptContractError(
+      `Gemini returned malformed or truncated script JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error
+    );
+  }
+
+  if (
+    !script ||
+    typeof script !== "object" ||
+    typeof script.title !== "string" ||
+    script.totalDuration !== 60 ||
+    typeof script.companyName !== "string" ||
+    typeof script.style !== "string" ||
+    typeof script.tone !== "string" ||
+    !Array.isArray(script.clips) ||
+    script.clips.length !== 10
+  ) {
+    throw new VideoScriptContractError(
+      `Gemini script failed the complete 10-clip response contract (got ${
+        Array.isArray(script?.clips) ? script.clips.length : 0
+      } clips)`
+    );
+  }
+
+  const invalidClip = script.clips.find(
+    (clip) =>
+      !clip ||
+      typeof clip.sceneNumber !== "number" ||
+      typeof clip.targetDuration !== "number" ||
+      typeof clip.beat !== "string" ||
+      typeof clip.prompt !== "string" ||
+      typeof clip.narration !== "string" ||
+      typeof clip.visualCue !== "string"
+  );
+  if (invalidClip) {
+    throw new VideoScriptContractError(
+      "Gemini script contained an incomplete clip object"
+    );
+  }
+
+  return script;
+}
+
+/**
+ * Pure response-contract entry point used by the generator and regression
+ * tests. It validates finishReason before parsing, excludes thought parts, and
+ * refuses any malformed/truncated JSON without repairing it.
+ */
+export function parseIdeaVideoScriptResponse(
+  response: GeminiScriptResponseLike
+): IdeaVideoScript {
+  assertScriptResponseFinished(response);
+  return parseIdeaVideoScriptJson(
+    stripJsonCodeFence(extractIdeaScriptResponseText(response))
+  );
+}
+
 // Hyper-realistic visual modifiers for each style - enhanced for maximum realism
 const STYLE_VISUAL_MODIFIERS: Record<VideoStyle, string> = {
   cinematic: "hyper-realistic, photorealistic, 8K ultra HD, cinematic lighting, epic scale, dramatic camera movement, film grain, shallow depth of field, golden hour, sweeping crane shots, lifelike textures, professional cinematography",
@@ -230,7 +408,7 @@ PROMPT ENGINEERING RULES (CRITICAL):
 4. SAFETY EXCLUSIONS (MANDATORY FOR ALL PROMPTS): "no text, no logos, no watermarks, no signage, no written words, no brand marks"
 5. DURATION: Structure for 6 seconds: 0-1.5s setup, 1.5-5s main action, 5-6s transition
 
-NARRATION RULES (STRICT TIMING - 60 SECOND VIDEO, NATURAL SPEECH):
+ NARRATION RULES (STRICT TIMING - 60 SECOND VIDEO, NATURAL SPEECH):
 - Use ${toneNarration} delivery
 - TOTAL WORD COUNT: Maximum 150 words across all 10 clips (allows 60s at 2.5 words/second)
 - Clips 1-8: 10-13 words per clip MAXIMUM (80-104 words total for clips 1-8)
@@ -246,6 +424,8 @@ NATURAL SPEECH REQUIREMENTS (CRITICAL FOR TTS):
 - Website mentions: Write "${website || 'our website'}" naturally in sentences, not as standalone URLs
 - Company name "${companyName}" should flow naturally in speech patterns
 - NO bullet points or list-style narration - write flowing conversational sentences
+ - Keep each visual prompt under 45 words and each visualCue under 12 words.
+ - Keep each narration within its clip word budget; do not add explanations outside the JSON object.
 
 HYPER-REALISTIC VISUAL REQUIREMENTS (CRITICAL):
 - ALL prompts MUST include: "hyper-realistic, photorealistic, 8K ultra HD, lifelike textures"
@@ -280,12 +460,22 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     const startedAt = Date.now();
     let response;
     try {
-      response = await genAI.models.generateContent({
+     response = await genAI.models.generateContent({
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           temperature: 0.7,
-          maxOutputTokens: 4000,
+          // Ten clips contain substantially more JSON than a one-shot answer.
+          // Keep the budget bounded, but leave room for every required field.
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          responseSchema: IDEA_VIDEO_SCRIPT_RESPONSE_SCHEMA,
+          // Do not spend the output budget on hidden thought parts. The
+          // parser also excludes thought parts defensively for older SDKs.
+          thinkingConfig: {
+            includeThoughts: false,
+            thinkingBudget: 0,
+          },
         },
       });
     } catch (error) {
@@ -308,17 +498,11 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
       extractGeminiUsage(response), Date.now() - startedAt, true
     );
 
-    const text = (response.text || "").trim();
-    
-    if (!text) {
-      throw new Error("Empty response from Gemini API");
-    }
-    
-    let cleanedText = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
+     // Check completion before parsing. MAX_TOKENS/Safety/etc. can leave a
+     // syntactically repairable prefix that is not a complete script.
+     assertScriptResponseFinished(response);
+     const text = extractIdeaScriptResponseText(response);
+     let cleanedText = stripJsonCodeFence(text);
 
     if (companyName) {
       console.log(`🔧 Auto-correcting brand name case: "${companyName}"`);
@@ -330,17 +514,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
       cleanedText = cleanedText.replace(caseInsensitiveRegex, companyName);
     }
 
-    let script: IdeaVideoScript;
-    try {
-      script = JSON.parse(cleanedText);
-    } catch (parseError) {
-      console.error("Failed to parse Gemini response as JSON:", cleanedText.substring(0, 500));
-      throw new Error(`Invalid JSON from Gemini: ${parseError}`);
-    }
-    
-    if (!script.clips || script.clips.length !== 10) {
-      throw new Error(`Expected 10 clips, got ${script.clips?.length || 0}`);
-    }
+     const script = parseIdeaVideoScriptJson(cleanedText);
 
     if (companyName) {
       const validationResult = validateBrandInOutput(cleanedText, companyName);
@@ -432,6 +606,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     return script;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (error instanceof VideoScriptContractError) throw error;
     console.error("Error generating idea video script:", error);
     throw new Error(`Failed to generate idea video script: ${error}`);
   }

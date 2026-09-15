@@ -22,20 +22,30 @@ import {
   currentTenantTeamId,
   isBillingSettlementError,
 } from "./pipeline-worker";
-import { PLATFORM_LIMITS, PLATFORM_ASPECT_RATIOS } from "./social-validation";
+import {
+  canonicalizePlatforms,
+  enforceSocialCaptionWithHashtags,
+  findInvalidSocialUrls,
+  isValidSocialUrl,
+  PLATFORM_LIMITS,
+  PLATFORM_ASPECT_RATIOS,
+} from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator, sampleArmForType } from "./generation-orchestrator";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { objectStorageClient } from "./storage";
+import { normalizeSocialImage } from "./social-image-normalizer";
+import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
 
-// Platform character limits
-const CHAR_LIMITS = {
-  x: 280,
-  facebook: 63206,
-  instagram: 2200,
-  linkedin: 3000,
-  pinterest: 500,
-} as const;
+function isNonRetryableSocialOutputError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "MODEL_OUTPUT_INVALID"
+  );
+}
 
 export interface AutomaticVideoDependencies {
   addJob?: typeof addVideoGenerationJob;
@@ -86,6 +96,7 @@ export async function enqueueAutomaticSocialVideo(
   let capReservationId: number | null = null;
   let slotAcquired = false;
   let reserved = false;
+  let queueAccepted = false;
   try {
     capReservationId = await checkUsageCap(args.teamId, 15);
     const reservation = await reserveCredits({
@@ -106,6 +117,7 @@ export async function enqueueAutomaticSocialVideo(
       videoStatus: "PENDING",
       videoStage: "queued",
       videoProgress: 0,
+      videoBillingSettledAt: null,
       updatedAt: new Date(),
     }).where(and(
       eq(socialPosts.id, args.socialPostId),
@@ -119,9 +131,11 @@ export async function enqueueAutomaticSocialVideo(
       platform: args.platform,
       teamId: args.teamId,
       creditRunId,
+      capReservationId,
       userId: args.userId,
     });
     if (!jobId) throw new Error("Video queue did not accept the automatic job");
+    queueAccepted = true;
     await db.update(socialPosts).set({
       videoStatus: "GENERATING",
       updatedAt: new Date(),
@@ -131,26 +145,35 @@ export async function enqueueAutomaticSocialVideo(
     ));
     return String(jobId);
   } catch (error) {
-    if (slotAcquired) await releaseVideoSlot(args.userId).catch(() => {});
-    if (capReservationId !== null) await cancelCapReservation(capReservationId).catch(() => {});
-    if (reserved) {
+    // Once BullMQ accepts the job, preserve the durable billing identities and
+    // concurrency hold for the worker/recovery path. A later checkpoint error
+    // must not refund a job that may already be running.
+    if (!queueAccepted && slotAcquired) {
+      await releaseVideoSlot(args.userId).catch(() => {});
+    }
+    if (!queueAccepted && capReservationId !== null) {
+      await cancelCapReservation(capReservationId).catch(() => {});
+    }
+    if (!queueAccepted && reserved) {
       await releaseReservation({
         teamId: args.teamId,
         runId: creditRunId,
         reason: `Automatic video enqueue failed for social post ${args.socialPostId}`,
       }).catch(() => {});
     }
-    await db.update(socialPosts).set({
-      videoCreditRunId: null,
-      videoCapReservationId: null,
-      videoStatus: "FAILED_ENQUEUE",
-      videoStage: null,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(socialPosts.id, args.socialPostId),
-      eq(socialPosts.teamId, args.teamId),
-      eq(socialPosts.videoCreditRunId, creditRunId)
-    )).catch(() => {});
+    if (!queueAccepted) {
+      await db.update(socialPosts).set({
+        videoCreditRunId: null,
+        videoCapReservationId: null,
+        videoStatus: "FAILED_ENQUEUE",
+        videoStage: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(socialPosts.id, args.socialPostId),
+        eq(socialPosts.teamId, args.teamId),
+        eq(socialPosts.videoCreditRunId, creditRunId)
+      )).catch(() => {});
+    }
     throw error;
   }
 }
@@ -229,11 +252,26 @@ function generateGeoTags(location: string, platforms: string[]): Array<{ platfor
 // ============================================================================
 
 export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
-  const { socialPostId, userId, prompt, platforms, tone, mood, industry, includeImage, generateVideos, userEmail } = job.data;
+  const {
+    socialPostId,
+    userId,
+    prompt,
+    platforms: requestedPlatforms,
+    tone,
+    mood,
+    industry,
+    includeImage,
+    generateVideos,
+    userEmail,
+  } = job.data;
   
-  console.log(`🎭 Processing social post generation ${socialPostId} for ${platforms.length} platforms${generateVideos ? ' (with video)' : ''}`);
+  console.log(`🎭 Processing social post generation ${socialPostId} for ${requestedPlatforms.length} platforms${generateVideos ? ' (with video)' : ''}`);
 
+  let deliveryCommitted = false;
   try {
+    // Re-validate at the worker boundary as a defense against manually
+    // enqueued jobs. This also guarantees aliases cannot reach providers.
+    const platforms = canonicalizePlatforms(requestedPlatforms);
     const [postDetails] = await db
       .select()
       .from(socialPosts)
@@ -253,43 +291,79 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
 
     // READY is the durable delivery checkpoint. A retry after a debit failure
     // settles only; it must never call either content provider again.
+    const needsCreditSettlement =
+      Boolean(job.data.creditRunId) &&
+      postDetails?.billingRunId === job.data.creditRunId;
+    const needsCapSettlement = job.data.capReservationId != null;
     if (
       postDetails?.status === "READY" &&
-      postDetails.billingRunId === job.data.creditRunId &&
       !postDetails.billingSettledAt &&
-      job.data.creditRunId
+      (needsCreditSettlement || needsCapSettlement)
     ) {
-      const { debitReservation } = await import("@/lib/billing");
-      let debitResult;
-      try {
-        debitResult = await debitReservation({
-          teamId,
-          runId: job.data.creditRunId,
-          userId,
-          jobId: String(job.id ?? ""),
-        });
-      } catch (cause) {
-        throw new BillingSettlementError(
-          `Debit settlement failed for delivered social post ${socialPostId}`,
-          job.data.creditRunId,
-          cause
-        );
+      if (needsCreditSettlement && job.data.creditRunId) {
+        const { debitReservation } = await import("@/lib/billing");
+        let debitResult;
+        try {
+          debitResult = await debitReservation({
+            teamId,
+            runId: job.data.creditRunId,
+            userId,
+            jobId: String(job.id ?? ""),
+          });
+        } catch (cause) {
+          throw new BillingSettlementError(
+            `Debit settlement failed for delivered social post ${socialPostId}`,
+            job.data.creditRunId,
+            cause
+          );
+        }
+        if (!debitResult.ok) {
+          throw new BillingSettlementError(
+            `Debit settlement failed for delivered social post ${socialPostId}`,
+            job.data.creditRunId
+          );
+        }
       }
-      if (!debitResult.ok) {
-        throw new BillingSettlementError(
-          `Debit settlement failed for delivered social post ${socialPostId}`,
-          job.data.creditRunId
-        );
+      if (job.data.capReservationId != null) {
+        const { completeCapReservation } = await import("@/lib/usage-caps");
+        try {
+          await completeCapReservation({
+            reservationId: job.data.capReservationId,
+            teamId,
+            jobId: String(job.id ?? ""),
+            metadata: { socialPostId },
+          });
+        } catch (cause) {
+          throw new BillingSettlementError(
+            `Usage-cap settlement failed for delivered social post ${socialPostId}`,
+            job.data.creditRunId ?? `social-cap:${job.data.capReservationId}`,
+            cause
+          );
+        }
       }
-      await db.update(socialPosts)
-        .set({ billingSettledAt: new Date(), updatedAt: new Date() })
-        .where(and(
-          eq(socialPosts.id, socialPostId),
-          eq(socialPosts.teamId, teamId),
-          eq(socialPosts.billingRunId, job.data.creditRunId)
-        ));
+      if (needsCreditSettlement && job.data.creditRunId) {
+        try {
+          await db.update(socialPosts)
+            .set({ billingSettledAt: new Date(), updatedAt: new Date() })
+            .where(and(
+              eq(socialPosts.id, socialPostId),
+              eq(socialPosts.teamId, teamId),
+              eq(socialPosts.billingRunId, job.data.creditRunId)
+            ));
+        } catch (cause) {
+          throw new BillingSettlementError(
+            `Billing checkpoint update failed for delivered social post ${socialPostId}`,
+            job.data.creditRunId,
+            cause
+          );
+        }
+      }
       return;
     }
+
+    // A READY post is already delivered even when a legacy/manual job has no
+    // billing fields. Never re-enter paid generation for it.
+    if (postDetails?.status === "READY") return;
 
     // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
     // catch (status=FAILED write) before createPipelineWorker releases the
@@ -389,6 +463,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             return await fn();
           } catch (error) {
             if (isProviderAccountingError(error)) throw error;
+            if (isNonRetryableSocialOutputError(error)) throw error;
             lastError = error as Error;
             console.error(`❌ Attempt ${attempt}/${maxRetries} failed for ${platform}:`, error);
             if (attempt < maxRetries) {
@@ -413,7 +488,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           hashtagsJson: [],
           emojisJson: [],
           hyperlinksJson: [],
-          characterLimit: CHAR_LIMITS[platform as keyof typeof CHAR_LIMITS],
+          characterLimit: PLATFORM_LIMITS[platform],
           status: "GENERATING",
         }).returning();
         const variant = variantRow!;
@@ -426,7 +501,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             tone: tone || "professional",
             mood: mood || "informative",
             industry: industry || "general",
-            characterLimit: CHAR_LIMITS[platform as keyof typeof CHAR_LIMITS],
+            characterLimit: PLATFORM_LIMITS[platform],
             location: location || undefined,
             topic: topic || undefined,
             title: title || undefined,
@@ -498,6 +573,38 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           platform
         );
 
+        const invalidHyperlink = (gptResult.hyperlinks || []).find(
+          (hyperlink) => !isValidSocialUrl(hyperlink.url)
+        );
+        const invalidHashtagLink = (gptResult.hashtags || []).find(
+          (hashtag) =>
+            !isValidSocialUrl(hashtag.mailtoLink) ||
+            findInvalidSocialUrls(hashtag.tag).length > 0
+        );
+        if (invalidHyperlink || invalidHashtagLink) {
+          throw new Error(
+            `Final ${platform} social output contains a broken URL`
+          );
+        }
+
+        // This is intentionally after both the critic and GPT rewrite. GPT is
+        // allowed to edit the caption, so the initial Gemini character check
+        // cannot be the final persistence gate. The dashboard appends the
+        // hashtag string after the caption, so fit both pieces together.
+        const finalCaption = enforceSocialCaptionWithHashtags(
+          gptResult.caption,
+          gptResult.hashtags || [],
+          platform,
+          prompt
+        );
+        if (!finalCaption.valid) {
+          throw new Error(
+            `Final ${platform} caption failed compliance: ${finalCaption.issues.join("; ")}`
+          );
+        }
+        gptResult.caption = finalCaption.caption;
+        gptResult.hashtags = finalCaption.hashtags;
+
         console.log(`✅ GPT-4 enhanced ${platform} post with ${gptResult.hashtags.length} hashtags`);
 
         // Build hashtags string for easy copy-paste
@@ -534,6 +641,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         return { platform, success: true, variantId: variant.id, qualityScore: platformQualityScore };
       } catch (error) {
         if (isProviderAccountingError(error)) throw error;
+        if (isNonRetryableSocialOutputError(error)) throw error;
         console.error(`❌ Failed to generate ${platform} post after all retries:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -601,19 +709,69 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       }
 
       if (attachedImageUrl) {
-        // Store the reused hero image as a social post asset for each platform
-        const assetInserts = platforms.map((platform) => ({
-          socialPostId,
-          platform,
-          assetType: "image" as const,
-          promptUsed: "reused_from_article_hero",
-          storageUrl: attachedImageUrl!,
-          altText: `${companyName || "Article"} hero image`,
-          aspectRatio: "16:9",
-          fileFormat: "png",
-        }));
+        // Reused bytes must satisfy the same platform contract as generated
+        // bytes. Download once, resize independently, and store the actual
+        // normalized metadata rather than declaring every asset 16:9.
+        try {
+          const heroResponse = await safeFetchPageWithRedirects(attachedImageUrl, 3);
+          if (!heroResponse) {
+            throw new Error("safe hero image fetch failed or was blocked");
+          }
+          if (!heroResponse.ok) {
+            throw new Error(`hero image request returned HTTP ${heroResponse.status}`);
+          }
+          const contentType = heroResponse.headers.get("content-type")?.toLowerCase() ?? "";
+          if (!contentType.startsWith("image/")) {
+            throw new Error(`hero image returned unsupported content type "${contentType || "unknown"}"`);
+          }
+          const contentLength = Number(heroResponse.headers.get("content-length") ?? 0);
+          if (contentLength > 2_000_000) {
+            throw new Error("hero image exceeds the 2 MB safe fetch limit");
+          }
+          const heroBuffer = Buffer.from(await heroResponse.arrayBuffer());
+          if (heroBuffer.length > 2_000_000) {
+            throw new Error("hero image exceeds the 2 MB safe fetch limit");
+          }
+          const bucket = objectStorageClient.bucket(
+            process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || ""
+          );
+          const timestamp = Date.now();
+          const assetInserts = [];
+          for (const platform of platforms) {
+            const normalizedImage = await normalizeSocialImage(heroBuffer, platform);
+            const fileName = `social-${socialPostId}-${platform}-${timestamp}.png`;
+            const objectPath = `public/social-media/${fileName}`;
+            await bucket.file(objectPath).save(normalizedImage.imageBuffer, {
+              contentType: normalizedImage.mimeType,
+              metadata: { cacheControl: "public, max-age=31536000" },
+            });
+            assetInserts.push({
+              socialPostId,
+              platform,
+              assetType: "image" as const,
+              promptUsed: "reused_from_article_hero",
+              storageUrl: `/api/public-objects/social-media/${fileName}`,
+              altText: `${companyName || "Article"} hero image`,
+              aspectRatio: normalizedImage.aspectRatio,
+              fileFormat: normalizedImage.fileFormat,
+              width: normalizedImage.width,
+              height: normalizedImage.height,
+            });
+          }
+          await db.insert(socialPostAssets).values(assetInserts);
+        } catch (reuseError) {
+          // A hero URL that cannot be read/normalized is not safe to persist.
+          // Fall back to the provider path, whose bytes go through the same
+          // Sharp normalization before storage.
+          console.warn(
+            `⚠️ Could not normalize article hero image; generating platform images instead:`,
+            reuseError instanceof Error ? reuseError.message : reuseError
+          );
+          attachedImageUrl = null;
+        }
+      }
 
-        await db.insert(socialPostAssets).values(assetInserts);
+      if (attachedImageUrl) {
 
         await db.insert(socialPostLogs).values({
           socialPostId,
@@ -726,6 +884,9 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         updatedAt: new Date(),
       })
       .where(updateWhere);
+    if (finalStatus === "READY") {
+      deliveryCommitted = true;
+    }
 
     if (finalStatus === "FAILED") {
       // Throw so pg-boss retries; billing reservation will be released by the outer catch.
@@ -793,20 +954,66 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           job.data.creditRunId
         );
       }
-      await db.update(socialPosts)
-        .set({ billingSettledAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamIdForBilling)));
-      // Record completed usage event — populates spending cap meter so caps can trip.
-      const { recordUsageEvent } = await import("@/lib/usage-caps");
-      await recordUsageEvent({
-        teamId: teamIdForBilling,
-        campaignId: postDetails?.campaignId ?? null,
-        action: "social_post",
-        units: 1,
-        costEstimateCents: 5,
-        jobId: String(job.id ?? ""),
-        metadata: { socialPostId },
-      }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+      if (job.data.capReservationId != null) {
+        // Settle the original pending cap row in place. Do not insert a
+        // second completed usage event beside the reservation.
+        const { completeCapReservation } = await import("@/lib/usage-caps");
+        try {
+          await completeCapReservation({
+            reservationId: job.data.capReservationId,
+            teamId: teamIdForBilling,
+            jobId: String(job.id ?? ""),
+            metadata: { socialPostId },
+          });
+        } catch (cause) {
+          throw new BillingSettlementError(
+            `Usage-cap settlement failed for delivered social post ${socialPostId}`,
+            job.data.creditRunId,
+            cause
+          );
+        }
+      } else {
+        // Legacy/unlimited jobs have no pending cap row to settle.
+        const { recordUsageEvent } = await import("@/lib/usage-caps");
+        await recordUsageEvent({
+          teamId: teamIdForBilling,
+          campaignId: postDetails?.campaignId ?? null,
+          action: "social_post",
+          units: 1,
+          costEstimateCents: 5,
+          jobId: String(job.id ?? ""),
+          metadata: { socialPostId },
+        }).catch((err) => console.warn(`[usage-caps] recordUsageEvent failed (non-fatal): ${err?.message}`));
+      }
+      try {
+        await db.update(socialPosts)
+          .set({ billingSettledAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(socialPosts.id, socialPostId), eq(socialPosts.teamId, teamIdForBilling)));
+      } catch (cause) {
+        throw new BillingSettlementError(
+          `Billing checkpoint update failed for delivered social post ${socialPostId}`,
+          job.data.creditRunId,
+          cause
+        );
+      }
+    } else if (job.data.capReservationId != null && teamIdForBilling) {
+      // A manually enqueued legacy job may carry a cap reservation without a
+      // credit run. Successful delivery still must settle that original row.
+      const { completeCapReservation } = await import("@/lib/usage-caps");
+      try {
+        await completeCapReservation({
+          reservationId: job.data.capReservationId,
+          teamId: teamIdForBilling,
+          jobId: String(job.id ?? ""),
+          metadata: { socialPostId },
+        });
+      } catch (cause) {
+        throw new BillingSettlementError(
+          `Usage-cap settlement failed for delivered social post ${socialPostId}`,
+          `social-cap:${job.data.capReservationId}`,
+          cause
+        );
+      }
     }
 
     // Record generation for AI Learning System
@@ -831,6 +1038,15 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       // Delivery is durable. Preserve READY metadata and let the shared
       // pipeline handler retry settlement without releasing the reservation.
       throw error;
+    }
+    if (deliveryCommitted) {
+      // READY is durable delivery. Any later failure is settlement-only and
+      // must not mark the post FAILED or replay paid provider work.
+      throw new BillingSettlementError(
+        `Settlement failed after delivered social post ${socialPostId}`,
+        job.data.creditRunId,
+        error
+      );
     }
     console.error(`❌ Social post generation failed for ${socialPostId}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -876,7 +1092,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       message: `Generation failed: ${errorMessage.slice(0, 500)}`,
       payloadJson: { 
         error: errorMessage,
-        platforms,
+        platforms: requestedPlatforms,
       },
     });
 

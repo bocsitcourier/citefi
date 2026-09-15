@@ -1,0 +1,2707 @@
+{
+  "status": "COMPLETED_WITH_VALIDATION_FAILURES",
+  "run": {
+    "startedAt": "2026-09-14T23:32:30.865Z",
+    "submittedAt": "2026-09-14T23:32:31.489Z",
+    "finishedAt": "2026-09-14T23:33:34.608Z",
+    "baseUrl": "http://localhost:5000",
+    "apiOnly": true,
+    "uiTested": false,
+    "uiStatus": "UI_NOT_TESTED — API-only execution",
+    "noPublishing": true,
+    "noCustomerWrites": true,
+    "noWorkflowRestart": true
+  },
+  "fixture": {
+    "label": "LIVE GENERATION QA 2026-09-10",
+    "developmentOnly": true,
+    "syntheticTeamId": 2535,
+    "syntheticUserId": 10794,
+    "articleId": 2238,
+    "inputDeclaration": "Human-authored QA input article 2238; explicitly labeled fixture input. This is NOT proof that the AI article pipeline passed.",
+    "forbiddenArticleId": 2235
+  },
+  "request": {
+    "route": "/api/social_posts/generate",
+    "method": "POST",
+    "oneBatchRequest": true,
+    "payload": {
+      "articleId": "2238",
+      "platforms": [
+        "x",
+        "facebook",
+        "instagram",
+        "linkedin",
+        "pinterest"
+      ],
+      "tone": "Professional",
+      "mood": "Informative",
+      "industry": "other",
+      "location": "Boston, Massachusetts",
+      "landingPageUrl": "https://www.energy.gov/energysaver",
+      "companyName": "Harbor Home Energy",
+      "userEmail": "live-generation-qa@example.invalid",
+      "generateImages": true,
+      "generateVideos": false,
+      "idempotencyKey": "live-social-qa-2238-1789428750864"
+    },
+    "supportedPlatforms": [
+      "x",
+      "facebook",
+      "instagram",
+      "linkedin",
+      "pinterest"
+    ],
+    "uiPlatformMismatch": "UI presents twitter; API/config/worker canonical platform is x. UI was not tested.",
+    "generatedImagesField": "generateImages:true"
+  },
+  "preflightBudget": {
+    "assumptions": {
+      "platforms": 5,
+      "imageUsdEach": 0.04,
+      "retries": 0,
+      "articleHeroReuse": false
+    },
+    "geminiDraftUsdEach": 0.0043,
+    "openAiEnhanceUsdEach": 0.00496,
+    "openAiJudgeUsdEach": 0.0048000000000000004,
+    "imageUsdEach": 0.04,
+    "perPlatformUsd": 0.054060000000000004,
+    "estimatedMaxUsd": 0.27030000000000004,
+    "withinAllocation": true
+  },
+  "budgetPolicy": {
+    "allocationUsd": 2,
+    "sharedCapUsd": 50,
+    "reservedOtherWork": "Fixture instructions identified an expected 15-credit video reservation; this run did not modify it. Preflight observed reserved_credits=0 and no active RESERVED credit reservation.",
+    "checkedBeforePaidSubmit": true,
+    "actualProviderSpendUsd": 0.211397,
+    "withinTwoDollarAllocation": true,
+    "sharedCapObservedBeforeCents": 24,
+    "sharedCapObservedAfterCents": 34
+  },
+  "auth": {
+    "loginStatus": 200,
+    "authMethod": "fixture preview authorization"
+  },
+  "submission": {
+    "httpStatus": 200,
+    "response": {
+      "success": true,
+      "socialPostId": 213,
+      "jobId": "social:2535:live-social-qa-2238-1789428750864",
+      "message": "Social posts queued for 5 platform(s)",
+      "platforms": [
+        "x",
+        "facebook",
+        "instagram",
+        "linkedin",
+        "pinterest"
+      ]
+    },
+    "socialPostId": 213,
+    "jobId": "social:2535:live-social-qa-2238-1789428750864",
+    "creditRunId": "social:2535:live-social-qa-2238-1789428750864"
+  },
+  "polling": {
+    "terminal": true,
+    "observations": [
+      {
+        "at": "2026-09-14T23:32:33.842Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:32:38.951Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:32:44.022Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:32:49.091Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:32:54.364Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:32:59.767Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:04.892Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:10.070Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:15.150Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:20.566Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:26.075Z",
+        "httpStatus": 200,
+        "status": "GENERATING",
+        "variantCount": 5
+      },
+      {
+        "at": "2026-09-14T23:33:31.245Z",
+        "httpStatus": 200,
+        "status": "READY",
+        "variantCount": 5
+      }
+    ]
+  },
+  "failure": "Platform-limit failure: final x caption is 403 characters against the 280-character limit (over by 123). The worker marked it READY instead of enforcing the limit after GPT enhancement. | Image-aspect failure: all five provider images are 1024x1024 PNGs. This matches Instagram 1:1 only; x (declared 16:9), Facebook (1.91:1), LinkedIn (1.91:1), and Pinterest (2:3) outputs do not match their stored target ratios. | Content-quality caveat: the critic recorded an unsupported factuality claim in the x draft (“30% of heating escapes through hidden leaks”) and a truncation defect before enhancement. Final copy remained coherent but should not be treated as fact-validated. | Usage-cap settlement caveat: the cap_reservation usage row created before submit remained pending in the final read; the separate social_post usage row is completed. No manual cleanup was performed.",
+  "persistence": {
+    "before": {
+      "cap": {
+        "monthly_cap_cents": 5000,
+        "hard_stop": true
+      },
+      "balance": {
+        "balance": 4991,
+        "allowance_credits": 0,
+        "purchased_credits": 5000,
+        "allowance_used": 0,
+        "purchased_used": 9,
+        "reserved_credits": 0
+      },
+      "providerAgg": {
+        "event_count": 75,
+        "cost_microusd": "287877",
+        "unpriced_count": 0,
+        "max_id": "373"
+      },
+      "capUsage": {
+        "used_cents": 24,
+        "event_count": 3
+      },
+      "reservations": [
+        {
+          "id": "590",
+          "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+          "operation_type": "article",
+          "original_amount": 10,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "605",
+          "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+          "operation_type": "section_regenerate",
+          "original_amount": 1,
+          "remaining_amount": 0,
+          "status": "DEBITED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "610",
+          "run_id": "ac1d878f-217f-4b70-9b13-03fb450a770b",
+          "operation_type": "video",
+          "original_amount": 15,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "611",
+          "run_id": "article-regeneration:2235:55638e143836ab652628a32ec04374541d60c5f17b415801cdac129ccba4197d",
+          "operation_type": "article",
+          "original_amount": 10,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "612",
+          "run_id": "4e1371f8-ea49-413e-b0b8-d259019f9e71",
+          "operation_type": "video",
+          "original_amount": 15,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "613",
+          "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+          "operation_type": "podcast",
+          "original_amount": 8,
+          "remaining_amount": 0,
+          "status": "DEBITED",
+          "created_at": {},
+          "updated_at": {}
+        }
+      ],
+      "posts": [],
+      "variants": [],
+      "assets": [],
+      "logs": [],
+      "jobs": [],
+      "creditLedger": [],
+      "usageEvents": []
+    },
+    "after": {
+      "cap": {
+        "monthly_cap_cents": 5000,
+        "hard_stop": true
+      },
+      "balance": {
+        "balance": 4987,
+        "allowance_credits": 0,
+        "purchased_credits": 5000,
+        "allowance_used": 0,
+        "purchased_used": 13,
+        "reserved_credits": 0
+      },
+      "providerAgg": {
+        "event_count": 95,
+        "cost_microusd": "500682",
+        "unpriced_count": 0,
+        "max_id": "393"
+      },
+      "capUsage": {
+        "used_cents": 34,
+        "event_count": 5
+      },
+      "reservations": [
+        {
+          "id": "590",
+          "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+          "operation_type": "article",
+          "original_amount": 10,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "605",
+          "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+          "operation_type": "section_regenerate",
+          "original_amount": 1,
+          "remaining_amount": 0,
+          "status": "DEBITED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "610",
+          "run_id": "ac1d878f-217f-4b70-9b13-03fb450a770b",
+          "operation_type": "video",
+          "original_amount": 15,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "611",
+          "run_id": "article-regeneration:2235:55638e143836ab652628a32ec04374541d60c5f17b415801cdac129ccba4197d",
+          "operation_type": "article",
+          "original_amount": 10,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "612",
+          "run_id": "4e1371f8-ea49-413e-b0b8-d259019f9e71",
+          "operation_type": "video",
+          "original_amount": 15,
+          "remaining_amount": 0,
+          "status": "RELEASED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "613",
+          "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+          "operation_type": "podcast",
+          "original_amount": 8,
+          "remaining_amount": 0,
+          "status": "DEBITED",
+          "created_at": {},
+          "updated_at": {}
+        },
+        {
+          "id": "614",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "operation_type": "social_batch",
+          "original_amount": 4,
+          "remaining_amount": 0,
+          "status": "DEBITED",
+          "created_at": {},
+          "updated_at": {}
+        }
+      ],
+      "posts": [
+        {
+          "id": 213,
+          "public_id": "c343a1a2-c5ae-444a-9a55-b4fba34b4fbb",
+          "user_id": 10794,
+          "team_id": 2535,
+          "article_id": 2238,
+          "topic": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+          "title": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+          "location": "Boston, Massachusetts",
+          "prompt": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear information for a more comfortable home.</p></header>\n  <nav><a href=\"#services\">Services</a><a href=\"#audience\">Who we help</a><a href=\"#approach\">Our approach</a><a href=\"#facts\">Verified test facts</a></nav>\n  <main>\n    <section id=\"services\"><h2>Home energy education and assessment planning</h2>\n      <p>Harbor Home Energy is a fictional Boston-area home energy education business. Its test service offerings are residential home energy assessment planning, air-leak review preparation, insulation planning, and seasonal home energy checklists. Its educational material helps readers prepare questions for qualified local professionals.</p>\n      <p>An assessment preparation session organizes a homeowner's questions about drafts, uneven room temperatures, insulation, and household energy use. An air-leak review checklist explains observations that a reader can document safely without opening electrical equipment or making structural changes. Insulation planning material explains terms and questions to discuss with a qualified installer; it is not ",
+          "tone": "Professional",
+          "mood": "Informative",
+          "industry": "other",
+          "platforms_json": [
+            "x",
+            "facebook",
+            "instagram",
+            "linkedin",
+            "pinterest"
+          ],
+          "include_image": 1,
+          "status": "READY",
+          "job_id": "social:2535:live-social-qa-2238-1789428750864",
+          "error_message": null,
+          "created_at": {},
+          "updated_at": {},
+          "billing_run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "billing_settled_at": {}
+        }
+      ],
+      "variants": [
+        {
+          "id": 193,
+          "social_post_id": 213,
+          "platform": "facebook",
+          "variant_index": 1,
+          "caption": "Hello to our wonderful Boston community! 🌟 There is nothing quite like the feeling of gathering with family in a warm, comfortable home after a crisp afternoon walking through the Boston Common or exploring our historic neighborhoods. 🏡 At Harbor Home Energy, we understand how important it is to protect our loved ones and make sure your home is energy efficient and safe. 💡 Discover how a home energy assessment can bring peace of mind and savings. Learn more at our trusted resource here: https://www.energy.gov/energysaver or contact us anytime at mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20facebook.",
+          "character_count": 631,
+          "character_limit": 63206,
+          "aspect_ratio": null,
+          "status": "READY",
+          "error_message": null,
+          "created_at": {}
+        },
+        {
+          "id": 194,
+          "social_post_id": 213,
+          "platform": "x",
+          "variant_index": 1,
+          "caption": "Boston winters are brutal ❄️; 30% of heating escapes through hidden leaks. With rising Massachusetts utility rates 📈, a home energy plan is survival. Harbor Home Energy helps you target drafts before the next Nor'easter 🌬️. Reply with your take: Are you draft-ready? Learn more 👉 https://www.energy.gov/energysaver or contact us at mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20x",
+          "character_count": 403,
+          "character_limit": 280,
+          "aspect_ratio": null,
+          "status": "READY",
+          "error_message": null,
+          "created_at": {}
+        },
+        {
+          "id": 195,
+          "social_post_id": 213,
+          "platform": "pinterest",
+          "variant_index": 1,
+          "caption": "Imagine a cozy, draft-free Boston home 🏠 where every room stays perfectly warm through the bitter New England winter ❄️. Transform your historic Beacon Hill brownstone or triple-decker into an energy-efficient haven with a step-by-step planning approach 💡. Discover how with Harbor Home Energy — your trusted partner in home energy assessment and improvement. Learn more at https://www.energy.gov/energysaver.",
+          "character_count": 411,
+          "character_limit": 500,
+          "aspect_ratio": null,
+          "status": "READY",
+          "error_message": null,
+          "created_at": {}
+        },
+        {
+          "id": 196,
+          "social_post_id": 213,
+          "platform": "linkedin",
+          "variant_index": 1,
+          "caption": "As Massachusetts positions itself as a leader in climate action 🌎, progressive professionals and property owners recognize that residential energy efficiency is no longer just an environmental goal, but a strategic economic necessity 💡. Navigating the complexities of home energy assessments can be challenging, but with expert guidance from Harbor Home Energy, you can unlock lasting savings and sustainability. ✨ [Learn more](https://www.energy.gov/energysaver) or contact us directly at [live-generation-qa@example.invalid](mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20linkedin) to start your energy-efficient journey.",
+          "character_count": 645,
+          "character_limit": 3000,
+          "aspect_ratio": null,
+          "status": "READY",
+          "error_message": null,
+          "created_at": {}
+        },
+        {
+          "id": 197,
+          "social_post_id": 213,
+          "platform": "instagram",
+          "variant_index": 1,
+          "caption": "Picture wrapping your hands around a warm mug of tea 🍵, only to feel a sudden, chilly draft sweep through your living room as the autumn wind howls off the harbor 🌬️. It is in these quiet, cozy moments at home that we realize our sanctuaries might be letting the seasonal warmth slip away. Behind the scenes, our team at Harbor Home Energy has been walking through classic Boston triple-deckers and historic brick row houses in the South End, mapping out the invisible air leaks that disrupt your peace. We are dedicated to helping our local community understand how residential energy assessments work, providing clear checklists so you can confidently prepare your home for the changing Massachusetts seasons 🍂. There is a quiet joy in knowing exactly how to make your space feel as warm and welcoming as it looks. Share your story in the comments below about that one stubborn, drafty room in your house that you are ready to make cozy this winter. 🔍 \n\nLearn more: https://www.energy.gov/energysaver",
+          "character_count": 1006,
+          "character_limit": 2200,
+          "aspect_ratio": null,
+          "status": "READY",
+          "error_message": null,
+          "created_at": {}
+        }
+      ],
+      "assets": [
+        {
+          "id": 826,
+          "social_post_id": 213,
+          "variant_id": null,
+          "platform": "x",
+          "asset_type": "image",
+          "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+          "storage_url": "/api/public-objects/social-media/social-213-x-1789428782636.png",
+          "alt_text": "other social media image for x",
+          "aspect_ratio": "16:9",
+          "width": null,
+          "height": null,
+          "file_format": "png",
+          "created_at": {}
+        },
+        {
+          "id": 827,
+          "social_post_id": 213,
+          "variant_id": null,
+          "platform": "facebook",
+          "asset_type": "image",
+          "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+          "storage_url": "/api/public-objects/social-media/social-213-facebook-1789428789094.png",
+          "alt_text": "other social media image for facebook",
+          "aspect_ratio": "1.91:1",
+          "width": null,
+          "height": null,
+          "file_format": "png",
+          "created_at": {}
+        },
+        {
+          "id": 828,
+          "social_post_id": 213,
+          "variant_id": null,
+          "platform": "instagram",
+          "asset_type": "image",
+          "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+          "storage_url": "/api/public-objects/social-media/social-213-instagram-1789428794494.png",
+          "alt_text": "other social media image for instagram",
+          "aspect_ratio": "1:1",
+          "width": null,
+          "height": null,
+          "file_format": "png",
+          "created_at": {}
+        },
+        {
+          "id": 829,
+          "social_post_id": 213,
+          "variant_id": null,
+          "platform": "linkedin",
+          "asset_type": "image",
+          "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+          "storage_url": "/api/public-objects/social-media/social-213-linkedin-1789428801959.png",
+          "alt_text": "other social media image for linkedin",
+          "aspect_ratio": "1.91:1",
+          "width": null,
+          "height": null,
+          "file_format": "png",
+          "created_at": {}
+        },
+        {
+          "id": 830,
+          "social_post_id": 213,
+          "variant_id": null,
+          "platform": "pinterest",
+          "asset_type": "image",
+          "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+          "storage_url": "/api/public-objects/social-media/social-213-pinterest-1789428809385.png",
+          "alt_text": "other social media image for pinterest",
+          "aspect_ratio": "2:3",
+          "width": null,
+          "height": null,
+          "file_format": "png",
+          "created_at": {}
+        }
+      ],
+      "logs": [
+        {
+          "id": 423,
+          "social_post_id": 213,
+          "event_type": "GENERATION_START",
+          "stage": "GEMINI",
+          "message": "Starting social post generation for 5 platforms",
+          "payload_json": {
+            "mood": "Informative",
+            "tone": "Professional",
+            "industry": "other",
+            "platforms": [
+              "x",
+              "facebook",
+              "instagram",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 424,
+          "social_post_id": 213,
+          "event_type": "PLATFORM_GENERATED",
+          "stage": "GPT4",
+          "message": "Generated facebook post (631 chars, 5 hashtags)",
+          "payload_json": {
+            "platform": "facebook",
+            "hashtagCount": 5,
+            "characterCount": 631
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 425,
+          "social_post_id": 213,
+          "event_type": "PLATFORM_GENERATED",
+          "stage": "GPT4",
+          "message": "Generated linkedin post (645 chars, 5 hashtags)",
+          "payload_json": {
+            "platform": "linkedin",
+            "hashtagCount": 5,
+            "characterCount": 645
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 426,
+          "social_post_id": 213,
+          "event_type": "PLATFORM_GENERATED",
+          "stage": "GPT4",
+          "message": "Generated pinterest post (411 chars, 10 hashtags)",
+          "payload_json": {
+            "platform": "pinterest",
+            "hashtagCount": 10,
+            "characterCount": 411
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 427,
+          "social_post_id": 213,
+          "event_type": "PLATFORM_GENERATED",
+          "stage": "GPT4",
+          "message": "Generated instagram post (1006 chars, 20 hashtags)",
+          "payload_json": {
+            "platform": "instagram",
+            "hashtagCount": 20,
+            "characterCount": 1006
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 428,
+          "social_post_id": 213,
+          "event_type": "PLATFORM_GENERATED",
+          "stage": "GPT4",
+          "message": "Generated x post (403 chars, 3 hashtags)",
+          "payload_json": {
+            "platform": "x",
+            "hashtagCount": 3,
+            "characterCount": 403
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 429,
+          "social_post_id": 213,
+          "event_type": "IMAGE_GENERATED",
+          "stage": "IMAGE_GEN",
+          "message": "Generated 5 images for platforms: x, facebook, instagram, linkedin, pinterest",
+          "payload_json": {
+            "imageCount": 5
+          },
+          "severity": "info",
+          "created_at": {}
+        },
+        {
+          "id": 430,
+          "social_post_id": 213,
+          "event_type": "READY",
+          "stage": "COMPLETE",
+          "message": "Social post generation completed for 5/5 platforms",
+          "payload_json": {
+            "platforms": [
+              "x",
+              "facebook",
+              "instagram",
+              "linkedin",
+              "pinterest"
+            ],
+            "failedPlatforms": [],
+            "imagesGenerated": 5,
+            "variantsGenerated": 5
+          },
+          "severity": "info",
+          "created_at": {}
+        }
+      ],
+      "jobs": [
+        {
+          "id": 74,
+          "social_post_id": 213,
+          "job_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_type": "GENERATION",
+          "status": "COMPLETED",
+          "attempt": 1,
+          "max_attempts": 3,
+          "started_at": {},
+          "completed_at": {},
+          "error_message": null,
+          "created_at": {}
+        }
+      ],
+      "creditLedger": [
+        {
+          "id": 1438,
+          "team_id": 2535,
+          "user_id": 10794,
+          "amount": 4,
+          "balance_after": 4991,
+          "event_type": "reserve",
+          "product_type": null,
+          "source_type": null,
+          "source_id": null,
+          "job_id": null,
+          "reason": "Reserve 4 credits for social_batch (runId: social:2535:live-social-qa-2238-1789428750864)",
+          "bucket": null,
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "operation_type": "social_batch",
+          "reservation_status": "DEBITED",
+          "created_at": {}
+        },
+        {
+          "id": 1439,
+          "team_id": 2535,
+          "user_id": null,
+          "amount": -4,
+          "balance_after": 4987,
+          "event_type": "debit",
+          "product_type": null,
+          "source_type": null,
+          "source_id": null,
+          "job_id": "social:2535:live-social-qa-2238-1789428750864",
+          "reason": "Debit 4 credits for social_batch (runId: social:2535:live-social-qa-2238-1789428750864)",
+          "bucket": "purchased",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "operation_type": "social_batch",
+          "reservation_status": null,
+          "created_at": {}
+        }
+      ],
+      "usageEvents": [
+        {
+          "id": "13",
+          "team_id": 2535,
+          "job_id": "social:2535:live-social-qa-2238-1789428750864",
+          "action": "social_post",
+          "units": 1,
+          "cost_estimate_cents": 5,
+          "metadata_json": {
+            "socialPostId": 213
+          },
+          "created_at": {},
+          "status": "completed",
+          "campaign_id": null
+        }
+      ],
+      "providerEvents": [
+        {
+          "id": "374",
+          "source_event_id": "provider-usage:e305c6e1ef48cc0c7a0216266ba07cd86a56674fc59f6d863109052156096438",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "input_units": 1208,
+          "output_units": 176,
+          "unit_count": 2421,
+          "cost_microusd": "802",
+          "rate_version_id": 1,
+          "provider_rate_id": 2,
+          "provider_metadata": null,
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "375",
+          "source_event_id": "provider-usage:8f7b55f183173154d7df0fcaa3517f3c6050f324a3a34734e7eaf91474474e84",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "input_units": 1195,
+          "output_units": 180,
+          "unit_count": 2490,
+          "cost_microusd": "809",
+          "rate_version_id": 1,
+          "provider_rate_id": 2,
+          "provider_metadata": null,
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "376",
+          "source_event_id": "provider-usage:08fc3912f1f3ed763242a02bd6c295373519479ba7e5c9dbbfda9eea4942fc33",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "input_units": 1187,
+          "output_units": 166,
+          "unit_count": 2540,
+          "cost_microusd": "771",
+          "rate_version_id": 1,
+          "provider_rate_id": 2,
+          "provider_metadata": null,
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "377",
+          "source_event_id": "provider-usage:2b740f6fdeb02aa6dc5e2112cf297af9a25be23094e0eb8ded4223752cc6fbac",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "input_units": 1185,
+          "output_units": 83,
+          "unit_count": 2679,
+          "cost_microusd": "563",
+          "rate_version_id": 1,
+          "provider_rate_id": 2,
+          "provider_metadata": null,
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "378",
+          "source_event_id": "provider-usage:d0bd421c4fc33fb04b4b042173dd1d4529d8411074d087b88657de9143864a73",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "input_units": 1213,
+          "output_units": 58,
+          "unit_count": 3319,
+          "cost_microusd": "509",
+          "rate_version_id": 1,
+          "provider_rate_id": 2,
+          "provider_metadata": null,
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "379",
+          "source_event_id": "provider-usage:a20143367d1e19f0c02f3d991894d5fabd12c0994cf758eb1a70c6f9e564850b",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 217,
+          "output_units": 134,
+          "unit_count": 351,
+          "cost_microusd": "301",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "380",
+          "source_event_id": "provider-usage:23d526de475c433499d2184987a22fa0c166d0d404e83dd33ebb16ca10c965cc",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 211,
+          "output_units": 194,
+          "unit_count": 405,
+          "cost_microusd": "395",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "381",
+          "source_event_id": "provider-usage:3b1d544297a6cc0819084cdefbb17815a92c6dac2cecbbc74c2dcacfca380d10",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 350,
+          "output_units": 261,
+          "unit_count": 611,
+          "cost_microusd": "558",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "382",
+          "source_event_id": "provider-usage:9ddc42f079cff44be2c0ef4ac36fd404a29705c11958bfbc587a2365a3a379bc",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 212,
+          "output_units": 114,
+          "unit_count": 326,
+          "cost_microusd": "267",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "383",
+          "source_event_id": "provider-usage:43e38a533d7d758120a5a0d43bc22d425b88abf5062d26b524cd7b82c1540a52",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 977,
+          "output_units": 414,
+          "unit_count": 1391,
+          "cost_microusd": "1053",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "Social Enhancement: facebook for Harbor Home Energy"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "384",
+          "source_event_id": "provider-usage:d0448ca5bfd5f2c8e23e9081ad37d78221a6d7f81e4d06f1d19cee1904887ae6",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 974,
+          "output_units": 406,
+          "unit_count": 1380,
+          "cost_microusd": "1039",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "Social Enhancement: linkedin for Harbor Home Energy"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "385",
+          "source_event_id": "provider-usage:259001035f693d3a18d70c4d3c80e335242de030bea508d356cba01db8a1fc75",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 976,
+          "output_units": 588,
+          "unit_count": 1564,
+          "cost_microusd": "1331",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "Social Enhancement: pinterest for Harbor Home Energy"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "386",
+          "source_event_id": "provider-usage:21926a6e2c7d99b17a04a80bb042b0a4b45d767a5aeaa886eb4ce4a87276c28e",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 1113,
+          "output_units": 1051,
+          "unit_count": 2164,
+          "cost_microusd": "2127",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "Social Enhancement: instagram for Harbor Home Energy"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "387",
+          "source_event_id": "provider-usage:70f917655c131b49399fbdd1d3dfff471c1da0a2cd62c2540e3f723bde05c6f4",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": null,
+          "resource_id": null,
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "input_units": 984,
+          "output_units": 299,
+          "unit_count": 1283,
+          "cost_microusd": "872",
+          "rate_version_id": 1,
+          "provider_rate_id": 17,
+          "provider_metadata": {
+            "context": "Social Enhancement: x for Harbor Home Energy"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "389",
+          "source_event_id": "provider-usage:0c0c9f5a1f14a065962a2faa75f006222e2821d0c876dd644f5513284c82e4d9",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "input_units": null,
+          "output_units": null,
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "rate_version_id": 1,
+          "provider_rate_id": 33,
+          "provider_metadata": {
+            "platform": "x",
+            "aspectRatio": "16:9"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "390",
+          "source_event_id": "provider-usage:3fae2e560969703b036559ab3f2cc928ef3ebf2a87fb15a443538c67630bac66",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "input_units": null,
+          "output_units": null,
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "rate_version_id": 1,
+          "provider_rate_id": 33,
+          "provider_metadata": {
+            "platform": "facebook",
+            "aspectRatio": "1.91:1"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "391",
+          "source_event_id": "provider-usage:5e7def5fe594d5a0ce92c2cbb964b6fde2099295c13b373f1450ac1593da14e6",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "input_units": null,
+          "output_units": null,
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "rate_version_id": 1,
+          "provider_rate_id": 33,
+          "provider_metadata": {
+            "platform": "instagram",
+            "aspectRatio": "1:1"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "392",
+          "source_event_id": "provider-usage:338a9b9b1b07955c953ef1ffcc6d66585c31a6aafca3464e301c49bc25d5e805",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "input_units": null,
+          "output_units": null,
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "rate_version_id": 1,
+          "provider_rate_id": 33,
+          "provider_metadata": {
+            "platform": "linkedin",
+            "aspectRatio": "1.91:1"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        },
+        {
+          "id": "393",
+          "source_event_id": "provider-usage:c751757df488ee1c09af02f2d4bfc9988210a9cb289397f1d5e414fab1984777",
+          "event_type": "usage",
+          "run_id": "social:2535:live-social-qa-2238-1789428750864",
+          "job_id": null,
+          "content_id": null,
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "input_units": null,
+          "output_units": null,
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "rate_version_id": 1,
+          "provider_rate_id": 33,
+          "provider_metadata": {
+            "platform": "pinterest",
+            "aspectRatio": "2:3"
+          },
+          "occurred_at": {},
+          "recorded_at": {}
+        }
+      ],
+      "allProviderEventsSinceBaseline": [
+        {
+          "id": "374",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "unit_count": 2421,
+          "cost_microusd": "802",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": null,
+          "occurred_at": {}
+        },
+        {
+          "id": "375",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "unit_count": 2490,
+          "cost_microusd": "809",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": null,
+          "occurred_at": {}
+        },
+        {
+          "id": "376",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "unit_count": 2540,
+          "cost_microusd": "771",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": null,
+          "occurred_at": {}
+        },
+        {
+          "id": "377",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "unit_count": 2679,
+          "cost_microusd": "563",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": null,
+          "occurred_at": {}
+        },
+        {
+          "id": "378",
+          "operation_type": "social_post",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unit_type": "tokens",
+          "unit_count": 3319,
+          "cost_microusd": "509",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": null,
+          "occurred_at": {}
+        },
+        {
+          "id": "379",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 351,
+          "cost_microusd": "301",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "380",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 405,
+          "cost_microusd": "395",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "381",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 611,
+          "cost_microusd": "558",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "382",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 326,
+          "cost_microusd": "267",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "ContentReview judge"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "383",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 1391,
+          "cost_microusd": "1053",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Social Enhancement: facebook for Harbor Home Energy"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "384",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 1380,
+          "cost_microusd": "1039",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Social Enhancement: linkedin for Harbor Home Energy"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "385",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 1564,
+          "cost_microusd": "1331",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Social Enhancement: pinterest for Harbor Home Energy"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "386",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 2164,
+          "cost_microusd": "2127",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Social Enhancement: instagram for Harbor Home Energy"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "387",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 1283,
+          "cost_microusd": "872",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Social Enhancement: x for Harbor Home Energy"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "388",
+          "operation_type": "other",
+          "provider": "openai",
+          "model": "gpt-4.1-mini-2025-04-14",
+          "unit_type": "tokens",
+          "unit_count": 1081,
+          "cost_microusd": "1408",
+          "resource_type": null,
+          "resource_id": null,
+          "provider_metadata": {
+            "context": "Competitor Analysis: https://www.homeworksenergy.com"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "389",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": {
+            "platform": "x",
+            "aspectRatio": "16:9"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "390",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": {
+            "platform": "facebook",
+            "aspectRatio": "1.91:1"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "391",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": {
+            "platform": "instagram",
+            "aspectRatio": "1:1"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "392",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": {
+            "platform": "linkedin",
+            "aspectRatio": "1.91:1"
+          },
+          "occurred_at": {}
+        },
+        {
+          "id": "393",
+          "operation_type": "image_generation",
+          "provider": "gemini",
+          "model": "gemini-2.5-flash-image",
+          "unit_type": "images",
+          "unit_count": 1,
+          "cost_microusd": "40000",
+          "resource_type": "social_post",
+          "resource_id": "213",
+          "provider_metadata": {
+            "platform": "pinterest",
+            "aspectRatio": "2:3"
+          },
+          "occurred_at": {}
+        }
+      ],
+      "downloadedAssets": [
+        {
+          "db": {
+            "id": 826,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "x",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-x-1789428782636.png",
+            "alt_text": "other social media image for x",
+            "aspect_ratio": "16:9",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          "url": "/api/public-objects/social-media/social-213-x-1789428782636.png",
+          "httpStatus": 200,
+          "contentTypeHeader": "image/png",
+          "bytes": 1172436,
+          "sha256": "5e912605688dcc63748a0ac3361f5952707326275a22ba4d80d8ca89d7ae4947",
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "format": "png",
+          "aspectCheck": {
+            "target": 1.7777777777777777,
+            "actual": 1,
+            "withinTolerance": false
+          },
+          "localPath": "reports/live-generation/realassets/social-213-x.png"
+        },
+        {
+          "db": {
+            "id": 827,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "facebook",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-facebook-1789428789094.png",
+            "alt_text": "other social media image for facebook",
+            "aspect_ratio": "1.91:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          "url": "/api/public-objects/social-media/social-213-facebook-1789428789094.png",
+          "httpStatus": 200,
+          "contentTypeHeader": "image/png",
+          "bytes": 1770836,
+          "sha256": "c2b45b9a2363de6c6a5c7b40f7e1e63a5ade21657fd89863d5120eb12fe1e6e7",
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "format": "png",
+          "aspectCheck": {
+            "target": 1.91,
+            "actual": 1,
+            "withinTolerance": false
+          },
+          "localPath": "reports/live-generation/realassets/social-213-facebook.png"
+        },
+        {
+          "db": {
+            "id": 828,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "instagram",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-instagram-1789428794494.png",
+            "alt_text": "other social media image for instagram",
+            "aspect_ratio": "1:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          "url": "/api/public-objects/social-media/social-213-instagram-1789428794494.png",
+          "httpStatus": 200,
+          "contentTypeHeader": "image/png",
+          "bytes": 1631567,
+          "sha256": "419913ead583b2b02f7af5580215cd6d5c4392fdcf9275df0db5489161a09d78",
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "format": "png",
+          "aspectCheck": {
+            "target": 1,
+            "actual": 1,
+            "withinTolerance": true
+          },
+          "localPath": "reports/live-generation/realassets/social-213-instagram.png"
+        },
+        {
+          "db": {
+            "id": 829,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "linkedin",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-linkedin-1789428801959.png",
+            "alt_text": "other social media image for linkedin",
+            "aspect_ratio": "1.91:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          "url": "/api/public-objects/social-media/social-213-linkedin-1789428801959.png",
+          "httpStatus": 200,
+          "contentTypeHeader": "image/png",
+          "bytes": 1489696,
+          "sha256": "d26b70e80436dcb1cf7e1f665e3c9a9e3ec1d6bd3e007b8311553a547f493a81",
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "format": "png",
+          "aspectCheck": {
+            "target": 1.91,
+            "actual": 1,
+            "withinTolerance": false
+          },
+          "localPath": "reports/live-generation/realassets/social-213-linkedin.png"
+        },
+        {
+          "db": {
+            "id": 830,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "pinterest",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-pinterest-1789428809385.png",
+            "alt_text": "other social media image for pinterest",
+            "aspect_ratio": "2:3",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          "url": "/api/public-objects/social-media/social-213-pinterest-1789428809385.png",
+          "httpStatus": 200,
+          "contentTypeHeader": "image/png",
+          "bytes": 1403124,
+          "sha256": "679779c23ac026751efecd80f38c05d066dbb752abcb195f7daf667a064a12b4",
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "format": "png",
+          "aspectCheck": {
+            "target": 0.6666666666666666,
+            "actual": 1,
+            "withinTolerance": false
+          },
+          "localPath": "reports/live-generation/realassets/social-213-pinterest.png"
+        }
+      ],
+      "accountingChecks": {
+        "providerEventCount": 19,
+        "allTeamEventsSinceBaseline": 20,
+        "providerCostMicrousd": 211397,
+        "physicalImageCalls": 5,
+        "assetRows": 5,
+        "uniqueImageOutputs": 5,
+        "reusedAssetRows": 0,
+        "canonicalCreditDebitCount": 1,
+        "canonicalCreditReserveCount": 1,
+        "releaseCount": 0,
+        "usageCapRows": 1,
+        "actualProviderCostUsd": 0.211397,
+        "providerEventBreakdown": {
+          "gemini:social_post": 5,
+          "openai:ContentReview judge": 4,
+          "openai:Social Enhancement: facebook for Harbor Home Energy": 1,
+          "openai:Social Enhancement: linkedin for Harbor Home Energy": 1,
+          "openai:Social Enhancement: pinterest for Harbor Home Energy": 1,
+          "openai:Social Enhancement: instagram for Harbor Home Energy": 1,
+          "openai:Social Enhancement: x for Harbor Home Energy": 1,
+          "gemini:image_generation": 5
+        },
+        "providerEventCountDefinition": "19 related rows: 5 Gemini social drafts + 4 OpenAI ContentReview judge rows + 5 OpenAI Social Enhancement rows + 5 Gemini image rows. One additional team event (id 388, unrelated Competitor Analysis) was excluded.",
+        "expectedPhysicalImageCalls": 5,
+        "outputReuse": "none",
+        "budgetAllocationCheck": {
+          "actualProviderCostUsd": 0.211397,
+          "allocationUsd": 2,
+          "withinAllocation": true
+        }
+      },
+      "finalFreshSnapshot": {
+        "cap": {
+          "monthly_cap_cents": 5000,
+          "hard_stop": true
+        },
+        "balance": {
+          "balance": 4987,
+          "allowance_credits": 0,
+          "purchased_credits": 5000,
+          "allowance_used": 0,
+          "purchased_used": 13,
+          "reserved_credits": 0
+        },
+        "providerAgg": {
+          "event_count": 95,
+          "cost_microusd": "500682",
+          "unpriced_count": 0,
+          "max_id": "393"
+        },
+        "capUsage": {
+          "used_cents": 34,
+          "event_count": 5
+        },
+        "reservations": [
+          {
+            "id": "590",
+            "run_id": "batch:626:batch-submit:626:961d16c0-4858-47a8-bee0-278855b11c3e",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "605",
+            "run_id": "direct-image:article_hero:2235:140bedbf9c3f6d56a9846d2ba7088798:initial",
+            "operation_type": "section_regenerate",
+            "original_amount": 1,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "610",
+            "run_id": "ac1d878f-217f-4b70-9b13-03fb450a770b",
+            "operation_type": "video",
+            "original_amount": 15,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "611",
+            "run_id": "article-regeneration:2235:55638e143836ab652628a32ec04374541d60c5f17b415801cdac129ccba4197d",
+            "operation_type": "article",
+            "original_amount": 10,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "612",
+            "run_id": "4e1371f8-ea49-413e-b0b8-d259019f9e71",
+            "operation_type": "video",
+            "original_amount": 15,
+            "remaining_amount": 0,
+            "status": "RELEASED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "613",
+            "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+            "operation_type": "podcast",
+            "original_amount": 8,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "created_at": {},
+            "updated_at": {}
+          },
+          {
+            "id": "614",
+            "run_id": "social:2535:live-social-qa-2238-1789428750864",
+            "operation_type": "social_batch",
+            "original_amount": 4,
+            "remaining_amount": 0,
+            "status": "DEBITED",
+            "created_at": {},
+            "updated_at": {}
+          }
+        ],
+        "posts": [
+          {
+            "id": 213,
+            "public_id": "c343a1a2-c5ae-444a-9a55-b4fba34b4fbb",
+            "user_id": 10794,
+            "team_id": 2535,
+            "article_id": 2238,
+            "topic": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+            "title": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+            "location": "Boston, Massachusetts",
+            "prompt": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear information for a more comfortable home.</p></header>\n  <nav><a href=\"#services\">Services</a><a href=\"#audience\">Who we help</a><a href=\"#approach\">Our approach</a><a href=\"#facts\">Verified test facts</a></nav>\n  <main>\n    <section id=\"services\"><h2>Home energy education and assessment planning</h2>\n      <p>Harbor Home Energy is a fictional Boston-area home energy education business. Its test service offerings are residential home energy assessment planning, air-leak review preparation, insulation planning, and seasonal home energy checklists. Its educational material helps readers prepare questions for qualified local professionals.</p>\n      <p>An assessment preparation session organizes a homeowner's questions about drafts, uneven room temperatures, insulation, and household energy use. An air-leak review checklist explains observations that a reader can document safely without opening electrical equipment or making structural changes. Insulation planning material explains terms and questions to discuss with a qualified installer; it is not ",
+            "tone": "Professional",
+            "mood": "Informative",
+            "industry": "other",
+            "platforms_json": [
+              "x",
+              "facebook",
+              "instagram",
+              "linkedin",
+              "pinterest"
+            ],
+            "include_image": 1,
+            "status": "READY",
+            "job_id": "social:2535:live-social-qa-2238-1789428750864",
+            "error_message": null,
+            "created_at": {},
+            "updated_at": {},
+            "billing_run_id": "social:2535:live-social-qa-2238-1789428750864",
+            "billing_settled_at": {}
+          }
+        ],
+        "variants": [
+          {
+            "id": 193,
+            "social_post_id": 213,
+            "platform": "facebook",
+            "variant_index": 1,
+            "caption": "Hello to our wonderful Boston community! 🌟 There is nothing quite like the feeling of gathering with family in a warm, comfortable home after a crisp afternoon walking through the Boston Common or exploring our historic neighborhoods. 🏡 At Harbor Home Energy, we understand how important it is to protect our loved ones and make sure your home is energy efficient and safe. 💡 Discover how a home energy assessment can bring peace of mind and savings. Learn more at our trusted resource here: https://www.energy.gov/energysaver or contact us anytime at mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20facebook.",
+            "character_count": 631,
+            "character_limit": 63206,
+            "aspect_ratio": null,
+            "status": "READY",
+            "error_message": null,
+            "created_at": {}
+          },
+          {
+            "id": 194,
+            "social_post_id": 213,
+            "platform": "x",
+            "variant_index": 1,
+            "caption": "Boston winters are brutal ❄️; 30% of heating escapes through hidden leaks. With rising Massachusetts utility rates 📈, a home energy plan is survival. Harbor Home Energy helps you target drafts before the next Nor'easter 🌬️. Reply with your take: Are you draft-ready? Learn more 👉 https://www.energy.gov/energysaver or contact us at mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20x",
+            "character_count": 403,
+            "character_limit": 280,
+            "aspect_ratio": null,
+            "status": "READY",
+            "error_message": null,
+            "created_at": {}
+          },
+          {
+            "id": 195,
+            "social_post_id": 213,
+            "platform": "pinterest",
+            "variant_index": 1,
+            "caption": "Imagine a cozy, draft-free Boston home 🏠 where every room stays perfectly warm through the bitter New England winter ❄️. Transform your historic Beacon Hill brownstone or triple-decker into an energy-efficient haven with a step-by-step planning approach 💡. Discover how with Harbor Home Energy — your trusted partner in home energy assessment and improvement. Learn more at https://www.energy.gov/energysaver.",
+            "character_count": 411,
+            "character_limit": 500,
+            "aspect_ratio": null,
+            "status": "READY",
+            "error_message": null,
+            "created_at": {}
+          },
+          {
+            "id": 196,
+            "social_post_id": 213,
+            "platform": "linkedin",
+            "variant_index": 1,
+            "caption": "As Massachusetts positions itself as a leader in climate action 🌎, progressive professionals and property owners recognize that residential energy efficiency is no longer just an environmental goal, but a strategic economic necessity 💡. Navigating the complexities of home energy assessments can be challenging, but with expert guidance from Harbor Home Energy, you can unlock lasting savings and sustainability. ✨ [Learn more](https://www.energy.gov/energysaver) or contact us directly at [live-generation-qa@example.invalid](mailto:live-generation-qa@example.invalid?subject=Inquiry%20from%20linkedin) to start your energy-efficient journey.",
+            "character_count": 645,
+            "character_limit": 3000,
+            "aspect_ratio": null,
+            "status": "READY",
+            "error_message": null,
+            "created_at": {}
+          },
+          {
+            "id": 197,
+            "social_post_id": 213,
+            "platform": "instagram",
+            "variant_index": 1,
+            "caption": "Picture wrapping your hands around a warm mug of tea 🍵, only to feel a sudden, chilly draft sweep through your living room as the autumn wind howls off the harbor 🌬️. It is in these quiet, cozy moments at home that we realize our sanctuaries might be letting the seasonal warmth slip away. Behind the scenes, our team at Harbor Home Energy has been walking through classic Boston triple-deckers and historic brick row houses in the South End, mapping out the invisible air leaks that disrupt your peace. We are dedicated to helping our local community understand how residential energy assessments work, providing clear checklists so you can confidently prepare your home for the changing Massachusetts seasons 🍂. There is a quiet joy in knowing exactly how to make your space feel as warm and welcoming as it looks. Share your story in the comments below about that one stubborn, drafty room in your house that you are ready to make cozy this winter. 🔍 \n\nLearn more: https://www.energy.gov/energysaver",
+            "character_count": 1006,
+            "character_limit": 2200,
+            "aspect_ratio": null,
+            "status": "READY",
+            "error_message": null,
+            "created_at": {}
+          }
+        ],
+        "assets": [
+          {
+            "id": 826,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "x",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-x-1789428782636.png",
+            "alt_text": "other social media image for x",
+            "aspect_ratio": "16:9",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          {
+            "id": 827,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "facebook",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-facebook-1789428789094.png",
+            "alt_text": "other social media image for facebook",
+            "aspect_ratio": "1.91:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          {
+            "id": 828,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "instagram",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-instagram-1789428794494.png",
+            "alt_text": "other social media image for instagram",
+            "aspect_ratio": "1:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          {
+            "id": 829,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "linkedin",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-linkedin-1789428801959.png",
+            "alt_text": "other social media image for linkedin",
+            "aspect_ratio": "1.91:1",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          },
+          {
+            "id": 830,
+            "social_post_id": 213,
+            "variant_id": null,
+            "platform": "pinterest",
+            "asset_type": "image",
+            "prompt_used": "Create a professional, eye-catching social media image.\nTheme: <!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"robots\" content=\"noindex,nofollow\">\n  <meta name=\"description\" content=\"A fictional home energy business source page used only for live generation quality-assurance testing.\">\n  <title>Harbor Home Energy — Fictional QA Business</title>\n  <style>body{font:18px/1.65 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#152c34}aside{padding:20px;background:#fff1ce;border:2px solid #966400}h1,h2{line-height:1.2}nav a{margin-right:18px}footer{border-top:1px solid #bbb;margin-top:36px;padding-top:18px}</style>\n</head>\n<body>\n  <aside><strong>TEST FIXTURE — NOT A REAL COMPANY.</strong> This fictional business is used only to test generation software. Nothing on this page is a commercial offer, professional credential, customer testimonial, or statement of government affiliation.</aside>\n  <header><h1>Harbor Home Energy</h1><p>Clear",
+            "storage_url": "/api/public-objects/social-media/social-213-pinterest-1789428809385.png",
+            "alt_text": "other social media image for pinterest",
+            "aspect_ratio": "2:3",
+            "width": null,
+            "height": null,
+            "file_format": "png",
+            "created_at": {}
+          }
+        ],
+        "logs": [
+          {
+            "id": 423,
+            "social_post_id": 213,
+            "event_type": "GENERATION_START",
+            "stage": "GEMINI",
+            "message": "Starting social post generation for 5 platforms",
+            "payload_json": {
+              "mood": "Informative",
+              "tone": "Professional",
+              "industry": "other",
+              "platforms": [
+                "x",
+                "facebook",
+                "instagram",
+                "linkedin",
+                "pinterest"
+              ]
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 424,
+            "social_post_id": 213,
+            "event_type": "PLATFORM_GENERATED",
+            "stage": "GPT4",
+            "message": "Generated facebook post (631 chars, 5 hashtags)",
+            "payload_json": {
+              "platform": "facebook",
+              "hashtagCount": 5,
+              "characterCount": 631
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 425,
+            "social_post_id": 213,
+            "event_type": "PLATFORM_GENERATED",
+            "stage": "GPT4",
+            "message": "Generated linkedin post (645 chars, 5 hashtags)",
+            "payload_json": {
+              "platform": "linkedin",
+              "hashtagCount": 5,
+              "characterCount": 645
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 426,
+            "social_post_id": 213,
+            "event_type": "PLATFORM_GENERATED",
+            "stage": "GPT4",
+            "message": "Generated pinterest post (411 chars, 10 hashtags)",
+            "payload_json": {
+              "platform": "pinterest",
+              "hashtagCount": 10,
+              "characterCount": 411
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 427,
+            "social_post_id": 213,
+            "event_type": "PLATFORM_GENERATED",
+            "stage": "GPT4",
+            "message": "Generated instagram post (1006 chars, 20 hashtags)",
+            "payload_json": {
+              "platform": "instagram",
+              "hashtagCount": 20,
+              "characterCount": 1006
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 428,
+            "social_post_id": 213,
+            "event_type": "PLATFORM_GENERATED",
+            "stage": "GPT4",
+            "message": "Generated x post (403 chars, 3 hashtags)",
+            "payload_json": {
+              "platform": "x",
+              "hashtagCount": 3,
+              "characterCount": 403
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 429,
+            "social_post_id": 213,
+            "event_type": "IMAGE_GENERATED",
+            "stage": "IMAGE_GEN",
+            "message": "Generated 5 images for platforms: x, facebook, instagram, linkedin, pinterest",
+            "payload_json": {
+              "imageCount": 5
+            },
+            "severity": "info",
+            "created_at": {}
+          },
+          {
+            "id": 430,
+            "social_post_id": 213,
+            "event_type": "READY",
+            "stage": "COMPLETE",
+            "message": "Social post generation completed for 5/5 platforms",
+            "payload_json": {
+              "platforms": [
+                "x",
+                "facebook",
+                "instagram",
+                "linkedin",
+                "pinterest"
+              ],
+              "failedPlatforms": [],
+              "imagesGenerated": 5,
+              "variantsGenerated": 5
+            },
+            "severity": "info",
+            "created_at": {}
+          }
+        ],
+        "jobs": [
+          {
+            "id": 74,
+            "social_post_id": 213,
+            "job_id": "social:2535:live-social-qa-2238-1789428750864",
+            "job_type": "GENERATION",
+            "status": "COMPLETED",
+            "attempt": 1,
+            "max_attempts": 3,
+            "started_at": {},
+            "completed_at": {},
+            "error_message": null,
+            "created_at": {}
+          }
+        ],
+        "creditLedger": [
+          {
+            "id": 1438,
+            "team_id": 2535,
+            "user_id": 10794,
+            "amount": 4,
+            "balance_after": 4991,
+            "event_type": "reserve",
+            "product_type": null,
+            "source_type": null,
+            "source_id": null,
+            "job_id": null,
+            "reason": "Reserve 4 credits for social_batch (runId: social:2535:live-social-qa-2238-1789428750864)",
+            "bucket": null,
+            "run_id": "social:2535:live-social-qa-2238-1789428750864",
+            "operation_type": "social_batch",
+            "reservation_status": "DEBITED",
+            "created_at": {}
+          },
+          {
+            "id": 1439,
+            "team_id": 2535,
+            "user_id": null,
+            "amount": -4,
+            "balance_after": 4987,
+            "event_type": "debit",
+            "product_type": null,
+            "source_type": null,
+            "source_id": null,
+            "job_id": "social:2535:live-social-qa-2238-1789428750864",
+            "reason": "Debit 4 credits for social_batch (runId: social:2535:live-social-qa-2238-1789428750864)",
+            "bucket": "purchased",
+            "run_id": "social:2535:live-social-qa-2238-1789428750864",
+            "operation_type": "social_batch",
+            "reservation_status": null,
+            "created_at": {}
+          }
+        ],
+        "usageEvents": [
+          {
+            "id": "13",
+            "team_id": 2535,
+            "job_id": "social:2535:live-social-qa-2238-1789428750864",
+            "action": "social_post",
+            "units": 1,
+            "cost_estimate_cents": 5,
+            "metadata_json": {
+              "socialPostId": 213
+            },
+            "created_at": {},
+            "status": "completed",
+            "campaign_id": null
+          }
+        ]
+      },
+      "capEventsSinceRunStart": [
+        {
+          "id": "12",
+          "action": "cap_reservation",
+          "units": 0,
+          "cost_estimate_cents": 5,
+          "metadata_json": null,
+          "created_at": "2026-09-14T23:32:31.620Z",
+          "status": "pending",
+          "job_id": null
+        },
+        {
+          "id": "13",
+          "action": "social_post",
+          "units": 1,
+          "cost_estimate_cents": 5,
+          "metadata_json": {
+            "socialPostId": 213
+          },
+          "created_at": "2026-09-14T23:33:29.931Z",
+          "status": "completed",
+          "job_id": "social:2535:live-social-qa-2238-1789428750864"
+        }
+      ],
+      "contentReviews": {
+        "summary": {
+          "reviewRows": 9,
+          "initialFastReviews": 5,
+          "judgeReviews": 4,
+          "passedRows": 5,
+          "failedRows": 4
+        },
+        "rows": [
+          {
+            "id": 11,
+            "used_judge": 0,
+            "passed": 1,
+            "dimension_scores_json": {
+              "humanness": 100,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 100,
+              "completeness": 100
+            },
+            "defects_json": [],
+            "created_at": "2026-09-14T23:32:37.637Z"
+          },
+          {
+            "id": 12,
+            "used_judge": 0,
+            "passed": 1,
+            "dimension_scores_json": {
+              "humanness": 85,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 100,
+              "completeness": 100
+            },
+            "defects_json": [
+              {
+                "dim": "humanness",
+                "code": "humanness:low_burstiness",
+                "evidence": "burstiness 0.18",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:37.750Z"
+          },
+          {
+            "id": 13,
+            "used_judge": 0,
+            "passed": 1,
+            "dimension_scores_json": {
+              "humanness": 100,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 100,
+              "completeness": 100
+            },
+            "defects_json": [],
+            "created_at": "2026-09-14T23:32:37.816Z"
+          },
+          {
+            "id": 14,
+            "used_judge": 0,
+            "passed": 1,
+            "dimension_scores_json": {
+              "humanness": 85,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 100,
+              "completeness": 100
+            },
+            "defects_json": [
+              {
+                "dim": "humanness",
+                "code": "humanness:low_burstiness",
+                "evidence": "burstiness 0.03",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:38.288Z"
+          },
+          {
+            "id": 15,
+            "used_judge": 0,
+            "passed": 0,
+            "dimension_scores_json": {
+              "humanness": 100,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 65,
+              "completeness": 65
+            },
+            "defects_json": [
+              {
+                "dim": "completeness",
+                "code": "completeness:truncated",
+                "evidence": "no terminal punctuation — likely cut off",
+                "severity": "high"
+              },
+              {
+                "dim": "factuality",
+                "code": "factuality:unsupported_claim",
+                "evidence": "Boston winters are brutal; 30% of heating escapes through hidden leaks.",
+                "severity": "high"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:40.136Z"
+          },
+          {
+            "id": 16,
+            "used_judge": 1,
+            "passed": 0,
+            "dimension_scores_json": {
+              "humanness": 60,
+              "structure": 0,
+              "engagement": 55,
+              "factuality": 80,
+              "completeness": 40
+            },
+            "defects_json": [
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:42.280Z"
+          },
+          {
+            "id": 17,
+            "used_judge": 1,
+            "passed": 0,
+            "dimension_scores_json": {
+              "humanness": 50,
+              "structure": 0,
+              "engagement": 30,
+              "factuality": 80,
+              "completeness": 30
+            },
+            "defects_json": [
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "evidence": "",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:42.403Z"
+          },
+          {
+            "id": 18,
+            "used_judge": 1,
+            "passed": 0,
+            "dimension_scores_json": {
+              "humanness": 70,
+              "structure": 60,
+              "engagement": 40,
+              "factuality": 90,
+              "completeness": 35
+            },
+            "defects_json": [
+              {
+                "dim": "humanness",
+                "code": "humanness:low_burstiness",
+                "evidence": "burstiness 0.18",
+                "severity": "medium"
+              },
+              {
+                "dim": "completeness",
+                "code": "completeness:missing_sections",
+                "evidence": "The content promises clear checklists and explanations of residential energy assessments but does not provide any actual checklist or detailed information.",
+                "severity": "medium"
+              },
+              {
+                "dim": "completeness",
+                "code": "completeness:lack_of_substance",
+                "evidence": "The passage is mostly atmospheric and promotional without substantive guidance or actionable advice.",
+                "severity": "medium"
+              },
+              {
+                "dim": "structure",
+                "code": "structure:flow_issues",
+                "evidence": "The transition from cozy imagery to company activity to call-to-action feels abrupt and could be better segmented or signposted.",
+                "severity": "medium"
+              },
+              {
+                "dim": "engagement",
+                "code": "engagement:weak_hook",
+                "evidence": "The opening imagery is pleasant but not particularly scroll-stopping or unique to compel immediate attention.",
+                "severity": "medium"
+              },
+              {
+                "dim": "engagement",
+                "code": "engagement:call_to_action_generic",
+                "evidence": "The invitation to share stories is generic and might not strongly motivate interaction or sharing.",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:42.883Z"
+          },
+          {
+            "id": 19,
+            "used_judge": 1,
+            "passed": 1,
+            "dimension_scores_json": {
+              "humanness": 85,
+              "structure": 100,
+              "engagement": 100,
+              "factuality": 100,
+              "completeness": 100
+            },
+            "defects_json": [
+              {
+                "dim": "humanness",
+                "code": "humanness:low_burstiness",
+                "evidence": "burstiness 0.03",
+                "severity": "medium"
+              }
+            ],
+            "created_at": "2026-09-14T23:32:43.162Z"
+          }
+        ]
+      }
+    }
+  },
+  "acceptance": {
+    "copyCoherent": {
+      "status": "PASS_WITH_CAVEAT",
+      "summary": "All five final captions are non-empty, topical, branded, and readable without malformed JSON/preamble artifacts. The x draft triggered an unsupported factuality claim and truncation defect in critic reviews; no regeneration was attempted.",
+      "platformValidation": [
+        {
+          "platform": "facebook",
+          "variantId": 193,
+          "status": "READY",
+          "characterCount": 631,
+          "characterLimit": 63206,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "x",
+          "variantId": 194,
+          "status": "READY",
+          "characterCount": 403,
+          "characterLimit": 280,
+          "withinLimit": false,
+          "overBy": 123,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "pinterest",
+          "variantId": 195,
+          "status": "READY",
+          "characterCount": 411,
+          "characterLimit": 500,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "linkedin",
+          "variantId": 196,
+          "status": "READY",
+          "characterCount": 645,
+          "characterLimit": 3000,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "instagram",
+          "variantId": 197,
+          "status": "READY",
+          "characterCount": 1006,
+          "characterLimit": 2200,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        }
+      ]
+    },
+    "platformConstraints": {
+      "status": "FAIL",
+      "limits": {
+        "x": 280,
+        "facebook": 63206,
+        "instagram": 2200,
+        "linkedin": 3000,
+        "pinterest": 500
+      },
+      "results": [
+        {
+          "platform": "facebook",
+          "variantId": 193,
+          "status": "READY",
+          "characterCount": 631,
+          "characterLimit": 63206,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "x",
+          "variantId": 194,
+          "status": "READY",
+          "characterCount": 403,
+          "characterLimit": 280,
+          "withinLimit": false,
+          "overBy": 123,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "pinterest",
+          "variantId": 195,
+          "status": "READY",
+          "characterCount": 411,
+          "characterLimit": 500,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "linkedin",
+          "variantId": 196,
+          "status": "READY",
+          "characterCount": 645,
+          "characterLimit": 3000,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        },
+        {
+          "platform": "instagram",
+          "variantId": 197,
+          "status": "READY",
+          "characterCount": 1006,
+          "characterLimit": 2200,
+          "withinLimit": true,
+          "overBy": 0,
+          "nonEmpty": true,
+          "containsPlaceholder": false
+        }
+      ]
+    },
+    "imageBytesDimensionsMime": {
+      "status": "PASS",
+      "summary": "All five authenticated asset downloads returned HTTP 200 and valid PNG bytes; all probed as 1024x1024 PNG.",
+      "assets": [
+        {
+          "platform": "x",
+          "httpStatus": 200,
+          "bytes": 1172436,
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "5e912605688dcc63748a0ac3361f5952707326275a22ba4d80d8ca89d7ae4947"
+        },
+        {
+          "platform": "facebook",
+          "httpStatus": 200,
+          "bytes": 1770836,
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "c2b45b9a2363de6c6a5c7b40f7e1e63a5ade21657fd89863d5120eb12fe1e6e7"
+        },
+        {
+          "platform": "instagram",
+          "httpStatus": 200,
+          "bytes": 1631567,
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "419913ead583b2b02f7af5580215cd6d5c4392fdcf9275df0db5489161a09d78"
+        },
+        {
+          "platform": "linkedin",
+          "httpStatus": 200,
+          "bytes": 1489696,
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "d26b70e80436dcb1cf7e1f665e3c9a9e3ec1d6bd3e007b8311553a547f493a81"
+        },
+        {
+          "platform": "pinterest",
+          "httpStatus": 200,
+          "bytes": 1403124,
+          "detectedMime": "image/png",
+          "width": 1024,
+          "height": 1024,
+          "sha256": "679779c23ac026751efecd80f38c05d066dbb752abcb195f7daf667a064a12b4"
+        }
+      ]
+    },
+    "imageAspectRatios": {
+      "status": "FAIL",
+      "summary": "The provider returned square outputs for every requested platform. Only Instagram matches its requested 1:1 ratio.",
+      "results": [
+        {
+          "platform": "x",
+          "requested": "16:9",
+          "width": 1024,
+          "height": 1024,
+          "actual": 1,
+          "withinTolerance": false
+        },
+        {
+          "platform": "facebook",
+          "requested": "1.91:1",
+          "width": 1024,
+          "height": 1024,
+          "actual": 1,
+          "withinTolerance": false
+        },
+        {
+          "platform": "instagram",
+          "requested": "1:1",
+          "width": 1024,
+          "height": 1024,
+          "actual": 1,
+          "withinTolerance": true
+        },
+        {
+          "platform": "linkedin",
+          "requested": "1.91:1",
+          "width": 1024,
+          "height": 1024,
+          "actual": 1,
+          "withinTolerance": false
+        },
+        {
+          "platform": "pinterest",
+          "requested": "2:3",
+          "width": 1024,
+          "height": 1024,
+          "actual": 1,
+          "withinTolerance": false
+        }
+      ]
+    },
+    "visualInspection": {
+      "status": "completed",
+      "inspectionMethod": "Direct visual inspection of each downloaded real asset file after byte/MIME/dimension probing",
+      "findings": {
+        "x": "Intact PNG; soft-focus coastal/lighthouse/solar-home scene with readable Harbor Home Energy logo; no visible corruption.",
+        "facebook": "Intact PNG; warm home interior and energy-assessment tablet with readable Harbor Home Energy branding; no visible corruption.",
+        "instagram": "Intact PNG; couple reviewing an energy-plan tablet in a home with readable Harbor Home Energy branding; no visible corruption.",
+        "linkedin": "Intact PNG; family home-energy consultation scene with readable wall logo and tablet; no visible corruption.",
+        "pinterest": "Intact PNG; cutaway home plus seasonal energy graphic and readable Harbor Home Energy branding; no visible corruption."
+      }
+    },
+    "noPublishingConfirmed": true,
+    "baselineChecksPass": false,
+    "variantRegeneration": "NOT_ATTEMPTED — permitted single regeneration is conditional on all baseline checks passing; x character-limit and four image-aspect checks failed."
+  },
+  "failures": [
+    "Platform-limit failure: final x caption is 403 characters against the 280-character limit (over by 123). The worker marked it READY instead of enforcing the limit after GPT enhancement.",
+    "Image-aspect failure: all five provider images are 1024x1024 PNGs. This matches Instagram 1:1 only; x (declared 16:9), Facebook (1.91:1), LinkedIn (1.91:1), and Pinterest (2:3) outputs do not match their stored target ratios.",
+    "Content-quality caveat: the critic recorded an unsupported factuality claim in the x draft (“30% of heating escapes through hidden leaks”) and a truncation defect before enhancement. Final copy remained coherent but should not be treated as fact-validated.",
+    "Usage-cap settlement caveat: the cap_reservation usage row created before submit remained pending in the final read; the separate social_post usage row is completed. No manual cleanup was performed."
+  ],
+  "executionNotes": {
+    "providerCalls": "Real Gemini/OpenAI calls only; no mocks or fabricated outputs.",
+    "providerEvents": 19,
+    "physicalImageCalls": 5,
+    "uniqueImageOutputs": 5,
+    "articleHeroReuse": false,
+    "terminalStatus": "READY",
+    "allFiveVariantsPersisted": true,
+    "allFiveAssetsPersisted": true,
+    "apiGetPolling": "Authenticated GET reached terminal READY.",
+    "uiCoverage": "UI_NOT_TESTED / API-only."
+  }
+}

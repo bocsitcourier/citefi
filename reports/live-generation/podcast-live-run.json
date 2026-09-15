@@ -1,0 +1,852 @@
+{
+  "reportVersion": "podcast-live-run.v1",
+  "capturedAt": "2026-09-14T23:41:08.410Z",
+  "status": "DURATION_FAIL_WITH_VERIFICATION_INCOMPLETE",
+  "scope": {
+    "apiOnly": true,
+    "ui": "UI_NOT_TESTED",
+    "sourceEdits": "none",
+    "customerWrites": false,
+    "publishing": false,
+    "emails": false,
+    "workerRestart": false,
+    "queueClears": false,
+    "redisInspection": "not needed"
+  },
+  "fixture": {
+    "fixtureLabel": "LIVE GENERATION QA 2026-09-10",
+    "syntheticIdentity": true,
+    "userId": 10794,
+    "teamId": 2535,
+    "articleId": 2238,
+    "credentialValuesPrinted": false
+  },
+  "sourcePrecondition": {
+    "articleId": 2238,
+    "articleStatusObserved": "COMPLETE",
+    "title": "Harbor Home Energy fictional QA source: Boston home energy assessment education",
+    "wordCount": 11,
+    "htmlLength": 5467,
+    "textLength": 4188,
+    "headingCount": 6,
+    "headings": [
+      "Harbor Home Energy",
+      "Home energy education and assessment planning",
+      "Who we help",
+      "Our approach and voice",
+      "Verified facts for this synthetic test input",
+      "Claims that must not be made"
+    ],
+    "usableArticleInput": true,
+    "authoredStatus": "human-authored QA fixture created for SEO",
+    "validPodcastInput": true,
+    "articlePipelineProof": "NOT_CLAIMED — this fixture is not evidence that the article pipeline passed",
+    "excludedArticleId": 2235
+  },
+  "authAndApiJourney": {
+    "baseUrl": "http://localhost:5000",
+    "statuses": {
+      "login": 200,
+      "me": 200,
+      "existingPodcast": 200,
+      "generate": 200
+    },
+    "existingPodcast": {
+      "status": "none",
+      "url": null,
+      "duration": null
+    },
+    "generationRequest": {
+      "endpoint": "/api/podcast/generate",
+      "authorized": true,
+      "articleId": 2238,
+      "duration": "1-2 minutes",
+      "tone": "default",
+      "voice": "default worker two-host voices",
+      "idempotencyKeyRecorded": true,
+      "idempotencyKeyPrinted": false
+    },
+    "response": {
+      "success": true,
+      "jobId": "podcast:2238:9e5aecd15f1b7cf8557a66755e32abe4ac595dcf737c27c07ec009b90c1a0497",
+      "status": "pending"
+    }
+  },
+  "queueAndTerminal": {
+    "jobId": "podcast:2238:9e5aecd15f1b7cf8557a66755e32abe4ac595dcf737c27c07ec009b90c1a0497",
+    "terminal": "ready",
+    "pollCount": 20,
+    "firstObservedAt": "2026-09-14T23:28:44.519Z",
+    "lastObservedAt": "2026-09-14T23:30:21.285Z",
+    "terminalStatus": "ready",
+    "terminalHttpStatus": 200,
+    "terminalUrl": "/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+    "terminalDurationFieldSeconds": 260,
+    "terminalScriptSummary": {
+      "title": "Demystifying Home Comfort with Harbor Home Energy",
+      "duration": "1 minute 30 seconds",
+      "generatedAt": "2026-09-14T23:30:17.166Z",
+      "segmentCount": 12
+    },
+    "manualProviderRetries": 0,
+    "creditRunId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+    "durationContractPass": false
+  },
+  "audio": {
+    "path": "reports/live-generation/assets/podcast-2238.mp3",
+    "url": "http://localhost:5000/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+    "httpStatus": 200,
+    "contentType": "audio/mpeg",
+    "bytesOnDisk": 3270144,
+    "downloadReportedBytes": 3270144,
+    "bytesMatch": true,
+    "ffprobe": {
+      "programs": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "mp3",
+          "codec_long_name": "MP3 (MPEG audio layer 3)",
+          "codec_type": "audio",
+          "sample_rate": "24000",
+          "channels": 1,
+          "channel_layout": "mono",
+          "duration": "204.384000",
+          "bit_rate": "128000"
+        }
+      ],
+      "format": {
+        "format_name": "mp3",
+        "format_long_name": "MP2/3 (MPEG audio layer 2/3)",
+        "duration": "204.384000",
+        "size": "3270144",
+        "bit_rate": "128000"
+      }
+    },
+    "silencedetect": {
+      "threshold": "-50dB",
+      "minimumSilenceSeconds": 0.5,
+      "eventCount": 28,
+      "totalSilenceSeconds": 18.882794,
+      "events": [
+        {
+          "startSeconds": 9.61913,
+          "endSeconds": 10.1191,
+          "durationSeconds": 0.5
+        },
+        {
+          "startSeconds": 11.4026,
+          "endSeconds": 11.917,
+          "durationSeconds": 0.514458
+        },
+        {
+          "startSeconds": 43.5716,
+          "endSeconds": 44.2043,
+          "durationSeconds": 0.632625
+        },
+        {
+          "startSeconds": 44.896,
+          "endSeconds": 45.403,
+          "durationSeconds": 0.507
+        },
+        {
+          "startSeconds": 48.7979,
+          "endSeconds": 49.5227,
+          "durationSeconds": 0.724833
+        },
+        {
+          "startSeconds": 50.3064,
+          "endSeconds": 50.9774,
+          "durationSeconds": 0.671
+        },
+        {
+          "startSeconds": 60.9817,
+          "endSeconds": 61.6032,
+          "durationSeconds": 0.621458
+        },
+        {
+          "startSeconds": 62.4781,
+          "endSeconds": 63.0966,
+          "durationSeconds": 0.6185
+        },
+        {
+          "startSeconds": 65.8765,
+          "endSeconds": 66.5802,
+          "durationSeconds": 0.703625
+        },
+        {
+          "startSeconds": 77.3355,
+          "endSeconds": 78.0157,
+          "durationSeconds": 0.680125
+        },
+        {
+          "startSeconds": 79.7373,
+          "endSeconds": 80.3172,
+          "durationSeconds": 0.579833
+        },
+        {
+          "startSeconds": 86.5048,
+          "endSeconds": 87.113,
+          "durationSeconds": 0.608208
+        },
+        {
+          "startSeconds": 91.9108,
+          "endSeconds": 92.4714,
+          "durationSeconds": 0.560542
+        },
+        {
+          "startSeconds": 96.6342,
+          "endSeconds": 97.7217,
+          "durationSeconds": 1.08754
+        },
+        {
+          "startSeconds": 100.785,
+          "endSeconds": 101.331,
+          "durationSeconds": 0.546125
+        },
+        {
+          "startSeconds": 110.294,
+          "endSeconds": 110.833,
+          "durationSeconds": 0.539458
+        },
+        {
+          "startSeconds": 118.949,
+          "endSeconds": 119.48,
+          "durationSeconds": 0.530417
+        },
+        {
+          "startSeconds": 121.915,
+          "endSeconds": 122.467,
+          "durationSeconds": 0.552542
+        },
+        {
+          "startSeconds": 130.876,
+          "endSeconds": 131.395,
+          "durationSeconds": 0.519542
+        },
+        {
+          "startSeconds": 151.456,
+          "endSeconds": 152.095,
+          "durationSeconds": 0.638625
+        },
+        {
+          "startSeconds": 157.436,
+          "endSeconds": 158.003,
+          "durationSeconds": 0.566625
+        },
+        {
+          "startSeconds": 162.9,
+          "endSeconds": 163.527,
+          "durationSeconds": 0.627542
+        },
+        {
+          "startSeconds": 167.733,
+          "endSeconds": 168.608,
+          "durationSeconds": 0.874917
+        },
+        {
+          "startSeconds": 171.559,
+          "endSeconds": 172.272,
+          "durationSeconds": 0.7125
+        },
+        {
+          "startSeconds": 184.193,
+          "endSeconds": 184.874,
+          "durationSeconds": 0.681542
+        },
+        {
+          "startSeconds": 195.952,
+          "endSeconds": 196.983,
+          "durationSeconds": 1.03121
+        },
+        {
+          "startSeconds": 199.586,
+          "endSeconds": 200.337,
+          "durationSeconds": 0.750792
+        },
+        {
+          "startSeconds": 203.083,
+          "endSeconds": 204.384,
+          "durationSeconds": 1.30121
+        }
+      ]
+    },
+    "playableMp3": true,
+    "durationContractPass": false
+  },
+  "scriptAndAudioVerification": {
+    "scriptPersisted": true,
+    "scriptSummary": {
+      "title": "Demystifying Home Comfort with Harbor Home Energy",
+      "duration": "1 minute 30 seconds",
+      "generatedAt": "2026-09-14T23:30:17.166Z",
+      "segmentCount": 12
+    },
+    "segmentCount": 12,
+    "scriptTextPersisted": false,
+    "coherentScriptAudio": "NOT_CONFIRMED — one authorized metered transcription returned truncated provider JSON; no coherence claim",
+    "audioContainsNonSilence": true,
+    "manualReviewRequired": true,
+    "durationContractPass": false
+  },
+  "optionalTranscription": {
+    "preflight": {
+      "ownershipValidated": true,
+      "scope": "tenant",
+      "actorType": "worker",
+      "userId": 10794,
+      "teamId": 2535,
+      "articleId": 2238,
+      "paidProviderCalls": 0
+    },
+    "previousAttempt": {
+      "status": "PROVIDER_ACCOUNTING_FAILED",
+      "providerRequestId": null,
+      "model": null,
+      "requestConfigRecovered": false,
+      "requestOutputCapTokens": null,
+      "requestInputLimitTokens": null,
+      "modelLimitsConfirmed": false,
+      "ledgerRows": 0,
+      "physicalCallOutcome": "unreconciled/unknown; do not treat as free",
+      "manualRetries": 0,
+      "noLedgerBackfill": true,
+      "historicalSingleCallReserveUsd": 5,
+      "currentSharedUnresolvedReserveUsd": 6,
+      "forensicsPath": "reports/live-generation/assets/podcast-2238-transcription-v1-forensics.json",
+      "boundStatus": "UNRESOLVED_BOUND_NOT_CONFIRMED_PAUSE_REQUIRED"
+    },
+    "currentAttempt": {
+      "status": "INCOMPLETE_PROVIDER_OUTPUT",
+      "provider": "gemini",
+      "model": "gemini-3.5-flash",
+      "providerRequestId": "xYSoaufGGO-v39IPzqGZ4Q4",
+      "ledgerId": 395,
+      "ledgerRunId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2",
+      "resourceType": "article",
+      "articleId": 2238,
+      "teamId": 2535,
+      "usage": {
+        "inputTokens": 5284,
+        "outputTokens": 58,
+        "totalTokens": 7070
+      },
+      "costMicrousd": 1730,
+      "costUsd": 0.00173,
+      "boundUsd": 0.1,
+      "withinBound": true,
+      "transcriptPath": "reports/live-generation/assets/podcast-2238-transcription.json",
+      "transcriptComplete": false,
+      "language": "en",
+      "manualRetries": 0,
+      "stopReason": "Single authorized metered transcription completed and was durably metered; provider output was truncated, so no retry."
+    }
+  },
+  "persistence": {
+    "refreshedAt": "2026-09-14T23:31:06.208Z",
+    "statuses": {
+      "login": 200,
+      "podcastStatus": 200,
+      "content": 200
+    },
+    "podcast": {
+      "articleId": 2238,
+      "status": "ready",
+      "url": "/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+      "duration": 260,
+      "generatedAt": "2026-09-14T23:30:18.011Z",
+      "script": {
+        "title": "Demystifying Home Comfort with Harbor Home Energy",
+        "duration": "1 minute 30 seconds",
+        "generatedAt": "2026-09-14T23:30:17.166Z",
+        "segmentCount": 12
+      }
+    },
+    "content": {
+      "articleId": 2238,
+      "status": "COMPLETE",
+      "podcastStatus": "ready",
+      "podcastUrl": "/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+      "podcastDuration": 260,
+      "podcastGeneratedAt": "2026-09-14T23:30:18.011Z",
+      "podcastScriptJson": {
+        "title": "Demystifying Home Comfort with Harbor Home Energy",
+        "duration": "1 minute 30 seconds",
+        "generatedAt": "2026-09-14T23:30:17.166Z",
+        "segmentCount": 12
+      }
+    },
+    "assetCount": 1,
+    "podcastAssets": [
+      {
+        "id": 5027,
+        "url": "/api/public-objects/private/teams/2535/articles/2238/podcasts/podcast-article-2238-1789428617167.mp3",
+        "format": "mp3",
+        "altText": "Podcast: Harbor Home Energy fictional QA source: Boston home energy assessment education"
+      }
+    ],
+    "errors": [],
+    "dbApiConsistency": true
+  },
+  "billing": {
+    "creditRunId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+    "creditCostExpected": 8,
+    "creditEvents": [
+      {
+        "id": 1435,
+        "event_type": "reserve",
+        "amount": 8,
+        "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "operation_type": "podcast",
+        "job_id": null,
+        "created_at": "2026-09-14T23:28:38.221Z"
+      },
+      {
+        "id": 1436,
+        "event_type": "debit",
+        "amount": -8,
+        "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "operation_type": "podcast",
+        "job_id": null,
+        "created_at": "2026-09-14T23:30:18.032Z"
+      }
+    ],
+    "reservation": [
+      {
+        "id": "613",
+        "run_id": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "operation_type": "podcast",
+        "original_amount": 8,
+        "remaining_amount": 0,
+        "status": "DEBITED",
+        "reconciliation_required_at": null,
+        "created_at": "2026-09-14T23:28:38.221Z",
+        "updated_at": "2026-09-14T23:30:18.041Z"
+      }
+    ],
+    "creditDebitExactOnce": true,
+    "cap": {
+      "config": {
+        "monthly_cap_cents": 5000,
+        "hard_stop": true
+      },
+      "events": [
+        {
+          "id": 11,
+          "teamId": 2535,
+          "action": "cap_reservation",
+          "units": 0,
+          "costEstimateCents": 8,
+          "status": "completed",
+          "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+          "metadata": {
+            "articleId": 2238
+          },
+          "createdAt": "2026-09-14T23:28:38.171Z"
+        }
+      ],
+      "completedPodcastCapEvents": [
+        {
+          "id": 11,
+          "teamId": 2535,
+          "action": "cap_reservation",
+          "units": 0,
+          "costEstimateCents": 8,
+          "status": "completed",
+          "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+          "metadata": {
+            "articleId": 2238
+          },
+          "createdAt": "2026-09-14T23:28:38.171Z"
+        }
+      ],
+      "completedExactOnce": true
+    }
+  },
+  "providerAccounting": {
+    "runId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+    "physicalCallCount": 17,
+    "byOperation": {
+      "podcast_script": {
+        "physicalCalls": 1,
+        "costMicrousd": 2722,
+        "providerRequestIds": [
+          "KoOoas_RE-DTjrEPzO_NmAw"
+        ]
+      },
+      "article_review": {
+        "physicalCalls": 2,
+        "costMicrousd": 4031,
+        "providerRequestIds": [
+          "M4OoapSwPLLWjrEP8_vh0Ag",
+          "SYOoasHNMoCwjrEP0fzHqAk"
+        ]
+      },
+      "other": {
+        "physicalCalls": 2,
+        "costMicrousd": 1752,
+        "providerRequestIds": [
+          "chatcmpl-EOAOjQBgu33jCoiDBPTyDSSmeD38S",
+          "chatcmpl-EOAP6xQXQFw3lL5JpFFlShvxqmA1x"
+        ]
+      },
+      "podcast_tts": {
+        "physicalCalls": 12,
+        "costMicrousd": 48420,
+        "providerRequestIds": [
+          "openai-call:20a7c5ee-76ea-4ced-b864-7832d48b35c8:attempt:1",
+          "openai-call:e67ab9f7-ce89-4f30-ae93-bc2cecd550ac:attempt:1",
+          "openai-call:fe176e7e-e1da-47a9-b2f8-4d6492d0a035:attempt:1",
+          "openai-call:d374329d-f37d-4d6f-a138-c1b91d791063:attempt:1",
+          "openai-call:bae5a308-c614-4818-87dc-986d7d093f6e:attempt:1",
+          "openai-call:7a05b1e2-210d-4f9a-8308-079d20f9f7b1:attempt:1",
+          "openai-call:aea8259b-e1eb-411d-ac62-c7781bb605bf:attempt:1",
+          "openai-call:8972ca05-56f6-4e92-bcc7-8f0ba9b8594c:attempt:1",
+          "openai-call:fc2454bf-4bf5-4764-8278-76f90dc6de88:attempt:1",
+          "openai-call:654513df-1f72-47f6-bd96-b617822adce1:attempt:1",
+          "openai-call:507bd00b-58fd-4c29-b0a5-fb6ca18e6803:attempt:1",
+          "openai-call:c2c50384-91ca-4289-823c-93851a8b4eb7:attempt:1"
+        ]
+      }
+    },
+    "runCostMicrousd": 56925,
+    "runCostUsd": 0.056925,
+    "providerCalls": [
+      {
+        "ledgerId": 352,
+        "operationType": "podcast_script",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unitType": "tokens",
+        "unitCount": 3861,
+        "inputUnits": 1772,
+        "outputUnits": 876,
+        "costMicrousd": 2722,
+        "providerRateId": 2,
+        "providerRequestId": "KoOoas_RE-DTjrEPzO_NmAw",
+        "jobId": null,
+        "contentId": null,
+        "occurredAt": "2026-09-14T23:28:51.846Z"
+      },
+      {
+        "ledgerId": 353,
+        "operationType": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unitType": "tokens",
+        "unitCount": 5522,
+        "inputUnits": 1590,
+        "outputUnits": 565,
+        "costMicrousd": 1890,
+        "providerRateId": 2,
+        "providerRequestId": "M4OoapSwPLLWjrEP8_vh0Ag",
+        "jobId": null,
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:07.975Z"
+      },
+      {
+        "ledgerId": 354,
+        "operationType": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unitType": "tokens",
+        "unitCount": 1107,
+        "inputUnits": 708,
+        "outputUnits": 399,
+        "costMicrousd": 922,
+        "providerRateId": 17,
+        "providerRequestId": "chatcmpl-EOAOjQBgu33jCoiDBPTyDSSmeD38S",
+        "jobId": null,
+        "contentId": null,
+        "occurredAt": "2026-09-14T23:29:13.708Z"
+      },
+      {
+        "ledgerId": 355,
+        "operationType": "article_review",
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "unitType": "tokens",
+        "unitCount": 6204,
+        "inputUnits": 1695,
+        "outputUnits": 653,
+        "costMicrousd": 2141,
+        "providerRateId": 2,
+        "providerRequestId": "SYOoasHNMoCwjrEP0fzHqAk",
+        "jobId": null,
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:30.443Z"
+      },
+      {
+        "ledgerId": 356,
+        "operationType": "other",
+        "provider": "openai",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "unitType": "tokens",
+        "unitCount": 1109,
+        "inputUnits": 787,
+        "outputUnits": 322,
+        "costMicrousd": 830,
+        "providerRateId": 17,
+        "providerRequestId": "chatcmpl-EOAP6xQXQFw3lL5JpFFlShvxqmA1x",
+        "jobId": null,
+        "contentId": null,
+        "occurredAt": "2026-09-14T23:29:36.441Z"
+      },
+      {
+        "ledgerId": 357,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 251,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 3765,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:20a7c5ee-76ea-4ced-b864-7832d48b35c8:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:37.512Z"
+      },
+      {
+        "ledgerId": 358,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 180,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 2700,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:e67ab9f7-ce89-4f30-ae93-bc2cecd550ac:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:41.518Z"
+      },
+      {
+        "ledgerId": 359,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 368,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 5520,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:fe176e7e-e1da-47a9-b2f8-4d6492d0a035:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:43.860Z"
+      },
+      {
+        "ledgerId": 360,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 292,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 4380,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:d374329d-f37d-4d6f-a138-c1b91d791063:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:47.009Z"
+      },
+      {
+        "ledgerId": 361,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 332,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 4980,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:bae5a308-c614-4818-87dc-986d7d093f6e:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:51.480Z"
+      },
+      {
+        "ledgerId": 362,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 395,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 5925,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:7a05b1e2-210d-4f9a-8308-079d20f9f7b1:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:55.149Z"
+      },
+      {
+        "ledgerId": 363,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 295,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 4425,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:aea8259b-e1eb-411d-ac62-c7781bb605bf:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:29:59.365Z"
+      },
+      {
+        "ledgerId": 364,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 232,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 3480,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:8972ca05-56f6-4e92-bcc7-8f0ba9b8594c:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:30:04.421Z"
+      },
+      {
+        "ledgerId": 365,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 363,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 5445,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:fc2454bf-4bf5-4764-8278-76f90dc6de88:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:30:06.753Z"
+      },
+      {
+        "ledgerId": 367,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 275,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 4125,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:654513df-1f72-47f6-bd96-b617822adce1:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:30:10.834Z"
+      },
+      {
+        "ledgerId": 368,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 158,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 2370,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:507bd00b-58fd-4c29-b0a5-fb6ca18e6803:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:30:14.099Z"
+      },
+      {
+        "ledgerId": 369,
+        "operationType": "podcast_tts",
+        "provider": "openai",
+        "model": "gpt-4o-mini-tts",
+        "unitType": "characters",
+        "unitCount": 87,
+        "inputUnits": null,
+        "outputUnits": null,
+        "costMicrousd": 1305,
+        "providerRateId": 29,
+        "providerRequestId": "openai-call:c2c50384-91ca-4289-823c-93851a8b4eb7:attempt:1",
+        "jobId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb",
+        "contentId": 2238,
+        "occurredAt": "2026-09-14T23:30:16.420Z"
+      }
+    ],
+    "unrelatedCurrentFixtureLedger": {
+      "eventCount": 98,
+      "costMicrousd": 513437,
+      "costUsd": 0.513437,
+      "note": "Includes other activity on the synthetic QA team; not attributed to this podcast run. Refreshed after the separately metered verification row."
+    },
+    "queueJobId": "podcast:2238:9e5aecd15f1b7cf8557a66755e32abe4ac595dcf737c27c07ec009b90c1a0497",
+    "verification": {
+      "provider": "gemini",
+      "operationType": "other",
+      "providerRequestId": "xYSoaufGGO-v39IPzqGZ4Q4",
+      "ledgerId": 395,
+      "costMicrousd": 1730,
+      "costUsd": 0.00173,
+      "recordedSeparately": true,
+      "runId": "podcast:2238:live-podcast-qa-2238-1789428517414-f867ce81293bb:verification-v2"
+    }
+  },
+  "budget": {
+    "approvedPodcastJourneyBudgetUsd": 2,
+    "sameFixtureMonthlyCapUsd": 50,
+    "recordedPodcastRunWithinApprovedBudget": true,
+    "recordedTeamLedgerWithinMonthlyCap": true,
+    "verificationUnpriced": true,
+    "certification": "DURATION FAIL. Current transcription is metered at $0.00173 within the $0.10 bound, but the earlier failed-accounting attempt remains separately unreconciled within the current shared $6 reserve; no fake backfill or retry.",
+    "recordedVerificationCostUsd": 0.00173,
+    "verificationBoundUsd": 0.1,
+    "historicalSingleCallReserveUsd": 5,
+    "currentSharedUnresolvedReserveUsd": 6,
+    "recordedJourneyCostUsd": 0.058655000000000006,
+    "recordedJourneyWithinApprovedBudget": true,
+    "recordedTeamLedgerCostUsd": 0.513437
+  },
+  "assets": [
+    "reports/live-generation/assets/podcast-2238.mp3",
+    "reports/live-generation/assets/podcast-2238-ffprobe.json",
+    "reports/live-generation/assets/podcast-2238-silencedetect.log",
+    "reports/live-generation/assets/podcast-2238-transcription.json",
+    "reports/live-generation/assets/podcast-2238-transcription-v1-forensics.json"
+  ],
+  "durationContract": {
+    "requestedValue": "1-2 minutes",
+    "requestedRangeSeconds": [
+      60,
+      120
+    ],
+    "requestAcceptedByApi": true,
+    "requestWasValidForGenerator": true,
+    "actualFfprobeDurationSeconds": 204.384,
+    "persistedApiDurationSeconds": 260,
+    "scriptSelfReportedDuration": "1 minute 30 seconds",
+    "durationContractPass": false,
+    "failureReason": "The valid duration request was copied into the Gemini prompt but no enforcement/clamp was applied before all generated segments were sent to TTS; actual MP3 is 204.384s (3.4064min), above the 120s maximum.",
+    "deliveredArtifactPreserved": true,
+    "automaticDeletion": false,
+    "automaticRegeneration": false,
+    "sourceInspection": {
+      "apiRoute": "app/api/podcast/generate/route.ts destructures and forwards duration",
+      "generator": "lib/podcast-generator.ts interpolates duration into prompt; default only when omitted; no parser/validator/enforcer",
+      "worker": "lib/podcast-worker.ts sends every script segment to mergeAudioSegments",
+      "tts": "lib/openai-tts.ts enforces only 40 segments/30000 chars, not requested duration",
+      "persistence": "lib/podcast-worker.ts stores script.duration as model summary and podcastDuration from estimateAudioDuration(totalText.length), not ffprobe"
+    }
+  }
+}

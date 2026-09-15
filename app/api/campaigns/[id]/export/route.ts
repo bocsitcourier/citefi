@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import archiver from "archiver";
 import { PassThrough } from "stream";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import {
@@ -7,6 +6,14 @@ import {
   loadCampaignExportContent,
   recordCampaignExport,
 } from "@/lib/campaign-service";
+import { assertValidArticleOutput } from "@/lib/article-output-safety";
+import { createZipArchive } from "@/lib/zip-archive";
+
+const EXPORTABLE_ARTICLE_STATUSES = new Set([
+  "COMPLETE",
+  "GPT4_ENHANCED",
+  "CHATGPT_REVIEWED",
+]);
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,7 +60,34 @@ export async function GET(
       );
     }
 
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const notReady = campaignArticles.filter(
+      (article) =>
+        article.finalHtmlContent &&
+        !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
+    );
+    if (notReady.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Campaign contains articles that have not completed HTML generation",
+          articleIds: notReady.map((article) => article.id),
+        },
+        { status: 409 },
+      );
+    }
+    for (const article of campaignArticles) {
+      if (article.finalHtmlContent) {
+        try {
+          assertValidArticleOutput(article.finalHtmlContent, { format: "html" });
+        } catch {
+          return NextResponse.json(
+            { error: `Article ${article.id} is not exportable: invalid article output` },
+            { status: 409 },
+          );
+        }
+      }
+    }
+
+    const archive = createZipArchive({ zlib: { level: 9 } });
     const passThrough = new PassThrough();
     archive.pipe(passThrough);
     archive.on("error", (err) => {

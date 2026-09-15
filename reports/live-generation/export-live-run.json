@@ -1,0 +1,324 @@
+{
+  "run": "export-live-run",
+  "startedAt": "2026-09-14T23:11:58.948Z",
+  "apiBase": "http://localhost:5000",
+  "fixture": {
+    "teamId": 2535,
+    "identityEmail": "live-generation-qa-2026-09-10@example.invalid",
+    "sourceIsExplicitlyFictional": true,
+    "article2235Touched": false,
+    "uiStatus": "UI_NOT_TESTED"
+  },
+  "auth": {
+    "method": "POST",
+    "route": "/api/auth/login",
+    "status": 200,
+    "ok": true,
+    "sessionEstablished": true
+  },
+  "cases": [
+    {
+      "name": "empty-batch-629",
+      "route": "/api/export/batch/629",
+      "status": 404,
+      "ok": false,
+      "outputPath": "reports/live-generation/export-live-output-empty-629.json",
+      "response": {
+        "error": "No articles found in this batch"
+      },
+      "expectedStatus": 404,
+      "valid": true
+    },
+    {
+      "name": "completed-batch-626",
+      "route": "/api/export/batch/626",
+      "status": 200,
+      "ok": true,
+      "outputPath": "reports/live-generation/export-live-output-batch-626.zip",
+      "proofPath": "reports/live-generation/export-live-output-completed-626.json",
+      "responseProof": {
+        "method": "GET",
+        "route": "/api/export/batch/626",
+        "status": 200,
+        "ok": true,
+        "contentType": "application/zip",
+        "outputPath": "reports/live-generation/export-live-output-batch-626.zip",
+        "zipMagic": true,
+        "byteLength": 6506,
+          "archiveIntegrity": "PASS (unzip -t reported no errors)",
+        "archiveListing": [
+          "metadata.csv",
+          "html/boston-winter-home-energy-audit-checklist.html",
+          "markdown/boston-winter-home-energy-audit-checklist.md"
+        ],
+        "files": {
+          "metadata.csv": {
+            "bytes": 378,
+            "nonEmpty": true,
+            "sha256": "218b26edd3b77da60b096f1e99c4f575ab79e2c663a77fbd2dee6d3d34a53c9f"
+          },
+          "html/boston-winter-home-energy-audit-checklist.html": {
+            "bytes": 15656,
+            "nonEmpty": true,
+              "sha256": "1d1ddff09e0ef9fd31f1c262c9a1ce528f1fb7d03efa401aa12051cc2c4a7f03",
+              "articleWrapperPresent": true,
+              "qualityAssessment": "NOT_ASSESSED_BY_EXPORT"
+          },
+          "markdown/boston-winter-home-energy-audit-checklist.md": {
+            "bytes": 11278,
+            "nonEmpty": true,
+              "sha256": "eb55df341cda4cdf71fb8279226e54f0cbc21b1af942c1a268310d07a9578d07",
+              "qualityAssessment": "NOT_ASSESSED_BY_EXPORT"
+          }
+        }
+      },
+      "expectedStatus": 200,
+      "valid": true
+    }
+  ],
+  "seoEvidence": {
+    "sourceRun": "reports/live-generation/seo-live-run.json",
+    "aggregateProviderEvents": 7,
+    "aggregateCostUsd": 0.019972000000000004,
+    "providerEventSummary": [
+      {
+        "ledgerId": "325",
+        "result": "local-research",
+        "provider": "gemini",
+        "operationType": "seo_analysis",
+        "costMicrousd": "5533",
+        "providerRequestId": "o3yoasuOG_Hj_uMPnfPxOQ"
+      },
+      {
+        "ledgerId": "326",
+        "result": "competitor-analysis",
+        "provider": "openai",
+        "operationType": "other",
+        "costMicrousd": "1297",
+        "providerRequestId": "chatcmpl-EO9xddRRkvRAEtpxc9cWUV0RcIbyN"
+      },
+      {
+        "ledgerId": "327",
+        "result": "content-structure",
+        "provider": "gemini",
+        "operationType": "seo_analysis",
+        "costMicrousd": "6660",
+        "providerRequestId": "vXyoaoO0FMuPjrEPosPBmAo"
+      },
+      {
+        "ledgerId": "328",
+        "result": "pillar-cluster",
+        "provider": "openai",
+        "operationType": "other",
+        "costMicrousd": "1839",
+        "providerRequestId": "chatcmpl-EO9y5ZmLrMbLk5tbfEEyIhYcl4i7w"
+      },
+      {
+        "ledgerId": "329",
+        "result": "content-audit",
+        "provider": "openai",
+        "operationType": "article_review",
+        "costMicrousd": "2077",
+        "providerRequestId": "chatcmpl-EO9yqlp7sPIavuSZ4gkPgUcifwmrJ"
+      },
+      {
+        "ledgerId": "330",
+        "result": "content-audit",
+        "provider": "openai",
+        "operationType": "article_hyperlink",
+        "costMicrousd": "1027",
+        "providerRequestId": "chatcmpl-EO9yx4FTU50D0sALTZUueyXOfY6uJ"
+      },
+      {
+        "ledgerId": "331",
+        "result": "create-articles",
+        "provider": "gemini",
+        "operationType": "article_title_pool",
+        "costMicrousd": "1539",
+        "providerRequestId": "Cn2oaoWhBZfWjrEPj-TCoAs"
+      }
+    ],
+    "providerResults": [
+      {
+        "name": "local-research",
+        "route": "/api/seo/local-research",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.005533,
+        "providerEvents": 1,
+        "providerRequestIds": [
+          "o3yoasuOG_Hj_uMPnfPxOQ"
+        ]
+      },
+      {
+        "name": "competitor-analysis",
+        "route": "/api/seo/competitor-analysis",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001297,
+        "providerEvents": 1,
+        "providerRequestIds": [
+          "chatcmpl-EO9xddRRkvRAEtpxc9cWUV0RcIbyN"
+        ]
+      },
+      {
+        "name": "content-structure",
+        "route": "/api/seo/content-structure",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.00666,
+        "providerEvents": 1,
+        "providerRequestIds": [
+          "vXyoaoO0FMuPjrEPosPBmAo"
+        ]
+      },
+      {
+        "name": "pillar-cluster",
+        "route": "/api/seo/pillar-cluster",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001839,
+        "providerEvents": 1,
+        "providerRequestIds": [
+          "chatcmpl-EO9y5ZmLrMbLk5tbfEEyIhYcl4i7w"
+        ]
+      },
+      {
+        "name": "content-audit",
+        "route": "/api/seo/content-audit",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.003104,
+        "providerEvents": 2,
+        "providerRequestIds": [
+          "chatcmpl-EO9yqlp7sPIavuSZ4gkPgUcifwmrJ",
+          "chatcmpl-EO9yx4FTU50D0sALTZUueyXOfY6uJ"
+        ]
+      },
+      {
+        "name": "create-articles",
+        "route": "/api/seo/create-articles",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001539,
+        "providerEvents": 1,
+        "providerRequestIds": [
+          "Cn2oaoWhBZfWjrEPj-TCoAs"
+        ]
+      }
+    ],
+    "summary": [
+      {
+        "name": "local-research",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.005533,
+        "providerEvents": 1
+      },
+      {
+        "name": "competitor-analysis",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001297,
+        "providerEvents": 1
+      },
+      {
+        "name": "content-structure",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.00666,
+        "providerEvents": 1
+      },
+      {
+        "name": "pillar-cluster",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001839,
+        "providerEvents": 1
+      },
+      {
+        "name": "schema-article",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0,
+        "providerEvents": 0
+      },
+      {
+        "name": "schema-howto",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0,
+        "providerEvents": 0
+      },
+      {
+        "name": "schema-faqpage",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0,
+        "providerEvents": 0
+      },
+      {
+        "name": "schema-localbusiness",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0,
+        "providerEvents": 0
+      },
+      {
+        "name": "content-audit",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.003104,
+        "providerEvents": 2
+      },
+      {
+        "name": "create-articles",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0.001539,
+        "providerEvents": 1
+      },
+      {
+        "name": "create-articles-retrieval",
+        "status": 200,
+        "ok": true,
+        "valid": true,
+        "costUsd": 0,
+        "providerEvents": 0
+      },
+      {
+        "name": "create-articles-export",
+        "status": 500,
+        "ok": false,
+        "valid": false,
+        "costUsd": 0,
+        "providerEvents": 0
+      }
+    ]
+  },
+  "notes": [
+    "No paid provider calls, article writes, publishing, or customer-data operations were performed by this export verification.",
+    "Batch 626 export format is evaluated independently of the known underlying article quality result.",
+    "Batch 626 ZIP was unpacked and inspected: metadata.csv has one data row, and the HTML/Markdown entries are nonempty; export PASS does not imply article quality PASS."
+  ],
+  "aggregateProviderEvents": 0,
+  "aggregateCostUsd": 0,
+  "status": "COMPLETE",
+  "finishedAt": "2026-09-14T23:11:58.949Z"
+}

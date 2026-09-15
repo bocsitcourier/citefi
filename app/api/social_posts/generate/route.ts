@@ -7,6 +7,7 @@ import { reserveCredits, releaseReservation } from "@/lib/billing";
 import { eq, and, or, isNull } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { checkUsageCap, cancelCapReservation } from "@/lib/usage-caps";
+import { canonicalizePlatforms } from "@/lib/social-validation";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -82,6 +83,21 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = generateSocialPostSchema.parse(body);
+    let canonicalPlatforms: ReturnType<typeof canonicalizePlatforms>;
+    try {
+      // Normalize the UI's historical "twitter" alias before any row, queue,
+      // credit, or provider work.  Unknown values are rejected and aliases
+      // that resolve to the same platform are deduplicated.
+      canonicalPlatforms = canonicalizePlatforms(validatedData.platforms);
+    } catch (platformError: any) {
+      return NextResponse.json(
+        {
+          error: "Invalid social platform selection",
+          message: platformError instanceof Error ? platformError.message : String(platformError),
+        },
+        { status: 400 }
+      );
+    }
 
     let prompt = "";
     let title = validatedData.standaloneTitle || "";
@@ -213,7 +229,7 @@ export async function POST(request: NextRequest) {
           message: realJobId
             ? "Social post already queued (idempotent retry)"
             : "Social post job is processing",
-          platforms: validatedData.platforms,
+          platforms: canonicalPlatforms,
         });
       }
 
@@ -254,7 +270,7 @@ export async function POST(request: NextRequest) {
           jobId: null,
           status: postClaim!.status,
           message: "Social post job is processing",
-          platforms: validatedData.platforms,
+          platforms: canonicalPlatforms,
         });
       }
 
@@ -267,8 +283,9 @@ export async function POST(request: NextRequest) {
           socialPostId: existingPost.id,
           userId,
           teamId,
+           capReservationId: null,
           prompt,
-          platforms: validatedData.platforms.map(p => p.toLowerCase()),
+          platforms: canonicalPlatforms,
           tone: validatedData.tone,
           mood: validatedData.mood,
           industry: validatedData.industry,
@@ -300,7 +317,7 @@ export async function POST(request: NextRequest) {
           socialPostId: existingPost.id,
           jobId: null,
           message: "Job already running — track by socialPostId",
-          platforms: validatedData.platforms,
+          platforms: canonicalPlatforms,
         }, { status: 202 });
       }
 
@@ -309,7 +326,7 @@ export async function POST(request: NextRequest) {
         socialPostId: existingPost.id,
         jobId: resumeJobId,
         message: "Social post queued (resumed)",
-        platforms: validatedData.platforms,
+        platforms: canonicalPlatforms,
       });
     }
 
@@ -370,7 +387,7 @@ export async function POST(request: NextRequest) {
         tone: validatedData.tone,
         mood: validatedData.mood || "Informative",
         industry: validatedData.industry || "General",
-        platformsJson: validatedData.platforms,
+        platformsJson: canonicalPlatforms,
         landingPageUrl: validatedData.landingPageUrl || null,
         userEmail: validatedData.userEmail || null,
         companyName: safeCompanyName || null,
@@ -399,7 +416,7 @@ export async function POST(request: NextRequest) {
               socialPostId: concurrent.id,
               jobId: concurrentRealJobId,
               message: `Social post already queued (idempotent retry)`,
-              platforms: validatedData.platforms,
+              platforms: canonicalPlatforms,
             });
           }
           // Winner hasn't queued yet — let client retry
@@ -420,8 +437,9 @@ export async function POST(request: NextRequest) {
         userId,
         teamId,
         creditRunId,
+         capReservationId,
         prompt,
-        platforms: validatedData.platforms.map(p => p.toLowerCase()),
+        platforms: canonicalPlatforms,
         tone: validatedData.tone,
         mood: validatedData.mood,
         industry: validatedData.industry,
@@ -456,7 +474,7 @@ export async function POST(request: NextRequest) {
         socialPostId: socialPost.id,
         jobId: null,
         message: "Job already queued by concurrent request — track by socialPostId",
-        platforms: validatedData.platforms,
+        platforms: canonicalPlatforms,
       });
     }
 
@@ -469,8 +487,8 @@ export async function POST(request: NextRequest) {
       success: true,
       socialPostId: socialPost.id,
       jobId,
-      message: `Social posts queued for ${validatedData.platforms.length} platform(s)`,
-      platforms: validatedData.platforms,
+      message: `Social posts queued for ${canonicalPlatforms.length} platform(s)`,
+      platforms: canonicalPlatforms,
     });
     } catch (error) {
       if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});

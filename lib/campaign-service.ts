@@ -212,6 +212,12 @@ export interface CreateCampaignInput {
   locations: CampaignLocation[];
   /** Optional explicit bundle; when omitted a recommended bundle is derived. */
   assetBundle?: AssetBundle;
+  /**
+   * Optional direct child client workspace for an agency-owned campaign.
+   * This is validated against the authenticated agency team before it is
+   * persisted; callers cannot attach arbitrary cross-tenant team ids.
+   */
+  clientTeamId?: number | null;
 }
 
 export interface CampaignPlanUpdate {
@@ -289,6 +295,10 @@ export async function createOrReuseCampaign(
   userId: number,
   input: CreateCampaignInput
 ): Promise<{ campaign: typeof campaigns.$inferSelect; reused: boolean }> {
+  if (input.clientTeamId != null) {
+    await assertAgencyOwnedClientTeam(teamId, input.clientTeamId);
+  }
+
   const [existing] = await db
     .select()
     .from(campaigns)
@@ -302,6 +312,39 @@ export async function createOrReuseCampaign(
     .limit(1);
 
   if (existing) {
+    if (input.clientTeamId != null && existing.clientTeamId == null) {
+      const [assigned] = await db
+        .update(campaigns)
+        .set({ clientTeamId: input.clientTeamId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(campaigns.id, existing.id),
+            eq(campaigns.teamId, teamId),
+            isNull(campaigns.clientTeamId),
+            isNull(campaigns.deletedAt),
+          )
+        )
+        .returning();
+      if (assigned) return { campaign: assigned, reused: true };
+
+      // Another retry won the NULL → client assignment race. Re-read the
+      // winner and compare the requested identity; never return a sibling
+      // client's campaign as a successful idempotent retry.
+      const [current] = await db
+        .select()
+        .from(campaigns)
+        .where(
+          and(
+            eq(campaigns.id, existing.id),
+            eq(campaigns.teamId, teamId),
+            isNull(campaigns.deletedAt),
+          )
+        )
+        .limit(1);
+      assertCampaignClientIdentity(input.clientTeamId, current);
+      return { campaign: current, reused: true };
+    }
+    assertCampaignClientIdentity(input.clientTeamId, existing);
     return { campaign: existing, reused: true };
   }
 
@@ -317,6 +360,7 @@ export async function createOrReuseCampaign(
       teamId,
       createdBy: userId,
       idempotencyKey: input.requestId,
+      clientTeamId: input.clientTeamId ?? null,
       name: input.name,
       businessUrl: input.businessUrl,
       companyName: input.companyName,
@@ -354,7 +398,74 @@ export async function createOrReuseCampaign(
       `Campaign create/reuse failed for team ${teamId} requestId ${input.requestId}`
     );
   }
+  // INSERT ... ON CONFLICT can lose to a request using the same idempotency
+  // key but a different sibling client. The winner is not interchangeable.
+  assertCampaignClientIdentity(input.clientTeamId, row);
   return { campaign: row, reused: true };
+}
+
+function assertCampaignClientIdentity(
+  requestedClientTeamId: number | null | undefined,
+  campaign: typeof campaigns.$inferSelect | null | undefined,
+): asserts campaign is typeof campaigns.$inferSelect {
+  if (requestedClientTeamId == null) return;
+  if (campaign?.clientTeamId === requestedClientTeamId) return;
+
+  const error: any = new Error(
+    "Campaign idempotency key is already assigned to a different client workspace",
+  );
+  error.statusCode = 409;
+  throw error;
+}
+
+/**
+ * Validate the only supported campaign/client relationship: the client must
+ * be an active, non-deleted direct child of the agency that owns the campaign.
+ * Keep this check in the service so API and future UI callers share the same
+ * tenant boundary.
+ */
+export async function assertAgencyOwnedClientTeam(
+  agencyTeamId: number,
+  clientTeamId: number,
+): Promise<void> {
+  const [agency] = await db
+    .select({ id: teams.id, billingPlan: teams.billingPlan })
+    .from(teams)
+    .where(
+      and(
+        eq(teams.id, agencyTeamId),
+        eq(teams.clientStatus, "active"),
+        isNull(teams.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!agency || agency.billingPlan !== "agency") {
+    const error: any = new Error(
+      "Only an active agency workspace can assign campaign clients",
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const [client] = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(
+      and(
+        eq(teams.id, clientTeamId),
+        eq(teams.parentTeamId, agencyTeamId),
+        eq(teams.clientStatus, "active"),
+        isNull(teams.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!client) {
+    const error: any = new Error(
+      "Client workspace must be an active direct child of the owning agency",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 // ============================================================================

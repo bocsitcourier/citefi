@@ -313,7 +313,7 @@ test("Task 154 agency reports enforce accounting, immutability, RLS, and deliver
   let auditDeliveryId = 0;
 
   await t.test("agency admin approves config and concurrent generation returns one immutable report", async () => {
-    await agencyContext(() => upsertAgencyReportConfig({
+    const initialConfig = await agencyContext(() => upsertAgencyReportConfig({
       clientTeamId,
       displayName: "Fixture Client",
       logoUrl: null,
@@ -323,6 +323,20 @@ test("Task 154 agency reports enforce accounting, immutability, RLS, and deliver
       clientVisibleSections: {},
       markupBasisPoints,
     }));
+    assert.ok(initialConfig?.id);
+    await agencyContext(() => approveAgencyReportConfig(clientTeamId));
+    const editedConfig = await agencyContext(() => upsertAgencyReportConfig({
+      clientTeamId,
+      displayName: "Fixture Client (locked update)",
+      logoUrl: null,
+      accentColor: "#123ABC",
+      recipients: ["client@example.invalid"],
+      cadence: "manual",
+      clientVisibleSections: {},
+      markupBasisPoints,
+    }));
+    assert.equal(editedConfig?.id, initialConfig.id);
+    assert.equal(editedConfig?.approvalStatus, "draft");
     await agencyContext(() => approveAgencyReportConfig(clientTeamId));
 
     const generated = await agencyContext(() => Promise.all(Array.from({ length: 8 }, () =>

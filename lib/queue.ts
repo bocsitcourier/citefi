@@ -28,6 +28,8 @@ export interface BatchJobData {
   creditRunId?: string;
   creditCostPerUnit?: number;
   capReservationId?: number | null;
+  /** Batch-owned cap holds settle once after all child articles finish. */
+  capReservationScope?: "batch" | "article";
   /** Optional campaign association. Never trusted over the canonical batch/team. */
   campaignId?: number | null;
 }
@@ -42,6 +44,20 @@ export const imageGenerationJobId = (articleId: number, runId?: string) =>
   runId
     ? `image-${articleId}-${createHash("sha256").update(runId).digest("hex").slice(0, 24)}`
     : `image-${articleId}`;
+
+/**
+ * Build a deterministic BullMQ job id from a legal, colon-free namespace.
+ *
+ * BullMQ rejects custom ids containing ":" (the legacy video ids used that
+ * separator), so all new ids must be composed from the namespace and a
+ * bounded hash of the arbitrary application key.
+ */
+export function stableQueueJobId(namespace: string, key: string): string {
+  const safeNamespace =
+    namespace.replace(/[^A-Za-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") ||
+    "job";
+  return `${safeNamespace}-${createHash("sha256").update(key).digest("hex").slice(0, 24)}`;
+}
 
 export interface ArticleJobData {
   articleId: number;
@@ -67,6 +83,8 @@ export interface ArticleJobData {
   creditRunId?: string;
   creditCostPerUnit?: number;
   capReservationId?: number | null;
+  /** Batch-owned cap holds settle once after all child articles finish. */
+  capReservationScope?: "batch" | "article";
   /** Optional campaign association. Never trusted over the canonical batch/team. */
   campaignId?: number | null;
 }
@@ -137,6 +155,8 @@ export interface SocialPostJobData {
   userId: number;
   teamId: number;
   creditRunId?: string;
+  /** Pending monthly-cap usage row to settle on successful delivery. */
+  capReservationId?: number | null;
   prompt: string;
   platforms: string[];
   tone?: string;
@@ -164,6 +184,8 @@ export interface ReformatJobData {
 
 export interface SocialVideoJobData {
   creditRunId?: string;
+  /** Pending monthly-cap usage row to settle on successful delivery. */
+  capReservationId?: number | null;
   socialPostId: number;
   platform?: string;
   videoType?: string;
@@ -213,6 +235,8 @@ export interface VideoIdeaJobData {
   teamId?: number;
   userId?: number;
   creditRunId?: string;
+  /** Pending monthly-cap usage row to settle on successful delivery. */
+  capReservationId?: number | null;
 }
 
 export interface DailyBriefJobData {
@@ -220,6 +244,44 @@ export interface DailyBriefJobData {
   teamId: number;
   localDate: string;
   force?: boolean;
+}
+
+/**
+ * Daily briefs historically used a colon-delimited BullMQ custom id. BullMQ
+ * rejects colons in custom ids, so new jobs use the shared stable id adapter.
+ * The force flag remains part of the generation payload (and worker behavior)
+ * rather than bypassing queue deduplication with a timestamp.
+ */
+export function dailyBriefGenerationJobId(
+  userId: number,
+  localDate: string,
+  force = false,
+): string {
+  return stableQueueJobId(
+    "daily-brief",
+    `${userId}:${localDate}${force ? ":force" : ""}`,
+  );
+}
+
+export function legacyDailyBriefGenerationJobId(
+  userId: number,
+  localDate: string,
+): string {
+  return `daily-brief:${userId}:${localDate}`;
+}
+
+/**
+ * Lookup order includes the legal current id and the legacy id so jobs created
+ * before the BullMQ id migration remain recoverable during a rolling deploy.
+ */
+export function dailyBriefGenerationJobIdCandidates(
+  userId: number,
+  localDate: string,
+  force = false,
+): string[] {
+  const current = dailyBriefGenerationJobId(userId, localDate, force);
+  const legacy = legacyDailyBriefGenerationJobId(userId, localDate);
+  return current === legacy ? [current] : [current, legacy];
 }
 
 export interface SignupCompetitorIntakeJobData {
@@ -255,10 +317,36 @@ export const VIDEO_IDEA_JOB_OPTIONS = {
   attempts: 3,
   backoff: { type: "exponential", delay: 60_000 },
 } as const;
-export const VIDEO_IDEA_JOB_ID_PREFIX = "video-idea:";
+export const VIDEO_IDEA_JOB_ID_PREFIX = "video-idea-run";
+export const LEGACY_VIDEO_IDEA_JOB_ID_PREFIX = "video-idea:";
 
 export function getVideoIdeaJobIdForRunId(runId: string): string {
-  return `${VIDEO_IDEA_JOB_ID_PREFIX}${runId}`;
+  return stableQueueJobId(VIDEO_IDEA_JOB_ID_PREFIX, runId);
+}
+
+export function getLegacyVideoIdeaJobIdForRunId(runId: string): string {
+  return `${LEGACY_VIDEO_IDEA_JOB_ID_PREFIX}${runId}`;
+}
+
+/**
+ * Return current and legacy ids in lookup order. Existing durable rows may
+ * still contain the legacy form even though BullMQ will only accept the
+ * current colon-free form for new jobs.
+ */
+export function getVideoIdeaJobIdCandidatesForRunId(runId: string): string[] {
+  return [getVideoIdeaJobIdForRunId(runId), getLegacyVideoIdeaJobIdForRunId(runId)];
+}
+
+export function getSocialVideoJobIdForRunId(runId: string): string {
+  return stableQueueJobId("social-video-run", runId);
+}
+
+export function getLegacySocialVideoJobIdForRunId(runId: string): string {
+  return `video:${runId}`;
+}
+
+export function getSocialVideoJobIdCandidatesForRunId(runId: string): string[] {
+  return [getSocialVideoJobIdForRunId(runId), getLegacySocialVideoJobIdForRunId(runId)];
 }
 
 export const ALL_QUEUE_NAMES = [
@@ -801,11 +889,15 @@ export async function addPodcastGenerationJob(
   return job.id ?? null;
 }
 
-export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { delayMs?: number }) {
-  const queue = getQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
+export async function addVideoGenerationJob(
+  data: SocialVideoJobData,
+  opts?: { delayMs?: number },
+  _deps: { queue?: Queue } = {},
+) {
+  const queue = _deps.queue ?? getQueue(SOCIAL_VIDEO_GENERATION_QUEUE);
   const jobId = data.creditRunId
-    ? `video:${data.creditRunId}`
-    : `video:${data.socialPostId}:${crypto.randomUUID()}`;
+    ? getSocialVideoJobIdForRunId(data.creditRunId)
+    : stableQueueJobId("social-video", `${data.socialPostId}:${crypto.randomUUID()}`);
   let job: Job;
   try {
     job = await queue.add("social-video", data, {
@@ -841,11 +933,14 @@ export async function addVideoGenerationJob(data: SocialVideoJobData, opts?: { d
   return job.id ?? null;
 }
 
-export async function addVideoIdeaJob(data: VideoIdeaJobData) {
-  const queue = getQueue(VIDEO_IDEA_GENERATION_QUEUE);
+export async function addVideoIdeaJob(
+  data: VideoIdeaJobData,
+  _deps: { queue?: Queue } = {},
+) {
+  const queue = _deps.queue ?? getQueue(VIDEO_IDEA_GENERATION_QUEUE);
   const jobId = data.creditRunId
     ? getVideoIdeaJobIdForRunId(data.creditRunId)
-    : `video-idea:${data.videoIdeaId}:${crypto.randomUUID()}`;
+    : stableQueueJobId("video-idea", `${data.videoIdeaId}:${crypto.randomUUID()}`);
   let job: Job;
   try {
     job = await queue.add("video-idea", data, {
@@ -874,17 +969,41 @@ export async function addVideoIdeaJob(data: VideoIdeaJobData) {
 }
 
 export async function addDailyBriefJob(data: DailyBriefJobData) {
-  // force=true jobs get a unique jobId (timestamp suffix) so BullMQ doesn't
-  // silently deduplicate them against the existing deterministic job id
-  const jobId = data.force
-    ? `daily-brief:${data.userId}:${data.localDate}:force:${Date.now()}`
-    : `daily-brief:${data.userId}:${data.localDate}`;
+  const queue = getQueue(DAILY_BRIEF_QUEUE);
+  return enqueueDailyBriefJob(queue, data);
+}
 
-  const job = await getQueue(DAILY_BRIEF_QUEUE).add("daily-brief", data, {
-    jobId,
-    attempts: 2,
-    backoff: { type: "exponential", delay: 5000 },
-  });
+export async function enqueueDailyBriefJob(
+  queue: Pick<Queue, "add" | "getJob">,
+  data: DailyBriefJobData,
+) {
+  const jobId = dailyBriefGenerationJobId(
+    data.userId,
+    data.localDate,
+    data.force,
+  );
+  let job: Job;
+  try {
+    job = await queue.add("daily-brief", data, {
+      jobId,
+      attempts: 2,
+      backoff: { type: "exponential", delay: 5000 },
+    });
+  } catch (error) {
+    // A timeout can happen after Redis accepted the write. Check both the
+    // current legal id and the pre-migration colon id before surfacing it.
+    for (const candidate of dailyBriefGenerationJobIdCandidates(
+      data.userId,
+      data.localDate,
+      data.force,
+    )) {
+      const accepted = await findJobAfterAmbiguousEnqueue(queue, candidate);
+      if (accepted && Boolean(accepted.data?.force) === Boolean(data.force)) {
+        return accepted.id ?? candidate;
+      }
+    }
+    throw error;
+  }
 
   console.log(
     `📅 Daily brief job queued: ${job.id} for user ${data.userId} on ${data.localDate}`

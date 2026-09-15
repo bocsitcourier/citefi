@@ -84,6 +84,15 @@ export async function scheduleDueBriefs() {
 
   for (const { pref, user } of prefs) {
     try {
+      // A user with both delivery channels disabled has explicitly opted out
+      // of recurring briefs. Do not enqueue generation just to discard the
+      // result; one-off force jobs remain available through the authenticated
+      // generation routes.
+      if (!pref.emailEnabled && !pref.inAppEnabled) {
+        console.log(`📅 Skipping brief for user ${user.id} — recurring delivery disabled`);
+        continue;
+      }
+
       const tz = pref.timezone || 'America/New_York';
       const localHour = getLocalHour(now, tz);
       const localDate = getLocalDateString(now, tz);

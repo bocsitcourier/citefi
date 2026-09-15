@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
 
   let teamId: number | undefined;
   let capReservationId: number | null = null;
+  let queueAccepted = false;
   const reservations: { postId: number; creditRunId: string }[] = [];
 
   try {
@@ -184,7 +185,13 @@ export async function POST(request: NextRequest) {
 
     await db
       .update(socialPosts)
-      .set({ videoStatus: "GENERATING", videoProgress: 0, videoStage: "queued", updatedAt: new Date() })
+      .set({
+        videoStatus: "GENERATING",
+        videoProgress: 0,
+        videoStage: "queued",
+        videoBillingSettledAt: null,
+        updatedAt: new Date(),
+      })
       .where(inArray(socialPosts.id, postsToGenerate.map((p) => p.id)));
 
     let totalQueued = 0;
@@ -197,27 +204,32 @@ export async function POST(request: NextRequest) {
       for (const post of chunk) {
         const reservation = reservations.find((r) => r.postId === post.id)!;
         const videoType = post.videoType || "slideshow";
+        let postQueueAccepted = false;
 
         try {
+          // Persist billing identities before the queue accepts the job so a
+          // restart can recover the same credit/cap hold.
+          await db.update(socialPosts)
+            .set({
+              videoCreditRunId: reservation.creditRunId,
+              videoCapReservationId: capReservationId ?? null,
+            })
+            .where(eq(socialPosts.id, post.id));
           const jobId = await addVideoGenerationJob(
-            { socialPostId: post.id, platform, videoType, teamId, creditRunId: reservation.creditRunId },
+            {
+              socialPostId: post.id,
+              platform,
+              videoType,
+              teamId,
+              creditRunId: reservation.creditRunId,
+              capReservationId,
+            },
             { delayMs }
           );
 
           if (jobId) {
-            // Persist the creditRunId and the shared cap-reservation ID so
-            // recovery can settle/cancel exactly this reservation when the
-            // job gets stuck (videoStatus stuck at GENERATING after a restart).
-            await db.update(socialPosts)
-              .set({
-                videoCreditRunId: reservation.creditRunId,
-                // capReservationId is shared across all posts in this batch —
-                // storing it on each post lets recovery cancel the right row.
-                videoCapReservationId: capReservationId ?? null,
-              })
-              .where(eq(socialPosts.id, post.id))
-              .catch((e) => console.warn(`[billing] failed to persist videoCreditRunId/capReservationId for post ${post.id}:`, e));
-
+            postQueueAccepted = true;
+            queueAccepted = true;
             queuedJobIds.push(jobId);
             totalQueued++;
             const idx = reservations.findIndex((r) => r.postId === post.id);
@@ -227,23 +239,38 @@ export async function POST(request: NextRequest) {
           }
         } catch (queueErr) {
           console.warn(`⚠️ Failed to queue video for post ${post.id}:`, queueErr);
-          await releaseReservation({
-            teamId,
-            runId: reservation.creditRunId,
-            reason: `Queue send failed for post ${post.id}`,
-          }).catch((e) => console.warn(`[billing] releaseReservation on failed queue send for post ${post.id}:`, e));
+          if (!postQueueAccepted) {
+            await releaseReservation({
+              teamId,
+              runId: reservation.creditRunId,
+              reason: `Queue send failed for post ${post.id}`,
+            }).catch((e) => console.warn(`[billing] releaseReservation on failed queue send for post ${post.id}:`, e));
+          }
 
           const idx = reservations.findIndex((r) => r.postId === post.id);
           if (idx !== -1) reservations.splice(idx, 1);
 
-          await db
-            .update(socialPosts)
-            .set({ videoStatus: "FAILED", errorMessage: "Failed to queue video generation job" })
-            .where(eq(socialPosts.id, post.id));
+          if (!postQueueAccepted) {
+            await db
+              .update(socialPosts)
+              .set({
+                videoStatus: "FAILED",
+                videoCreditRunId: null,
+                videoCapReservationId: null,
+                errorMessage: "Failed to queue video generation job",
+              })
+              .where(eq(socialPosts.id, post.id));
+          }
         }
       }
 
       console.log(`✅ Chunk ${chunkIndex + 1}/${chunks.length}: Queued ${chunk.length} videos (delay: ${delayMs}ms)`);
+    }
+
+    if (!queueAccepted && capReservationId !== null) {
+      await cancelCapReservation(capReservationId).catch((e) =>
+        console.warn("[billing] cancelCapReservation after batch queue failure:", e)
+      );
     }
 
     const estimatedMinutes = Math.ceil(totalQueued / 3) * 3;
@@ -260,7 +287,9 @@ export async function POST(request: NextRequest) {
       jobIds: queuedJobIds,
     });
     } catch (error) {
-      if (capReservationId !== null) cancelCapReservation(capReservationId).catch(() => {});
+      if (!queueAccepted && capReservationId !== null) {
+        cancelCapReservation(capReservationId).catch(() => {});
+      }
       if (reservations.length > 0 && teamId) {
         console.warn(`[billing] batch emergency release: releasing ${reservations.length} stranded reservations`);
         await Promise.all(

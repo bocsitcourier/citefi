@@ -249,19 +249,53 @@ export interface UploadImageParams {
   prompt: string;
 }
 
+type StoredImageFormat = "png" | "webp" | "jpeg" | "gif";
+
+/**
+ * Do not trust a caller-provided/default extension for binary image data.
+ * A PNG uploaded as .webp is served with the wrong contract and downstream
+ * downloads may be rejected by browsers or image processors.
+ */
+function detectStoredImageFormat(imageData: Buffer): {
+  format: StoredImageFormat;
+  contentType: string;
+} {
+  if (
+    imageData.length >= 8 &&
+    imageData.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    return { format: "png", contentType: "image/png" };
+  }
+  if (
+    imageData.length >= 12 &&
+    imageData.toString("ascii", 0, 4) === "RIFF" &&
+    imageData.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return { format: "webp", contentType: "image/webp" };
+  }
+  if (imageData.length >= 3 && imageData[0] === 0xff && imageData[1] === 0xd8 && imageData[2] === 0xff) {
+    return { format: "jpeg", contentType: "image/jpeg" };
+  }
+  if (imageData.length >= 6 && /^(?:GIF87a|GIF89a)$/.test(imageData.toString("ascii", 0, 6))) {
+    return { format: "gif", contentType: "image/gif" };
+  }
+  throw new Error("Unsupported image bytes: expected PNG, WebP, JPEG, or GIF");
+}
+
 export async function uploadImage(params: UploadImageParams): Promise<string> {
   const { imageData, articleId, batchId, slug, index, prompt } = params;
   const [owner] = await db.select({ teamId: articles.teamId }).from(articles).where(eq(articles.id, articleId)).limit(1);
   if (!owner?.teamId) throw new Error("Cannot store article image without a validated owning team");
 
-  const filename   = `${slug}-${index + 1}.webp`;
+  const detected = detectStoredImageFormat(imageData);
+  const filename   = `${slug}-${index + 1}.${detected.format}`;
   const key        = `private/articles/${articleId}/batch-${batchId}/${filename}`;
   const objectName = key;
 
   await objectStorageClient
     .bucket(DO_SPACES_BUCKET)
     .file(objectName)
-    .save(imageData, { contentType: "image/webp" });
+    .save(imageData, { contentType: detected.contentType });
 
   const publicUrl = getObjectUrl(key);
   const altText   = generateAltText(prompt);
@@ -272,7 +306,7 @@ export async function uploadImage(params: UploadImageParams): Promise<string> {
     imagePromptUsed: prompt,
     storageUrl: publicUrl,
     altText,
-    fileFormat: "webp",
+    fileFormat: detected.format,
     assetType: "image",
   });
 
@@ -344,6 +378,11 @@ export interface UploadMediaParams {
 export async function uploadMedia(params: UploadMediaParams): Promise<string> {
   const { fileData, fileName, contentType, assetType, articleId, altText, metadata } =
     params;
+  const detectedImage = assetType === "image" ? detectStoredImageFormat(fileData) : null;
+  const effectiveFileName = detectedImage
+    ? `${fileName.replace(/\.[^.]+$/, "")}.${detectedImage.format}`
+    : fileName;
+  const effectiveContentType = detectedImage?.contentType ?? contentType;
 
   const owner = articleId
     ? (await db.select({ teamId: articles.teamId }).from(articles).where(eq(articles.id, articleId)).limit(1))[0]
@@ -351,7 +390,7 @@ export async function uploadMedia(params: UploadMediaParams): Promise<string> {
   if (articleId && !owner?.teamId) throw new Error("Cannot store article media without a validated owning team");
 
   const timestamp  = Date.now();
-  const safeName   = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+  const safeName   = effectiveFileName.replace(/[^a-zA-Z0-9.-]/g, "_");
   const key        = articleId
     ? `private/articles/${articleId}/${assetType}/${timestamp}-${safeName}`
     : `private/uploads/${assetType}/${timestamp}-${safeName}`;
@@ -360,12 +399,12 @@ export async function uploadMedia(params: UploadMediaParams): Promise<string> {
   await objectStorageClient
     .bucket(DO_SPACES_BUCKET)
     .file(objectName)
-    .save(fileData, { contentType });
+    .save(fileData, { contentType: effectiveContentType });
 
   const publicUrl = getObjectUrl(key);
 
   if (articleId) {
-    const format      = fileName.split(".").pop() || "unknown";
+    const format      = effectiveFileName.split(".").pop() || "unknown";
     const imagePrompt = metadata?.originalPrompt || null;
 
     await db.insert(articleAssets).values({

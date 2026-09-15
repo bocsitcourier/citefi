@@ -1,0 +1,229 @@
+{
+  "location": "Boston, Massachusetts",
+  "business_type": "home energy assessment education",
+  "location_keywords": {
+    "primary": [
+      "Boston home energy assessment",
+      "home energy audit Boston",
+      "Mass Save energy assessment Boston",
+      "free home energy audit Boston MA"
+    ],
+    "long_tail": [
+      "how to lower heating bill in South End Boston",
+      "Jamaica Plain historic home energy efficiency guide",
+      "drafty windows fix triple decker Dorchester",
+      "Mass Save insulation rebates Boston apartments"
+    ],
+    "neighborhood_specific": [
+      "Dorchester",
+      "South End",
+      "Jamaica Plain",
+      "Back Bay",
+      "Beacon Hill",
+      "East Boston",
+      "Charlestown",
+      "Allston",
+      "Brighton",
+      "Roxbury"
+    ],
+    "landmarks": [
+      "Fenway Park",
+      "Boston Common",
+      "Charles River",
+      "Bunker Hill Monument",
+      "Faneuil Hall",
+      "Kenmore Square"
+    ]
+  },
+  "seasonal_trends": [
+    {
+      "season": "Winter",
+      "keywords": [
+        "frozen pipes prevention Boston",
+        "stop drafty windows historic home",
+        "Boston winter heating bill Mass Save"
+      ],
+      "content_angles": [
+        "How to winterize classic Boston triple-deckers and brownstones before the first nor'easter.",
+        "A local's guide to emergency draft-proofing when heating bills spike in January."
+      ],
+      "peak_months": [
+        "December",
+        "January",
+        "February"
+      ]
+    },
+    {
+      "season": "Spring",
+      "keywords": [
+        "spring home maintenance Boston",
+        "Mass Save AC rebates 2024",
+        "heat pump installation Boston"
+      ],
+      "content_angles": [
+        "Transitioning from oil heating to electric heat pumps using Mass Save incentives this spring.",
+        "Why spring is the easiest time to book a Boston home energy assessment without the winter wait times."
+      ],
+      "peak_months": [
+        "March",
+        "April",
+        "May"
+      ]
+    },
+    {
+      "season": "Summer",
+      "keywords": [
+        "lower AC bill Boston apartment",
+        "humid weather attic insulation Boston",
+        "keep brick house cool summer"
+      ],
+      "content_angles": [
+        "Battling high humidity and heat inside uninsulated brick row houses in Back Bay.",
+        "How attic insulation keeps Boston homes cool during humid July heatwaves."
+      ],
+      "peak_months": [
+        "June",
+        "July",
+        "August"
+      ]
+    },
+    {
+      "season": "Fall",
+      "keywords": [
+        "fall energy audit Boston",
+        "prepare radiator for winter Boston",
+        "Mass Save home energy assessment booking"
+      ],
+      "content_angles": [
+        "The step-by-step checklist to booking your Mass Save energy assessment before the freezing weather hits.",
+        "How to prep historic steam radiators and drafty entryways for a Boston autumn."
+      ],
+      "peak_months": [
+        "September",
+        "October",
+        "November"
+      ]
+    }
+  ],
+  "local_questions": [
+    {
+      "question": "How do I get a free Mass Save energy assessment in Boston?",
+      "search_intent": "transactional",
+      "difficulty": "medium",
+      "suggested_content_type": "Step-by-step Booking Guide & Landing Page"
+    },
+    {
+      "question": "Are Boston triple-deckers eligible for Mass Save rebates?",
+      "search_intent": "informational",
+      "difficulty": "easy",
+      "suggested_content_type": "Comprehensive Blog Post with Diagrams"
+    },
+    {
+      "question": "How much can I save on heating in Boston with insulation?",
+      "search_intent": "informational",
+      "difficulty": "medium",
+      "suggested_content_type": "Interactive Savings Calculator & Case Study"
+    },
+    {
+      "question": "Where is the Mass Save office in Boston?",
+      "search_intent": "navigational",
+      "difficulty": "easy",
+      "suggested_content_type": "Local Contact & Resource Directory Page"
+    },
+    {
+      "question": "Do I need landlord approval for a Boston home energy audit?",
+      "search_intent": "informational",
+      "difficulty": "easy",
+      "suggested_content_type": "Tenant-Landlord Rights Guide PDF"
+    },
+    {
+      "question": "What is the wait time for a Boston home energy assessment?",
+      "search_intent": "informational",
+      "difficulty": "medium",
+      "suggested_content_type": "Seasonal Update Blog Post"
+    },
+    {
+      "question": "Best heat pumps for historic Beacon Hill homes",
+      "search_intent": "transactional",
+      "difficulty": "hard",
+      "suggested_content_type": "Historic District Compliance Case Study"
+    },
+    {
+      "question": "How to stop drafts in a Boston brownstone",
+      "search_intent": "informational",
+      "difficulty": "medium",
+      "suggested_content_type": "Video Tutorial & DIY Guide"
+    },
+    {
+      "question": "Is Mass Save really free for Boston residents?",
+      "search_intent": "informational",
+      "difficulty": "easy",
+      "suggested_content_type": "Myth-Busting Fact Sheet"
+    },
+    {
+      "question": "How to book a Mass Save energy assessment online Boston",
+      "search_intent": "transactional",
+      "difficulty": "easy",
+      "suggested_content_type": "Interactive Walkthrough & Video Guide"
+    }
+  ],
+  "local_slang": [
+    {
+      "term": "Triple-Decker",
+      "meaning": "Classic three-story wooden apartment buildings iconic to Boston neighborhoods like Dorchester and South Boston.",
+      "usage_example": "Insulating your Boston triple-decker can save you thousands on your annual heating bills."
+    },
+    {
+      "term": "Wicked",
+      "meaning": "An intensifier meaning 'very' or 'extremely'.",
+      "usage_example": "Heating a drafty historic home in January can get wicked expensive without proper insulation."
+    },
+    {
+      "term": "The T",
+      "meaning": "The Massachusetts Bay Transportation Authority (MBTA) subway system.",
+      "usage_example": "Whether your home is steps from the T or out in the suburbs, our virtual energy assessments fit your schedule."
+    },
+    {
+      "term": "Townie",
+      "meaning": "A lifelong local resident, usually fiercely proud of their specific neighborhood.",
+      "usage_example": "Ask any Boston townie—surviving winter here requires a well-insulated attic and a reliable heating system."
+    }
+  ],
+  "cultural_references": [
+    {
+      "reference": "Historic Brownstones & Triple-Deckers",
+      "context": "Boston's historic housing stock is beautiful but notorious for energy loss, plaster walls, and drafty single-pane windows.",
+      "content_opportunity": "Create a specialized educational series titled 'Preserving History: Modern Energy Efficiency Upgrades for Boston's Iconic Brownstones.'"
+    },
+    {
+      "reference": "Nor'easters",
+      "context": "Severe coastal winter storms that bring heavy snow, high winds, and freezing temperatures to Boston.",
+      "content_opportunity": "Develop a 'Nor'easter Preparedness Checklist' focusing on how a home energy assessment prevents frozen pipes and ice dams."
+    },
+    {
+      "reference": "Mass Save Program",
+      "context": "The state-sponsored energy efficiency program that offers heavily subsidized or free home energy assessments and rebates.",
+      "content_opportunity": "Publish 'The Ultimate Unofficial Guide to Navigating Mass Save in Boston' to clarify complex rebate application processes."
+    }
+  ],
+  "trending_topics": [
+    {
+      "topic": "Transitioning from Oil Heating to Heat Pumps (Mass Save $10k Rebates)",
+      "trend_score": 95,
+      "content_angle": "How Boston homeowners can maximize the $10,000 Mass Save whole-home heat pump rebate before year-end program updates.",
+      "urgency": "high"
+    },
+    {
+      "topic": "Boston's BERDO (Building Energy Reduction and Disclosure Ordinance)",
+      "trend_score": 82,
+      "content_angle": "What Boston's BERDO regulations mean for small multi-family building owners and condo associations seeking energy audits.",
+      "urgency": "medium"
+    },
+    {
+      "topic": "Rising Eversource & National Grid Utility Rates",
+      "trend_score": 91,
+      "content_angle": "Beating the winter rate hikes: Practical home energy education to slash your monthly electric and gas bills.",
+      "urgency": "high"
+    }
+  ]
+}

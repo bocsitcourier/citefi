@@ -18,6 +18,17 @@ import { getCreditCost, getEffectiveCreditCost } from "@/lib/credit-menu";
 import { cancelCapReservation, checkUsageCap } from "@/lib/usage-caps";
 import { createHash } from "node:crypto";
 
+function stableArticleRunId(seed: string): string {
+  const digest = createHash("sha256").update(seed).digest("hex");
+  return [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    digest.slice(12, 16),
+    digest.slice(16, 20),
+    digest.slice(20, 32),
+  ].join("-");
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -101,7 +112,12 @@ export async function POST(
       getCreditCost("article") ??
       10;
     const creditRunId = `article-regeneration:${articleId}:${requestKey}`;
-    const runId = `regeneration:${articleId}:${requestKey}`;
+    // article_runs.run_id is a UUID-shaped legacy column. Keep the longer
+    // request identity in creditRunId and use a deterministic UUID for the
+    // worker run so replays address the same durable run row.
+    const runId = stableArticleRunId(
+      `article-regeneration:${articleId}:${requestKey}`,
+    );
 
     // Stable request identity prevents a network retry from purchasing and
     // enqueueing a second regeneration.
@@ -164,10 +180,57 @@ export async function POST(
       return NextResponse.json(paywallErrorBody(paywall), { status: 402 });
     }
 
+    // Claim the article state before creating either billing hold. This closes
+    // the same-key race where two requests both pass the status read, create
+    // separate cap holds, then rely on the reservation unique key only after
+    // one cap hold has already leaked.
+    const originalArticleStatus = article.articleStatus;
+    const [claimedArticle] = await db
+      .update(articles)
+      .set({ articleStatus: "PENDING", errorMessage: null, updatedAt: new Date() })
+      .where(and(
+        eq(articles.id, articleId),
+        eq(articles.teamId, teamId),
+        eq(articles.articleStatus, originalArticleStatus),
+      ))
+      .returning({ id: articles.id });
+    if (!claimedArticle) {
+      const [racedReservation] = await db
+        .select({ status: creditReservations.status })
+        .from(creditReservations)
+        .where(and(
+          eq(creditReservations.teamId, teamId),
+          eq(creditReservations.runId, creditRunId),
+        ))
+        .limit(1);
+      return NextResponse.json({
+        error: racedReservation
+          ? "Article regeneration is already reserved"
+          : "Article regeneration is already in progress",
+        code: racedReservation ? "REPLAY_IN_PROGRESS" : "ALREADY_IN_PROGRESS",
+        articleId,
+      }, { status: 409 });
+    }
+
+    const restoreClaimedArticle = async () => {
+      await db.update(articles)
+        .set({
+          articleStatus: originalArticleStatus,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(articles.id, articleId),
+          eq(articles.teamId, teamId),
+          eq(articles.articleStatus, "PENDING"),
+        ))
+        .catch(() => {});
+    };
+
     let capReservationId: number | null = null;
     try {
       capReservationId = await checkUsageCap(teamId, creditCost, batch.campaignId ?? null);
     } catch (capError: any) {
+      await restoreClaimedArticle();
       if (capError?.code !== "SPENDING_CAP_EXCEEDED") throw capError;
       return NextResponse.json({
         error: capError.message,
@@ -189,12 +252,14 @@ export async function POST(
       if (capReservationId !== null) {
         await cancelCapReservation(capReservationId).catch(() => {});
       }
+      await restoreClaimedArticle();
       throw reservationError;
     }
     if (!reservation.ok) {
       if (capReservationId !== null) {
         await cancelCapReservation(capReservationId).catch(() => {});
       }
+      await restoreClaimedArticle();
       return NextResponse.json({
         error: "CREDITS_EXHAUSTED",
         creditCost: reservation.requiredCredits,
@@ -208,12 +273,13 @@ export async function POST(
       }, { status: 402 });
     }
 
-    // Reset only after the canonical credit and cap reservations exist.
+    // Clear generated fields only after the canonical credit and cap
+    // reservations exist. The article status was claimed above to serialize
+    // concurrent retries.
     try {
     await db
       .update(articles)
       .set({ 
-        articleStatus: "PENDING",
         finalHtmlContent: null,
         heroImageUrl: null,
         seoTitle: null,
@@ -278,6 +344,7 @@ export async function POST(
       creditRunId,
       creditCostPerUnit: creditCost,
       capReservationId,
+      capReservationScope: "article",
       campaignId: batch.campaignId ?? null,
     });
     } catch (startError) {
@@ -305,6 +372,7 @@ export async function POST(
           reason: `Release: article ${articleId} regeneration failed before queue acceptance`,
         });
         if (capReservationId !== null) await cancelCapReservation(capReservationId);
+        await restoreClaimedArticle();
       } catch (releaseError) {
         await markReservationForReconciliation({
           teamId,

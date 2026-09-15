@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateSchemaMarkup } from "@/lib/seo-intelligence";
+import {
+  generateSchemaMarkup,
+  SchemaMarkupValidationError,
+  validateSchemaMarkupData,
+  type SchemaContentType,
+} from "@/lib/seo-intelligence";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
 export async function POST(req: NextRequest) {
@@ -22,9 +27,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const schemaContentType = content_type as SchemaContentType;
+    let validatedData: Record<string, unknown>;
+    try {
+      // Validate and normalize before invoking the deterministic builder. This
+      // prevents empty FAQ/HowTo placeholders from being returned as success.
+      validatedData = validateSchemaMarkupData(schemaContentType, data);
+    } catch (error) {
+      if (error instanceof SchemaMarkupValidationError) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      throw error;
+    }
+
     const schema = await generateSchemaMarkup({
-      content_type,
-      data,
+      content_type: schemaContentType,
+      data: validatedData,
     });
 
     return NextResponse.json(schema);

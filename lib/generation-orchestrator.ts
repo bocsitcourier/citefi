@@ -256,8 +256,10 @@ export async function runGenerationOrchestrator(
       `mode=${mode} requireJudge=${requireJudge} patterns=${input.patternsUsed.length}`
   );
 
-  // Fetch brand policy context — non-blocking, missing context degrades gracefully
+  // Fetch brand policy context. Article policy is required; other content types
+  // may still use the historical optional-context behavior.
   let brandContext: string | undefined;
+  let brandContextFetchFailed = false;
   try {
     const ctx = await getClientBrandContext(
       input.teamId,
@@ -265,12 +267,20 @@ export async function runGenerationOrchestrator(
     );
     if (ctx) brandContext = ctx;
   } catch {
-    // Non-fatal
+    brandContextFetchFailed = true;
   }
   console.log(
     `[BRAND_POLICY_${brandContext ? "INJECTED" : "MISSING"}] ` +
       `type=${input.contentType} id=${input.contentId}`
   );
+  if (
+    normalizedType === ContentType.ARTICLE &&
+    (!brandContext || brandContextFetchFailed)
+  ) {
+    throw new Error(
+      `BRAND_POLICY_MISSING: article ${input.contentId} requires a complete client brand profile before critic review`,
+    );
+  }
 
   let repairResult: RepairResult;
   try {

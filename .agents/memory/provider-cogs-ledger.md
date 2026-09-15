@@ -20,3 +20,9 @@ Platform canaries need an explicitly configured internal accounting owner. They 
 **Why:** Canary spend is real platform COGS but must not contaminate a customer's profitability.
 
 **How to apply:** Supply a positive `CANARY_ACCOUNTING_TEAM_ID` for the designated internal/platform workspace in each environment.
+
+A priced ledger with zero unpriced rows does not prove that every paid call was recorded. Keep unresolved post-provider accounting failures separate from recorded totals; never invent a usage event to fill the gap.
+
+**Why:** Live execution exposed a successful provider response rejected during ownership validation before any immutable usage row existed. The remaining error envelope did not retain the exact usage or request identity.
+
+**How to apply:** Reconcile physical submissions against receipts as well as ledger rows. Until missing receipts can be recovered, reserve a conservative bound using the provider's request limits and locked rates, and label the amount as exposure—not confirmed expense.

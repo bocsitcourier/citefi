@@ -1,0 +1,4 @@
+{
+  "type": "Article",
+  "json_ld": "{\n  \"@context\": \"https://schema.org\",\n  \"@type\": \"Article\",\n  \"headline\": \"Boston Home Energy Assessment Education\",\n  \"description\": \"Fictional educational guidance for preparing for a Boston home energy assessment.\",\n  \"author\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Harbor Home Energy QA\"\n  },\n  \"datePublished\": \"2026-09-14T00:00:00.000Z\",\n  \"dateModified\": \"2026-09-14T23:00:51.020Z\",\n  \"image\": \"https://7a698c91-2724-4ff4-a1ee-1551dc49efbb-00-25tg9nc8lbtbl.riker.replit.dev/qa-fixtures/harbor-home-energy.html\",\n  \"publisher\": {\n    \"@type\": \"Organization\",\n    \"name\": \"Citefi\",\n    \"logo\": {\n      \"@type\": \"ImageObject\",\n      \"url\": \"\"\n    }\n  }\n}"
+}

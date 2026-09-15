@@ -5,6 +5,7 @@ export type ArticleGenerationBillingJobData = {
   creditRunId?: string;
   creditCostPerUnit?: number;
   capReservationId?: number | null;
+  capReservationScope?: "batch" | "article";
   articleId: number;
 };
 
@@ -27,6 +28,13 @@ export async function getArticleGenerationBilling(
       10,
     releaseKey: `article:${job.data.articleId}`,
     reason: `Article ${job.data.articleId} generation failed`,
-    capReservationId: job.data.capReservationId,
+    // A batch owns one aggregate cap reservation. Child failures must not let
+    // the pipeline wrapper cancel that hold while sibling paid work is active;
+    // the batch completion reconciler settles it once, after all children are
+    // terminal.
+    capReservationId:
+      job.data.capReservationScope === "batch"
+        ? null
+        : job.data.capReservationId,
   };
 }

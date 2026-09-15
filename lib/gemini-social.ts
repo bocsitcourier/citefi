@@ -26,6 +26,21 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+/**
+ * Gemini accepted the paid request but returned no usable social content.
+ * This is a fatal output-contract violation: replaying the same paid request
+ * cannot make an empty result safe and would multiply provider spend.
+ */
+export class EmptyGeminiSocialResponseError extends Error {
+  readonly code = "MODEL_OUTPUT_INVALID";
+  readonly nonRetryable = true;
+
+  constructor(platform: string) {
+    super(`Gemini returned empty response for ${platform} post`);
+    this.name = "EmptyGeminiSocialResponseError";
+  }
+}
+
 interface GeminiSocialPostRequest {
   prompt: string;
   platform: string;
@@ -246,7 +261,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
   
   // Defensive handling: ensure we have content
   if (!caption) {
-    throw new Error(`Gemini returned empty response for ${platform} post`);
+    throw new EmptyGeminiSocialResponseError(platform);
   }
 
   // Truncate to platform character limit at word boundary

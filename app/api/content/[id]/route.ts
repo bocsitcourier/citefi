@@ -4,6 +4,7 @@ import { articles, articleAssets, jobBatches, errorLogs } from "@/shared/schema"
 import { and, eq, asc, desc } from "drizzle-orm";
 import { z } from "zod";
 import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
+import { assertValidArticleOutput } from "@/lib/article-output-safety";
 
 // Helper: Convert any absolute image URL to a relative /api/public-objects/ path.
 // This makes URLs immune to Replit dev domain changes and works on any deployment.
@@ -176,6 +177,16 @@ export async function PUT(
     }
 
     const updateData = validation.data;
+    if (updateData.finalHtmlContent !== undefined) {
+      try {
+        assertValidArticleOutput(updateData.finalHtmlContent, { format: "html" });
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid article output: HTML article content is required" },
+          { status: 400 },
+        );
+      }
+    }
 
     const [article] = await db
       .select()

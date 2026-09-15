@@ -1,0 +1,48 @@
+{
+  "method": "GET",
+  "route": "/api/export/batch/626",
+  "status": 200,
+  "ok": true,
+  "contentType": "application/zip",
+  "outputPath": "reports/live-generation/export-live-output-batch-626.zip",
+  "zipMagic": true,
+  "byteLength": 6506,
+  "archiveIntegrity": "PASS (unzip -t reported no errors)",
+  "archiveListing": [
+    "metadata.csv",
+    "html/boston-winter-home-energy-audit-checklist.html",
+    "markdown/boston-winter-home-energy-audit-checklist.md"
+  ],
+  "files": {
+    "metadata.csv": {
+      "bytes": 378,
+      "nonEmpty": true,
+      "sha256": "218b26edd3b77da60b096f1e99c4f575ab79e2c663a77fbd2dee6d3d34a53c9f"
+    },
+    "html/boston-winter-home-energy-audit-checklist.html": {
+      "bytes": 15656,
+      "nonEmpty": true,
+      "sha256": "1d1ddff09e0ef9fd31f1c262c9a1ce528f1fb7d03efa401aa12051cc2c4a7f03"
+    },
+    "markdown/boston-winter-home-energy-audit-checklist.md": {
+      "bytes": 11278,
+      "nonEmpty": true,
+      "sha256": "eb55df341cda4cdf71fb8279226e54f0cbc21b1af942c1a268310d07a9578d07"
+    }
+  },
+  "unpackedInspection": {
+    "metadataCsv": {
+      "headerPresent": true,
+      "dataRows": 1
+    },
+    "html": {
+      "nonEmpty": true,
+      "articleWrapperPresent": true,
+      "qualityAssessment": "NOT_ASSESSED_BY_EXPORT"
+    },
+    "markdown": {
+      "nonEmpty": true,
+      "qualityAssessment": "NOT_ASSESSED_BY_EXPORT"
+    }
+  }
+}

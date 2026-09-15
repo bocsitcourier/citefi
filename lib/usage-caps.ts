@@ -206,6 +206,11 @@ export async function cancelCapReservation(reservationId: number): Promise<void>
     .where(and(eq(usageEvents.id, reservationId), eq(usageEvents.status, "pending")));
 }
 
+/** Stable idempotency key for a cap hold shared by multiple child jobs. */
+export function capReservationSettlementJobId(reservationId: number): string {
+  return `cap-reservation:${reservationId}`;
+}
+
 /**
  * Atomically converts the original pending cap reservation into completed
  * usage. Repeated settlement is idempotent and never inserts a second event.

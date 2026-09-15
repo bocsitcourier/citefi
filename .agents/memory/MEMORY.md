@@ -1,4 +1,5 @@
 - [Neon transactions](neon-transactions.md) — Neon HTTP `db` has no interactive transactions; use pooled `getTxDb()` for atomic multi-step writes.
+- [Database target verification](database-target-verification.md) — verify runtime selection and authorized scope before writes; a provider-named variable is not environment proof.
 - [Learning system loops](learning-system-loops.md) — PATTERN_DIMENSION single source of truth, mineCorpus routing, updatePatternDimension atomic upsert, podcast learning loop design.
 - [Auth token storage](auth-token-storage.md) — production is HttpOnly-cookie-only; development adds a sessionStorage bearer fallback for Replit’s cross-site preview iframe.
 - [Authentication session policy](auth-session-policy.md) — normal sessions are 24h; explicit “keep signed in” sessions are 90d and do not bypass MFA on a new login.
@@ -33,6 +34,7 @@
 - [Campaign client boundaries](campaign-client-boundaries.md) — campaign deliverables must use immutable campaign Brand snapshots, never a team's mutable live profile.
 - [Ads export governance](ads-export-governance.md) — Ads Lab is export-only; finalized manifests, artifact hashes, pinned landing checks, approvals, and retained debit settlement are mandatory.
 - [Provider COGS ledger](provider-cogs-ledger.md) — actual COGS uses locked rates only; unpriced usage is zero-valued, and paid provider results fail closed if accounting fails.
+- [DNS pinning runtime](dns-pinning-runtime.md) — honor Node’s all-address lookup contract; distinguish transport failures from correct private-address rejection.
 - [Agency report safety](agency-report-safety.md) — client-safe rows and agency financial snapshots stay physically separate; generation and delivery use consistency barriers.
 - [Media storage migration](media-storage-migration.md) — read DO Spaces first and legacy Replit Object Storage second until historical object parity is certified.
 - [Canonical asset identity](canonical-asset-identity.md) — dedupe is team-scoped by durable object key; legacy source rows remain until generation writers converge.

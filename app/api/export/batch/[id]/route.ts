@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, jobBatches } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import archiver from "archiver";
 import { PassThrough } from "stream";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { createZipArchive } from "@/lib/zip-archive";
+
+const EXPORTABLE_ARTICLE_STATUSES = new Set([
+  "COMPLETE",
+  "GPT4_ENHANCED",
+  "CHATGPT_REVIEWED",
+]);
 
 export async function GET(
   request: NextRequest,
@@ -54,12 +60,26 @@ export async function GET(
       );
     }
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const notReady = batchArticles.filter(
+      (article) =>
+        article.finalHtmlContent &&
+        !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
+    );
+    if (notReady.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Batch contains articles that have not completed HTML generation",
+          articleIds: notReady.map((article) => article.id),
+        },
+        { status: 409 },
+      );
+    }
+    const archive = createZipArchive({ zlib: { level: 9 } });
     const passThrough = new PassThrough();
     
     archive.pipe(passThrough);
 
-    archive.on('error', (err) => {
+    archive.on('error', (err: Error) => {
       console.error('Archive error:', err);
       passThrough.destroy(err);
     });

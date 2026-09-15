@@ -1,0 +1,43 @@
+{
+  "fixtureLabel": "LIVE GENERATION QA AGENCY EXPORT 2026-09-10",
+  "clientFixtureLabel": "LIVE GENERATION QA AGENCY CLIENT 2026-09-10",
+  "createdAt": "2026-09-14T23:36:52.527Z",
+  "isolation": {
+    "developmentOnly": true,
+    "syntheticIdentity": true,
+    "actualAffiliation": false,
+    "noExternalPublishing": true,
+    "noEmailDelivery": true
+  },
+  "agency": {
+    "teamId": 2567,
+    "teamPublicId": "26091000-0000-4000-8000-000000000014",
+    "billingPlan": "agency",
+    "billingStatus": "active",
+    "ownerUserId": 10890,
+    "complianceUserId": 10891
+  },
+  "client": {
+    "teamId": 2568,
+    "teamPublicId": "26091000-0000-4000-8000-000000000015",
+    "billingPlan": "free",
+    "billingStatus": "active",
+    "designatedApproverUserId": 10892,
+    "clientApproverUserId": 10892
+  },
+  "brand": {
+    "companyName": "HomeWorks Energy",
+    "websiteUrl": "https://www.homeworksenergy.com",
+    "sourceTeamId": 2535,
+    "clonedToAgencyTeamId": 2567,
+    "profileStatus": "complete"
+  },
+  "accounting": {
+    "creditGrantRequested": 1000,
+    "grantResultBalance": 1000,
+    "monthlyCapCents": 500,
+    "monthlyCapUsd": 5,
+    "hardStop": true,
+    "grantIdempotencyKey": "live-generation-qa-agency-2026-09-10:initial-credit-grant:v1"
+  }
+}

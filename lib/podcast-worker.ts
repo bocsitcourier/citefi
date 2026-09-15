@@ -6,7 +6,14 @@ import { recordContentGenerated, getPromptEnhancement } from "./learning-integra
 import { runGenerationOrchestrator } from "./generation-orchestrator";
 import { logError, logCritical } from "./error-logger";
 import { generatePodcastScript, type PodcastScript } from "./podcast-generator";
-import { mergeAudioSegments, estimateAudioDuration } from "./openai-tts";
+import { mergeAudioSegments } from "./openai-tts";
+import {
+  assertPodcastScriptWithinWordBudget,
+  formatPodcastDuration,
+  isPodcastAudioDurationWithinRange,
+  parsePodcastDuration,
+  probePodcastAudioDuration,
+} from "./podcast-duration";
 import { objectStorageClient } from "./storage";
 import { validateBrandInOutput } from "./branding";
 import { uploadPodcastToDrive } from "./google-drive";
@@ -140,6 +147,13 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     if (!article.finalHtmlContent || !article.chosenTitle) {
       throw new Error(`Article ${articleId} missing content or title`);
     }
+
+    const durationRange = parsePodcastDuration(duration ?? "3-4 minutes");
+    if (!durationRange) {
+      throw new Error(
+        `Unsupported podcast duration "${duration}". Supported ranges are 1-2, 3-4, or 5-7 minutes`,
+      );
+    }
     
     const companyName = article.batch?.businessName || "our company";
     
@@ -160,6 +174,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     );
     
     console.log(`[Podcast Worker] Script generated with ${script.segments.length} segments`);
+    assertPodcastScriptWithinWordBudget(script, durationRange, "initial generation");
     
     // BRAND NAME VALIDATION: Ensure correct brand spelling in podcast script
     if (companyName && companyName !== "our company") {
@@ -237,6 +252,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       }
     }
 
+    // Reviews/repairs may expand the script after the initial guard. Validate
+    // again immediately before TTS; never silently cut paid narration.
+    assertPodcastScriptWithinWordBudget(script, durationRange, "post-review");
+
     console.log(`[Podcast Worker] Generating audio for article ${articleId}`);
     const audioSegments = script.segments.map(seg => ({
       voice: seg.voice,
@@ -253,13 +272,21 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     paidAudioCompleted = true;
     console.log(`[Podcast Worker] Audio generated, size: ${audioBuffer.length} bytes`);
     
-    const totalText = script.segments.map(s => s.text).join(' ');
-    const estimatedDuration = estimateAudioDuration(totalText.length);
+    const actualDuration = await probePodcastAudioDuration(audioBuffer);
+    if (!isPodcastAudioDurationWithinRange(actualDuration, durationRange)) {
+      throw new Error(
+        `Podcast audio duration ${actualDuration.toFixed(3)}s is outside the requested ` +
+          `${durationRange.label} range (${durationRange.minSeconds}-${durationRange.maxSeconds}s)`,
+      );
+    }
     
     const scriptSummary = {
       title: script.title,
       segmentCount: script.segments.length,
-      duration: script.duration,
+      duration: formatPodcastDuration(actualDuration),
+      requestedDuration: durationRange.label,
+      audioDurationSeconds: actualDuration,
+      durationSource: "ffprobe",
       generatedAt: new Date().toISOString(),
     };
     
@@ -273,7 +300,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
     try {
       await db.update(articles)
         .set({
-          podcastDuration: estimatedDuration,
+          podcastDuration: Math.round(actualDuration),
           podcastStatus: 'processing',
           podcastScriptJson: scriptSummary as any,
         })
@@ -301,7 +328,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           {
             articleTitle: article.chosenTitle,
             articleId: String(articleId),
-            duration: estimatedDuration,
+            duration: actualDuration,
           }
         );
         if (driveFileId) {
@@ -322,7 +349,9 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           altText: `Podcast: ${article.chosenTitle}`,
           fileFormat: 'mp3',
           metadataJson: {
-            duration: estimatedDuration,
+            duration: actualDuration,
+            durationSource: 'ffprobe',
+            requestedDuration: durationRange.label,
             segments: script.segments.length,
             generatedAt: new Date().toISOString(),
           } as any,

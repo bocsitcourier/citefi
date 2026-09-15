@@ -64,7 +64,12 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
     // running video idea every interval.
     const THIRTY_MINUTES_AGO = new Date(Date.now() - 30 * 60 * 1000);
     const stuckVideos = await withDbRetry(
-      () => db.select({ id: videoIdeas.id, status: videoIdeas.status })
+      () => db.select({
+          id: videoIdeas.id,
+          status: videoIdeas.status,
+          videoCreditRunId: videoIdeas.videoCreditRunId,
+          videoCapReservationId: videoIdeas.videoCapReservationId,
+        })
         .from(videoIdeas)
         .where(and(
           or(
@@ -455,6 +460,7 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
                 videoType: post.videoType || "slideshow",
                 teamId: post.teamId!,
                 ...(post.videoCreditRunId ? { creditRunId: post.videoCreditRunId } : {}),
+                capReservationId: post.videoCapReservationId ?? null,
               })
           );
 
@@ -466,6 +472,43 @@ export async function recoverStuckJobs(): Promise<RecoveryStats> {
           await db.update(socialPosts)
             .set({ videoStatus: "FAILED", errorMessage: errorMsg, updatedAt: new Date() })
             .where(eq(socialPosts.id, post.id));
+
+          // This run will not be retried automatically. Release the exact
+          // durable credit/cap holds attached to this post; never create a
+          // replacement usage event during recovery.
+          if (post.videoCreditRunId && post.teamId) {
+            const { releaseReservation } = await import("./billing");
+            await runWithTenantContext(
+              {
+                actorType: "worker",
+                userId: null,
+                teamId: post.teamId,
+                role: "worker",
+              },
+              () =>
+                releaseReservation({
+                  teamId: post.teamId!,
+                  runId: post.videoCreditRunId!,
+                  reason: `Recovery: video timeout for social post ${post.id}`,
+                })
+            ).catch((e) =>
+              console.warn(`  ⚠️ [recovery] releaseReservation for timed-out post ${post.id}:`, e)
+            );
+          }
+          if (post.videoCapReservationId && post.teamId) {
+            const { cancelCapReservation } = await import("./usage-caps");
+            await runWithTenantContext(
+              {
+                actorType: "worker",
+                userId: null,
+                teamId: post.teamId,
+                role: "worker",
+              },
+              () => cancelCapReservation(post.videoCapReservationId!)
+            ).catch((e) =>
+              console.warn(`  ⚠️ [recovery] cancelCapReservation(${post.videoCapReservationId}) for timed-out post ${post.id}:`, e)
+            );
+          }
 
           try {
             await db.insert(errorLogs).values({
@@ -558,7 +601,9 @@ export async function autoRequeueRecoveredVideos(): Promise<number> {
       teamId: videoIdeas.teamId,
       userId: videoIdeas.userId,
       ideaTitle: videoIdeas.ideaTitle,
-      errorMessage: videoIdeas.errorMessage 
+      errorMessage: videoIdeas.errorMessage,
+      videoCreditRunId: videoIdeas.videoCreditRunId,
+      videoCapReservationId: videoIdeas.videoCapReservationId,
     })
       .from(videoIdeas)
       .where(eq(videoIdeas.status, "PENDING"))
@@ -598,6 +643,8 @@ export function getRecoveredVideoJobData(video: {
   id: number;
   teamId: number | null;
   userId: number;
+  videoCreditRunId?: string | null;
+  videoCapReservationId?: number | null;
 }) {
   if (!Number.isInteger(video.teamId) || (video.teamId ?? 0) <= 0) {
     throw new Error(
@@ -608,6 +655,10 @@ export function getRecoveredVideoJobData(video: {
     videoIdeaId: video.id,
     teamId: video.teamId!,
     userId: video.userId,
+    ...(video.videoCreditRunId ? { creditRunId: video.videoCreditRunId } : {}),
+    ...(video.videoCapReservationId != null
+      ? { capReservationId: video.videoCapReservationId }
+      : {}),
   };
 }
 

@@ -1,4 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
+import {
+  normalizeArticleTargetUrls,
+  validateArticleOutput,
+} from "./article-output-safety";
 import Bottleneck from "bottleneck";
 import { getModel } from "./model-resolver";
 import { createBrandLockPromptSegment } from "./branding";
@@ -1737,6 +1741,28 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   if (!parsed.articleText || parsed.articleText.length < 100) {
     throw new Error("Article text is too short or missing");
   }
+  parsed.articleText = normalizeArticleTargetUrls(parsed.articleText, targetUrl);
+  if (Array.isArray(parsed.faq)) {
+    parsed.faq = parsed.faq.map((item) => ({
+      ...item,
+      question: normalizeArticleTargetUrls(item.question, targetUrl),
+      answer: normalizeArticleTargetUrls(item.answer, targetUrl),
+    }));
+  }
+  // The structured response schema validates JSON shape, not whether the
+  // articleText field contains an article.  Reject reasoning/debug text before
+  // critique or persistence can turn it into durable article content.
+  const initialArticleOutput = validateArticleOutput(parsed.articleText, {
+    format: "markdown",
+    minWords: wordCountMin,
+    maxWords: wordCountMax,
+  });
+  if (!initialArticleOutput.valid) {
+    throw new Error(
+      `INVALID_ARTICLE_OUTPUT: ${initialArticleOutput.reasons.join("; ")}`,
+    );
+  }
+  parsed.wordCount = initialArticleOutput.wordCount;
 
   if (parsed.keywords.length !== 6) {
     throw new Error(`Expected 6 article-specific keywords, received ${parsed.keywords.length}`);
@@ -1789,8 +1815,19 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       ]);
       
       if (critiqueResult.refinedContent && critiqueResult.qualityScore > 50) {
-        parsed.articleText = critiqueResult.refinedContent;
-        parsed.wordCount = critiqueResult.refinedWordCount;
+        const refinedOutput = validateArticleOutput(critiqueResult.refinedContent, {
+          format: "markdown",
+          maxWords: wordCountMax,
+        });
+        if (!refinedOutput.valid) {
+          console.warn(
+            "⚠️ Rejecting non-article critique output; preserving original article:",
+            refinedOutput.reasons.join("; "),
+          );
+        } else {
+          parsed.articleText = critiqueResult.refinedContent;
+          parsed.wordCount = critiqueResult.refinedWordCount;
+        }
       }
       
       parsed.critique = {
@@ -1813,6 +1850,19 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       console.warn('⚠️ Article critique skipped:', (critiqueError as Error).message);
     }
   }
+
+  parsed.articleText = normalizeArticleTargetUrls(parsed.articleText, targetUrl);
+  const finalArticleOutput = validateArticleOutput(parsed.articleText, {
+    format: "markdown",
+    minWords: wordCountMin,
+    maxWords: wordCountMax,
+  });
+  if (!finalArticleOutput.valid) {
+    throw new Error(
+      `INVALID_ARTICLE_OUTPUT: ${finalArticleOutput.reasons.join("; ")}`,
+    );
+  }
+  parsed.wordCount = finalArticleOutput.wordCount;
 
   if (enableFactValidation && teamId) {
     try {
@@ -1929,10 +1979,21 @@ export async function generateArticleWithGemini(
 
   // DETERMINISTIC HUMANIZATION: Apply burstiness and scrub AI-isms
   const humanized = humanizeArticle(result.articleText, 0.45);
+  const humanizedContent = normalizeArticleTargetUrls(humanized.content, targetUrl);
   console.log(`🔧 [DH] Article humanized: burstiness=${humanized.metrics.burstinessApplied}, scrubs=${humanized.metrics.scrubsApplied}, integrity=${humanized.metrics.integrityPassed}`);
+  const humanizedOutput = validateArticleOutput(humanizedContent, {
+    format: "markdown",
+    minWords: wordCountMin,
+    maxWords: wordCountMax,
+  });
+  if (!humanizedOutput.valid) {
+    throw new Error(
+      `INVALID_ARTICLE_OUTPUT: ${humanizedOutput.reasons.join("; ")}`,
+    );
+  }
 
   return {
-    rawContent: humanized.content,
+    rawContent: humanizedContent,
     seoTitle: result.seoTitle,
     metaDescription: result.metaDescription,
     slug: result.slug,
@@ -1940,7 +2001,7 @@ export async function generateArticleWithGemini(
     hashtags: result.hashtags,
     faq: result.faq,
     imagePrompts: result.imagePrompts || [],
-    wordCount: result.wordCount,
+    wordCount: humanizedOutput.wordCount,
     geoAccuracyScore,
     tokensUsed: result.wordCount,
     humanizationMetrics: humanized.metrics,

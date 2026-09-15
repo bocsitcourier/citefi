@@ -1,0 +1,418 @@
+{
+  "reportType": "remaining-nonpaid-retest-run",
+  "generatedAt": "2026-09-15T00:34:23.252Z",
+  "runtime": {
+    "baseUrl": "http://localhost:5000",
+    "restartObserved": true,
+    "providerGenerationPaused": true,
+    "developmentOnly": true,
+    "syntheticIdentitiesOnly": true
+  },
+  "safety": {
+    "providerCallsMade": false,
+    "newAdsCreated": false,
+    "newAiTextOrResearchRequested": false,
+    "emailsSent": false,
+    "externalPublicationPerformed": false,
+    "recurringAutomationStarted": false,
+    "fakeApprovalsWritten": false,
+    "customerDataQueried": false
+  },
+  "fixture": {
+    "agencyTeamId": 2567,
+    "clientTeamId": 2568,
+    "agencyOwnerUserId": 10890,
+    "agencyComplianceUserId": 10891,
+    "clientApproverUserId": 10892,
+    "campaignId": 190,
+    "campaignPublicId": "b71068e5-e0fb-4cc2-86ad-125431cff413",
+    "adId": 2,
+    "adPublicId": "55ee26ea-657c-417b-842a-5d0fe684169b",
+    "sourceFixture": "reports/live-generation/additional-fixtures.json"
+  },
+  "normalFixtureAuth": {
+    "status": "SUCCESS",
+    "route": "POST /api/auth/login",
+    "users": {
+      "owner": {
+        "userId": 10890,
+        "httpStatus": 200
+      },
+      "compliance": {
+        "userId": 10891,
+        "httpStatus": 200
+      },
+      "client": {
+        "userId": 10892,
+        "httpStatus": 200
+      }
+    },
+    "credentialFixture": {
+      "path": ".local/test-fixtures/qa-agency-credentials.json",
+      "mode": "0600",
+      "privateDirectoryMode": "0700",
+      "bytes": 810
+    },
+    "passwordSetup": {
+      "authorizedUsers": [
+        10890,
+        10891,
+        10892
+      ],
+      "membershipVerification": "passed before mutation",
+      "sessionsRevoked": 3,
+      "loginChallengesConsumed": 0,
+      "recoveryCodesInvalidated": 0,
+      "passwordResetsCancelled": 0,
+      "passwordsPrinted": false
+    }
+  },
+  "campaignAdPreflight": {
+    "status": "COMPLETED_WITH_VERIFICATION_FAILURE",
+    "db": {
+      "campaign": {
+        "id": 190,
+        "publicId": "b71068e5-e0fb-4cc2-86ad-125431cff413",
+        "teamId": 2567,
+        "clientTeamId": 2568,
+        "status": "ready"
+      },
+      "ad": {
+        "id": 2,
+        "publicId": "55ee26ea-657c-417b-842a-5d0fe684169b",
+        "teamId": 2567,
+        "campaignId": 190,
+        "status": "exported",
+        "generationModel": "gemini-3.5-flash",
+        "manifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+        "finalizedAt": "2026-09-15T00:30:47.502Z"
+      },
+      "approvals": [
+        {
+          "id": 4,
+          "actorUserId": 10891,
+          "approvalType": "policy",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 5,
+          "actorUserId": 10892,
+          "approvalType": "client",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 6,
+          "actorUserId": 10890,
+          "approvalType": "export",
+          "decision": "approved",
+          "humanAcknowledged": true
+        }
+      ]
+    },
+    "normalApi": {
+      "clientApprovalHttpStatus": 200,
+      "exportApprovalHttpStatus": 200,
+      "exportHttpStatus": 200,
+      "exportApprovalActorUserId": 10890,
+      "clientApprovalActorUserId": 10892,
+      "existingPolicyApprovalActorUserId": 10891
+    },
+    "campaignExportRowsBefore": 0,
+    "zipBytes": 11125,
+    "artifactSha256": "13157c86d3a4431e8cd80f0ee82378b701472c0a98f0aa48bbe517028a3d2f5a",
+    "manifestVerified": {
+      "canonicalSha256": "321d8619427e9a35cf724e65f4b2c0ec93b0c29851beae967cccdfa272594008",
+      "databaseSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+      "manifestShaEntry": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a  manifest.json",
+      "headerManifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+      "headerArtifactSha256": "13157c86d3a4431e8cd80f0ee82378b701472c0a98f0aa48bbe517028a3d2f5a",
+      "manifestMatchesDatabase": false,
+      "manifestEntryMatchesDatabase": true,
+      "zipIntegrity": true,
+      "fields": {
+        "schemaVersion": "campaign-ads-export/v1",
+        "mode": "export_only",
+        "directPublishing": false,
+        "campaignId": 190,
+        "adPublicId": "55ee26ea-657c-417b-842a-5d0fe684169b",
+        "approvedTypes": [
+          "client",
+          "export",
+          "policy"
+        ]
+      },
+      "internalManifestHashConsistent": true,
+      "manifestCanonicalRoundTripVerified": false,
+      "manifestCanonicalizationFailure": {
+        "canonicalSha256": "321d8619427e9a35cf724e65f4b2c0ec93b0c29851beae967cccdfa272594008",
+        "databaseSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+        "reason": "The export source hashes Date-valued approval timestamps before JSON serialization as {}, while the downloaded JSON contains ISO strings. Source canonicalizer was fixed for future exports; this finalized fixture output is preserved unchanged."
+      }
+    },
+    "dbAudit": {
+      "id": 22,
+      "publicId": "2e598f91-4494-4664-9649-b42111f44c61",
+      "teamId": 2567,
+      "campaignId": 190,
+      "requestedBy": 10890,
+      "requestKey": "qa-zero-provider-ad2-export-v1",
+      "kind": "ads_zip",
+      "status": "ready",
+      "filters": {
+        "mode": "export_only",
+        "adPublicId": "55ee26ea-657c-417b-842a-5d0fe684169b",
+        "artifactSha256": "13157c86d3a4431e8cd80f0ee82378b701472c0a98f0aa48bbe517028a3d2f5a",
+        "manifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a"
+      },
+      "artifactHashMatches": true,
+      "manifestHashMatches": true
+    },
+    "blocker": "Export API, audit row, ZIP integrity, and internal manifest/header/database hash agreement succeeded. Independent canonical round-trip verification failed because the pre-fix source canonicalized Date approval timestamps as {} before JSON serialization; finalized output was preserved and not patched.",
+    "postCanonicalFixDownload": {
+      "checkedAfterCanonicalFix": true,
+      "httpStatus": 200,
+      "bytes": 11125,
+      "artifactSha256": "13157c86d3a4431e8cd80f0ee82378b701472c0a98f0aa48bbe517028a3d2f5a",
+      "headerArtifactSha256": "13157c86d3a4431e8cd80f0ee82378b701472c0a98f0aa48bbe517028a3d2f5a",
+      "headerManifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+      "adBefore": {
+        "id": 2,
+        "status": "exported",
+        "manifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+        "finalizedAt": "2026-09-15T00:30:47.502Z"
+      },
+      "adAfter": {
+        "id": 2,
+        "status": "exported",
+        "manifestSha256": "95d4e78f8ff9c6635d3a38d34edf07b0409c6a0ddaf4c8553b905206dee4ba7a",
+        "finalizedAt": "2026-09-15T00:30:47.502Z"
+      },
+      "approvalsBefore": [
+        {
+          "id": 4,
+          "actorUserId": 10891,
+          "approvalType": "policy",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 5,
+          "actorUserId": 10892,
+          "approvalType": "client",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 6,
+          "actorUserId": 10890,
+          "approvalType": "export",
+          "decision": "approved",
+          "humanAcknowledged": true
+        }
+      ],
+      "approvalsAfter": [
+        {
+          "id": 4,
+          "actorUserId": 10891,
+          "approvalType": "policy",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 5,
+          "actorUserId": 10892,
+          "approvalType": "client",
+          "decision": "approved",
+          "humanAcknowledged": true
+        },
+        {
+          "id": 6,
+          "actorUserId": 10890,
+          "approvalType": "export",
+          "decision": "approved",
+          "humanAcknowledged": true
+        }
+      ],
+      "approvalsHistoryUnchanged": true,
+      "finalizedStateUnchanged": true,
+      "outputRewritten": false,
+      "legacyCanonicalMismatchStillPreserved": true,
+      "legacyMismatchBlocked": false,
+      "legacyMismatchNote": "Download remains available through the normal export API, but independent canonical manifest verification remains blocked for this immutable pre-fix artifact; no approvals/history/manifest were rewritten."
+    }
+  },
+  "agencyReport": {
+    "status": "COMPLETED",
+    "sourceContract": "Deterministic database evidence rendering and SHA-256 snapshots; no LLM call in config/generate/download path",
+    "config": {
+      "id": 18,
+      "agencyTeamId": 2567,
+      "clientTeamId": 2568,
+      "displayName": "HomeWorks Energy QA deterministic report",
+      "approvalStatus": "approved",
+      "approvedBy": 10890,
+      "approvedAt": "2026-09-15T00:33:50.746Z",
+      "cadence": "manual",
+      "markupBasisPoints": 0
+    },
+    "normalApi": {
+      "configPutHttpStatus": 200,
+      "configApproveHttpStatus": 200,
+      "generateHttpStatus": 201,
+      "reportApproveHttpStatus": 200,
+      "downloadHttpStatus": 200
+    },
+    "report": {
+      "id": 80,
+      "agencyTeamId": 2567,
+      "clientTeamId": 2568,
+      "generatedBy": 10890,
+      "periodStart": "2026-09-01T00:00:00.000Z",
+      "periodEnd": "2026-10-01T00:00:00.000Z",
+      "status": "approved",
+      "snapshotSha256": "2f8856c9a4db19a8d527b8a83eb7f10940f9c23769a1208ceae325a0f1c0b3e2",
+      "approvedBy": 10890,
+      "approvedAt": "2026-09-15T00:33:54.310Z"
+    },
+    "financialSnapshot": {
+      "reportId": 80,
+      "agencyTeamId": 2567,
+      "clientTeamId": 2568,
+      "rebillingSnapshot": {
+        "creditDebits": 0,
+        "marginMicrousd": 0,
+        "revenueMicrousd": 0,
+        "revenueAvailable": true,
+        "providerCostMicrousd": 0,
+        "approvedMarkupBasisPoints": 0
+      }
+    },
+    "download": {
+      "path": "reports/live-generation/agency-report-80.html",
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 1961,
+      "sha256": "755feedffcbed519bb508e72efa138a49302eecdac94899aa99bb6affb09c0e33",
+      "hasHtmlRoot": true,
+      "pdfRoute": "No PDF route exists; normal source contract is HTML",
+      "pdfBytes": false
+    },
+    "deliveries": [
+      {
+        "reportId": 80,
+        "agencyTeamId": 2567,
+        "clientTeamId": 2568,
+        "channel": "download",
+        "recipient": "user:10890",
+        "status": "delivered",
+        "idempotencyKey": "qa-zero-provider-agency-report-download-v1"
+      }
+    ],
+    "emailSent": false
+  },
+  "accounting": {
+    "preservedPaidProviderLedger": {
+      "before": {
+        "id": 397,
+        "teamId": 2567,
+        "operationType": "campaign_ads",
+        "costMicrousd": 3634
+      },
+      "after": [
+        {
+          "id": 397,
+          "sourceEventId": "provider-usage:432ea7de745530b4c95a54acc968fe68584c3f0576e4dd722d64a0e1a5cf0775",
+          "teamId": 2567,
+          "eventType": "usage",
+          "operationType": "campaign_ads",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "unitCount": 7776,
+          "costMicrousd": 3634
+        }
+      ]
+    },
+    "providerLedgerUnchanged": true,
+    "creditLedgerRowsAfter": [
+      {
+        "id": 1440,
+        "amount": 1000,
+        "balanceAfter": 1000,
+        "eventType": "grant",
+        "operationType": null,
+        "runId": null,
+        "idempotencyKey": "live-generation-qa-agency-2026-09-10:initial-credit-grant:v1"
+      },
+      {
+        "id": 1441,
+        "amount": 5,
+        "balanceAfter": 1000,
+        "eventType": "reserve",
+        "operationType": "ads_export_pack",
+        "runId": "ads:190:live-generation-agency-ad-pack-20260910",
+        "idempotencyKey": null
+      },
+      {
+        "id": 1442,
+        "amount": -5,
+        "balanceAfter": 995,
+        "eventType": "debit",
+        "operationType": "ads_export_pack",
+        "runId": "ads:190:live-generation-agency-ad-pack-20260910",
+        "idempotencyKey": "credit-debit:29e5cf391433716e42c93fb2ba16893b7ae235ebb30f3438135a7d2f716bc0ff"
+      }
+    ]
+  },
+  "dbPreservation": {
+    "campaignExportsChangedFrom0To1": true,
+    "agencyReportConfigsChangedFrom0To1": true,
+    "agencyClientReportsChangedFrom0To1": true,
+    "agencyReportDeliveriesChangedFrom0To1": true,
+    "providerLedgerChanged": false,
+    "creditLedgerChanged": false,
+    "outputsDeleted": false,
+    "activeJobsDeleted": false
+  },
+  "sourceFixesRequiredForNormalApis": {
+    "clientApprovalCrossTenantRls": "lib/campaign-ads-service.ts uses audited system context for predicate-scoped client approval transaction",
+    "reportConfigLegacySchema": "lib/agency-report-service.ts uses locked transactional read/update-or-insert because deployed target lacked composite unique index",
+    "campaignManifestCanonicalDates": "lib/campaign-ads-service.ts canonicalAdManifestJson now serializes Date values as ISO strings for future exports; this immutable fixture artifact was not rewritten."
+  },
+  "sourceFixCertification": {
+    "status": "UNIT_VERIFIED_NOT_LIVE_CERTIFIED",
+    "boundary": "Focused tests/source inspection prove the fixes listed above; this non-paid retest does not certify a fresh live provider or concurrent production-like run."
+  },
+  "conclusion": "Authorized synthetic QA fixture completed through normal login and existing APIs; ad 2 export API/audit/ZIP succeeded without regeneration/provider call, with an explicitly retained canonical manifest round-trip verification failure caused by the pre-fix Date canonicalizer. Deterministic agency report configured, approved, generated, approved, and downloaded as HTML. No PDF route exists; no PDF bytes claimed.",
+  "nextAction": "None; existing finalized export remains downloadable, while its preserved legacy canonical mismatch remains explicitly failed.",
+  "focusedRegressionTests": {
+    "canonicalManifestDateJsonRoundTrip": {
+      "status": "PASS",
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/campaigns/campaign-ads-contract.test.ts",
+      "assertion": "Date-valued approval timestamps hash identically before and after JSON.stringify/JSON.parse; legacy fixture mismatch remains explicitly false"
+    },
+    "reportConfigLockedUpsert": {
+      "status": "PASS",
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/agency-report-config-upsert.integration.test.ts",
+      "assertion": "Two normal service upserts under a temporary agency fixture retain the same config id, update fields, and reset approval to draft; test teardown removed only its temporary fixture"
+    },
+    "sourceContractRegression": {
+      "status": "PASS",
+      "command": "node --env-file=.env.local --import tsx/esm --test tests/agency-report-service.test.ts",
+      "assertion": "Locked agency-row/config-row update-or-insert path is present and onConflictDoUpdate is absent"
+    },
+    "finalizedExportAfterCanonicalFix": {
+      "status": "PASS_WITH_LEGACY_HASH_FAILURE_PRESERVED",
+      "httpStatus": 200,
+      "approvalsHistoryUnchanged": true,
+      "finalizedStateUnchanged": true,
+      "outputRewritten": false
+    }
+  },
+  "nonFocusedSuiteNote": {
+    "status": "FAILURE_RECORDED",
+    "suite": "tests/agency-reports.integration.test.ts",
+    "failure": "Concurrent report generation still hits deployed-schema missing agency_client_reports period unique index (40001/ExecCheckTupleVisible); this is separate from the focused config upsert regression and no paid/provider call occurred.",
+    "configUpsertSubpath": "The focused locked upsert itself passed in the dedicated integration test."
+  }
+}

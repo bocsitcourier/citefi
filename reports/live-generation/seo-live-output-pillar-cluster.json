@@ -1,0 +1,111 @@
+{
+  "pillar_page": {
+    "title": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+    "description": "A comprehensive overview of home energy assessments tailored for Boston homeowners and renters. Learn what energy assessments involve, why they're important in Boston's climate, how to prepare, benefits, local incentives, and next steps to improve your home's energy efficiency.",
+    "target_keywords": [
+      "Boston home energy assessment",
+      "home energy audit Boston",
+      "energy efficiency Boston homes",
+      "Boston energy assessment programs",
+      "home energy savings Boston"
+    ],
+    "estimated_word_count": 3000,
+    "sections": [
+      "Introduction: What is a Home Energy Assessment?",
+      "Why Boston Homeowners and Renters Should Care",
+      "How a Home Energy Assessment Works",
+      "Common Energy Issues in Boston Homes",
+      "Preparing for Your Energy Assessment",
+      "Understanding Your Home Energy Report",
+      "Local Boston Energy Assistance and Incentives",
+      "DIY Tips vs Professional Assessments",
+      "Next Steps: Improving Your Home's Energy Efficiency",
+      "Frequently Asked Questions about Boston Energy Assessments",
+      "Conclusion: Making the Most of Your Assessment"
+    ]
+  },
+  "cluster_pages": [
+    {
+      "title": "Understanding the Different Types of Home Energy Assessments in Boston",
+      "description": "An in-depth look at the various types of home energy assessments available to Boston residents, including blower door tests, infrared thermography, and duct testing. This article helps homeowners and renters choose the right assessment based on their needs.",
+      "target_keywords": [
+        "types of home energy assessments Boston",
+        "blower door test Boston",
+        "infrared home energy audit Boston",
+        "duct testing Boston",
+        "energy audit methods Boston"
+      ],
+      "estimated_word_count": 1200,
+      "link_to_pillar": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "subtopics": [
+        "Overview of Different Assessment Methods",
+        "How Each Test Works",
+        "When to Use Each Type",
+        "Choosing the Right Assessment for Your Boston Home",
+        "Professional vs DIY Assessment Tools"
+      ]
+    },
+    {
+      "title": "Maximizing Your Savings: Boston Energy Incentives and Rebates for Homeowners and Renters",
+      "description": "A focused guide on the financial benefits and incentives available in Boston to encourage home energy improvements. Covers local, state, and federal programs, eligibility criteria, and how to apply.",
+      "target_keywords": [
+        "Boston home energy rebates",
+        "energy incentives Boston",
+        "Massachusetts energy assistance",
+        "home energy savings programs Boston",
+        "energy efficiency rebates Boston"
+      ],
+      "estimated_word_count": 1100,
+      "link_to_pillar": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "subtopics": [
+        "Overview of Boston and Massachusetts Energy Incentives",
+        "Eligibility for Homeowners vs Renters",
+        "How to Apply for Rebates and Grants",
+        "Impact of Incentives on Energy Assessment Costs",
+        "Tips for Maximizing Your Savings"
+      ]
+    }
+  ],
+  "internal_linking_map": [
+    {
+      "from": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "to": "Understanding the Different Types of Home Energy Assessments in Boston",
+      "anchor_text": "types of home energy assessments"
+    },
+    {
+      "from": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "to": "Maximizing Your Savings: Boston Energy Incentives and Rebates for Homeowners and Renters",
+      "anchor_text": "Boston energy incentives and rebates"
+    },
+    {
+      "from": "Understanding the Different Types of Home Energy Assessments in Boston",
+      "to": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "anchor_text": "comprehensive home energy assessment guide"
+    },
+    {
+      "from": "Maximizing Your Savings: Boston Energy Incentives and Rebates for Homeowners and Renters",
+      "to": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "anchor_text": "home energy assessment overview"
+    }
+  ],
+  "content_calendar": [
+    {
+      "order": 1,
+      "title": "The Ultimate Guide to Boston Home Energy Assessments: Save Energy and Cut Costs",
+      "type": "pillar",
+      "priority": "high"
+    },
+    {
+      "order": 2,
+      "title": "Understanding the Different Types of Home Energy Assessments in Boston",
+      "type": "cluster",
+      "priority": "medium"
+    },
+    {
+      "order": 3,
+      "title": "Maximizing Your Savings: Boston Energy Incentives and Rebates for Homeowners and Renters",
+      "type": "cluster",
+      "priority": "medium"
+    }
+  ]
+}

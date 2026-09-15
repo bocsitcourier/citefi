@@ -382,6 +382,7 @@ export async function POST(request: NextRequest) {
         creditRunId,
         creditCostPerUnit,
         capReservationId,
+        capReservationScope: "batch",
       });
 
       if (!jobId) throw new Error("pg-boss returned null — queue may be full or unhealthy");

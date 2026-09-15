@@ -8,9 +8,11 @@ import {
   validateLandingUrl,
   validateMetaPack,
   assertApprovalAuthority,
+  canonicalAdManifestJson,
 } from "../../lib/campaign-ads-service.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 test("Ads approval RBAC enforces client, compliance, export, and separation authorities", () => {
   const base = {
@@ -177,4 +179,28 @@ test("export rows are derived only from the immutable finalized manifest", () =>
   assert.match(googleRows[0].finalUrl, /utm_campaign=manifest-campaign/);
   assert.match(metaRows[0].destinationUrl, /utm_source=meta/);
   assert.throws(() => buildAdExportRowsFromManifest({}), /manifest is invalid/);
+});
+
+test("canonical ad manifest hashes survive Date-to-JSON round trips", () => {
+  const manifest = {
+    schemaVersion: "campaign-ads-export/v1",
+    approvals: [
+      { type: "export", decision: "approved", createdAt: new Date("2026-09-15T00:30:47.417Z") },
+    ],
+    nested: { createdAt: new Date("2026-09-15T00:30:42.936Z") },
+  };
+  const hash = (value: unknown) => createHash("sha256").update(canonicalAdManifestJson(value)).digest("hex");
+  assert.equal(hash(manifest), hash(JSON.parse(JSON.stringify(manifest))));
+});
+
+test("the finalized QA export preserves its real legacy hash failure", () => {
+  const evidence = JSON.parse(readFileSync(
+    resolve(import.meta.dirname, "../../reports/live-generation/remaining-nonpaid-retest-run.json"),
+    "utf8",
+  ));
+  const verification = evidence.campaignAdPreflight.manifestVerified;
+  assert.equal(evidence.campaignAdPreflight.status, "COMPLETED_WITH_VERIFICATION_FAILURE");
+  assert.equal(verification.internalManifestHashConsistent, true);
+  assert.equal(verification.manifestCanonicalRoundTripVerified, false);
+  assert.notEqual(verification.canonicalSha256, verification.databaseSha256);
 });

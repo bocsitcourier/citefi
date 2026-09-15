@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import archiver from "archiver";
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { getCampaignByPublicId, recordCampaignExport } from "@/lib/campaign-service";
 import { AD_EXPORT_NOTICE, buildAdExportRowsFromManifest, canonicalAdManifestJson, getCampaignAdForExport } from "@/lib/campaign-ads-service";
+import { createZipArchive } from "@/lib/zip-archive";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ZIP_ENTRY_DATE = new Date("1980-01-01T00:00:00.000Z");
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
 
     const manifest: any = ad.manifestJson;
     const { googleRows, metaRows } = buildAdExportRowsFromManifest(manifest);
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = createZipArchive({ zlib: { level: 9 } });
     const stream = new PassThrough();
     const chunks: Buffer[] = [];
     const archiveComplete = new Promise<Buffer>((resolve, reject) => {

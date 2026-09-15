@@ -6,6 +6,7 @@ import { db } from "./db";
 import { getModel } from "./model-resolver";
 import { PRODUCT_POLICY_DEFAULTS, LAUNCH_POLICY_VERSION, EXTERNAL_PLATFORM_APPROVALS } from "./launch-governance";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
+import { runWithSystemContext } from "./tenant-context";
 import { campaignAds, campaignAdApprovals, campaigns, teamMembers, teams, users } from "@/shared/schema";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
@@ -346,6 +347,7 @@ export async function getCampaignAdByRequestKey(teamId: number, campaignId: numb
 }
 
 export function canonicalAdManifestJson(value: unknown): string {
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (Array.isArray(value)) return `[${value.map(canonicalAdManifestJson).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.keys(value as any).sort().map((k) => `${JSON.stringify(k)}:${canonicalAdManifestJson((value as any)[k])}`).join(",")}}`;
   return JSON.stringify(value);
@@ -392,11 +394,11 @@ export async function approveCampaignAd(teamId: number, userId: number, role: st
   humanAcknowledged: boolean; acknowledgementText?: string;
 }) {
   if (!input.humanAcknowledged) throw new Error("Human acknowledgement is required");
-  // The ad row is the serialization point.  Approval history must be read and
-  // appended while this lock is held; otherwise two concurrent requests from
-  // the same actor can each observe an empty history and approve different
-  // required types.
-  return db.transaction(async (tx) => {
+  const approvalOperation = () => db.transaction(async (tx) => {
+    // The ad row is the serialization point.  Approval history must be read and
+    // appended while this lock is held; otherwise two concurrent requests from
+    // the same actor can each observe an empty history and approve different
+    // required types.
     const [ad] = await tx.select().from(campaignAds).where(and(
       eq(campaignAds.teamId, teamId), eq(campaignAds.campaignId, campaignId), eq(campaignAds.publicId, adPublicId)
     )).limit(1).for("update");
@@ -479,6 +481,13 @@ export async function approveCampaignAd(teamId: number, userId: number, role: st
     }).where(and(eq(campaignAds.teamId, teamId), eq(campaignAds.id, ad.id))).returning();
     return updated ?? null;
   });
+  // Client reviewers authenticate in the child workspace while the campaign
+  // and ad rows belong to the parent agency workspace.  The relationship was
+  // already resolved and authorized by the route; use the audited system
+  // context only for this cross-tenant, predicate-scoped transaction.
+  return input.approvalType === "client"
+    ? runWithSystemContext("campaign ad client approval", approvalOperation)
+    : approvalOperation();
 }
 
 export async function getCampaignAdForExport(teamId: number, campaignId: number, adPublicId: string) {

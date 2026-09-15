@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "route": "/api/export/batch/629",
+  "status": 404,
+  "ok": false,
+  "contentType": "application/json",
+  "response": {
+    "error": "No articles found in this batch"
+  }
+}

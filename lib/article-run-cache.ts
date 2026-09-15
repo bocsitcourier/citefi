@@ -2,6 +2,7 @@ import { db } from "./db";
 import { articleRuns, articles } from "../shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
+import { assertValidArticleOutput } from "./article-output-safety";
 
 // ============================================================================
 // ARTICLE RUN CACHE REUSE SYSTEM
@@ -91,6 +92,7 @@ export async function restoreArticleFromCache(
       `Full regeneration required to prevent data corruption.`
     );
   }
+  assertValidArticleOutput(finalContent, { format: "html" });
 
   // Map cached outputs to article columns with proper fallback hierarchy
   await db
