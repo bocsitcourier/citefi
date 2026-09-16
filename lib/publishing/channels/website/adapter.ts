@@ -9,6 +9,7 @@ import type {
   MediaUpload
 } from '../../types';
 import { generateSignature } from '../../auth/hmac';
+import { resolvePodcastDurationProvenance } from '../../../podcast-duration-provenance';
 
 function detectMediaType(url: string): { mimeType: string; extension: string } {
   const lowered = url.toLowerCase();
@@ -123,6 +124,9 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     if (!connection.apiKeyHash) {
       errors.push('API key is required for website connections');
     }
+    if (content.type === "article" && content.article?.articleStatus !== "COMPLETE") {
+      errors.push("Only articles that passed the final COMPLETE quality gate can be published");
+    }
 
     return {
       valid: errors.length === 0,
@@ -145,6 +149,11 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
   }
 
   private formatArticle(article: Article, articleAssets: ArticleAsset[], businessName?: string): FormattedContent {
+    if (article.articleStatus !== "COMPLETE") {
+      throw new Error(
+        `Article ${article.publicId} is not publishable until it passes the final COMPLETE quality gate`,
+      );
+    }
     const mediaToUpload: MediaUpload[] = [];
 
     // Hero image — keyed as 'hero' so page-writer can look it up for the hero section.
@@ -305,9 +314,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       metaDescription: metaDescSanitized,
       keywords,
       bodyHtml,
-      // All terminal "done" statuses → published. Only truly partial/pending → draft.
-      // GPT4_ENHANCED is the final status for reformatted articles; COMPLETE for normal pipeline.
-      status: ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED', 'PUBLISHED'].includes(article.articleStatus || '') ? 'published' : 'draft',
+      status: article.articleStatus === "COMPLETE" ? "published" : "draft",
       
       author: {
         // Use the actual business name from the batch; fall back to a generic label
@@ -372,13 +379,18 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
       type: 'audio',
     }];
 
+    const durationProvenance = resolvePodcastDurationProvenance(
+      article.podcastScriptJson,
+      article.podcastDuration,
+    );
     const payload = {
       id: article.publicId,
       title: article.chosenTitle,
       slug: `podcast-${article.slug || article.publicId}`,
       description: article.metaDescription || article.chosenTitle,
       audioUrl: podcastAbsoluteUrl,
-      duration: article.podcastDuration || 0,
+      duration: durationProvenance.seconds || 0,
+      durationSource: durationProvenance.source,
     };
 
     return {

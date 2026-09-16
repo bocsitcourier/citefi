@@ -369,6 +369,9 @@ also apply to any future prompt copy.
 
 The current honest boundary is stopped under the paid gate:
 
+The bullets below preserve the prior handoff boundary as historical context;
+the append-only authorization addendum that follows is current where it differs.
+
 - Scope 0's seven regression locks are `IN_PROGRESS` and pending a separate
   worker plus independent review. They are guardrails, not real-provider passes.
 - RC-7 receipt changes are owned by isolated task 179; no duplicate worker is
@@ -380,3 +383,59 @@ The current honest boundary is stopped under the paid gate:
 - A lead must approve each scope, and no Wave 2 begins before every prior-wave
   item is independently verified as `VERIFIED_PASS`. This handoff creates no new
   `VERIFIED_PASS`.
+
+## Current authorization addendum — append-only
+
+This addendum records the latest principal authorization without rewriting the
+source plan, its historical dispositions, or prior evidence. Where the older
+operational text says that Scope 0 locks remain `IN_PROGRESS` pending a worker,
+or that RC-2 through RC-5 await source approval, those statements are retained
+as historical plan context; this addendum is the current decision: source
+implementation for RC-3, RC-2, RC-4, and RC-5 is completed and approved after
+sequential architect review. No additional user-per-fix gate remains for those
+source changes, but the paid/shared-cap halt is unchanged.
+
+Evidence sources for this addendum are
+`rc3-worker.md`, `rc2-worker.md`, `rc4-worker.md`, `rc5-worker.md`, and
+`final-baseline-verifier.md` in this directory.
+
+- RC-3 source approval records **23/23 targeted tests**.
+- RC-2 source approval records **17/17 targeted tests**.
+- RC-4 source approval records **16/16 targeted tests**. Its 150 WPM planning
+  rate remains explicitly an estimate; measured WPM is not calibrated.
+- RC-5 source approval records **18/18 controlled tests** plus the authorized
+  real database run: eight parallel requests passed in two runner tests with
+  one report ID, one insert result, one financial snapshot, and clean fixture
+  teardown. The database-concurrency subgate is separately `PASS`; this does
+  not create a live feature `VERIFIED_PASS`.
+- Migration `0034_agency_report_period_unique.sql` was additive and applied
+  only to the verified active development target after a narrower
+  user-approved preflight. It found no duplicate groups, deleted or rewrote no
+  rows, touched no other database, and applied no other migration. Earlier
+  `40001` failures remain preserved. The final `READ COMMITTED` isolation,
+  exact-key transaction-scoped lock, config `FOR SHARE`, single-SQL evidence
+  aggregate, and atomic report/financial inserts were independently
+  architect-reviewed; the worker executed the database test, not the architect.
+- RC-6 remains existing ZIP adapter/import smoke evidence only; no live journey
+  or learning run occurred. RC-1 through RC-6 are current
+  `FIXED_UNVERIFIED`; RC-7 remains externally owned `IN_PROGRESS`.
+- Scope 0's final evidence is **32/32 rerun plus 7/7 unchanged = 39/39
+  total**, valid but not a claim of 39 fresh executions. No feature status was
+  upgraded. The app restarted once; the login screenshot was healthy and
+  unauthenticated `401` was expected.
+- Task 179's external `IMPLEMENTED` receipt is not proof of landed, merged, or
+  reconciled work. The two historical calls remain unresolved, and
+  `$0.517071` across 99 events remains a recorded snapshot, not a fresh
+  invoice.
+- No paid calls, email, publishing, full-suite run, live feature rerun,
+  12-never-run-feature execution, unsupported-feature work, estimated-WPM
+  calibration, new feature code, task execution, or budget authorization is
+  included. Remaining live feature work is still blocked by the paid/shared-cap
+  reconciliation gate and the evidence requirements; unsupported six, external
+  publishing/email, agency-report PDF, duration calibration, claims/citation
+  policy, and the RC-7 receipt reconciliation remain unresolved.
+
+The resulting current remediation counts are **OPEN 27, IN_PROGRESS 1,
+FIXED_UNVERIFIED 13, VERIFIED_PASS 0, BLOCKED_HUMAN 7, total 48**. The six
+unsupported inventory rows remain classification-only and are not status
+entries. These source approvals do not authorize later-wave work.

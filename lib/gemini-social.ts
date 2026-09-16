@@ -264,17 +264,10 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
     throw new EmptyGeminiSocialResponseError(platform);
   }
 
-  // Truncate to platform character limit at word boundary
-  let truncatedCaption = caption;
-  if (caption.length > characterLimit) {
-    truncatedCaption = caption.substring(0, characterLimit);
-    const lastSpace = truncatedCaption.lastIndexOf(" ");
-    if (lastSpace > characterLimit * 0.8) truncatedCaption = truncatedCaption.substring(0, lastSpace);
-    truncatedCaption = truncatedCaption.trim();
-  }
-
-  const wordCount = truncatedCaption.split(/\s+/).length;
-  const characterCount = truncatedCaption.length;
+  // Do not repair provider output here. The final social compliance gate must
+  // see the exact generated caption and reject an over-limit result unchanged.
+  const wordCount = caption.split(/\s+/).length;
+  const characterCount = caption.length;
 
   console.log(`✅ Gemini generated ${platform} post (${characterCount} chars, ${wordCount} words)`);
 
@@ -285,7 +278,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
       console.log(`🔍 [Anti-Hallucination] Starting fact validation for social post...`);
       
       const validationResult = await validateContentWithFacts(
-        truncatedCaption,
+        caption,
         "social",
         {
           teamId: request.teamId,
@@ -313,7 +306,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
   }
 
   // DETERMINISTIC HUMANIZATION: Apply burstiness and scrub AI-isms
-  const humanized = humanizeSocialPost(truncatedCaption, 0.35);
+  const humanized = humanizeSocialPost(caption, 0.35);
   
   // Re-calculate counts after humanization (DH may change length)
   const finalWordCount = humanized.content.split(/\s+/).filter(Boolean).length;

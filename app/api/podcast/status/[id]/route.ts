@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { resolvePodcastDurationProvenance } from "@/lib/podcast-duration-provenance";
 
 export async function GET(
   request: NextRequest,
@@ -40,11 +41,17 @@ export async function GET(
       );
     }
     
+    const durationProvenance = resolvePodcastDurationProvenance(
+      article.podcastScriptJson,
+      article.podcastDuration,
+    );
+
     return NextResponse.json({
       articleId: article.id,
       status: article.podcastStatus || 'none',
       url: article.podcastUrl,
-      duration: article.podcastDuration,
+      duration: durationProvenance.seconds,
+      durationSource: durationProvenance.source,
       generatedAt: article.podcastGeneratedAt,
       script: article.podcastScriptJson,
     });

@@ -8,6 +8,7 @@
  */
 import {
   canonicalizePlatform,
+  getPlatformSpec,
   UnsupportedSocialPlatformError,
 } from "./social-validation";
 
@@ -301,21 +302,12 @@ export function getHashtagStrategy(platform: string): {
 } {
   const key = normalizePlatform(platform);
   const guidance = (PLATFORM_GUIDANCE[key] || PLATFORM_GUIDANCE['x'])!;
-  
-  const strategyMap: Record<string, { total: number; evergreenRatio: number }> = {
-    instagram: { total: 20, evergreenRatio: 0.4 }, // 8 evergreen, 12 campaign
-    linkedin: { total: 5, evergreenRatio: 0.6 },   // 3 evergreen, 2 campaign
-    facebook: { total: 5, evergreenRatio: 0.6 },   // 3 evergreen, 2 campaign
-    x: { total: 3, evergreenRatio: 0.67 },         // 2 evergreen, 1 campaign
-    pinterest: { total: 10, evergreenRatio: 0.5 }  // 5 evergreen, 5 campaign
-  };
-  
-  const strategy = (strategyMap[key] ?? strategyMap['x'])!;
-  const evergreenCount = Math.round(strategy.total * strategy.evergreenRatio);
-  const campaignCount = strategy.total - evergreenCount;
+  const spec = getPlatformSpec(key);
+  const evergreenCount = Math.round(spec.hashtagLimit * spec.hashtagEvergreenRatio);
+  const campaignCount = spec.hashtagLimit - evergreenCount;
   
   return {
-    total: strategy.total,
+    total: spec.hashtagLimit,
     evergreenCount,
     campaignCount,
     description: guidance.hashtagStrategy

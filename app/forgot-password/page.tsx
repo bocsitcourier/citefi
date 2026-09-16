@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ArrowLeft, Mail, Lock, KeyRound } from "lucide-react";
 import Link from "next/link";
 import { csrfFetch } from "@/lib/queryClient";
+import { BrandMark } from "@/components/brand-mark";
 
 type Step = "email" | "reset";
 
@@ -115,7 +116,8 @@ export default function ForgotPasswordPage() {
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md space-y-8">
           {/* Logo */}
-          <div>
+          <div className="inline-flex items-center gap-3">
+            <BrandMark decorative />
             <span className="font-bold text-2xl text-foreground tracking-tight">citefi.co</span>
           </div>
 

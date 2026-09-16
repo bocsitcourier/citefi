@@ -6,12 +6,8 @@ import {
   loadCampaignExportContent,
   recordCampaignExport,
 } from "@/lib/campaign-service";
-import { assertValidArticleOutput } from "@/lib/article-output-safety";
+import { validateArticleExportEligibility } from "@/lib/article-output-safety";
 import { createZipArchive } from "@/lib/zip-archive";
-
-const EXPORTABLE_ARTICLE_STATUSES = new Set([
-  "COMPLETE",
-]);
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,7 +42,12 @@ export async function GET(
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
 
-    const { articles: campaignArticles, socialPosts: campaignSocial, videos: campaignVideos } =
+    const {
+      articles: campaignArticles,
+      articleBatches,
+      socialPosts: campaignSocial,
+      videos: campaignVideos,
+    } =
       content;
 
     const totalItems =
@@ -58,31 +59,29 @@ export async function GET(
       );
     }
 
-    const notReady = campaignArticles.filter(
-      (article) =>
-        !article.finalHtmlContent ||
-        !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
+    const paramsByBatchId = new Map(
+      articleBatches.map((batch) => [batch.id, batch.generationParams]),
     );
+    const exportChecks = campaignArticles.map((article) => ({
+      article,
+      validation: validateArticleExportEligibility(
+        article,
+        paramsByBatchId.get(article.batchId),
+      ),
+    }));
+    const notReady = exportChecks.filter(({ validation }) => !validation.valid);
     if (notReady.length > 0) {
       return NextResponse.json(
         {
-          error: "Campaign contains articles that have not completed HTML generation",
-          articleIds: notReady.map((article) => article.id),
+          error: "Campaign contains articles that are not eligible for export",
+          articleIds: notReady.map(({ article }) => article.id),
+          reasons: notReady.map(({ article, validation }) => ({
+            articleId: article.id,
+            reasons: validation.reasons,
+          })),
         },
         { status: 409 },
       );
-    }
-    for (const article of campaignArticles) {
-      if (article.finalHtmlContent) {
-        try {
-          assertValidArticleOutput(article.finalHtmlContent, { format: "html" });
-        } catch {
-          return NextResponse.json(
-            { error: `Article ${article.id} is not exportable: invalid article output` },
-            { status: 409 },
-          );
-        }
-      }
     }
 
     const archive = createZipArchive({ zlib: { level: 9 } });

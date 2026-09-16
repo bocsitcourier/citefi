@@ -4,39 +4,53 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import ffprobePath from "@ffprobe-installer/ffprobe";
 
-const SCRIPT_WORDS_PER_MINUTE = 150;
-const SCRIPT_WORD_BUDGET_SAFETY_FACTOR = 0.75;
+/**
+ * This is an editorial planning assumption, not a measured provider result.
+ * There is intentionally no voice/locale calibration in this release: the
+ * provider has not supplied supporting evidence for one, and paid calibration
+ * is not permitted.  ffprobe remains authoritative after rendering.
+ */
+export const PODCAST_PLANNING_RATE_WPM = 150;
+export const PODCAST_PLANNING_RATE_SOURCE =
+  "explicit editorial planning rate; estimate only; calibration missing";
 
 export interface PodcastDurationRange {
   label: string;
   minSeconds: number;
   maxSeconds: number;
+  minWords: number;
   maxWords: number;
+  planningRateWpm: number;
+  planningRateSource: string;
 }
 
 export interface PodcastScriptForDuration {
-  segments: Array<{ text: string }>;
+  segments: Array<{ text: string; voice?: string }>;
 }
 
-const SUPPORTED_RANGES: ReadonlyArray<Omit<PodcastDurationRange, "maxWords">> = [
+const SUPPORTED_RANGES: ReadonlyArray<{
+  label: string;
+  minSeconds: number;
+  maxSeconds: number;
+}> = [
   { label: "1-2 minutes", minSeconds: 60, maxSeconds: 120 },
   { label: "3-4 minutes", minSeconds: 180, maxSeconds: 240 },
   { label: "5-7 minutes", minSeconds: 300, maxSeconds: 420 },
 ];
 
 function withWordBudget(
-  range: Omit<PodcastDurationRange, "maxWords">,
+  range: (typeof SUPPORTED_RANGES)[number],
 ): PodcastDurationRange {
   return {
     ...range,
-    maxWords: Math.max(
-      1,
-      Math.floor(
-        (range.maxSeconds / 60) *
-          SCRIPT_WORDS_PER_MINUTE *
-          SCRIPT_WORD_BUDGET_SAFETY_FACTOR,
-      ),
+    minWords: Math.ceil(
+      (range.minSeconds / 60) * PODCAST_PLANNING_RATE_WPM,
     ),
+    maxWords: Math.floor(
+      (range.maxSeconds / 60) * PODCAST_PLANNING_RATE_WPM,
+    ),
+    planningRateWpm: PODCAST_PLANNING_RATE_WPM,
+    planningRateSource: PODCAST_PLANNING_RATE_SOURCE,
   };
 }
 
@@ -105,6 +119,140 @@ export function countPodcastScriptWords(script: PodcastScriptForDuration): numbe
     (total, segment) => total + countPodcastWords(segment.text),
     0,
   );
+}
+
+export interface PodcastSegmentDurationEstimate {
+  segmentIndex: number;
+  voice: string | null;
+  words: number;
+  estimatedSeconds: number;
+  estimateLabel: "estimate";
+}
+
+export interface PodcastDurationPreflight {
+  totalWords: number;
+  estimatedSeconds: number;
+  minSeconds: number;
+  maxSeconds: number;
+  minWords: number;
+  maxWords: number;
+  planningRateWpm: number;
+  planningRateSource: string;
+  calibrationStatus: "missing";
+  estimateLabel: "estimate";
+  segments: PodcastSegmentDurationEstimate[];
+}
+
+export interface PodcastMeasuredDurationMetadata {
+  duration: string;
+  requestedDuration: string;
+  audioDurationSeconds: number;
+  durationSource: "ffprobe";
+  measuredDurationSeconds: number;
+  measuredDurationSource: "ffprobe";
+  planningDurationSeconds: number;
+  planningDurationLabel: "estimate";
+  planningRateWpm: number;
+  planningRateSource: string;
+  calibrationStatus: "missing";
+}
+
+export function createPodcastMeasuredDurationMetadata(
+  actualDuration: number,
+  range: PodcastDurationRange,
+  plan: PodcastDurationPreflight,
+): PodcastMeasuredDurationMetadata {
+  if (!isPodcastAudioDurationWithinRange(actualDuration, range)) {
+    throw new Error("Cannot persist podcast duration metadata outside the hard range");
+  }
+  return {
+    duration: formatPodcastDuration(actualDuration),
+    requestedDuration: range.label,
+    audioDurationSeconds: actualDuration,
+    durationSource: "ffprobe",
+    measuredDurationSeconds: actualDuration,
+    measuredDurationSource: "ffprobe",
+    planningDurationSeconds: plan.estimatedSeconds,
+    planningDurationLabel: "estimate",
+    planningRateWpm: plan.planningRateWpm,
+    planningRateSource: plan.planningRateSource,
+    calibrationStatus: plan.calibrationStatus,
+  };
+}
+
+/**
+ * Compute an honest planning estimate for every segment and enforce both
+ * sides of the advertised range before the first TTS request.  This does not
+ * claim that any voice or locale speaks at this rate; it is only a bounded
+ * editorial plan.  A rendered file must still pass the hard ffprobe check.
+ */
+export function preflightPodcastScriptDuration(
+  script: PodcastScriptForDuration,
+  range: PodcastDurationRange,
+  stage: string,
+): PodcastDurationPreflight {
+  if (!script.segments.length) {
+    throw new Error(`Podcast script has no segments after ${stage}`);
+  }
+
+  const emptySegment = script.segments.findIndex(
+    (segment) => !segment.text.trim(),
+  );
+  if (emptySegment !== -1) {
+    throw new Error(
+      `Podcast script contains an empty segment (${emptySegment + 1}) after ${stage}`,
+    );
+  }
+
+  const segments = script.segments.map((segment, index) => {
+    const words = countPodcastWords(segment.text);
+    return {
+      segmentIndex: index,
+      voice: segment.voice ?? null,
+      words,
+      estimatedSeconds: (words / range.planningRateWpm) * 60,
+      estimateLabel: "estimate" as const,
+    };
+  });
+  const totalWords = segments.reduce((sum, segment) => sum + segment.words, 0);
+  const estimatedSeconds = (totalWords / range.planningRateWpm) * 60;
+
+  if (totalWords < range.minWords || totalWords > range.maxWords) {
+    throw new Error(
+      `Podcast script planning estimate is outside the ${range.label} hard ` +
+        `pre-TTS plan after ${stage}: ${totalWords} words/${range.minWords}-${range.maxWords} ` +
+        `words at ${range.planningRateWpm} words per minute (estimate; calibration missing)`,
+    );
+  }
+
+  return {
+    totalWords,
+    estimatedSeconds,
+    minSeconds: range.minSeconds,
+    maxSeconds: range.maxSeconds,
+    minWords: range.minWords,
+    maxWords: range.maxWords,
+    planningRateWpm: range.planningRateWpm,
+    planningRateSource: range.planningRateSource,
+    calibrationStatus: "missing",
+    estimateLabel: "estimate",
+    segments,
+  };
+}
+
+/**
+ * Testable boundary used by the worker: the TTS implementation is injected
+ * only after the complete script passes the duration preflight. This keeps a
+ * short/long script from reaching even the first provider segment.
+ */
+export async function renderPodcastSegmentsAfterPreflight<T>(
+  script: PodcastScriptForDuration,
+  range: PodcastDurationRange,
+  stage: string,
+  render: (segments: Array<{ text: string; voice?: string }>) => Promise<T>,
+): Promise<T> {
+  preflightPodcastScriptDuration(script, range, stage);
+  return render(script.segments);
 }
 
 /**

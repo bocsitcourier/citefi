@@ -6,6 +6,7 @@ import {
   ProviderResultNotDurableError,
 } from "./cost-telemetry";
 import { executePaidMediaBoundary } from "./media-provider-boundary";
+import { redactProviderError } from "./provider-diagnostics";
 
 export interface TTSOptions {
   voice: 'nova' | 'onyx' | 'alloy' | 'echo' | 'fable' | 'shimmer';
@@ -49,8 +50,9 @@ export async function generateSpeech(
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
-    console.error(`Error generating speech for voice ${voice}:`, error);
-    throw new Error(`TTS generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const diagnostic = redactProviderError(error, undefined, "podcast_tts");
+    console.error(`Error generating speech for voice ${voice}:`, diagnostic);
+    throw new Error(`TTS generation failed (${diagnostic})`);
   }
 }
 

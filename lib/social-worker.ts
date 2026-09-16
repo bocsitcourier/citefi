@@ -12,6 +12,8 @@ import {
   socialPostLogs,
   ContentType,
   articles,
+  type SocialPostVariant,
+  type SocialPostAsset,
 } from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import type { SocialPostJobData } from "./queue";
@@ -23,23 +25,275 @@ import {
   isBillingSettlementError,
 } from "./pipeline-worker";
 import {
+  canonicalizePlatform,
   canonicalizePlatforms,
   enforceSocialCaptionWithHashtags,
   findInvalidSocialUrls,
+  getPlatformSpec,
   isValidSocialUrl,
-  PLATFORM_LIMITS,
-  PLATFORM_ASPECT_RATIOS,
 } from "./social-validation";
 import { learningService } from "./learning-service";
 import { recordContentGenerated, getPromptEnhancement } from "./learning-integration";
 import { runGenerationOrchestrator, sampleArmForType } from "./generation-orchestrator";
 import { isProviderAccountingError } from "./cost-telemetry";
-import { objectStorageClient } from "./storage";
+import { getStorageReadCandidates, objectStorageClient } from "./storage";
 import { normalizeSocialImage } from "./social-image-normalizer";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
 import {
   assertSocialFinalizationQuality,
+  FinalizationQualityGateError,
 } from "./generation-finalization-gate";
+
+const MAX_REUSABLE_HERO_BYTES = 2_000_000;
+const LOCAL_OBJECT_URL_PREFIX = "/api/public-objects/";
+const GENERATION_ATTEMPT_METADATA_KEY = "generationAttemptKey";
+
+interface ReusableHeroBytes {
+  buffer: Buffer;
+  contentType: string;
+}
+
+export function getReusableHeroStorageKey(storageUrl: string): string | null {
+  if (!storageUrl.startsWith(LOCAL_OBJECT_URL_PREFIX)) return null;
+  const objectKey = storageUrl.slice(LOCAL_OBJECT_URL_PREFIX.length);
+  if (
+    !objectKey ||
+    objectKey.includes("..") ||
+    objectKey.startsWith("/") ||
+    objectKey.includes("\\") ||
+    objectKey.includes("?") ||
+    objectKey.includes("#")
+  ) {
+    throw new Error("article hero object URL is not a safe local object path");
+  }
+  return objectKey.startsWith("private/")
+    ? objectKey
+    : `public/${objectKey}`;
+}
+
+/**
+ * Read a same-team object through the storage boundary rather than fetching
+ * the public URL back through HTTP.  This keeps hero reuse local to the
+ * worker, lets Sharp perform the crop, and gives the normalizer real bytes and
+ * dimensions to persist.
+ */
+async function readLocalReusableHero(storageUrl: string): Promise<ReusableHeroBytes | null> {
+  const storageKey = getReusableHeroStorageKey(storageUrl);
+  if (!storageKey) return null;
+
+  // Public URLs are served from public/<key>; private URLs already contain
+  // the complete storage key.  Never blindly prefix `public/`: a private
+  // object must remain private, and migrated objects must retain the existing
+  // primary-then-legacy read candidate order.
+  const candidates = getStorageReadCandidates(storageKey);
+  if (candidates.length === 0) {
+    throw new Error("article hero object storage is not configured");
+  }
+
+  let lastError: unknown;
+  for (const file of candidates) {
+    try {
+      const [metadata] = await file.getMetadata();
+      const contentType = metadata.contentType?.toLowerCase() ?? "";
+      const contentLength = Number(metadata.size ?? 0);
+      if (!contentType.startsWith("image/")) {
+        throw new Error(`article hero object has unsupported content type "${contentType || "unknown"}"`);
+      }
+      if (contentLength > MAX_REUSABLE_HERO_BYTES) {
+        throw new Error("article hero object exceeds the 2 MB safe fetch limit");
+      }
+
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      await new Promise<void>((resolve, reject) => {
+        const stream = file.createReadStream();
+        stream.on("data", (chunk: Buffer | string) => {
+          const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+          totalBytes += bytes.length;
+          if (totalBytes > MAX_REUSABLE_HERO_BYTES) {
+            (stream as NodeJS.ReadableStream & {
+              destroy?: (error?: Error) => void;
+            }).destroy?.(new Error("article hero object exceeds the 2 MB safe fetch limit"));
+            return;
+          }
+          chunks.push(bytes);
+        });
+        stream.on("end", () => resolve());
+        stream.on("error", reject);
+      });
+      return { buffer: Buffer.concat(chunks), contentType };
+    } catch (error) {
+      lastError = error;
+      // Try the next candidate only for a read/missing-object failure. A
+      // malformed image or unsafe content type is diagnostic, not a reason to
+      // read an unrelated object from the fallback store.
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("unsupported content type") ||
+        message.includes("exceeds the 2 MB") ||
+        message.includes("safe local object path")
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("article hero object could not be read from configured storage");
+}
+
+function metadataAttemptKey(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const value = (metadata as Record<string, unknown>)[GENERATION_ATTEMPT_METADATA_KEY];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function socialHashtags(value: unknown): Array<{ tag: string; mailtoLink: string }> | null {
+  if (!Array.isArray(value)) return null;
+  const output: Array<{ tag: string; mailtoLink: string }> = [];
+  for (const item of value) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof (item as Record<string, unknown>).tag !== "string" ||
+      typeof (item as Record<string, unknown>).mailtoLink !== "string"
+    ) {
+      return null;
+    }
+    const record = item as Record<string, unknown>;
+    output.push({
+      tag: record.tag as string,
+      mailtoLink: record.mailtoLink as string,
+    });
+  }
+  return output;
+}
+
+function socialHyperlinks(value: unknown): Array<{ url: string }> | null {
+  if (!Array.isArray(value)) return null;
+  const output: Array<{ url: string }> = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || typeof (item as Record<string, unknown>).url !== "string") {
+      return null;
+    }
+    output.push({ url: (item as Record<string, unknown>).url as string });
+  }
+  return output;
+}
+
+export interface SocialPlatformGeneratedDiagnostic {
+  socialPostId: number;
+  platform: string;
+  characterCount: number;
+  hashtagCount: number;
+}
+
+type SocialPlatformDiagnosticWriter = (
+  diagnostic: SocialPlatformGeneratedDiagnostic,
+) => Promise<unknown>;
+
+/**
+ * The READY variant update is the durable checkpoint.  Its diagnostic log is
+ * intentionally best-effort: an unavailable audit sink must not turn a paid,
+ * valid READY variant back into FAILED in the platform task's catch block.
+ */
+export async function persistSocialPlatformGeneratedDiagnostic(
+  diagnostic: SocialPlatformGeneratedDiagnostic,
+  write: SocialPlatformDiagnosticWriter = async (entry) => {
+    await db.insert(socialPostLogs).values({
+      socialPostId: entry.socialPostId,
+      eventType: "PLATFORM_GENERATED",
+      stage: "GPT4",
+      severity: "info",
+      message: `Generated ${entry.platform} post (${entry.characterCount} chars, ${entry.hashtagCount} hashtags)`,
+      payloadJson: {
+        platform: entry.platform,
+        characterCount: entry.characterCount,
+        hashtagCount: entry.hashtagCount,
+      },
+    });
+  },
+): Promise<boolean> {
+  try {
+    await write(diagnostic);
+    return true;
+  } catch (error) {
+    console.warn(
+      `[SocialWorker] PLATFORM_GENERATED diagnostic write failed for ${diagnostic.platform}; ` +
+        "retaining READY checkpoint:",
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
+/**
+ * A READY variant is resumable only when it belongs to this exact queue
+ * attempt and still passes the local final-output contract. A prior attempt's
+ * READY row is diagnostic history, never a provider-free source for a new
+ * attempt.
+ */
+export function isReusableSocialVariant(
+  variant: Pick<
+    SocialPostVariant,
+    | "platform"
+    | "caption"
+    | "characterCount"
+    | "hashtagsJson"
+    | "hyperlinksJson"
+    | "status"
+    | "platformMetadata"
+  >,
+  attemptKey: string,
+  sourceText?: string,
+): boolean {
+  if (variant.status !== "READY" || metadataAttemptKey(variant.platformMetadata) !== attemptKey) {
+    return false;
+  }
+  const hashtags = socialHashtags(variant.hashtagsJson);
+  const hyperlinks = socialHyperlinks(variant.hyperlinksJson);
+  if (!hashtags || !hyperlinks || variant.characterCount !== variant.caption.length) return false;
+  const compliance = enforceSocialCaptionWithHashtags(
+    variant.caption,
+    hashtags,
+    variant.platform,
+    sourceText,
+  );
+  if (!compliance.valid || compliance.caption !== variant.caption) return false;
+  if (
+    compliance.hashtags.length !== hashtags.length ||
+    compliance.hashtags.some((hashtag, index) => hashtag.tag !== hashtags[index]?.tag)
+  ) {
+    return false;
+  }
+  return (
+    hashtags.every(
+      (hashtag) =>
+        isValidSocialUrl(hashtag.mailtoLink) &&
+        findInvalidSocialUrls(hashtag.tag).length === 0,
+    ) &&
+    hyperlinks.every((hyperlink) => isValidSocialUrl(hyperlink.url))
+  );
+}
+
+/** A normalized image row is resumable only through its owning variant id. */
+export function isReusableSocialAsset(
+  asset: Pick<SocialPostAsset, "variantId" | "platform" | "assetType" | "storageUrl" | "aspectRatio" | "width" | "height">,
+  platform: string,
+  variantId: number,
+): boolean {
+  const spec = getPlatformSpec(platform);
+  return (
+    asset.variantId === variantId &&
+    asset.platform === platform &&
+    asset.assetType === "image" &&
+    typeof asset.storageUrl === "string" &&
+    asset.storageUrl.length > 0 &&
+    asset.aspectRatio === spec.aspectRatio &&
+    asset.width === spec.dimensions.width &&
+    asset.height === spec.dimensions.height
+  );
+}
 
 function isNonRetryableSocialOutputError(error: unknown): boolean {
   return (
@@ -49,6 +303,15 @@ function isNonRetryableSocialOutputError(error: unknown): boolean {
     ((error as { code?: unknown }).code === "MODEL_OUTPUT_INVALID" ||
       (error as { code?: unknown }).code === "QUALITY_GATE_FAILED")
   );
+}
+
+export async function awaitAllSocialPlatformTasks<T>(
+  tasks: readonly Promise<T>[],
+): Promise<PromiseSettledResult<T>[]> {
+  // A final quality failure must not let Promise.all reject early while a
+  // sibling is still creating provider work. Parent settlement happens only
+  // after every platform reaches a terminal outcome.
+  return Promise.allSettled(tasks);
 }
 
 export interface AutomaticVideoDependencies {
@@ -292,6 +555,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       throw new Error(`Social post ${socialPostId} has no validated team`);
     }
     const teamId = validatedPostTeamId!;
+    // BullMQ keeps the same job id across attempts. It is the only durable
+    // identity safe for resuming paid outputs; jobs without an id must not
+    // guess at prior rows and therefore cannot resume them.
+    const generationAttemptKey =
+      job.id == null ? null : `social-generation:${socialPostId}:${String(job.id)}`;
 
     // READY is the durable delivery checkpoint. A retry after a debit failure
     // settles only; it must never call either content provider again.
@@ -362,12 +630,43 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           );
         }
       }
+      await db
+        .update(socialPostJobs)
+        .set({ status: "COMPLETED", completedAt: new Date() })
+        .where(eq(socialPostJobs.jobId, String(job.id ?? "")));
       return;
     }
 
     // A READY post is already delivered even when a legacy/manual job has no
-    // billing fields. Never re-enter paid generation for it.
-    if (postDetails?.status === "READY") return;
+    // billing fields. Never re-enter paid generation for it. The historical
+    // one-line guard (`if (postDetails?.status === "READY") return`) remains
+    // settlement-only; the checkpoint update below is the only added work.
+    if (postDetails?.status === "READY") {
+      await db
+        .update(socialPostJobs)
+        .set({ status: "COMPLETED", completedAt: new Date() })
+        .where(eq(socialPostJobs.jobId, String(job.id ?? "")));
+      return;
+    }
+
+    const reusableVariantsByPlatform = new Map<string, SocialPostVariant>();
+    if (generationAttemptKey) {
+      const existingVariants = await db
+        .select()
+        .from(socialPostVariants)
+        .where(eq(socialPostVariants.socialPostId, socialPostId));
+      for (const existingVariant of existingVariants) {
+        if (
+          isReusableSocialVariant(
+            existingVariant,
+            generationAttemptKey,
+            prompt,
+          )
+        ) {
+          reusableVariantsByPlatform.set(existingVariant.platform, existingVariant);
+        }
+      }
+    }
 
     // Cost ceiling gate — INSIDE the try so BUDGET_EXCEEDED flows through this
     // catch (status=FAILED write) before createPipelineWorker releases the
@@ -456,6 +755,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
     console.log(`🚀 Generating ${platforms.length} platform variants concurrently...`);
     
     const platformPromises = platforms.map(async (platform) => {
+      let variantId: number | null = null;
       const retryWithBackoff = async <T>(
         fn: () => Promise<T>,
         maxRetries = 3,
@@ -483,6 +783,22 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       try {
         console.log(`📱 Generating ${platform} post for social post ${socialPostId}`);
 
+        const reusableVariant = reusableVariantsByPlatform.get(platform);
+        if (reusableVariant) {
+          // Durable pre-provider resume. The local contract above is the
+          // diagnostic check; no LLM, critic, or paid repair is replayed.
+          console.log(
+            `♻️ Resuming same-attempt READY ${platform} variant ${reusableVariant.id} without provider calls`,
+          );
+          return {
+            platform,
+            success: true,
+            variantId: reusableVariant.id,
+            qualityScore: 80,
+            resumed: true,
+          };
+        }
+
         // Create variant with GENERATING status
         const [variantRow] = await db.insert(socialPostVariants).values({
           socialPostId,
@@ -492,10 +808,14 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           hashtagsJson: [],
           emojisJson: [],
           hyperlinksJson: [],
-          characterLimit: PLATFORM_LIMITS[platform],
+          characterLimit: getPlatformSpec(platform).characterLimit,
+          platformMetadata: generationAttemptKey
+            ? { [GENERATION_ATTEMPT_METADATA_KEY]: generationAttemptKey }
+            : null,
           status: "GENERATING",
         }).returning();
         const variant = variantRow!;
+        variantId = variant.id;
 
         // STAGE 1: Gemini generates initial content (with retry)
         const geminiResult = await retryWithBackoff(
@@ -505,7 +825,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             tone: tone || "professional",
             mood: mood || "informative",
             industry: industry || "general",
-            characterLimit: PLATFORM_LIMITS[platform],
+            characterLimit: getPlatformSpec(platform).characterLimit,
             location: location || undefined,
             topic: topic || undefined,
             title: title || undefined,
@@ -586,8 +906,9 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             findInvalidSocialUrls(hashtag.tag).length > 0
         );
         if (invalidHyperlink || invalidHashtagLink) {
-          throw new Error(
-            `Final ${platform} social output contains a broken URL`
+          throw new FinalizationQualityGateError(
+            [`Final ${platform} social output contains a broken URL`],
+            "social",
           );
         }
 
@@ -602,8 +923,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           prompt
         );
         if (!finalCaption.valid) {
-          throw new Error(
-            `Final ${platform} caption failed compliance: ${finalCaption.issues.join("; ")}`
+          throw new FinalizationQualityGateError(
+            finalCaption.issues.map(
+              (issue) => `Final ${platform} caption failed compliance: ${issue}`,
+            ),
+            "social",
           );
         }
         gptResult.caption = finalCaption.caption;
@@ -638,39 +962,49 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             hashtagsJson: gptResult.hashtags,
             emojisJson: gptResult.emojis || [],
             hyperlinksJson: gptResult.hyperlinks || [],
+            platformMetadata: generationAttemptKey
+              ? { [GENERATION_ATTEMPT_METADATA_KEY]: generationAttemptKey }
+              : undefined,
             status: "READY",
           })
           .where(eq(socialPostVariants.id, variant.id));
 
-        // Log platform completion
-        await db.insert(socialPostLogs).values({
+        // Log platform completion after the READY variant checkpoint. This is
+        // best-effort so an audit-sink failure cannot enter the variant catch
+        // and downgrade an otherwise valid paid output.
+        await persistSocialPlatformGeneratedDiagnostic({
           socialPostId,
-          eventType: "PLATFORM_GENERATED",
-          stage: "GPT4",
-          severity: "info",
-          message: `Generated ${platform} post (${gptResult.caption.length} chars, ${gptResult.hashtags.length} hashtags)`,
-          payloadJson: { 
-            platform, 
-            characterCount: gptResult.caption.length,
-            hashtagCount: gptResult.hashtags.length,
-          },
+          platform,
+          characterCount: gptResult.caption.length,
+          hashtagCount: gptResult.hashtags.length,
         });
 
         return { platform, success: true, variantId: variant.id, qualityScore: platformQualityScore };
       } catch (error) {
-        if (isProviderAccountingError(error)) throw error;
-        if (isNonRetryableSocialOutputError(error)) throw error;
         console.error(`❌ Failed to generate ${platform} post after all retries:`, error);
         const errorMessage = error instanceof Error ? error.message : String(error);
 
-        // Mark variant as FAILED
-        await db
-          .update(socialPostVariants)
-          .set({
-            status: "FAILED",
-            errorMessage: errorMessage.slice(0, 500),
-          })
-          .where(and(eq(socialPostVariants.socialPostId, socialPostId), eq(socialPostVariants.platform, platform)));
+        // Persist the failed variant before a typed quality/accounting failure
+        // reaches the parent. A sibling may still be in flight, so do not throw
+        // here and let Promise.all short-circuit parent settlement.
+        try {
+          await db
+            .update(socialPostVariants)
+            .set({
+              status: "FAILED",
+              errorMessage: errorMessage.slice(0, 500),
+            })
+            .where(
+              variantId != null
+                ? eq(socialPostVariants.id, variantId)
+                : and(
+                  eq(socialPostVariants.socialPostId, socialPostId),
+                  eq(socialPostVariants.platform, platform),
+                ),
+            );
+        } catch (persistError) {
+          console.error(`❌ Failed to persist ${platform} variant failure:`, persistError);
+        }
 
         // Log error via centralized logger (Slack + DB)
         await logError({
@@ -680,14 +1014,39 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           severity: "error",
         }).catch((e) => console.error("[social-worker] logError failed:", e));
 
-        return { platform, success: false, error: errorMessage };
+        return {
+          platform,
+          success: false,
+          error: errorMessage,
+          terminalError:
+            isProviderAccountingError(error) || isNonRetryableSocialOutputError(error)
+              ? error
+              : undefined,
+        };
       }
     });
 
-    // Wait for all platforms to complete
-    const platformResults = await Promise.all(platformPromises);
+    // Every task must finish (and persist its own terminal variant state)
+    // before the parent failure reaches the pipeline handler/billing release.
+    const settledPlatformTasks = await awaitAllSocialPlatformTasks(platformPromises);
+    const platformResults = settledPlatformTasks.map((result, index) =>
+      result.status === "fulfilled"
+        ? result.value
+        : {
+          platform: platforms[index]!,
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          terminalError: result.reason,
+        },
+    );
     const successfulPlatforms = platformResults.filter(r => r.success);
     const failedPlatforms = platformResults.filter(r => !r.success);
+    const terminalPlatformFailure = failedPlatforms.find(
+      (result) => "terminalError" in result && result.terminalError,
+    ) as { terminalError?: unknown } | undefined;
+    if (terminalPlatformFailure?.terminalError) {
+      throw terminalPlatformFailure.terminalError;
+    }
     // Average quality score across all platforms that ran the orchestrator
     const avgQualityScore = successfulPlatforms.length > 0
       ? Math.round(
@@ -701,23 +1060,63 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
       console.warn(`⚠️ Failed platforms: ${failedPlatforms.map(r => r.platform).join(", ")}`);
     }
 
+    const variantIdsByPlatform = new Map<string, number>(
+      successfulPlatforms.flatMap((result) => {
+        const variantId = (result as { variantId?: unknown }).variantId;
+        return typeof variantId === "number"
+          ? [[result.platform, variantId] as [string, number]]
+          : [];
+      }),
+    );
+    const reusableAssetPlatforms = new Set<string>();
+    if (generationAttemptKey && includeImage && successfulPlatforms.length > 0) {
+      const existingAssets = await db
+        .select()
+        .from(socialPostAssets)
+        .where(eq(socialPostAssets.socialPostId, socialPostId));
+      for (const existingAsset of existingAssets) {
+        const canonicalAssetPlatform = canonicalizePlatform(existingAsset.platform);
+        if (!canonicalAssetPlatform) continue;
+        const variantId = variantIdsByPlatform.get(canonicalAssetPlatform);
+        if (
+          variantId != null &&
+          isReusableSocialAsset(existingAsset, canonicalAssetPlatform, variantId)
+        ) {
+          reusableAssetPlatforms.add(canonicalAssetPlatform);
+        }
+      }
+    }
+    const imagePlatforms = successfulPlatforms
+      .map((result) => result.platform)
+      .filter((platform) => !reusableAssetPlatforms.has(platform));
+
     // STAGE 3: Attach image if requested
     // Strategy: reuse the parent article's hero image at $0.00 cost.
     // Only fall back to AI generation if no usable hero image exists.
-    if (includeImage) {
+    if (includeImage && imagePlatforms.length > 0) {
       let attachedImageUrl: string | null = null;
 
       // Try to reuse the parent article's hero image
       if (postDetails?.articleId) {
         try {
           const [parentArticle] = await db
-            .select({ heroImageUrl: articles.heroImageUrl })
+            .select({
+              heroImageUrl: articles.heroImageUrl,
+              teamId: articles.teamId,
+            })
             .from(articles)
-            .where(eq(articles.id, postDetails.articleId))
+            .where(and(
+              eq(articles.id, postDetails.articleId),
+              // An article hero is reusable only inside its owning team.
+              eq(articles.teamId, teamId),
+            ))
             .limit(1);
 
           const heroUrl = parentArticle?.heroImageUrl;
-          if (heroUrl && heroUrl.startsWith("http")) {
+          if (
+            heroUrl &&
+            (heroUrl.startsWith(LOCAL_OBJECT_URL_PREFIX) || heroUrl.startsWith("http"))
+          ) {
             attachedImageUrl = heroUrl;
             console.log(`♻️ Reusing article hero image for social post ${socialPostId}: ${heroUrl}`);
           }
@@ -731,31 +1130,37 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         // bytes. Download once, resize independently, and store the actual
         // normalized metadata rather than declaring every asset 16:9.
         try {
-          const heroResponse = await safeFetchPageWithRedirects(attachedImageUrl, 3);
-          if (!heroResponse) {
-            throw new Error("safe hero image fetch failed or was blocked");
-          }
-          if (!heroResponse.ok) {
-            throw new Error(`hero image request returned HTTP ${heroResponse.status}`);
-          }
-          const contentType = heroResponse.headers.get("content-type")?.toLowerCase() ?? "";
-          if (!contentType.startsWith("image/")) {
-            throw new Error(`hero image returned unsupported content type "${contentType || "unknown"}"`);
-          }
-          const contentLength = Number(heroResponse.headers.get("content-length") ?? 0);
-          if (contentLength > 2_000_000) {
-            throw new Error("hero image exceeds the 2 MB safe fetch limit");
-          }
-          const heroBuffer = Buffer.from(await heroResponse.arrayBuffer());
-          if (heroBuffer.length > 2_000_000) {
-            throw new Error("hero image exceeds the 2 MB safe fetch limit");
+          const localHero = await readLocalReusableHero(attachedImageUrl);
+          let heroBuffer: Buffer;
+          if (localHero) {
+            heroBuffer = localHero.buffer;
+          } else {
+            const heroResponse = await safeFetchPageWithRedirects(attachedImageUrl, 3);
+            if (!heroResponse) {
+              throw new Error("safe hero image fetch failed or was blocked");
+            }
+            if (!heroResponse.ok) {
+              throw new Error(`hero image request returned HTTP ${heroResponse.status}`);
+            }
+            const contentType = heroResponse.headers.get("content-type")?.toLowerCase() ?? "";
+            if (!contentType.startsWith("image/")) {
+              throw new Error(`hero image returned unsupported content type "${contentType || "unknown"}"`);
+            }
+            const contentLength = Number(heroResponse.headers.get("content-length") ?? 0);
+            if (contentLength > MAX_REUSABLE_HERO_BYTES) {
+              throw new Error("hero image exceeds the 2 MB safe fetch limit");
+            }
+            heroBuffer = Buffer.from(await heroResponse.arrayBuffer());
+            if (heroBuffer.length > MAX_REUSABLE_HERO_BYTES) {
+              throw new Error("hero image exceeds the 2 MB safe fetch limit");
+            }
           }
           const bucket = objectStorageClient.bucket(
             process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || ""
           );
           const timestamp = Date.now();
           const assetInserts = [];
-          for (const platform of platforms) {
+          for (const platform of imagePlatforms) {
             const normalizedImage = await normalizeSocialImage(heroBuffer, platform);
             const fileName = `social-${socialPostId}-${platform}-${timestamp}.png`;
             const objectPath = `public/social-media/${fileName}`;
@@ -765,6 +1170,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
             });
             assetInserts.push({
               socialPostId,
+              variantId: variantIdsByPlatform.get(platform) ?? null,
               platform,
               assetType: "image" as const,
               promptUsed: "reused_from_article_hero",
@@ -796,11 +1202,11 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           eventType: "IMAGE_REUSED",
           stage: "IMAGE_GEN",
           severity: "info",
-          message: `Reused article hero image for ${platforms.length} platform(s) — $0.00 AI cost`,
-          payloadJson: { platforms, sourceArticleId: postDetails?.articleId, heroImageUrl: attachedImageUrl },
+          message: `Reused article hero image for ${imagePlatforms.length} platform(s) — $0.00 AI cost`,
+          payloadJson: { platforms: imagePlatforms, sourceArticleId: postDetails?.articleId, heroImageUrl: attachedImageUrl },
         });
 
-        console.log(`✅ Hero image reused for ${platforms.length} social platform(s)`);
+        console.log(`✅ Hero image reused for ${imagePlatforms.length} social platform(s)`);
       } else {
         // Fallback: generate new AI social images (no parent article or no hero image available)
         console.log(`🎨 No reusable hero image — generating social images via AI`);
@@ -810,7 +1216,10 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           socialPostId,
           teamId,
           prompt,
-          platforms,
+          platforms: imagePlatforms,
+          variantIds: Object.fromEntries(
+            imagePlatforms.map((platform) => [platform, variantIdsByPlatform.get(platform)]),
+          ),
           industry: industry || "general",
           companyName: companyName || undefined,
         });
@@ -822,7 +1231,7 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
           eventType: "IMAGE_GENERATED",
           stage: "IMAGE_GEN",
           severity: "info",
-          message: `Generated ${imageResults.length} images for platforms: ${platforms.join(", ")}`,
+          message: `Generated ${imageResults.length} images for platforms: ${imagePlatforms.join(", ")}`,
           payloadJson: { imageCount: imageResults.length },
         });
       }

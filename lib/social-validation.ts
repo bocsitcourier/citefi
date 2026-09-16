@@ -144,47 +144,102 @@ export const socialPostUpdateRequestSchema = z.object({
 
 export type SocialPostUpdateRequest = z.infer<typeof socialPostUpdateRequestSchema>;
 
-// Platform-specific character limits
-export const PLATFORM_LIMITS = {
-  x: 280,
-  facebook: 63206,
-  instagram: 2200,
-  linkedin: 3000,
-  pinterest: 500,
-} as const;
-
-// Platform-specific aspect ratios
-export const PLATFORM_ASPECT_RATIOS = {
-  x: "16:9",
-  facebook: "1.91:1",
-  instagram: "1:1",
-  linkedin: "1.91:1",
-  pinterest: "2:3",
-} as const;
-
 /**
- * Canonical output dimensions.  Gemini's image API may return a different
- * native size (and does not support 1.91:1), so the image worker always
- * post-processes to these exact dimensions before storing the bytes.
+ * The platform contract is deliberately one typed source.  Text validation,
+ * provider prompts, and image normalization must not each carry a subtly
+ * different limit or geometry.
+ *
+ * `nativeAspectRatio` is the closest ratio accepted by Gemini.  The persisted
+ * image contract is `aspectRatio` + `dimensions`, after local normalization.
  */
-export const PLATFORM_IMAGE_DIMENSIONS = {
-  x: { width: 1600, height: 900 },
-  facebook: { width: 1200, height: 628 },
-  instagram: { width: 1080, height: 1080 },
-  linkedin: { width: 1200, height: 627 },
-  pinterest: { width: 1000, height: 1500 },
-} as const;
+export interface SocialPlatformSpec {
+  characterLimit: number;
+  hashtagLimit: number;
+  hashtagEvergreenRatio: number;
+  aspectRatio: string;
+  nativeAspectRatio: string;
+  dimensions: Readonly<{ width: number; height: number }>;
+  imageDescription: string;
+}
+
+export const PLATFORM_SPECS = {
+  x: {
+    characterLimit: 280,
+    hashtagLimit: 3,
+    hashtagEvergreenRatio: 0.67,
+    aspectRatio: "16:9",
+    nativeAspectRatio: "16:9",
+    dimensions: { width: 1600, height: 900 },
+    imageDescription: "16:9 landscape for X/Twitter",
+  },
+  facebook: {
+    characterLimit: 63206,
+    hashtagLimit: 5,
+    hashtagEvergreenRatio: 0.6,
+    aspectRatio: "1.91:1",
+    nativeAspectRatio: "16:9",
+    dimensions: { width: 1200, height: 628 },
+    imageDescription: "1.91:1 landscape for Facebook",
+  },
+  instagram: {
+    characterLimit: 2200,
+    hashtagLimit: 20,
+    hashtagEvergreenRatio: 0.4,
+    aspectRatio: "1:1",
+    nativeAspectRatio: "1:1",
+    dimensions: { width: 1080, height: 1080 },
+    imageDescription: "1:1 square for Instagram",
+  },
+  linkedin: {
+    characterLimit: 3000,
+    hashtagLimit: 5,
+    hashtagEvergreenRatio: 0.6,
+    aspectRatio: "1.91:1",
+    nativeAspectRatio: "16:9",
+    dimensions: { width: 1200, height: 627 },
+    imageDescription: "1.91:1 landscape for LinkedIn",
+  },
+  pinterest: {
+    characterLimit: 500,
+    hashtagLimit: 10,
+    hashtagEvergreenRatio: 0.5,
+    aspectRatio: "2:3",
+    nativeAspectRatio: "2:3",
+    dimensions: { width: 1000, height: 1500 },
+    imageDescription: "2:3 vertical for Pinterest",
+  },
+} as const satisfies Record<Platform, SocialPlatformSpec>;
+
+// Compatibility views for callers that only need one part of the contract.
+// Values are derived from PLATFORM_SPECS; do not add independent platform
+// literals here.
+export const PLATFORM_LIMITS = Object.fromEntries(
+  Object.entries(PLATFORM_SPECS).map(([platform, spec]) => [platform, spec.characterLimit]),
+) as { [P in Platform]: (typeof PLATFORM_SPECS)[P]["characterLimit"] };
+
+export const PLATFORM_ASPECT_RATIOS = Object.fromEntries(
+  Object.entries(PLATFORM_SPECS).map(([platform, spec]) => [platform, spec.aspectRatio]),
+) as { [P in Platform]: (typeof PLATFORM_SPECS)[P]["aspectRatio"] };
+
+export const PLATFORM_IMAGE_DIMENSIONS = Object.fromEntries(
+  Object.entries(PLATFORM_SPECS).map(([platform, spec]) => [platform, spec.dimensions]),
+) as { [P in Platform]: (typeof PLATFORM_SPECS)[P]["dimensions"] };
 
 export type SocialImageDimensions = (typeof PLATFORM_IMAGE_DIMENSIONS)[Platform];
 
-export function getPlatformImageDimensions(platform: string): SocialImageDimensions {
+export function getPlatformSpec(platform: string): SocialPlatformSpec & { dimensions: SocialImageDimensions } {
   const canonical = canonicalizePlatform(platform);
   if (!canonical) throw new UnsupportedSocialPlatformError(platform);
-  return PLATFORM_IMAGE_DIMENSIONS[canonical];
+  return PLATFORM_SPECS[canonical];
 }
 
-const SOCIAL_URL_RE = /(?:https?:\/\/|mailto:)[^\s<>"'`()\[\]]+/gi;
+export function getPlatformImageDimensions(platform: string): SocialImageDimensions {
+  return getPlatformSpec(platform).dimensions;
+}
+
+const SOCIAL_URL_RE = /(?:https?|ftp):\/\/[^\s<>"'`()\[\]]+|mailto:[^\s<>"'`()\[\]]+/gi;
 const URL_TRAILING_PUNCTUATION_RE = /[.,!?;:]+$/;
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 
 function cleanUrlCandidate(value: string): string {
   return value.replace(URL_TRAILING_PUNCTUATION_RE, "");
@@ -209,9 +264,11 @@ export function isValidSocialUrl(value: unknown): value is string {
 
 /** Return URL-like tokens that are malformed or use an unsupported scheme. */
 export function findInvalidSocialUrls(text: string): string[] {
-  return (text.match(SOCIAL_URL_RE) ?? [])
-    .map(cleanUrlCandidate)
-    .filter((candidate) => !isValidSocialUrl(candidate));
+  const candidates = [
+    ...(text.match(SOCIAL_URL_RE) ?? []),
+    ...Array.from(text.matchAll(MARKDOWN_LINK_RE), (match) => match[2]!.trim()),
+  ];
+  return [...new Set(candidates.map(cleanUrlCandidate).filter((candidate) => !isValidSocialUrl(candidate)))];
 }
 
 function plainSocialText(text: string): string {
@@ -248,53 +305,6 @@ export function findUnsupportedSocialClaims(
   });
 }
 
-function removeBrokenSocialUrls(caption: string): string {
-  // Preserve readable link text for Markdown links while removing malformed
-  // destinations.  Raw malformed URL tokens are removed entirely.
-  const withoutBrokenMarkdownLinks = caption.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (full, label: string, destination: string) =>
-      isValidSocialUrl(destination) ? full : label
-  );
-  return withoutBrokenMarkdownLinks.replace(SOCIAL_URL_RE, (candidate) =>
-    isValidSocialUrl(candidate) ? candidate : ""
-  ).replace(/\s{2,}/g, " ").trim();
-}
-
-function removeUnsupportedSocialClaims(caption: string, unsupported: string[]): string {
-  if (unsupported.length === 0) return caption;
-  const unsupportedSet = new Set(unsupported);
-  return caption
-    .split(/(?<=[.!?])\s+|\n+/)
-    .filter((sentence) => !unsupportedSet.has(sentence.trim()))
-    .join(" ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-/**
- * Truncate without splitting a URL token.  A URL that would not fit is
- * omitted rather than sliced into a broken destination.
- */
-export function truncateSocialCaption(caption: string, characterLimit: number): string {
-  if (caption.length <= characterLimit) return caption.trim();
-  const output: string[] = [];
-  let length = 0;
-  for (const token of caption.trim().split(/\s+/)) {
-    const separator = output.length > 0 ? 1 : 0;
-    const nextLength = length + separator + token.length;
-    if (nextLength <= characterLimit) {
-      output.push(token);
-      length = nextLength;
-      continue;
-    }
-    // Never keep a partial URL.  For ordinary prose, stopping at the previous
-    // complete word is preferable to producing a malformed final sentence.
-    break;
-  }
-  return output.join(" ").trim();
-}
-
 export interface SocialCaptionCompliance {
   caption: string;
   valid: boolean;
@@ -310,6 +320,11 @@ export interface SocialCaptionWithHashtags<T extends { tag: string }> extends So
  * Final, deterministic compliance pass.  This intentionally runs after every
  * provider/critic rewrite and is the last gate before a READY variant is
  * persisted.
+ *
+ * This is a validator, not a repairer.  In particular it must never remove a
+ * sentence, rewrite a claim, strip a URL, or truncate an over-limit caption.
+ * The exact provider output is returned even on failure so callers cannot
+ * accidentally persist a repaired/paid retry artifact.
  */
 export function enforceSocialCaptionCompliance(
   caption: string,
@@ -318,28 +333,23 @@ export function enforceSocialCaptionCompliance(
 ): SocialCaptionCompliance {
   const canonical = canonicalizePlatform(platform);
   if (!canonical) throw new UnsupportedSocialPlatformError(platform);
-  const limit = PLATFORM_LIMITS[canonical];
+  const limit = getPlatformSpec(canonical).characterLimit;
   const unsupported = findUnsupportedSocialClaims(caption, sourceText);
-  let finalCaption = removeUnsupportedSocialClaims(caption, unsupported);
-  finalCaption = removeBrokenSocialUrls(finalCaption);
-  finalCaption = truncateSocialCaption(finalCaption, limit);
 
   const issues: string[] = [];
-  if (!finalCaption) issues.push("caption is empty after final compliance");
-  if (finalCaption.length > limit) {
+  if (!caption.trim()) issues.push("caption is empty");
+  if (caption.length > limit) {
     issues.push(`caption exceeds ${canonical} limit of ${limit} characters`);
   }
-  const invalidUrls = findInvalidSocialUrls(finalCaption);
+  const invalidUrls = findInvalidSocialUrls(caption);
   if (invalidUrls.length > 0) {
     issues.push(`caption contains invalid URL(s): ${invalidUrls.join(", ")}`);
   }
-  // A claim that survived the rewrite/sanitization is a hard failure.
-  const remainingUnsupported = findUnsupportedSocialClaims(finalCaption, sourceText);
-  if (remainingUnsupported.length > 0) {
+  if (unsupported.length > 0) {
     issues.push("caption contains unsupported numeric savings/efficiency claim(s)");
   }
 
-  return { caption: finalCaption, valid: issues.length === 0, issues };
+  return { caption, valid: issues.length === 0, issues };
 }
 
 /**
@@ -364,16 +374,18 @@ export function enforceSocialCaptionWithHashtags<T extends { tag: string }>(
 
   const canonical = canonicalizePlatform(platform);
   if (!canonical) throw new UnsupportedSocialPlatformError(platform);
-  const limit = PLATFORM_LIMITS[canonical];
+  const limit = getPlatformSpec(canonical).characterLimit;
   const selectedHashtags: T[] = [];
   let characterCountWithHashtags = compliance.caption.length;
 
   for (const hashtag of hashtags) {
-    const tag = hashtag.tag.trim();
-    if (!tag) continue;
+    const tag = hashtag.tag;
+    if (!tag.trim()) continue;
     const nextCount = characterCountWithHashtags + 1 + tag.length;
-    if (nextCount > limit) continue;
-    selectedHashtags.push({ ...hashtag, tag } as T);
+    // Only drop a deterministic trailing suffix.  Do not skip an over-limit
+    // hashtag and then retain a later one, which would reorder/repair output.
+    if (nextCount > limit) break;
+    selectedHashtags.push(hashtag);
     characterCountWithHashtags = nextCount;
   }
 

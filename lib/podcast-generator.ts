@@ -8,7 +8,12 @@ import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizePodcastScript } from "./deterministic-humanizer";
 import { jsonrepair } from "jsonrepair";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
-import { parsePodcastDuration } from "./podcast-duration";
+import {
+  parsePodcastDuration,
+  PODCAST_PLANNING_RATE_WPM,
+  PODCAST_PLANNING_RATE_SOURCE,
+} from "./podcast-duration";
+import { redactProviderError } from "./provider-diagnostics";
 
 function safeParseJSON<T>(text: string, label: string): T {
   try {
@@ -90,7 +95,10 @@ export async function generatePodcastScript(
         personaContext = `\n\n**PSYCHOGRAPHIC TARGETING:**${optimizationContext.combinedSystemPrompt}${optimizationContext.combinedUserPrompt}`;
       }
     } catch (error) {
-      console.warn(`⚠️ Failed to fetch psychographic context for podcast:`, error);
+      console.warn(
+        `⚠️ Failed to fetch psychographic context for podcast:`,
+        redactProviderError(error, undefined, "podcast_persona_context"),
+      );
     }
   }
 
@@ -120,8 +128,9 @@ ${articleContent.substring(0, 4000)}
 ${brandLockContext}
 
 **Requirements:**
-- Duration: ${duration}
-- Keep the complete spoken narration at or below ${durationRange.maxWords} words. Never exceed this limit.
+  - Duration: ${duration}
+  - Planning estimate: keep the complete spoken narration between ${durationRange.minWords} and ${durationRange.maxWords} words at ${PODCAST_PLANNING_RATE_WPM} words per minute.
+  - This ${PODCAST_PLANNING_RATE_SOURCE}; it is not measured voice/locale calibration. The rendered audio will be checked with ffprobe.
 - Tone: ${tone}
 - Industry: ${industry}
 - Two hosts: Host 1 (Female voice - warm, enthusiastic, storyteller) and Host 2 (Male voice - insightful, witty, asks great questions)
@@ -166,7 +175,7 @@ ${brandLockContext}
 **Format your response as JSON:**
 {
   "title": "Catchy episode title that hooks interest",
-  "duration": "estimated duration",
+   "duration": "estimated duration (planning estimate; ffprobe is authoritative)",
   "segments": [
     {"speaker": "host1", "voice": "female", "text": "Host 1's dialogue"},
     {"speaker": "host2", "voice": "male", "text": "Host 2's dialogue"},
@@ -246,14 +255,18 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
         console.log(`✅ [Anti-Hallucination] Podcast script validated. Safety: ${validationResult.validationResult?.safetyScore}%, Facts: ${validationResult.factPack.totalCount}`);
       } catch (error) {
         if (isProviderAccountingError(error)) throw error;
-        console.warn('⚠️ Fact validation skipped for podcast script:', (error as Error).message);
+        console.warn(
+          "⚠️ Fact validation skipped for podcast script:",
+          redactProviderError(error, undefined, "podcast_fact_validation"),
+        );
       }
     }
     
     return script;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    console.error("Error generating podcast script:", error);
-    throw new Error(`Podcast script generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const diagnostic = redactProviderError(error, undefined, "podcast_script_generation");
+    console.error("Error generating podcast script:", diagnostic);
+    throw new Error(`Podcast script generation failed (${diagnostic})`);
   }
 }

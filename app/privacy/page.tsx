@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { BrandMark } from "@/components/brand-mark";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Citefi",
@@ -16,7 +17,8 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-white">
       <header className="border-b border-slate-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <Link href="/">
+          <Link href="/" className="inline-flex items-center gap-3">
+            <BrandMark decorative className="h-8 w-5" />
             <span className="font-bold text-xl text-slate-900 tracking-tight">citefi.co</span>
           </Link>
         </div>

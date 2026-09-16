@@ -5,11 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { PassThrough } from "stream";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { createZipArchive } from "@/lib/zip-archive";
-import { assertValidArticleOutput } from "@/lib/article-output-safety";
-
-const EXPORTABLE_ARTICLE_STATUSES = new Set([
-  "COMPLETE",
-]);
+import { validateArticleExportEligibility } from "@/lib/article-output-safety";
 
 export async function GET(
   request: NextRequest,
@@ -59,29 +55,23 @@ export async function GET(
       );
     }
 
-    const notReady = batchArticles.filter(
-      (article) =>
-        !article.finalHtmlContent ||
-        !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
-    );
+    const exportChecks = batchArticles.map((article) => ({
+      article,
+      validation: validateArticleExportEligibility(article, batch.generationParams),
+    }));
+    const notReady = exportChecks.filter(({ validation }) => !validation.valid);
     if (notReady.length > 0) {
       return NextResponse.json(
         {
-          error: "Batch contains articles that have not completed HTML generation",
-          articleIds: notReady.map((article) => article.id),
+          error: "Batch contains articles that are not eligible for export",
+          articleIds: notReady.map(({ article }) => article.id),
+          reasons: notReady.map(({ article, validation }) => ({
+            articleId: article.id,
+            reasons: validation.reasons,
+          })),
         },
         { status: 409 },
       );
-    }
-    for (const article of batchArticles) {
-      try {
-        assertValidArticleOutput(article.finalHtmlContent, { format: "html" });
-      } catch {
-        return NextResponse.json(
-          { error: `Article ${article.id} is not exportable: invalid article output` },
-          { status: 409 },
-        );
-      }
     }
     const archive = createZipArchive({ zlib: { level: 9 } });
     const passThrough = new PassThrough();

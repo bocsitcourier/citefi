@@ -73,13 +73,15 @@
 <main>
   <div class="kicker">Documentation-only evidence review</div>
   <h1>Citefi QA remediation</h1>
-  <p class="lede">Principal-approved guardrails and the RC-1 source fix are recorded without changing production code, rewriting historical evidence, making provider calls, or certifying the live Daily Brief or Idea Video routes.</p>
+  <p class="lede">Principal-approved RC-1 through RC-6 source evidence and Scope 0 guardrails are recorded without changing production code in this handoff, rewriting historical evidence, making paid calls, or certifying live feature routes.</p>
 
   <div class="grid" aria-label="Review counts">
     <div class="card"><strong>84</strong><span>numbered source paragraphs</span></div>
     <div class="card"><strong>77 + 7</strong><span>non-empty + retained empty positions</span></div>
-    <div class="card"><strong>39/39</strong><span>Scope 0 mocked/deterministic guardrails</span></div>
+    <div class="card"><strong>32 + 7</strong><span>Scope 0 rerun + unchanged evidence; valid 39/39 total, not 39 fresh</span></div>
     <div class="card"><strong>5/5</strong><span>RC-1 full Redis acceptance tests, 0 skips</span></div>
+    <div class="card"><strong>23 · 17 · 16 · 18</strong><span>RC-3 · RC-2 · RC-4 · RC-5 targeted/controlled source tests</span></div>
+    <div class="card"><strong>8 → 1</strong><span>RC-5 real parallel requests → report/insert/financial result</span></div>
     <div class="card"><strong>0</strong><span>new feature VERIFIED_PASS statuses</span></div>
     <div class="card"><strong>$0.517071</strong><span>recorded snapshot; cap reconciliation ongoing</span></div>
   </div>
@@ -87,52 +89,91 @@
   <section class="callout good">
     <strong>Executive decision.</strong>
     Scope 0 regression guardrails are <span class="approved">APPROVED ONLY as a separate unit-guardrail approval</span>
-    after architect102 + verifier103 and 39/39 mocked/deterministic tests. The seven historical PASS grades remain
+    after architect102 + verifier103 and final 32/32 rerun plus 7/7 unchanged evidence (valid 39/39 total, not 39
+    fresh executions). The seven historical PASS grades remain
     historical; their current baseline-work status is <code>FIXED_UNVERIFIED</code>, not a live feature pass.
     RC-1 is <code>FIXED_UNVERIFIED</code> after architect129 + independentverifier138 and 5/5 full Redis acceptance
     tests with 0 skips. Daily Brief and Idea Video were not rerun, so their previous failures remain.
   </section>
 
-  <section class="callout hold">
-    <strong>Current gate: BLOCKED_HUMAN — Wave 0 step 1.</strong>
-    The architecture review found actual runtime Redis/BullMQ, introduced before RC-1; the pg-boss/Postgres
-    architecture description is stale. A human must either authorize/retain Redis/BullMQ with the corrected
-    architecture/deployment contract or separately scope a pg-boss/Postgres migration. No queue conversion or
-    rollback is authorized. Stop before Wave 0 step 2 reconciliation and all later waves.
+  <section class="callout good">
+    <strong>Current decision — source approvals recorded; paid halt unchanged.</strong>
+    Sequential architect review approved the completed RC-2, RC-3, RC-4, and RC-5 source implementations. RC-3 has 23/23
+    targeted tests, RC-2 17/17, RC-4 16/16, and RC-5 18/18 controlled tests plus the authorized real eight-request
+    concurrency success. RC-1 through RC-6 remain <code>FIXED_UNVERIFIED</code>; no live feature status was
+    upgraded. The shared-cap/reconciliation gate remains blocked, with no paid run or later wave approved.
   </section>
 
   <section class="callout hold">
     <strong>Boundary.</strong>
-    Zero new paid/provider calls are recorded in this handoff. No automatic retries, no code generation for later
-    waves, and no later remediation scope are approved. The shared cap remains $50; $0.517071 is a recorded snapshot
-    across 99 events, with 2 unresolved missing calls in addition to those recorded events. The $6 reserve remains
-    unconfirmed. Retest requires current cap reconciliation, not merely an increased cap.
+    Zero new paid/provider calls are recorded in this handoff. No new feature code, task execution, automatic retry,
+    later-wave code generation, budget authorization, or later remediation scope is approved. The shared cap remains
+    $50; $0.517071 is a recorded snapshot across 99 events, with 2 unresolved missing calls in addition to those
+    recorded events. The $6 reserve remains unconfirmed. Retest requires current cap reconciliation, not merely an
+    increased cap.
   </section>
 
   <h2>Runtime and ownership evidence</h2>
   <table>
     <tr><th>Evidence item</th><th>Result and limitation</th></tr>
     <tr><td>Runtime</td><td>App restarted once. Login screenshot healthy; unauthenticated <code>401</code> was expected. This is modest startup evidence, not full application certification.</td></tr>
-    <tr><td>Provider/billing</td><td>No paid test and no provider call. No new email, publishing, database write, dependency, or customer-data operation.</td></tr>
+    <tr><td>Provider/billing</td><td>No paid test and no provider call in this handoff. No new email, publishing, database write, dependency, customer-data operation, or estimated-WPM calibration.</td></tr>
     <tr><td>Redis</td><td>Isolated Redis process <code>16379</code> stopped. RC-1 acceptance evidence is test-only; live Daily Brief/Idea Video remain unrerun.</td></tr>
     <tr><td>RC-1</td><td><code>FIXED_UNVERIFIED</code>; owner <code>remediation-queue-worker</code>. Source fix reviewed by architect129 and independentverifier138; 5/5 full Redis acceptance tests, 0 skips. Previous failures retained.</td></tr>
-    <tr><td>Queue architecture</td><td><code>BLOCKED_HUMAN</code>. Runtime is Redis/BullMQ; pg-boss/Postgres is a stale claim. Retain/authorize the existing architecture with corrected contract or separately scope migration. No conversion or rollback.</td></tr>
-    <tr><td>RC-3</td><td><code>IN_PROGRESS</code>; interrupted worker reported source/test changes and 12 passed tests, but independent review was cancelled/not approved. Source is not approved or verified.</td></tr>
+    <tr><td>Queue architecture</td><td><code>RESOLVED</code>. Runtime is Redis/BullMQ, introduced before RC-1. pg-boss/Postgres is an obsolete current-documentation claim; corrected architecture docs now identify BullMQ/Redis as canonical. No conversion or rollback.</td></tr>
+    <tr><td>RC-2–RC-5</td><td>Source approved after sequential architect review: RC-2 17/17 targeted, RC-3 23/23 targeted, RC-4 16/16 targeted, and RC-5 18/18 controlled tests. All remain <code>FIXED_UNVERIFIED</code>; no live feature grade was created.</td></tr>
+    <tr><td>RC-3 history</td><td>The interrupted worker's prior 12-test result and cancelled review remain preserved as historical evidence. Latest source approval does not certify a live article/social journey.</td></tr>
+    <tr><td>RC-5 database subgate</td><td>Separately <code>PASS</code>: two runner tests passed eight parallel requests with one report ID, one insert, one financial row, and clean fixture teardown. The worker executed the database test; the architect independently reviewed the evidence.</td></tr>
+    <tr><td>RC-5 migration</td><td>Additive <code>0034</code> was applied only to the verified active development target after narrower user-approved preflight: no duplicates, rows deleted, rows rewritten, other database touched, or other migration applied. Earlier <code>40001</code> failures remain preserved; final <code>READ COMMITTED</code>/exact-key lock/config <code>FOR SHARE</code>/single-SQL evidence/atomic inserts were independently architect-reviewed.</td></tr>
+    <tr><td>RC-6</td><td><code>FIXED_UNVERIFIED</code>; existing ZIP adapter/import smoke evidence only. No live journey or learning run.</td></tr>
     <tr><td>RC-7</td><td><code>IN_PROGRESS</code>; task 179's <code>IMPLEMENTED</code> notification does not prove landed, merged, or reconciled changes. Keep the 99 recorded events plus 2 unresolved missing calls; do not fabricate rows or duplicate work.</td></tr>
-    <tr><td>Later waves</td><td>No later remediation scope approved. No automatic retries or code generation for later waves.</td></tr>
+    <tr><td>Scope 0 baseline</td><td>Final evidence is 32/32 rerun plus 7/7 unchanged, a valid 39/39 total but not a claim of 39 fresh executions. Baseline rows remain <code>FIXED_UNVERIFIED</code>, not feature passes.</td></tr>
+    <tr><td>Next scope</td><td>Preserve task 179 ownership and the paid/shared-cap halt. No paid retest, automatic retry, code generation, or later remediation scope is approved.</td></tr>
   </table>
 
   <h2>Current remediation status counts</h2>
   <table>
     <tr><th>Population</th><th>OPEN</th><th>IN_PROGRESS</th><th>FIXED_UNVERIFIED</th><th>VERIFIED_PASS</th><th>BLOCKED_HUMAN</th><th>Total</th></tr>
-    <tr><td>Root causes RC1–RC7</td><td>4</td><td>2</td><td>1</td><td>0</td><td>0</td><td>7</td></tr>
+    <tr><td>Root causes RC1–RC7</td><td>0</td><td>1</td><td>6</td><td>0</td><td>0</td><td>7</td></tr>
     <tr><td>27 addressable features</td><td>27</td><td>0</td><td>0</td><td>0</td><td>0</td><td>27</td></tr>
     <tr><td>7 retained historical PASS baseline rows</td><td>0</td><td>0</td><td>7</td><td>0</td><td>0</td><td>7</td></tr>
-    <tr><th>Core status-bearing total</th><th>31</th><th>2</th><th>8</th><th>0</th><th>0</th><th>41</th></tr>
-    <tr><td>Separate decision gates</td><td>0</td><td>0</td><td>0</td><td>0</td><td>8</td><td>8</td></tr>
-    <tr><th>All status-bearing entries</th><th>31</th><th>2</th><th>8</th><th>0</th><th>8</th><th>49</th></tr>
+    <tr><th>Core status-bearing total</th><th>27</th><th>1</th><th>13</th><th>0</th><th>0</th><th>41</th></tr>
+    <tr><td>Separate decision gates</td><td>0</td><td>0</td><td>0</td><td>0</td><td>7</td><td>7</td></tr>
+    <tr><th>All status-bearing entries</th><th>27</th><th>1</th><th>13</th><th>0</th><th>7</th><th>48</th></tr>
   </table>
   <p><code>OUT_OF_SCOPE</code> appears only as a classification for six unsupported inventory rows, never as a remediation status. Historical grades remain separate from current statuses.</p>
+
+  <h2>Remaining blockers and ownership</h2>
+  <table>
+    <tr><th>Gate / owner</th><th>Current status</th><th>What remains unresolved</th></tr>
+    <tr><td>Scope 0 feature-status transition</td><td><code>BLOCKED_HUMAN</code></td><td>Unit guardrail approval does not upgrade any live feature status; independent live evidence remains required.</td></tr>
+    <tr><td>Shared-cap reconciliation</td><td><code>BLOCKED_HUMAN</code></td><td>Reconcile the $50 cap, 99 recorded events, two missing calls, and unconfirmed $6 reserve before any future paid retest.</td></tr>
+    <tr><td>RC-7 receipt ownership</td><td><code>IN_PROGRESS</code></td><td>Task 179 remains external owner; <code>IMPLEMENTED</code> is not proof of landed, merged, or reconciled work. Do not duplicate.</td></tr>
+    <tr><td>External publishing/email</td><td><code>BLOCKED_HUMAN</code></td><td>Explicit authorization and test accounts are still absent.</td></tr>
+    <tr><td>Six unsupported features</td><td><code>BLOCKED_HUMAN</code></td><td>Human product decision remains: build, defer, or remove the claims; no remediation agent may invent implementation.</td></tr>
+    <tr><td>Agency-report PDF</td><td><code>BLOCKED_HUMAN</code></td><td>Confirm as a separate new build/scope item; do not classify the missing capability as a bug fix.</td></tr>
+    <tr><td>Duration contract</td><td><code>BLOCKED_HUMAN</code></td><td>Confirm hard advertised bounds and measured WPM per voice/locale before any paid media procedure; current 150 WPM is planning-only.</td></tr>
+    <tr><td>Claims/citation policy</td><td><code>BLOCKED_HUMAN</code></td><td>Identify evidence/citation policy and deterministic meaning-preserving trim rules before any live claim-sensitive procedure.</td></tr>
+  </table>
+
+  <details>
+    <summary>RC-2 through RC-7 source approval and boundary evidence</summary>
+    <div class="inside">
+      <table>
+        <tr><th>Root cause</th><th>Current source/evidence disposition</th><th>Live boundary</th></tr>
+        <tr><td>RC-1</td><td><code>FIXED_UNVERIFIED</code>. Architect129 + independentverifier138 reviewed the source fix; 5/5 full Redis acceptance tests passed with 0 skips.</td><td>Daily Brief and Idea Video were not rerun; previous invalid-queue failures remain preserved.</td></tr>
+        <tr><td>RC-2</td><td><code>FIXED_UNVERIFIED</code>. Sequential architect review approved the source implementation; 17/17 targeted tests passed.</td><td>No live provider, storage, or social journey was run; feature statuses remain unchanged.</td></tr>
+        <tr><td>RC-3</td><td><code>FIXED_UNVERIFIED</code>. Sequential architect review approved the source implementation; 23/23 targeted tests passed. The earlier 12-test interrupted-worker result and cancelled review remain historical evidence.</td><td>No paid regeneration or live article/social journey was run; source approval is not a feature pass.</td></tr>
+        <tr><td>RC-4</td><td><code>FIXED_UNVERIFIED</code>. Sequential architect review approved the source implementation; 16/16 targeted tests passed. The 150 WPM planning rate is explicitly an estimate, not measured voice/locale calibration.</td><td>No live TTS/video render or paid calibration was run.</td></tr>
+        <tr><td>RC-5</td><td><code>FIXED_UNVERIFIED</code>. Sequential architect review approved the source implementation; 18/18 controlled tests passed. The final correction preserves <code>READ COMMITTED</code>, exact-key transaction-scoped locking, config <code>FOR SHARE</code>, one SQL evidence aggregate, and atomic report/financial inserts.</td><td>Earlier <code>40001</code> failures remain preserved. No live export journey or customer-data operation was run.</td></tr>
+        <tr><td>RC-5 concurrency subgate</td><td><span class="approved">PASS as a separate evidence subgate</span>: two real runner tests passed eight parallel requests with one report ID, one insert, one financial snapshot, and clean fixture teardown. The worker executed the DB test; the architect independently reviewed the evidence.</td><td>This does not upgrade the live agency-report feature or create <code>VERIFIED_PASS</code>.</td></tr>
+        <tr><td>RC-5 migration</td><td>Additive <code>0034_agency_report_period_unique.sql</code> was applied only to the verified active development target after narrower user-approved preflight. No duplicate groups, row deletion, row rewrite, other database touch, or other migration occurred.</td><td>Index readiness and fixture teardown were verified; no customer rows were changed.</td></tr>
+        <tr><td>RC-6</td><td><code>FIXED_UNVERIFIED</code>. Existing ZIP adapter/import smoke check passed; no new adapter behavior was required.</td><td>No live journey or learning run occurred.</td></tr>
+        <tr><td>RC-7</td><td><code>IN_PROGRESS</code>; task 179 remains external owner. The <code>IMPLEMENTED</code> receipt is not proof of landed, merged, or reconciled work.</td><td>Two historical calls remain unresolved. <code>$0.517071</code> across 99 events is a recorded snapshot, not a fresh invoice.</td></tr>
+      </table>
+      <p><strong>Scope 0:</strong> final evidence is 32/32 rerun plus 7/7 unchanged, a valid 39/39 total but not a claim of 39 fresh executions. The app restarted once; login screenshot healthy and unauthenticated <code>401</code> expected. No full-suite run, 12-never-run-feature execution, unsupported-feature work, paid call, email, publishing, or estimated-WPM calibration occurred.</p>
+    </div>
+  </details>
 
   <details>
     <summary>Scope 0 evidence and approval field</summary>
@@ -141,11 +182,11 @@
         <tr><th>Field</th><th>Recorded value</th></tr>
         <tr><td>Prior disposition</td><td><code>REVISE / IN_PROGRESS</code> retained in append-only history because helper tests were shallow and audit evidence was missing at that time.</td></tr>
         <tr><td>Principal decision</td><td><span class="approved">APPROVE Scope 0 regression guardrails ONLY</span>.</td></tr>
-        <tr><td>Approval evidence</td><td>architect102 + verifier103; 39/39 mocked/deterministic tests, 0 skips.</td></tr>
+        <tr><td>Approval evidence</td><td>architect102 + verifier103; final 32/32 rerun plus 7/7 unchanged evidence (valid 39/39 total, not 39 fresh executions).</td></tr>
         <tr><td>Unit guardrail approval</td><td><span class="approved">APPROVED</span> as a separate field; not a feature grade.</td></tr>
         <tr><td>Baseline current statuses</td><td>All seven baseline-work rows are <code>FIXED_UNVERIFIED</code>; actual historic <code>PASS</code> grades are retained separately.</td></tr>
         <tr><td>Feature VERIFIED_PASS</td><td><strong>None.</strong> No new live grade was created.</td></tr>
-        <tr><td>Next scope</td><td>RC-1 remains <code>FIXED_UNVERIFIED</code>; the current Wave 0 architecture gate is <code>BLOCKED_HUMAN</code>. Stop before reconciliation and all later waves; no later remediation scope is approved.</td></tr>
+        <tr><td>Next scope</td><td>Architecture gate is cleared for retained Redis/BullMQ. Wave 0 step 2 RC-7 reconciliation only is authorized next; the shared-cap/reconciliation gate remains <code>BLOCKED_HUMAN</code> for future paid work, and no later remediation scope is approved.</td></tr>
       </table>
     </div>
   </details>
@@ -707,9 +748,11 @@ T2.R8 | C | Verifier hands back code and cannot exceed reconciled cap.</textarea
       <ul>
         <li><strong>Historical evidence is immutable:</strong> prior Daily Brief and Idea Video failures, failed diagnostics, finalized exports, and queue identities remain retained. No old evidence was rewritten.</li>
         <li><strong>Ledger:</strong> say “99 recorded events plus 2 unresolved missing calls,” not “2 of 99.” The $6 reserve is unconfirmed; cap reconciliation is ongoing.</li>
-        <li><strong>Infrastructure gate:</strong> actual runtime Redis/BullMQ predates RC-1; pg-boss/Postgres is a stale claim. Human authorization of the corrected Redis/BullMQ contract or a separately scoped pg-boss migration is required before Wave 0 step 2. No conversion or rollback.</li>
-        <li><strong>RC-3 review:</strong> the interrupted worker reported source/test changes and 12 passed tests, but independent review was cancelled/not approved. RC-3 is <code>IN_PROGRESS</code>, not source-approved or verified.</li>
-        <li><strong>Task 179:</strong> the <code>IMPLEMENTED</code> notification does not prove landed, merged, or reconciled changes. Preserve ownership and do not duplicate work. This handoff records zero new paid calls.</li>
+        <li><strong>Infrastructure decision:</strong> actual runtime Redis/BullMQ predates RC-1, and the principal authorized retaining it with corrected architecture/deployment documentation. pg-boss/Postgres is an obsolete current-documentation claim. No conversion or rollback; Wave 0 step 2 RC-7 reconciliation is the only next scope.</li>
+        <li><strong>RC-2–RC-6 source approval:</strong> sequential architect review approved the source implementations; RC-2 17/17, RC-3 23/23, RC-4 16/16, RC-5 18/18 controlled, and RC-6 existing ZIP adapter/import smoke evidence are recorded as <code>FIXED_UNVERIFIED</code>. No live feature status was upgraded.</li>
+        <li><strong>RC-3 history:</strong> the interrupted worker's 12-test result and cancelled review remain preserved historical evidence; latest source approval does not certify a live article/social journey.</li>
+        <li><strong>RC-5:</strong> earlier <code>40001</code> failures remain preserved. The final <code>READ COMMITTED</code> / exact-key lock / config <code>FOR SHARE</code> / single-SQL evidence / atomic-insert correction was independently architect-reviewed; the worker executed the DB test. The separate concurrency subgate is <code>PASS</code>, not a feature pass.</li>
+        <li><strong>Task 179:</strong> the <code>IMPLEMENTED</code> notification does not prove landed, merged, or reconciled changes. Preserve ownership and do not duplicate work. This handoff records zero new paid calls; the two historical calls remain unresolved and the recorded snapshot is not a fresh invoice.</li>
         <li><strong>Security:</strong> exact provider payload logging is rejected. Use hashes, IDs, schema errors, and redacted metadata only.</li>
         <li><strong>Source references:</strong> BullMQ official docs and GitHub are cited as plain-text references in the RC-1 evidence section. Keep the installed library; no dependency upgrade or package addition.</li>
         <li><strong>Status rule:</strong> remediation statuses are only OPEN, IN_PROGRESS, FIXED_UNVERIFIED, VERIFIED_PASS, and BLOCKED_HUMAN. OUT_OF_SCOPE is classification only. This review introduces no new VERIFIED_PASS.</li>

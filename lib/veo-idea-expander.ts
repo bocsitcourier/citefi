@@ -1,6 +1,7 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -95,6 +96,147 @@ const TONE_DESCRIPTIONS: Record<VideoTone, string> = {
   mysterious: "Intriguing, curious, building anticipation and discovery",
   friendly: "Warm, welcoming, conversational like talking to a trusted friend"
 };
+
+export class ExpandedVideoConceptContractError extends Error {
+  readonly code = "MODEL_OUTPUT_INVALID" as const;
+
+  constructor(message: string, cause?: unknown) {
+    super(`[idea_expansion] ${message}`, cause === undefined ? undefined : { cause });
+    this.name = "ExpandedVideoConceptContractError";
+  }
+}
+
+interface ExpandedVideoConceptResponseLike {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: Array<{ text?: string; thought?: boolean }>;
+    };
+  }>;
+  text?: string;
+}
+
+function extractExpandedConceptText(
+  response: ExpandedVideoConceptResponseLike,
+): string {
+  const answerText = (response.candidates?.[0]?.content?.parts ?? [])
+    .filter((part) => part.thought !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  return (answerText || response.text || "").trim();
+}
+
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function boundedStringArray(
+  value: unknown,
+  itemMaxLength: number,
+  maxItems: number,
+): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= maxItems &&
+    value.every((item) => boundedString(item, itemMaxLength))
+  );
+}
+
+function isExpandedSection(
+  value: unknown,
+  fields: Record<string, number | { itemMaxLength: number; maxItems: number }>,
+): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const section = value as Record<string, unknown>;
+  return Object.entries(fields).every(([field, limit]) => {
+    const fieldValue = section[field];
+    if (typeof limit === "number") return boundedString(fieldValue, limit);
+    return boundedStringArray(fieldValue, limit.itemMaxLength, limit.maxItems);
+  });
+}
+
+export function parseExpandedVideoConceptResponse(
+  response: ExpandedVideoConceptResponseLike,
+): ExpandedVideoConcept {
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && String(finishReason).toUpperCase() !== "STOP") {
+    throw new ExpandedVideoConceptContractError(
+      `provider response ended with finishReason=${String(finishReason)}; refusing incomplete output`,
+    );
+  }
+
+  const rawText = extractExpandedConceptText(response);
+  const digest = redactProviderOutput(rawText, "video_idea_expansion_json");
+  if (!rawText) {
+    throw new ExpandedVideoConceptContractError(`empty provider output (${digest})`);
+  }
+  if (rawText.length > 50_000) {
+    throw new ExpandedVideoConceptContractError(
+      `provider output exceeds 50000 characters (${digest})`,
+    );
+  }
+
+  const cleanedText = rawText
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  let value: unknown;
+  try {
+    value = JSON.parse(cleanedText);
+  } catch (error) {
+    throw new ExpandedVideoConceptContractError(
+      `malformed or truncated concept JSON (${digest})`,
+      error,
+    );
+  }
+
+  const concept = value as Partial<ExpandedVideoConcept>;
+  const valid =
+    concept &&
+    typeof concept === "object" &&
+    isExpandedSection(concept.hook, {
+      description: 2_000,
+      visualConcept: 2_000,
+      emotionalTrigger: 500,
+    }) &&
+    isExpandedSection(concept.problem, {
+      description: 2_000,
+      painPoints: { itemMaxLength: 500, maxItems: 10 },
+      relatableScenario: 2_000,
+    }) &&
+    isExpandedSection(concept.solution, {
+      description: 2_000,
+      keyFeatures: { itemMaxLength: 500, maxItems: 10 },
+      differentiator: 1_000,
+    }) &&
+    isExpandedSection(concept.benefits, {
+      description: 2_000,
+      outcomes: { itemMaxLength: 500, maxItems: 10 },
+      transformation: 2_000,
+    }) &&
+    isExpandedSection(concept.proof, {
+      description: 2_000,
+      socialProof: 1_000,
+      credibilityElement: 1_000,
+    }) &&
+    isExpandedSection(concept.cta, {
+      description: 2_000,
+      actionPhrase: 500,
+      urgencyElement: 1_000,
+    }) &&
+    boundedString(concept.overallNarrative, 2_000) &&
+    boundedString(concept.targetEmotion, 500);
+
+  if (!valid) {
+    throw new ExpandedVideoConceptContractError(
+      `concept failed the complete bounded field contract (${digest})`,
+    );
+  }
+  return concept as ExpandedVideoConcept;
+}
 
 export async function expandVideoIdea(input: VideoIdeaInput): Promise<ExpandedVideoConcept> {
   if (!Number.isInteger(input.teamId) || input.teamId <= 0) {
@@ -193,6 +335,7 @@ Return ONLY valid JSON in this exact format:
       config: {
         temperature: 0.8,
         maxOutputTokens: 2000,
+          responseMimeType: "application/json",
       },
     });
 
@@ -205,39 +348,25 @@ Return ONLY valid JSON in this exact format:
       );
     }
 
-    const text = (response.text || "").trim();
-    
-    if (!text) {
-      throw new Error("Empty response from Gemini API");
-    }
-    
-    let cleanedText = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-
-    let concept: ExpandedVideoConcept;
-    try {
-      concept = JSON.parse(cleanedText);
-    } catch (parseError) {
-      console.error("Failed to parse Gemini response as JSON:", cleanedText.substring(0, 500));
-      throw new Error(`Invalid JSON from Gemini: ${parseError}`);
-    }
-    
-    if (!concept.hook || !concept.problem || !concept.solution || !concept.cta) {
-      throw new Error("Incomplete video concept structure from Gemini");
-    }
+    const concept = parseExpandedVideoConceptResponse(response);
     
     console.log(`✅ Video concept expanded successfully`);
-    console.log(`   Story arc: ${concept.overallNarrative}`);
-    console.log(`   Target emotion: ${concept.targetEmotion}`);
+    console.log(
+      `   Story arc received (${redactProviderOutput(concept.overallNarrative, "video_idea_story_arc")})`,
+    );
+    console.log(
+      `   Target emotion received (${redactProviderOutput(concept.targetEmotion, "video_idea_target_emotion")})`,
+    );
     
     return concept;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    console.error("Error expanding video idea:", error);
-    throw new Error(`Failed to expand video idea: ${error}`);
+    const diagnostic = redactProviderError(error, undefined, "video_idea_expansion");
+    console.error(
+      "Error expanding video idea:",
+      diagnostic,
+    );
+    throw new Error(`Failed to expand video idea (${diagnostic})`);
   }
 }
 

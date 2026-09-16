@@ -9,9 +9,10 @@ import { generatePodcastScript, type PodcastScript } from "./podcast-generator";
 import { mergeAudioSegments } from "./openai-tts";
 import {
   assertPodcastScriptWithinWordBudget,
-  formatPodcastDuration,
+  createPodcastMeasuredDurationMetadata,
   isPodcastAudioDurationWithinRange,
   parsePodcastDuration,
+  preflightPodcastScriptDuration,
   probePodcastAudioDuration,
 } from "./podcast-duration";
 import { objectStorageClient } from "./storage";
@@ -28,6 +29,7 @@ import {
   BillingSettlementError,
   isBillingSettlementError,
 } from "./pipeline-worker";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 export interface PodcastGenerationJob {
   /** Two-bucket billing: reservation runId threaded from the API route */
@@ -181,11 +183,14 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       const scriptText = script.segments.map(s => s.text).join(' ');
       const brandValidation = validateBrandInOutput(scriptText, companyName);
       if (!brandValidation.valid) {
-        console.error(`❌ Podcast script failed brand validation for article ${articleId}:`, brandValidation.errors);
+        console.error(
+          `❌ Podcast script failed brand validation for article ${articleId} ` +
+            `(${brandValidation.errors.length} error(s); ${redactProviderOutput(scriptText, "podcast_script_brand_validation")})`,
+        );
         await db.update(articles)
           .set({ podcastStatus: 'failed' })
           .where(eq(articles.id, articleId));
-        throw new Error(`Podcast script failed brand validation: ${brandValidation.errors.join(", ")}`);
+        throw new Error("Podcast script failed brand validation");
       }
       console.log(`✅ Podcast script brand name validation passed: "${companyName}"`);
     }
@@ -248,13 +253,23 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         }
       } catch (orchErr) {
         if (isProviderAccountingError(orchErr)) throw orchErr;
-        console.warn('[Podcast Worker] Orchestrator failed, continuing:', (orchErr as Error).message);
+        console.warn(
+          "[Podcast Worker] Orchestrator failed, continuing:",
+          redactProviderError(orchErr, undefined, "podcast_orchestrator"),
+        );
       }
     }
 
     // Reviews/repairs may expand the script after the initial guard. Validate
-    // again immediately before TTS; never silently cut paid narration.
+    // again immediately before TTS; never silently cut paid narration. The
+    // duration preflight includes every segment and must pass before the first
+    // paid TTS request.
     assertPodcastScriptWithinWordBudget(script, durationRange, "post-review");
+    const durationPlan = preflightPodcastScriptDuration(
+      script,
+      durationRange,
+      "post-review",
+    );
 
     console.log(`[Podcast Worker] Generating audio for article ${articleId}`);
     const audioSegments = script.segments.map(seg => ({
@@ -280,13 +295,15 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       );
     }
     
+    const measuredDurationMetadata = createPodcastMeasuredDurationMetadata(
+      actualDuration,
+      durationRange,
+      durationPlan,
+    );
     const scriptSummary = {
       title: script.title,
       segmentCount: script.segments.length,
-      duration: formatPodcastDuration(actualDuration),
-      requestedDuration: durationRange.label,
-      audioDurationSeconds: actualDuration,
-      durationSource: "ffprobe",
+      ...measuredDurationMetadata,
       generatedAt: new Date().toISOString(),
     };
     
@@ -335,7 +352,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           console.log(`[Podcast Worker] ✓ Google Drive backup successful (File ID: ${driveFileId})`);
         }
       } catch (driveError) {
-        console.warn(`[Podcast Worker] Google Drive backup failed (non-fatal):`, driveError);
+        console.warn(
+          `[Podcast Worker] Google Drive backup failed (non-fatal):`,
+          redactProviderError(driveError, undefined, "podcast_drive_backup"),
+        );
       }
       
       let assetInserted = false;
@@ -349,9 +369,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           altText: `Podcast: ${article.chosenTitle}`,
           fileFormat: 'mp3',
           metadataJson: {
-            duration: actualDuration,
-            durationSource: 'ffprobe',
-            requestedDuration: durationRange.label,
+            ...measuredDurationMetadata,
             segments: script.segments.length,
             generatedAt: new Date().toISOString(),
           } as any,
@@ -393,7 +411,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         }
       } catch (dbError) {
         if (isBillingSettlementError(dbError)) throw dbError;
-        console.error(`[Podcast Worker] DB write failed after upload, cleaning up:`, dbError);
+        console.error(
+          `[Podcast Worker] DB write failed after upload, cleaning up:`,
+          redactProviderError(dbError, undefined, "podcast_db_write"),
+        );
         
         if (assetInserted) {
           try {
@@ -401,7 +422,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
               .where(eq(articleAssets.storageUrl, storageUrl));
             console.log(`[Podcast Worker] Cleaned up orphaned asset record`);
           } catch (assetCleanupError) {
-            console.error(`[Podcast Worker] Failed to cleanup asset record:`, assetCleanupError);
+            console.error(
+              `[Podcast Worker] Failed to cleanup asset record:`,
+              redactProviderError(assetCleanupError, undefined, "podcast_asset_cleanup"),
+            );
           }
         }
         
@@ -410,7 +434,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
             await uploadedFile.delete();
             console.log(`[Podcast Worker] Cleaned up orphaned file: ${objectPath}`);
           } catch (fileCleanupError) {
-            console.error(`[Podcast Worker] Failed to cleanup orphaned file:`, fileCleanupError);
+            console.error(
+              `[Podcast Worker] Failed to cleanup orphaned file:`,
+              redactProviderError(fileCleanupError, undefined, "podcast_file_cleanup"),
+            );
           }
         }
         
@@ -418,15 +445,19 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       }
     } catch (dbOrStorageError) {
       if (isBillingSettlementError(dbOrStorageError)) throw dbOrStorageError;
-      const errMsg = dbOrStorageError instanceof Error ? dbOrStorageError.message : String(dbOrStorageError);
-      console.error(`[Podcast Worker] DB/Storage error for article ${articleId}:`, dbOrStorageError);
+      const diagnostic = redactProviderError(
+        dbOrStorageError,
+        undefined,
+        "podcast_db_storage",
+      );
+      console.error(`[Podcast Worker] DB/Storage error for article ${articleId}:`, diagnostic);
       await db.update(articles)
         .set({ podcastStatus: 'failed' })
         .where(eq(articles.id, articleId));
       await logError({
         errorType: "PODCAST",
-        errorMessage: `DB/Storage error during podcast generation: ${errMsg}`,
-        stackTrace: dbOrStorageError instanceof Error ? dbOrStorageError.stack : undefined,
+        errorMessage: `DB/Storage error during podcast generation (${diagnostic})`,
+        stackTrace: undefined,
         severity: "error",
         articleId,
         component: "PodcastWorker",
@@ -458,15 +489,15 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
           )
         : error;
     const requiresReconciliation = isNonReplayableProviderError(finalError);
-    const errMsg = finalError instanceof Error ? finalError.message : String(finalError);
-    console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, finalError);
+    const diagnostic = redactProviderError(finalError, undefined, "podcast_generation");
+    console.error(`[Podcast Worker] Error generating podcast for article ${articleId}:`, diagnostic);
 
     const statusWrite = db.update(articles)
       .set({
         podcastStatus: requiresReconciliation ? "reconciliation_required" : "failed",
         errorMessage: requiresReconciliation
-          ? `Provider/billing reconciliation required: ${errMsg}`.slice(0, 1000)
-          : errMsg.slice(0, 1000),
+          ? `Provider/billing reconciliation required (${diagnostic})`.slice(0, 1000)
+          : diagnostic.slice(0, 1000),
         updatedAt: new Date(),
       })
       .where(eq(articles.id, articleId));
@@ -474,7 +505,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       await statusWrite.catch((statusError) => {
         console.error(
           `[Podcast Worker] Failed to persist reconciliation status for article ${articleId}:`,
-          statusError
+          redactProviderError(statusError, undefined, "podcast_reconciliation_status"),
         );
       });
     } else {
@@ -495,7 +526,10 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         sourceId: articleId,
         debitLedgerRowId: job.debitLedgerRowId,
       }).catch((refundErr) => {
-        console.error(`[Podcast Worker] Failed to refund credits for article ${articleId}:`, refundErr);
+        console.error(
+          `[Podcast Worker] Failed to refund credits for article ${articleId}:`,
+          redactProviderError(refundErr, undefined, "podcast_refund"),
+        );
       });
     }
 
@@ -508,7 +542,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         : "Podcast Generation Failed",
       message: requiresReconciliation
         ? `Podcast generation for article ${articleId} has an uncertain provider outcome and is paused for reconciliation.`
-        : `Podcast generation failed for article ${articleId}: ${errMsg.slice(0, 200)}`,
+          : `Podcast generation failed for article ${articleId}; see redacted diagnostics (${diagnostic.slice(0, 200)}).`,
       entityId: articleId,
       entityType: "article",
       actionUrl: `/content/${articleId}`,
@@ -516,8 +550,8 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
 
     const errorLog = logError({
       errorType: "PODCAST",
-      errorMessage: errMsg,
-      stackTrace: finalError instanceof Error ? finalError.stack : undefined,
+      errorMessage: diagnostic,
+      stackTrace: undefined,
       severity: requiresReconciliation ? "critical" : "error",
       articleId,
       component: "PodcastWorker",

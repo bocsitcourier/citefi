@@ -375,6 +375,33 @@ export function getTxDb() {
 }
 
 /**
+ * A transaction callback must be replayed from the beginning after PostgreSQL
+ * aborts it for a serialization conflict or deadlock. Keeping this loop
+ * separate makes the retry boundary explicit and gives non-database callers a
+ * deterministic way to exercise the same bounded policy without opening a
+ * connection.
+ */
+export function isRetryableTransactionError(error: unknown): boolean {
+  return ["40001", "40P01"].includes(
+    String((error as { code?: unknown } | null)?.code ?? ""),
+  );
+}
+
+export async function withBoundedTransactionRetry<T>(
+  callback: (attempt: number) => Promise<T>,
+  options?: { maxRetries?: number },
+): Promise<T> {
+  const maxRetries = Math.max(0, options?.maxRetries ?? 0);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callback(attempt);
+    } catch (error) {
+      if (attempt >= maxRetries || !isRetryableTransactionError(error)) throw error;
+    }
+  }
+}
+
+/**
  * Run an interactive transaction on one checked-out connection using the
  * current validated tenant context. SET LOCAL and ROLE are transaction-scoped,
  * so pooled connections cannot retain another request's identity.
@@ -397,9 +424,9 @@ export async function withTenantTransaction<T>(
       30_000
     );
   }
-  const maxRetries = Math.max(0, options?.maxRetries ?? 0);
-  for (let attempt = 0; ; attempt++) {
-    const client = await _txPool.connect();
+  const txPool = _txPool;
+  return withBoundedTransactionRetry(async () => {
+    const client = await txPool.connect();
     try {
       const isolation = options?.isolationLevel?.toUpperCase();
       await client.query(isolation ? `BEGIN ISOLATION LEVEL ${isolation}` : "BEGIN");
@@ -410,9 +437,9 @@ export async function withTenantTransaction<T>(
       return result;
     } catch (error: any) {
       await client.query("ROLLBACK").catch(() => {});
-      if (attempt >= maxRetries || !["40001", "40P01"].includes(error?.code)) throw error;
+      throw error;
     } finally {
       client.release();
     }
-  }
+  }, { maxRetries: options?.maxRetries });
 }

@@ -36,6 +36,75 @@ export const reportDeliverySchema = z.object({
 }).refine((v) => v.status !== "failed" || !!v.error, "failed delivery requires error");
 
 const PRIVATE_KEY = /(prompt|provider|model|cogs|cost|margin|markup|rebill|rate.?snapshot|internal|error|other.?client)/i;
+export const AGENCY_REPORT_PERIOD_UNIQUE_INDEX = "agency_client_reports_period_unique";
+
+export class AgencyReportSchemaNotReadyError extends Error {
+  readonly code = "SCHEMA_NOT_READY";
+  readonly statusCode = 503;
+
+  constructor() {
+    super(
+      `Agency report generation is unavailable: required unique index ${AGENCY_REPORT_PERIOD_UNIQUE_INDEX} ` +
+      "on (agency_team_id, client_team_id, period_start, period_end) is missing or not ready. " +
+      "Apply the additive agency report schema prerequisite before retrying.",
+    );
+    this.name = "AgencyReportSchemaNotReadyError";
+  }
+}
+
+/**
+ * This is a read-only prerequisite check. It deliberately inspects pg_index
+ * state rather than a textual catalog definition: a same-named index can be invalid,
+ * still building, partial, expression-based, or differently ordered.
+ * It does not create an index or fall back to an unsafe report path when a
+ * deployed database is missing the migration contract.
+ */
+export async function assertAgencyReportPeriodUniqueIndexReady(
+  db: ReturnType<typeof getTxDb>,
+): Promise<void> {
+  const result = await db.execute(sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_index AS index_meta
+      JOIN pg_class AS index_rel ON index_rel.oid = index_meta.indexrelid
+      JOIN pg_namespace AS index_schema ON index_schema.oid = index_rel.relnamespace
+      JOIN pg_class AS table_rel ON table_rel.oid = index_meta.indrelid
+      JOIN pg_namespace AS table_schema ON table_schema.oid = table_rel.relnamespace
+      WHERE index_schema.nspname = 'public'
+        AND table_schema.nspname = 'public'
+        AND table_rel.relname = 'agency_client_reports'
+        AND index_rel.relname = ${AGENCY_REPORT_PERIOD_UNIQUE_INDEX}
+        AND index_meta.indisunique
+        AND index_meta.indisvalid
+        AND index_meta.indisready
+        AND index_meta.indnkeyatts = 4
+        AND index_meta.indnatts = 4
+        AND index_meta.indpred IS NULL
+        AND index_meta.indexprs IS NULL
+        AND index_meta.indkey[0] = (
+          SELECT attnum FROM pg_attribute
+          WHERE attrelid = table_rel.oid AND attname = 'agency_team_id' AND NOT attisdropped
+        )
+        AND index_meta.indkey[1] = (
+          SELECT attnum FROM pg_attribute
+          WHERE attrelid = table_rel.oid AND attname = 'client_team_id' AND NOT attisdropped
+        )
+        AND index_meta.indkey[2] = (
+          SELECT attnum FROM pg_attribute
+          WHERE attrelid = table_rel.oid AND attname = 'period_start' AND NOT attisdropped
+        )
+        AND index_meta.indkey[3] = (
+          SELECT attnum FROM pg_attribute
+          WHERE attrelid = table_rel.oid AND attname = 'period_end' AND NOT attisdropped
+        )
+    ) AS ready
+  `);
+  const rows = Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows;
+  const ready = (rows?.[0] as { ready?: unknown } | undefined)?.ready;
+  if (ready !== true && ready !== "t") {
+    throw new AgencyReportSchemaNotReadyError();
+  }
+}
 
 /** Defense in depth for snapshots; keys carrying operational/accounting data are removed recursively. */
 export function sanitizeClientSnapshot(value: unknown): unknown {
@@ -55,6 +124,21 @@ function canonicalJson(value: unknown): string {
       .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+export function canonicalAgencyReportPeriodLockKey(
+  agencyTeamId: number,
+  clientTeamId: number,
+  periodStart: Date,
+  periodEnd: Date,
+): string {
+  return canonicalJson([
+    "agency-report-period-v1",
+    agencyTeamId,
+    clientTeamId,
+    periodStart.toISOString(),
+    periodEnd.toISOString(),
+  ]);
 }
 
 export function deterministicReportSha256(clientSafe: unknown, agencyOnly: unknown): string {
@@ -200,11 +284,26 @@ export async function createAgencyClientReport(input: z.input<typeof reportPerio
     eq(agencyClientReports.clientTeamId, parsed.clientTeamId), eq(agencyClientReports.periodStart, parsed.periodStart), eq(agencyClientReports.periodEnd, parsed.periodEnd));
   return withTenantTransaction(async (tx) => {
     await assertAgencyDirectChild(tx, actor.agencyTeamId, parsed.clientTeamId);
+    await assertAgencyReportPeriodUniqueIndexReady(tx);
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(
+        ${canonicalAgencyReportPeriodLockKey(
+          actor.agencyTeamId,
+          parsed.clientTeamId,
+          parsed.periodStart,
+          parsed.periodEnd,
+        )},
+        0
+      ))
+    `);
     const [alreadyCreated] = await tx.select().from(agencyClientReports).where(wherePeriod).limit(1);
     if (alreadyCreated) {
       const [financial] = await tx.select({ rebillingSnapshot: agencyReportFinancialSnapshots.rebillingSnapshot })
-        .from(agencyReportFinancialSnapshots)
-        .where(eq(agencyReportFinancialSnapshots.reportId, alreadyCreated.id)).limit(1);
+        .from(agencyReportFinancialSnapshots).where(and(
+          eq(agencyReportFinancialSnapshots.reportId, alreadyCreated.id),
+          eq(agencyReportFinancialSnapshots.agencyTeamId, actor.agencyTeamId),
+          eq(agencyReportFinancialSnapshots.clientTeamId, parsed.clientTeamId),
+        )).limit(1);
       if (!financial) throw new Error("Agency report financial snapshot not found");
       return {
         report: { ...alreadyCreated, agencyRebillingSnapshot: financial.rebillingSnapshot },
@@ -212,7 +311,7 @@ export async function createAgencyClientReport(input: z.input<typeof reportPerio
       };
     }
     // Lock the approved commercial configuration through commit. Together
-    // with REPEATABLE READ this makes branding, evidence, and both immutable
+    // with SERIALIZABLE this makes branding, evidence, and both immutable
     // snapshots one consistent point-in-time view.
     const [config] = await tx.select().from(agencyReportConfigs).where(and(
       eq(agencyReportConfigs.agencyTeamId, actor.agencyTeamId),
@@ -237,7 +336,14 @@ export async function createAgencyClientReport(input: z.input<typeof reportPerio
     const [report] = await tx.insert(agencyClientReports).values({
       agencyTeamId: actor.agencyTeamId, clientTeamId: parsed.clientTeamId, generatedBy: actor.userId,
       periodStart: parsed.periodStart, periodEnd: parsed.periodEnd, clientSafeSnapshot, snapshotSha256,
-    }).onConflictDoNothing().returning();
+    }).onConflictDoNothing({
+      target: [
+        agencyClientReports.agencyTeamId,
+        agencyClientReports.clientTeamId,
+        agencyClientReports.periodStart,
+        agencyClientReports.periodEnd,
+      ],
+    }).returning();
     if (report) {
       await tx.insert(agencyReportFinancialSnapshots).values({
         reportId: report.id,
@@ -248,16 +354,28 @@ export async function createAgencyClientReport(input: z.input<typeof reportPerio
       return { report: { ...report, agencyRebillingSnapshot }, inserted: true };
     }
     const [raced] = await tx.select().from(agencyClientReports).where(wherePeriod).limit(1);
-    if (!raced) throw new Error("Report idempotency conflict did not resolve");
+    if (!raced) {
+      // At SERIALIZABLE, a conflicting insert can be invisible to this
+      // transaction's snapshot. Treat that impossible-to-resolve view as a
+      // serialization failure so the bounded helper replays the whole
+      // callback instead of returning a false idempotency error.
+      throw Object.assign(
+        new Error("Report idempotency conflict did not resolve"),
+        { code: "40001" },
+      );
+    }
     const [financial] = await tx.select({ rebillingSnapshot: agencyReportFinancialSnapshots.rebillingSnapshot })
-      .from(agencyReportFinancialSnapshots)
-      .where(eq(agencyReportFinancialSnapshots.reportId, raced.id)).limit(1);
+      .from(agencyReportFinancialSnapshots).where(and(
+        eq(agencyReportFinancialSnapshots.reportId, raced.id),
+        eq(agencyReportFinancialSnapshots.agencyTeamId, actor.agencyTeamId),
+        eq(agencyReportFinancialSnapshots.clientTeamId, parsed.clientTeamId),
+      )).limit(1);
     if (!financial) throw new Error("Agency report financial snapshot not found");
     return {
       report: { ...raced, agencyRebillingSnapshot: financial.rebillingSnapshot },
       inserted: false,
     };
-  }, { isolationLevel: "repeatable read", maxRetries: 5 });
+  }, { isolationLevel: "read committed", maxRetries: 5 });
 }
 
 export async function approveAgencyClientReport(reportId: number) {

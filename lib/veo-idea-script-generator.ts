@@ -9,6 +9,7 @@ import {
 } from "./veo-idea-expander";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 const VEO_BLOCKED_PATTERNS = [
   /\b(google|facebook|meta|apple|microsoft|amazon|twitter|instagram|tiktok|youtube|netflix|disney|marvel|dc comics|star wars|pokemon|nike|adidas|coca-cola|pepsi|mcdonald'?s|burger king|starbucks|walmart|uber|lyft|airbnb|spotify|openai|chatgpt)\b/gi,
@@ -223,8 +224,14 @@ function stripJsonCodeFence(text: string): string {
 }
 
 function parseIdeaVideoScriptJson(text: string): IdeaVideoScript {
+  const digest = redactProviderOutput(text, "idea_video_script_json");
   if (!text) {
-    throw new VideoScriptContractError("Gemini returned an empty script response");
+    throw new VideoScriptContractError(`Gemini returned an empty script response (${digest})`);
+  }
+  if (text.length > 50_000) {
+    throw new VideoScriptContractError(
+      `Gemini script response exceeds 50000 characters (${digest})`,
+    );
   }
 
   let script: IdeaVideoScript;
@@ -234,9 +241,7 @@ function parseIdeaVideoScriptJson(text: string): IdeaVideoScript {
     script = JSON.parse(text) as IdeaVideoScript;
   } catch (error) {
     throw new VideoScriptContractError(
-      `Gemini returned malformed or truncated script JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Gemini returned malformed or truncated script JSON (${digest})`,
       error
     );
   }
@@ -244,11 +249,14 @@ function parseIdeaVideoScriptJson(text: string): IdeaVideoScript {
   if (
     !script ||
     typeof script !== "object" ||
-    typeof script.title !== "string" ||
+     typeof script.title !== "string" ||
+     script.title.length === 0 ||
+     script.title.length > 500 ||
     script.totalDuration !== 60 ||
-    typeof script.companyName !== "string" ||
-    typeof script.style !== "string" ||
-    typeof script.tone !== "string" ||
+     typeof script.companyName !== "string" ||
+     script.companyName.length > 500 ||
+     !["cinematic", "comedy", "emotional", "tech", "minimal", "retro", "luxury", "action"].includes(script.style) ||
+     !["professional", "playful", "inspirational", "urgent", "mysterious", "friendly"].includes(script.tone) ||
     !Array.isArray(script.clips) ||
     script.clips.length !== 10
   ) {
@@ -262,12 +270,18 @@ function parseIdeaVideoScriptJson(text: string): IdeaVideoScript {
   const invalidClip = script.clips.find(
     (clip) =>
       !clip ||
-      typeof clip.sceneNumber !== "number" ||
-      typeof clip.targetDuration !== "number" ||
-      typeof clip.beat !== "string" ||
+      clip.sceneNumber !== script.clips.indexOf(clip) + 1 ||
+      clip.targetDuration !== 6 ||
+      !["hook", "problem", "solution", "benefits", "proof", "cta"].includes(clip.beat) ||
       typeof clip.prompt !== "string" ||
+      clip.prompt.length === 0 ||
+      clip.prompt.length > 4_000 ||
       typeof clip.narration !== "string" ||
-      typeof clip.visualCue !== "string"
+      clip.narration.length === 0 ||
+      clip.narration.length > 1_000 ||
+      typeof clip.visualCue !== "string" ||
+      clip.visualCue.length === 0 ||
+      clip.visualCue.length > 500
   );
   if (invalidClip) {
     throw new VideoScriptContractError(
@@ -519,7 +533,9 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     if (companyName) {
       const validationResult = validateBrandInOutput(cleanedText, companyName);
       if (!validationResult.valid) {
-        console.warn(`⚠️ Brand validation issues: ${validationResult.errors?.join(", ")}`);
+       console.warn(
+         `⚠️ Brand validation issues (${validationResult.errors?.length ?? 0}; ${redactProviderOutput(cleanedText, "idea_video_script_json")})`,
+       );
       }
     }
 
@@ -607,7 +623,8 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     if (error instanceof VideoScriptContractError) throw error;
-    console.error("Error generating idea video script:", error);
-    throw new Error(`Failed to generate idea video script: ${error}`);
+    const diagnostic = redactProviderError(error, undefined, "idea_video_script_generation");
+    console.error("Error generating idea video script:", diagnostic);
+    throw new Error(`Failed to generate idea video script (${diagnostic})`);
   }
 }

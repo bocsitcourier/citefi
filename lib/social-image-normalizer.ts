@@ -1,8 +1,7 @@
 import sharp from "sharp";
 import {
   canonicalizePlatform,
-  PLATFORM_ASPECT_RATIOS,
-  PLATFORM_IMAGE_DIMENSIONS,
+  getPlatformSpec,
   UnsupportedSocialPlatformError,
 } from "./social-validation";
 
@@ -26,7 +25,8 @@ export async function normalizeSocialImage(
 ): Promise<NormalizedSocialImage> {
   const canonicalPlatform = canonicalizePlatform(platform);
   if (!canonicalPlatform) throw new UnsupportedSocialPlatformError(platform);
-  const dimensions = PLATFORM_IMAGE_DIMENSIONS[canonicalPlatform];
+  const platformSpec = getPlatformSpec(canonicalPlatform);
+  const dimensions = platformSpec.dimensions;
   const outputBuffer = await sharp(imageBuffer)
     .resize(dimensions.width, dimensions.height, {
       fit: "cover",
@@ -47,6 +47,6 @@ export async function normalizeSocialImage(
     mimeType: "image/png",
     width: metadata.width,
     height: metadata.height,
-    aspectRatio: PLATFORM_ASPECT_RATIOS[canonicalPlatform],
+    aspectRatio: platformSpec.aspectRatio,
   };
 }

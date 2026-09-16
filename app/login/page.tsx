@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff, Sparkles, Target, Share2 } from "lucide-react";
 import Link from "next/link";
+import { BrandMark } from "@/components/brand-mark";
 
 function LoginForm() {
   const router = useRouter();
@@ -71,7 +72,8 @@ function LoginForm() {
         <div className="w-full max-w-md space-y-8">
           {/* Logo */}
           <div>
-            <Link href="/" className="font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+            <Link href="/" className="inline-flex items-center gap-3 font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
+              <BrandMark decorative />
               citefi.co
             </Link>
           </div>

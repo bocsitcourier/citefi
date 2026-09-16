@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { BILLING_PLANS, PUBLIC_PRICING_PLAN_IDS } from "@/lib/billing/plans";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/brand-mark";
 import {
   ArrowRight, BarChart3, Check, ChevronDown, ClipboardCheck, FileText,
   Globe2, Layers3, MapPin, Menu, Quote, ShieldCheck, Sparkles, X,
@@ -35,7 +36,7 @@ export default function MarketingPage() {
       <header className="fixed inset-x-0 top-0 z-50 border-b border-foreground/10 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8">
           <Link href="/" className="flex min-h-11 items-center gap-2" aria-label="Citefi home">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"><span className="text-sm font-bold">c</span></span>
+            <BrandMark decorative className="h-8 w-5" />
             <span className="font-serif text-2xl tracking-tight">citefi</span><span className="eyebrow !text-[9px]">local intelligence</span>
           </Link>
           <nav className="hidden items-center gap-7 lg:flex" aria-label="Main navigation">

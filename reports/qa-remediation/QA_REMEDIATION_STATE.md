@@ -43,18 +43,21 @@ The inventory's `PASS`, `PARTIAL`, `FAIL`, `BLOCKED`, `NOT_RUN`, and
 - Exact payload logging is rejected. Diagnostics may contain hashes, IDs,
   schema errors, and redacted metadata only.
 - Scope 0 tests are isolated regression guardrails only, not real-provider
-  passes. Baseline work is complete with `FIXED_UNVERIFIED` unit-lock statuses;
+  passes. The final baseline evidence is **32/32 rerun plus 7/7 unchanged
+  architect-verified**, a valid 39/39 total but not a claim of 39 fresh
+  executions. Baseline work remains `FIXED_UNVERIFIED` unit-lock statuses;
   those statuses are not feature passes, and the separate unit-guardrail
   approval is recorded below.
 - The prior Scope 0 architect disposition **REVISE / IN_PROGRESS** is retained
   in the append-only history. The current principal decision approves Scope 0
-  regression guardrails only after architect102 + verifier103 and 39/39
-  deterministic tests; this is a separate unit-guardrail approval field, not a
-  feature grade or new `VERIFIED_PASS`.
+  regression guardrails only after architect102 + verifier103 and the final
+  32/32 rerun plus 7/7 unchanged evidence (valid 39/39 total); this is a
+  separate unit-guardrail approval field, not a feature grade or new
+  `VERIFIED_PASS`.
 - The next-scope authorization was RC-1 source-only, owned by
   `remediation-queue-worker`; it is now `FIXED_UNVERIFIED` after independent
-  verifier138. No later remediation scope is approved. No paid calls and no
-  next wave are authorized.
+  verifier138. No later remediation scope is approved. No paid calls or later
+  remediation wave are authorized.
 - RC-1 source-fix approval is now recorded after architect129 +
   independentverifier138: **5/5 full Redis acceptance tests, 0 skips**. This
   is `FIXED_UNVERIFIED` because live Daily Brief and Idea Video were not
@@ -67,18 +70,50 @@ The inventory's `PASS`, `PARTIAL`, `FAIL`, `BLOCKED`, `NOT_RUN`, and
   generation for later waves occurred.
 - No production code changes were made by this documentation handoff. The
   original plan and historical failure evidence remain immutable.
-- **Wave 0 step 1 is `BLOCKED_HUMAN`:** the architecture review found actual
-  runtime Redis/BullMQ, while the pg-boss/Postgres description is stale. A
-  human must either retain/authorize Redis/BullMQ with the corrected
-  architecture/deployment contract or separately scope a pg-boss/Postgres
-  migration. No queue conversion or rollback is authorized.
-- Stop before Wave 0 step 2 provider-cost reconciliation and before all later
-  waves until that infrastructure decision is made. This handoff records zero
-  new paid calls.
-- RC-3 has a prior interrupted worker report of source/test changes with
-  12 tests passed, but independent review was cancelled/not approved. Its
-  current status is `IN_PROGRESS` with review blocked; it is not verified and
-  the source is not approved.
+- **Latest principal authorization addendum:** source implementation for RC-2,
+  RC-3, RC-4, and RC-5 is completed and approved after sequential architect
+  review. RC-3
+  has 23/23 targeted tests, RC-2 has 17/17, RC-4 has 16/16, and RC-5 has
+  18/18 controlled tests plus the authorized real database run: eight
+  parallel requests passed in two runner tests with one report ID, one insert,
+  and one financial snapshot, followed by clean fixture teardown. These are
+  source/regression approvals, not live feature passes. No additional
+  user-per-fix gate remains for these source changes. RC-1 through RC-6 are
+  `FIXED_UNVERIFIED`; RC-5's database-concurrency subgate is separately
+  `PASS` as an evidence field only. No additional feature implementation, task
+  execution, budget authorization, or paid run is authorized here.
+- RC-5's additive `0034_agency_report_period_unique.sql` was applied only to
+  the verified active development target after a narrower preflight approved
+  by the user. Preflight found no duplicate groups; no rows were deleted or
+  rewritten, no other database was touched, and no other migration was
+  applied. Earlier RC-5 `40001` failures remain preserved. The final
+  `READ COMMITTED` correction, exact-key transaction advisory lock, config
+  `FOR SHARE`, single-SQL evidence aggregate, and atomic report/financial
+  inserts were independently architect-reviewed; the worker executed the
+  database test, not the architect.
+- RC-6 evidence remains the existing ZIP adapter/import smoke check only;
+  there was no live journey or learning run. The app restarted once with a
+  healthy login screenshot; unauthenticated `401` was expected. No full suite,
+  live rerun, 12 never-run-feature run, or unsupported-feature work occurred.
+- No paid calls, email delivery, external publishing, or estimated-WPM
+  calibration occurred. Task 179's external `IMPLEMENTED` receipt remains
+  unproven as landed/merged/reconciled; the two historical calls remain
+  unresolved, and `$0.517071` across 99 events remains a recorded snapshot,
+  not a fresh invoice.
+- **Wave 0 step 1 architecture decision is resolved:** the principal authorized
+  retaining Redis/BullMQ with the corrected architecture/deployment contract,
+  including managed Redis deployment, availability, and security ownership.
+  The pg-boss/Postgres description is obsolete current documentation, and no
+  queue conversion or rollback is authorized.
+- The next authorized scope is **Wave 0 step 2: RC-7 provider-cost
+  reconciliation only**, under task 179 ownership. This is not a paid retest
+  and does not authorize later waves. The current shared-cap/reconciliation
+  gate remains `BLOCKED_HUMAN` for any future paid work. This handoff records
+  zero new paid calls.
+- RC-3's prior interrupted worker report and 12-test result remain historical
+  evidence. Its current source is approved after sequential architect review
+  with 23/23 targeted tests, but its current status remains
+  `FIXED_UNVERIFIED`; no live feature status was upgraded.
 - Task 179's `IMPLEMENTED` notification does not prove that changes landed,
   merged, or reconciled. RC-7 ownership and prior evidence remain intact; no
   duplicate work is authorized.
@@ -93,17 +128,21 @@ These are decision fields, not remediation statuses:
 |---|---|
 | Prior Scope 0 architect disposition | `REVISE / IN_PROGRESS` retained in append-only handoff history; it is not erased by the later decision. |
 | Current principal decision | `APPROVE` **Scope 0 regression guardrails ONLY**. |
-| Approval evidence | `architect102` + `verifier103` + **39/39 deterministic tests**. |
+| Approval evidence | `architect102` + `verifier103` + final **32/32 rerun plus 7/7 unchanged** evidence (valid 39/39 total, not 39 fresh). |
 | Unit guardrail approval | `APPROVED` as a separate unit-guardrail field. |
 | New feature `VERIFIED_PASS` | **NO**; no feature status was upgraded or created. |
-| Wave 0 step 1 infrastructure gate | `BLOCKED_HUMAN`: authorize/retain existing Redis/BullMQ with corrected architecture/deployment contract, or separately scope pg-boss/Postgres migration. No queue conversion or rollback. |
-| Current sequence gate | Stop before Wave 0 step 2 reconciliation and all later waves pending the infrastructure decision. |
-| RC-3 review state | `IN_PROGRESS`; prior worker reported 12 tests passed, but independent review was cancelled/not approved. Not verified; source not approved. |
+| Wave 0 step 1 infrastructure decision | `RESOLVED`: principal authorized retaining existing Redis/BullMQ with the corrected architecture/deployment contract, including managed Redis deployment/availability/security ownership. pg-boss/Postgres is an obsolete current-documentation claim; no queue conversion or rollback. |
+| Current sequence gate | Wave 0 step 2 RC-7 reconciliation only is authorized next; no paid retest or later wave. The shared-cap/reconciliation gate remains `BLOCKED_HUMAN`. |
+| RC-2–RC-5 source approval | `FIXED_UNVERIFIED` after sequential architect review: RC-2 17/17 targeted, RC-3 23/23 targeted, RC-4 16/16 targeted, RC-5 18/18 controlled plus real eight-request concurrency success. Live feature statuses remain unchanged. |
+| RC-3 review state | `FIXED_UNVERIFIED`; prior 12-test worker result remains historical, while the latest source review approved 23/23 targeted tests. No live feature grade was created. |
+| RC-5 database-concurrency subgate | `PASS` as a separate evidence subgate only: two authorized runner tests passed eight parallel requests with one report ID, one insert, one financial row, and clean fixture teardown. This is not a feature `VERIFIED_PASS`. |
+| RC-6 evidence | `FIXED_UNVERIFIED`; existing ZIP adapter/import smoke evidence only, with no live journey or learning run. |
 | Task 179 evidence | `IMPLEMENTED` notification recorded without claiming landed/merged/reconciled; no duplicate work. |
 | New paid calls in this handoff | **0**. |
-| Previously authorized scope | RC-1 source-only was authorized, owner `remediation-queue-worker`, and remains `FIXED_UNVERIFIED`; the current Wave 0 infrastructure gate supersedes any next action. No later remediation scope is approved. |
+| Previously authorized scope | RC-1 source-only was authorized, owner `remediation-queue-worker`, and remains `FIXED_UNVERIFIED`; RC-1's live routes remain unrerun. |
+| Next authorized scope | Wave 0 step 2 RC-7 reconciliation only, under task 179 ownership; no duplicate work, paid retest, or later remediation scope is approved. |
 | RC-1 source-fix review | `APPROVED` after architect129 + independentverifier138 and 5/5 full Redis acceptance tests with 0 skips; live feature reruns remain undone. |
-| Paid/next-wave authorization | **NONE**; no paid calls and no next wave. |
+| Paid/later-wave authorization | **NONE**; no paid calls and no later remediation wave. |
 
 ## Status counts and documentation coverage
 
@@ -123,19 +162,19 @@ These are decision fields, not remediation statuses:
 
 | Population | OPEN | IN_PROGRESS | FIXED_UNVERIFIED | VERIFIED_PASS | BLOCKED_HUMAN | Total |
 |---|---:|---:|---:|---:|---:|---:|
-| Root causes RC1–RC7 | 4 | 2 | 1 | 0 | 0 | 7 |
+| Root causes RC1–RC7 | 0 | 1 | 6 | 0 | 0 | 7 |
 | Addressable features | 27 | 0 | 0 | 0 | 0 | 27 |
 | Scope 0 baseline locks | 0 | 0 | 7 | 0 | 0 | 7 |
-| **Core status-bearing total** | **31** | **2** | **8** | **0** | **0** | **41** |
+| **Core status-bearing total** | **27** | **1** | **13** | **0** | **0** | **41** |
 
 Unsupported/out-of-scope rows are not status-bearing remediation work. They
 remain six historical `NOT_TESTABLE` inventory rows pending a human scope
 decision. The status counts therefore do not misrepresent out-of-scope work as
-open defects. The eight `BLOCKED_HUMAN` decision-gate rows in **Human blockers
+open defects. The seven `BLOCKED_HUMAN` decision-gate rows in **Human blockers
 and sequencing** are tracked separately, not as duplicate feature/root-cause
-rows. Including those gates, the exact state-file status count is `OPEN 31`,
-`IN_PROGRESS 2`, `FIXED_UNVERIFIED 8`, `VERIFIED_PASS 0`, `BLOCKED_HUMAN 8`,
-for **49** status-bearing entries.
+rows. Including those gates, the exact state-file status count is `OPEN 27`,
+`IN_PROGRESS 1`, `FIXED_UNVERIFIED 13`, `VERIFIED_PASS 0`, `BLOCKED_HUMAN 7`,
+for **48** status-bearing entries.
 
 ### Extraction coverage
 
@@ -154,19 +193,19 @@ for **49** status-bearing entries.
 | ID | Root cause | Status | Owner | Evidence / next boundary |
 |---|---|:---:|---|---|
 | RC-1 | Queue job-ID contract | `FIXED_UNVERIFIED` | **remediation-queue-worker** | Approved source fix after architect129 + independentverifier138: 5/5 full Redis acceptance tests, 0 skips. Live Daily Brief/Idea Video were not rerun; retain previous failures. BullMQ official docs/GitHub are references; keep the installed library and do not upgrade dependencies. Plain-text references: https://docs.bullmq.io/guide/jobs/job-ids and https://github.com/taskforcesh/bullmq |
-| RC-2 | Platform specs and validation | `OPEN` | PLATFORM after lead approval | Enforce hard platform constraints before persistence; deterministic trim/crop or fail for user edit. No out-of-spec artifact is finished/exportable. |
-| RC-3 | Blocking quality gates | `IN_PROGRESS` | **quality-worker; independent review blocked** | Prior interrupted worker reported source/test changes with 12 tests passed. Independent review was cancelled/not approved; source is not approved and RC-3 is not verified. No paid regeneration or duplicate review in this continuation. |
-| RC-4 | Measured duration and media pipeline | `OPEN` | MEDIA after lead approval | Hard advertised bounds, measured WPM per voice/locale, ffprobe evidence, and redacted JSON diagnostics. No exact payload logs or live render now. |
-| RC-5 | Export integrity and concurrency | `OPEN` | INFRA after lead approval | Immutable export bytes and separate canonical/raw hashes; preserve failed diagnostics. No DB writes or historical artifact rewrites. |
-| RC-6 | Export-library compilation defect | `OPEN` | INFRA/VERIFIER after lead approval | Historical source fix remains unverified; no runtime rerun in this handoff. |
+| RC-2 | Platform specs and validation | `FIXED_UNVERIFIED` | PLATFORM | Source approved after sequential architect review; 17/17 targeted tests passed. No live provider/storage run; feature statuses remain unchanged. |
+| RC-3 | Blocking quality gates | `FIXED_UNVERIFIED` | **quality-worker** | Source approved after sequential architect review; 23/23 targeted tests passed. Prior 12-test worker evidence remains historical; no paid regeneration or live feature pass. |
+| RC-4 | Measured duration and media pipeline | `FIXED_UNVERIFIED` | MEDIA | Source approved after sequential architect review; 16/16 targeted tests passed. Planning rate remains explicitly estimated/not calibrated; no live TTS/video render. |
+| RC-5 | Export integrity and concurrency | `FIXED_UNVERIFIED` | INFRA | Source approved after sequential architect review; 18/18 controlled tests and independently reviewed real eight-request concurrency success. Database subgate is separately `PASS`; no live export journey. |
+| RC-6 | Export-library compilation defect | `FIXED_UNVERIFIED` | INFRA/VERIFIER | Existing ZIP adapter/import smoke evidence only; no live journey or learning run. Historical source/runtime gaps remain unverified. |
 | RC-7 | Unreconciled provider calls (financial) | `IN_PROGRESS` | **isolatedtask179 (external owner)** | Task 179 owns receipt changes. Preserve `$0.517071`, 99 events plus 2 missing, and `$6` unconfirmed reserve; this handoff does not duplicate work, fabricate rows, or claim verification. |
 
-RC-3 and RC-7 are the root causes marked `IN_PROGRESS`: RC-3 has an
-interrupted worker report but its independent review was cancelled/not
-approved, while RC-7 reflects active external ownership whose `IMPLEMENTED`
-notification does not prove landed, merged, or reconciled changes. RC-1 is
-`FIXED_UNVERIFIED`: its source fix passed 5/5 full Redis acceptance tests with
-0 skips, but live Daily Brief/Idea Video were not rerun. None of these statuses
+RC-7 is the only root cause marked `IN_PROGRESS`, reflecting active external
+ownership whose `IMPLEMENTED` notification does not prove landed, merged, or
+reconciled changes. RC-1 through RC-6 are `FIXED_UNVERIFIED`: source and
+targeted/regression evidence is recorded, but no live feature status is
+upgraded. RC-1's source fix passed 5/5 full Redis acceptance tests with 0
+skips, but live Daily Brief/Idea Video were not rerun. None of these statuses
 is a live feature pass.
 
 ## Addressable features — exact master-inventory names
@@ -242,12 +281,13 @@ These locks are guardrails only, not live feature passes and not new
 | Standalone Brand Intelligence | `PASS` | `FIXED_UNVERIFIED` | Retain public-source PASS and separate controlled-host failure; no retry or provider call. |
 
 **Scope 0 handoff:** architect102 and verifier103 supplied the approval evidence
-and all 39/39 mocked/deterministic guardrail tests passed. The principal
-decision is `APPROVE` for regression guardrails only. Unit guardrail approval is
-recorded separately; baseline feature statuses are now `FIXED_UNVERIFIED`,
-historical `PASS` grades remain separate, no feature is `VERIFIED_PASS`, and the
-prior `REVISE / IN_PROGRESS` disposition remains in history. This does not
-authorize paid calls or the next wave.
+and the final baseline is 32/32 rerun plus 7/7 unchanged, a valid 39/39 total
+but not a claim of 39 fresh executions. The principal decision is `APPROVE` for
+regression guardrails only. Unit guardrail approval is recorded separately;
+baseline feature statuses are now `FIXED_UNVERIFIED`, historical `PASS` grades
+remain separate, no feature is `VERIFIED_PASS`, and the prior
+`REVISE / IN_PROGRESS` disposition remains in history. This does not authorize
+paid calls or later-wave work.
 
 ## Unsupported/out-of-scope features — exact names
 
@@ -269,10 +309,9 @@ the associated product claim; no worker may fabricate an implementation.
 
 | Blocker | Status | Required decision/evidence |
 |---|:---:|---|
-| Wave 0 queue architecture | `BLOCKED_HUMAN` | Actual runtime is Redis/BullMQ, introduced before RC-1; pg-boss/Postgres is a stale architecture claim. Human must authorize/retain Redis/BullMQ with corrected architecture/deployment contract or separately scope pg-boss/Postgres migration. No queue conversion or rollback. |
-| Scope 0 feature-status transition | `BLOCKED_HUMAN` | Architect102 + verifier103 review and 39/39 deterministic tests support the separate unit-guardrail approval; feature status upgrades remain prohibited. |
+| Scope 0 feature-status transition | `BLOCKED_HUMAN` | Architect102 + verifier103 review and final 32/32 rerun plus 7/7 unchanged evidence (valid 39/39 total, not 39 fresh) support the separate unit-guardrail approval; feature status upgrades remain prohibited. |
 | Current shared-cap reconciliation | `BLOCKED_HUMAN` | Reconcile current ledger/cap deltas, 99 recorded events, and 2 missing calls before any future paid retest. |
-| RC-3 independent review | `IN_PROGRESS` | Prior worker reported source/test changes with 12 tests passed; independent review was cancelled/not approved. Source is not approved or verified. |
+| RC-3 source approval boundary | `FIXED_UNVERIFIED` | Sequential architect review approved the source and 23/23 targeted tests. No live feature pass or paid regeneration was performed; the source status is not a feature grade. |
 | RC-7 receipt ownership | `IN_PROGRESS` | Task 179 `IMPLEMENTED` notification does not prove landed, merged, or reconciled changes; preserve ownership and evidence, and do not duplicate work. |
 | External publishing and email | `BLOCKED_HUMAN` | Explicit authorization and test accounts are required; none are granted here. |
 | Six unsupported features | `BLOCKED_HUMAN` | Human product decision: build, defer, or remove claim. |
@@ -281,8 +320,9 @@ the associated product claim; no worker may fabricate an implementation.
 | Claims/citation policy and deterministic trim | `BLOCKED_HUMAN` | Identify evidence/citation policy and deterministic meaning-preserving trim rules, or fail for user edit. |
 
 `BLOCKED_HUMAN` in this section records a decision gate, not a claim that the
-underlying feature is fixed or passed. The two `IN_PROGRESS` rows are active
-review/ownership states, not verification claims.
+underlying feature is fixed or passed. The remaining `IN_PROGRESS` row is an
+active external ownership state, not a verification claim; RC-3 source review
+is now recorded as `FIXED_UNVERIFIED` above.
 
 ## Append-only handoff log
 
@@ -334,3 +374,48 @@ history was altered.
    current status counts are OPEN 31, IN_PROGRESS 2, FIXED_UNVERIFIED 8,
    VERIFIED_PASS 0, BLOCKED_HUMAN 8, total 49. NEXT: human infrastructure
    decision only.
+7. **Principal architecture authorization** — DID: recorded the explicit
+   `retain_redis` decision; RESULT: the Wave 0 step 1 architecture blocker is
+   cleared. Redis/BullMQ is the canonical production queue, its July 22
+   migration predates RC-1, and the corrected architecture/deployment
+   documentation is current. The old pg-boss/Postgres/no-Redis claim is
+   annotated obsolete rather than treated as a second runtime. No queue
+   conversion or rollback was performed or authorized. NEXT: Wave 0 step 2
+   RC-7 provider-cost reconciliation only, under task 179 ownership; the
+   shared-cap/reconciliation gate remains `BLOCKED_HUMAN`, no paid calls were
+   made, RC-3 remains unapproved `IN_PROGRESS`, RC-1 remains
+   `FIXED_UNVERIFIED`, and no later wave is approved. Current counts are OPEN
+   31, IN_PROGRESS 2, FIXED_UNVERIFIED 8, VERIFIED_PASS 0,
+   BLOCKED_HUMAN 7, total 48.
+8. **Final sequential source-approval authorization** — DID: read
+   `rc3-worker.md`, `rc2-worker.md`, `rc4-worker.md`, `rc5-worker.md`, and
+   `final-baseline-verifier.md`; RESULT: principal approved the completed
+   RC-3, RC-2, RC-4, and RC-5 source implementations after sequential
+   architect review.
+   RC-3 recorded 23/23 targeted tests, RC-2 17/17, RC-4 16/16, and RC-5
+   18/18 controlled tests plus two real-runner tests passing eight parallel
+   requests with one report ID, one insert, one financial row, and clean
+   fixture teardown. RC-5's database-concurrency subgate is separately
+   `PASS`; the worker executed the database test, not the architect.
+   Migration 0034 was additive and applied only to the verified active
+   development target after narrower user-approved preflight: no duplicate
+   groups, no rows deleted or rewritten, no other database touched, and no
+   other migration applied. Earlier RC-5 `40001` failures remain preserved;
+   final `READ COMMITTED`, exact-key transaction lock, config `FOR SHARE`,
+   single-SQL evidence, and atomic inserts were independently architect
+   reviewed. RC-6 remains existing ZIP adapter/import smoke evidence only,
+   with no live journey or learning run. Scope 0 is valid **32/32 rerun plus
+   7/7 unchanged = 39/39 total**, not a claim of 39 fresh executions.
+   Runtime evidence remains one app restart, healthy login screenshot, and
+   expected unauthenticated `401`. No paid calls, email, publishing, full
+   suite, live reruns, 12 never-run features, unsupported features, or
+   estimated-WPM calibration occurred. Task 179's external `IMPLEMENTED`
+   receipt remains unproven landed/merged/reconciled; the two historical calls
+   remain unresolved and `$0.517071`/99 events is only a recorded snapshot,
+   not a fresh invoice. RC-1 through RC-6 are now
+   `FIXED_UNVERIFIED`; RC-7 remains `IN_PROGRESS`; no live feature status was
+   upgraded. CURRENT counts: `OPEN 27`, `IN_PROGRESS 1`,
+   `FIXED_UNVERIFIED 13`, `VERIFIED_PASS 0`, `BLOCKED_HUMAN 7`, total 48.
+   NEXT: preserve the paid halt and current reconciliation gate; no new
+   feature code, task execution, budget authorization, provider call, email,
+   publishing, or later-wave work.

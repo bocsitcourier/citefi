@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { NAV_SECTIONS } from "./nav-config";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditMeter } from "@/components/credit-meter";
+import { BrandMark } from "@/components/brand-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -46,10 +47,9 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={300}>
       <Sidebar collapsible="icon">
         <SidebarHeader>
-          <div className="flex items-center px-2 py-1">
-            {isCollapsed ? (
-              <span className="font-bold text-base text-foreground tracking-tight">c.</span>
-            ) : (
+          <div className="flex items-center gap-2 px-2 py-1">
+            <BrandMark decorative={!isCollapsed} className="h-8 w-5" />
+            {!isCollapsed && (
               <span className="font-bold text-lg text-foreground tracking-tight">citefi.co</span>
             )}
           </div>

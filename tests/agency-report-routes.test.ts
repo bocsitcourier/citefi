@@ -69,6 +69,14 @@ test("download contracts set safe attachment headers and client reads are approv
   assert.match(source, /status\} IN \('approved','sent'\)/);
 });
 
+test("generation surfaces a missing period-unique schema prerequisite explicitly", () => {
+  const route = read("app/api/agency/reports/generate/route.ts");
+  assert.match(route, /AgencyReportSchemaNotReadyError/);
+  assert.match(route, /status = schemaNotReady \? 503/);
+  assert.match(route, /error\.message/);
+  assert.doesNotMatch(route, /42P10/);
+});
+
 test("send contract serializes recipient sends and records redacted success or failure history", () => {
   const source = read("lib/agency-report-service.ts");
   assert.match(source, /pg_advisory_xact_lock/);

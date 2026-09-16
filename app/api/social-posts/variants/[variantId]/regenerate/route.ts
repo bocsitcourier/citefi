@@ -5,17 +5,12 @@ import { eq } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated, getPromptEnhancement } from "@/lib/learning-integration";
-import { enforceSocialCaptionWithHashtags, isValidSocialUrl } from "@/lib/social-validation";
+import {
+  enforceSocialCaptionWithHashtags,
+  getPlatformSpec,
+  isValidSocialUrl,
+} from "@/lib/social-validation";
 import { assertSocialFinalizationQuality } from "@/lib/generation-finalization-gate";
-
-const CHAR_LIMITS = {
-  x: 280,
-  twitter: 280,
-  facebook: 63206,
-  instagram: 2200,
-  linkedin: 3000,
-  pinterest: 500,
-} as const;
 
 export async function POST(
   request: NextRequest,
@@ -66,7 +61,7 @@ export async function POST(
       .where(eq(socialPostVariants.id, variantIdNum));
 
     const platform = variant.platform.toLowerCase();
-    const characterLimit = CHAR_LIMITS[platform as keyof typeof CHAR_LIMITS] || 2200;
+    const characterLimit = getPlatformSpec(platform).characterLimit;
 
     console.log(`🔄 Regenerating ${platform} variant ${variantIdNum} for social post ${post.id}`);
 

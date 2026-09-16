@@ -87,3 +87,63 @@ The tests use injected/mocked final reviewers and pipeline billing dependencies
 for the negative settlement assertion. A principal/architect must approve
 before any staged/live run; no task-179 receipt or provider-ledger mutation was
 made.
+
+## Architect revision — delivery bypass closure
+
+After architect review, the following source-level delivery bypasses were
+closed without executing any live work:
+
+- `checkBatchCompletion` and `triggerAutoPublishing` now pass only
+  `articleStatus === "COMPLETE"` into automatic publishing. The on-publish
+  journey anchor likewise uses only `COMPLETE`.
+- `WebsiteChannelAdapter.validate` and its direct `formatArticle` path both
+  reject every article status other than `COMPLETE`; an intermediate
+  `GPT4_ENHANCED` or `CHATGPT_REVIEWED` draft cannot be sent as a website
+  draft or published payload.
+- The reformat worker retains its Guardian diagnostics, but must run
+  `assertArticleFinalizationQuality` immediately before replacing content and
+  writing `COMPLETE`. A failure takes the preexisting `REFORMAT_FAILED`
+  diagnostic path and leaves the prior stored output intact.
+- Both export routes now call the common
+  `validateArticleExportEligibility` before creating an archive. That helper
+  reads `job_batches.generationParams.wordCountMin/wordCountMax`; it requires
+  a persisted valid range and applies it to final HTML. Campaign export obtains
+  the matching same-team batch records by article `batchId`.
+- Markdown destination parsing captures the complete parenthesized
+  destination rather than stopping at whitespace, closing the
+  `https://www. Energy. Gov/...` valid-prefix bypass.
+- Social platform tasks now persist `FAILED` before returning their terminal
+  quality/accounting error. `awaitAllSocialPlatformTasks` uses
+  `Promise.allSettled`; only after every sibling terminates can the parent
+  throw to its failure/billing handler. A terminal quality failure therefore
+  prevents image work and parent `READY`/success settlement.
+
+Additional deterministic tests:
+
+- `batch and campaign export eligibility reject a preexisting COMPLETE
+  844-word 500-800 artifact` verifies the persisted-bounds export predicate.
+- `batch and campaign export routes wire persisted-bound eligibility before
+  creating archives` proves both route sources invoke it before archive
+  construction.
+- `does not validate only a Markdown destination prefix before whitespace`
+  covers the malformed complete destination.
+- `terminal quality failure waits for deferred siblings before release and
+  preserves failed variant state` defers a sibling promise and proves release
+  remains unreachable until all tasks settle, with the failed variant already
+  terminal.
+
+Revision commands and result:
+
+```sh
+npx tsc --noEmit --pretty false
+node --import tsx/esm --test tests/article-output-safety.test.ts \
+  tests/generation-finalization-gate.test.ts \
+  tests/social-generation-contract.test.ts \
+  tests/pipeline/delivery-settlement-contract.test.ts
+git diff --check
+```
+
+Result: TypeScript passed; 23/23 targeted tests passed; diff check passed.
+No database writes, provider/network calls, publishing, workflow restart, or
+task-179 receipt/provider-ledger mutation occurred. `FIXED_UNVERIFIED`
+remains the required state pending principal/architect review.

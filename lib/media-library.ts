@@ -9,6 +9,7 @@ import {
   socialPostVariants,
   teams,
 } from "@/shared/schema";
+import { resolvePodcastDurationProvenance } from "@/lib/podcast-duration-provenance";
 
 export type AssetKind = "image" | "video" | "audio";
 export type AssetSourceType =
@@ -191,6 +192,7 @@ export async function listCanonicalAssets(options: AssetListOptions = {}) {
       sourceId: articles.id, teamId: articles.teamId, teamName: teams.name, articleId: articles.id,
       title: articles.chosenTitle, status: articles.podcastStatus, url: articles.podcastUrl,
       duration: articles.podcastDuration,
+      scriptMetadata: articles.podcastScriptJson,
       createdAt: sql<Date>`coalesce(${articles.podcastGeneratedAt}, ${articles.createdAt})`,
     }).from(articles).leftJoin(teams, eq(teams.id, articles.teamId))
       .where(and(...articleConditions, isNotNull(articles.podcastUrl))),
@@ -232,12 +234,25 @@ export async function listCanonicalAssets(options: AssetListOptions = {}) {
       socialPostId: null, altText: null, prompt: null, fileFormat: null, metadata: null,
       sourceUrl: `/content/${r.articleId}`,
     })),
-    ...podcastRows.map((r) => ({
-      ...r, sourceType: "article_podcast" as const, kind: "audio" as const,
-      url: r.url!,
-      socialPostId: null, altText: null, prompt: null, fileFormat: "mp3",
-      metadata: { duration: r.duration }, sourceUrl: `/content/${r.articleId}`,
-    })),
+    ...podcastRows.map((r) => {
+      const durationProvenance = resolvePodcastDurationProvenance(
+        r.scriptMetadata,
+        r.duration,
+      );
+      const scriptMetadata = r.scriptMetadata as Record<string, unknown> | null;
+      return {
+        ...r, sourceType: "article_podcast" as const, kind: "audio" as const,
+        url: r.url!,
+        socialPostId: null, altText: null, prompt: null, fileFormat: "mp3",
+        duration: durationProvenance.seconds,
+        metadata: {
+          ...scriptMetadata,
+          duration: durationProvenance.seconds,
+          durationSource: durationProvenance.source,
+        },
+        sourceUrl: `/content/${r.articleId}`,
+      };
+    }),
     ...socialAssetRows.map((r) => ({
       ...r, sourceType: "social_asset" as const, kind: r.kind as AssetKind,
       articleId: null, metadata: { width: r.width, height: r.height, duration: r.duration },

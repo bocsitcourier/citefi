@@ -14,6 +14,7 @@ import {
   ProviderResultNotDurableError,
   ProviderSubmissionUncertainError,
 } from "./cost-telemetry";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Veo video generation");
@@ -71,9 +72,13 @@ export async function generateVeoClip(
   
   console.log(`🎬 Generating Veo clip ${sceneNumber} for post ${socialPostId}`);
   const clipStartMs = Date.now();
-  console.log(`  📝 Original prompt: ${prompt.slice(0, 80)}...`);
+  console.log(
+    `  📝 Original prompt received (${redactProviderOutput(prompt, "veo_prompt")})`,
+  );
   if (sanitizedPrompt !== prompt) {
-    console.log(`  🧹 Sanitized prompt: ${sanitizedPrompt.slice(0, 80)}...`);
+    console.log(
+      `  🧹 Sanitized prompt prepared (${redactProviderOutput(sanitizedPrompt, "veo_sanitized_prompt")})`,
+    );
   }
 
   try {
@@ -125,10 +130,12 @@ export async function generateVeoClip(
         currentOperation = pollResult;
         console.log(`  📋 Poll ${pollCount} - done: ${currentOperation.done}`);
       } catch (pollError: any) {
-        console.log(`  ⚠️ Poll error (attempt ${pollCount}): ${pollError.message}`);
+        console.log(
+          `  ⚠️ Poll error (attempt ${pollCount}): ${redactProviderError(pollError, undefined, "veo_poll")}`,
+        );
         // Continue polling on transient errors
         if (pollCount >= maxPolls) {
-          throw new Error(`Veo polling failed: ${pollError.message}`);
+          throw new Error("Veo polling failed (provider error; see redacted diagnostics)");
         }
       }
     }
@@ -144,15 +151,19 @@ export async function generateVeoClip(
     
     // Check for operation-level error
     if (currentOperation.error) {
-      console.log(`  ❌ Veo operation.error:`, JSON.stringify(currentOperation.error, null, 2));
-      throw new Error(`Veo operation failed: ${currentOperation.error.message || JSON.stringify(currentOperation.error)}`);
+      console.error(
+        `  ❌ Veo operation.error (${redactProviderError(currentOperation.error, undefined, "veo_operation_error")})`,
+      );
+      throw new Error("Veo operation failed (provider error; see redacted diagnostics)");
     }
     
     // Check for response-level error
     const responseError = (currentOperation.response as any)?.error;
     if (responseError) {
-      console.log(`  ❌ Veo response.error:`, JSON.stringify(responseError, null, 2));
-      throw new Error(`Veo response error: ${responseError.message || JSON.stringify(responseError)}`);
+      console.error(
+        `  ❌ Veo response.error (${redactProviderError(responseError, undefined, "veo_response_error")})`,
+      );
+      throw new Error("Veo response error (provider error; see redacted diagnostics)");
     }
 
     // Try both response.generatedVideos and result.generatedVideos
@@ -179,16 +190,22 @@ export async function generateVeoClip(
         || (currentOperation as any).result?.raiFilteredReason;
       
       if (raiFilteredReasons && raiFilteredReasons.length > 0) {
-        console.log(`  ❌ Veo content blocked by RAI filter (${raiFilteredCount} media filtered)`);
-        throw new Error(`Veo content blocked: ${raiFilteredReasons.join('; ')}`);
+        console.log(
+          `  ❌ Veo content blocked by RAI filter (${raiFilteredCount} media filtered; ${redactProviderOutput(raiFilteredReasons, "veo_rai_reasons")})`,
+        );
+        throw new Error("Veo content blocked by safety filter");
       }
       
       if (raiFilteredReason) {
-        throw new Error(`Veo content blocked by safety filter: ${raiFilteredReason}`);
+        console.log(
+          `  ❌ Veo safety filter reason redacted (${redactProviderOutput(raiFilteredReason, "veo_rai_reason")})`,
+        );
+        throw new Error("Veo content blocked by safety filter");
       }
       
-      // Log full response for debugging
-      console.log(`  ❌ Full operation response:`, JSON.stringify(currentOperation, null, 2).slice(0, 2000));
+      console.error(
+        `  ❌ Veo response contained no video (${redactProviderOutput(currentOperation, "veo_empty_operation")})`,
+      );
       throw new Error("No video generated from Veo - response was empty");
     }
 
@@ -249,16 +266,22 @@ export async function generateVeoClip(
           console.log(`  ✅ Downloaded ${videoData.length} bytes via authenticated fetch`);
         } else {
           console.warn(`  ⚠️ Authenticated fetch failed: ${response.status} ${response.statusText}`);
-          const errorText = await response.text().catch(() => 'Could not read error body');
-          console.warn(`  ⚠️ Error body: ${errorText.slice(0, 500)}`);
+          const errorText = await response.text().catch(() => "");
+          console.warn(
+            `  ⚠️ Error body redacted (${redactProviderOutput(errorText, "veo_download_error_body")})`,
+          );
         }
       } catch (fetchError) {
-        console.warn(`  ⚠️ Direct fetch failed:`, fetchError);
+        console.warn(
+          `  ⚠️ Direct fetch failed (${redactProviderError(fetchError, undefined, "veo_download")})`,
+        );
       }
     }
     
     if (!videoData) {
-      console.error(`  ❌ Video file object:`, JSON.stringify(videoFile, null, 2));
+      console.error(
+        `  ❌ Video file data unavailable (${redactProviderOutput(videoFile, "veo_video_file")})`,
+      );
       throw new Error("Could not extract video data from Veo response - all download methods failed");
     }
     
@@ -276,7 +299,10 @@ export async function generateVeoClip(
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
-    console.error(`❌ Veo clip ${sceneNumber} generation failed:`, error);
+    console.error(
+      `❌ Veo clip ${sceneNumber} generation failed:`,
+      redactProviderError(error, undefined, "veo_clip_generation"),
+    );
     // Failed attempts still cost money on the provider side in some failure
     // modes; record them so the budget ceiling and spend breaker see them.
     if (!providerUsageRecorded) {
@@ -310,7 +336,9 @@ export async function generateVeoClip(
         error
       );
     }
-    throw new Error(`Veo generation failed for scene ${sceneNumber}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Veo generation failed for scene ${sceneNumber} (${redactProviderError(error, undefined, "veo_clip_generation")})`,
+    );
   }
 }
 

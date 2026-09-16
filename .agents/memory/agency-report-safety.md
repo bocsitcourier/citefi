@@ -9,11 +9,17 @@ Client-readable report rows must physically contain only recursively sanitized c
 
 **How to apply:** Any future client-report field must be classified before storage. Financial or operational fields belong only in an agency-only table with separate grants and RLS; client routes must never join that table.
 
-Generate immutable client and financial snapshots from one repeatable-read transaction, with the approved configuration locked through commit.
+Generate immutable client and financial snapshots from one shared evidence result, with the approved configuration locked through commit.
 
 **Why:** Independent reads can mix ledger/config states when usage is appended or configuration changes concurrently.
 
-**How to apply:** Keep authorization revalidation, evidence and ledger reads, hashing, and both immutable inserts in the same point-in-time transaction; retry only serialization/deadlock failures.
+**How to apply:** Report creation uses READ COMMITTED with an exact agency/client/period transaction advisory lock, a share-locked approved config, one SQL evidence aggregation, and atomic client/financial inserts. Retry only serialization/deadlock failures.
+
+Do not switch this report-creation transaction to REPEATABLE READ or SERIALIZABLE without redesigning when its snapshot is acquired.
+
+**Why:** Reads before a blocking advisory lock establish a stale transaction snapshot at those isolation levels. A waiter can miss the committed winning report while the unique index sees it; bounded retries exhausted in the real eight-request regression. READ COMMITTED lets the post-lock existence check see the winner.
+
+**How to apply:** Preserve the single-statement evidence snapshot and locked configuration that make READ COMMITTED safe here. If evidence collection becomes multiple independent statements, redesign consistency explicitly rather than copying this isolation choice.
 
 Commit an append-only pending email claim before calling the provider. If provider acceptance is followed by an unavailable terminal audit write, leave the claim unresolved and do not resend automatically.
 

@@ -92,6 +92,7 @@ import {
 import { getArticleGenerationBilling } from "./pipeline-billing";
 import {
   assertValidArticleOutput,
+  getPersistedArticleWordBounds,
   normalizeArticleTargetUrls,
   validateArticleOutput,
 } from "./article-output-safety";
@@ -3342,6 +3343,9 @@ export async function registerWorkers() {
             // Using batch?.geographicFocus directly silently returns undefined (the "JSONB ghost" bug).
             const reformatBatchParams = (batch?.generationParams as Record<string, any>) ?? {};
             const reformatGeoFocus: string | undefined = reformatBatchParams.geographicFocus;
+            const reformatWordBounds = getPersistedArticleWordBounds(
+              batch?.generationParams,
+            );
 
             // Strip any leaked placeholder tokens before passing to GPT-4
             const rawContent = (article.finalHtmlContent || "")
@@ -3513,14 +3517,41 @@ export async function registerWorkers() {
               console.warn(`⚠️ Guardian check failed for reformat ${articleId} (non-blocking):`, guardianErr);
             }
 
-            // Update article with formatted HTML and hyperlinks
-            assertValidArticleOutput(finalReformatChecked, { format: "html" });
+            // Reformat is another finalization path. Guardian is advisory here
+            // for diagnostics, but the shared final gate is mandatory before a
+            // reformat can replace the delivery artifact or become COMPLETE.
+            const reformatOutputOptions = {
+              format: "html" as const,
+              ...(reformatWordBounds ?? {}),
+            };
+            assertValidArticleOutput(finalReformatChecked, reformatOutputOptions);
+            const reformatTeamId = article.teamId;
+            if (
+              typeof reformatTeamId !== "number" ||
+              !Number.isInteger(reformatTeamId) ||
+              reformatTeamId <= 0
+            ) {
+              throw new Error(`Article ${articleId} has no validated team for final quality review`);
+            }
+            await assertArticleFinalizationQuality({
+              teamId: reformatTeamId,
+              campaignId: article.campaignId ?? null,
+              articleId,
+              content: finalReformatChecked,
+              targetWords: reformatWordBounds
+                ? Math.round((reformatWordBounds.minWords + reformatWordBounds.maxWords) / 2)
+                : undefined,
+              keyword: Array.isArray(article.keywordsJson)
+                ? (article.keywordsJson[0] as string | undefined)
+                : undefined,
+              outputOptions: reformatOutputOptions,
+            });
             await db
               .update(articles)
               .set({
                 finalHtmlContent: finalReformatChecked,
                 hyperlinkedKeywordsJson: hyperlinks.length > 0 ? hyperlinks : null,
-                articleStatus: "GPT4_ENHANCED",
+                articleStatus: "COMPLETE",
                 errorMessage: null,
               })
               .where(eq(articles.id, articleId));
@@ -6402,10 +6433,10 @@ async function checkBatchCompletion(
 
     // TRIGGER AUTO-PUBLISHING if enabled
     if (completedArticles > 0) {
-      // Include all terminal-success statuses — GPT4_ENHANCED is the final state
-      // for reformatted articles; COMPLETE for normal pipeline. Both are publish-ready.
-      const PUBLISHABLE_STATUSES = ["COMPLETE", "GPT4_ENHANCED", "CHATGPT_REVIEWED"];
-      await triggerAutoPublishing(batchId, batchArticles.filter(a => PUBLISHABLE_STATUSES.includes(a.articleStatus || "")));
+      await triggerAutoPublishing(
+        batchId,
+        batchArticles.filter((article) => article.articleStatus === "COMPLETE"),
+      );
     }
 
     // AUTO-SPAWN: trigger any draft journeys with triggerType='on_publish' for this team
@@ -6453,9 +6484,7 @@ async function triggerOnPublishJourneys(
     if (pendingJourneys.length === 0) return;
 
     // Top completed article from this batch (anchor for all journeys)
-    const topArticle = batchArticles.find(
-      (a) => a.articleStatus === "COMPLETE" || a.articleStatus === "GPT4_ENHANCED"
-    );
+    const topArticle = batchArticles.find((a) => a.articleStatus === "COMPLETE");
 
     const now = new Date();
 
@@ -6517,7 +6546,14 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
       return;
     }
 
-    console.log(`🚀 Auto-publishing ${completedArticles.length} articles to ${connectionIds.length} connections`);
+    const publishableArticles = completedArticles.filter(
+      (article) => article.articleStatus === "COMPLETE",
+    );
+    if (publishableArticles.length === 0) {
+      console.warn(`⚠️ Auto-publish batch ${batchId}: no articles passed COMPLETE quality gate`);
+      return;
+    }
+    console.log(`🚀 Auto-publishing ${publishableArticles.length} articles to ${connectionIds.length} connections`);
 
     const { publishingConnections } = await import("@/shared/schema");
     const { createPublishingJob } = await import("./publishing");
@@ -6547,7 +6583,7 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
 
     // Queue publishing jobs using createPublishingJob — handles DB + pg-boss in one call
     let queued = 0;
-    for (const article of completedArticles) {
+    for (const article of publishableArticles) {
       for (const connection of usableConnections) {
         try {
           await createPublishingJob(batch.teamId, connection.id, "article", article.id);
@@ -6558,7 +6594,7 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
         }
       }
     }
-    console.log(`✅ Auto-publish: ${queued} jobs queued for ${completedArticles.length} articles × ${usableConnections.length} connections`);
+    console.log(`✅ Auto-publish: ${queued} jobs queued for ${publishableArticles.length} articles × ${usableConnections.length} connections`);
 
     // Log auto-publish event
     const { jobEvents } = await import("@/shared/schema");
@@ -6567,9 +6603,9 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
       eventType: "AUTO_PUBLISH_TRIGGERED",
       stage: "PUBLISHING",
       severity: "info",
-      message: `Auto-publishing ${completedArticles.length} articles to ${connections.length} connections`,
+      message: `Auto-publishing ${publishableArticles.length} articles to ${connections.length} connections`,
       payloadJson: { 
-        articleCount: completedArticles.length, 
+        articleCount: publishableArticles.length,
         connectionCount: connections.length,
         connectionIds: connections.map(c => c.id)
       }

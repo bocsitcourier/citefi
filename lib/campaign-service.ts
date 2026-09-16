@@ -1215,6 +1215,7 @@ async function aggregateCountsByCampaign(
 export interface CampaignExportContent {
   campaign: typeof campaigns.$inferSelect;
   articles: (typeof articles.$inferSelect)[];
+  articleBatches: Pick<typeof jobBatches.$inferSelect, "id" | "generationParams">[];
   socialPosts: (typeof socialPosts.$inferSelect)[];
   videos: (typeof videoIdeas.$inferSelect)[];
 }
@@ -1259,10 +1260,24 @@ export async function loadCampaignExportContent(
         )
       ),
   ]);
+  const articleBatchIds = [...new Set(articleRows.map((article) => article.batchId))];
+  const articleBatches = articleBatchIds.length === 0
+    ? []
+    : await db
+      .select({
+        id: jobBatches.id,
+        generationParams: jobBatches.generationParams,
+      })
+      .from(jobBatches)
+      .where(and(
+        eq(jobBatches.teamId, teamId),
+        inArray(jobBatches.id, articleBatchIds),
+      ));
 
   return {
     campaign,
     articles: articleRows,
+    articleBatches,
     socialPosts: socialRows,
     videos: videoRows,
   };

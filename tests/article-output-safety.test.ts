@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assertValidArticleOutput,
+  getPersistedArticleWordBounds,
   normalizeArticleTargetUrls,
+  validateArticleExportEligibility,
   validateArticleOutput,
 } from "../lib/article-output-safety";
 
@@ -103,6 +106,57 @@ test("rejects malformed and unsafe article link destinations", () => {
   );
   assert.equal(result.valid, false);
   assert.match(result.reasons.join("; "), /invalid URL link/i);
+});
+
+test("batch and campaign export eligibility reject a preexisting COMPLETE 844-word 500-800 artifact", () => {
+  const body = Array.from({ length: 841 }, (_, index) => `exportword${index + 1}`).join(" ") + ".";
+  const article = {
+    articleStatus: "COMPLETE",
+    finalHtmlContent: `<article><h2>Energy audit checklist</h2><p>${body}</p></article>`,
+  };
+  const persistedRequest = { wordCountMin: 500, wordCountMax: 800 };
+  const result = validateArticleExportEligibility(article, persistedRequest);
+  assert.deepEqual(getPersistedArticleWordBounds(persistedRequest), {
+    minWords: 500,
+    maxWords: 800,
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.wordCount, 844);
+  assert.match(result.reasons.join("; "), /844 words; maximum 800/i);
+});
+
+test("does not validate only a Markdown destination prefix before whitespace", () => {
+  const result = validateArticleOutput(
+    `<article><h2>Checklist</h2><p>[Energy guide](https://www. Energy. Gov/energysaver).</p></article>`,
+    { format: "html", minWords: 1 },
+  );
+  assert.equal(result.valid, false);
+  assert.match(result.reasons.join("; "), /invalid URL link/i);
+});
+
+test("batch and campaign export routes wire persisted-bound eligibility before creating archives", () => {
+  const batchRoute = readFileSync(
+    new URL("../app/api/export/batch/[id]/route.ts", import.meta.url),
+    "utf8",
+  );
+  const campaignRoute = readFileSync(
+    new URL("../app/api/campaigns/[id]/export/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    batchRoute,
+    /validateArticleExportEligibility\(article, batch\.generationParams\)/,
+  );
+  assert.match(campaignRoute, /paramsByBatchId\.get\(article\.batchId\)/);
+  assert.match(campaignRoute, /validateArticleExportEligibility\(/);
+  assert.ok(
+    batchRoute.indexOf("const exportChecks") <
+      batchRoute.indexOf("const archive = createZipArchive"),
+  );
+  assert.ok(
+    campaignRoute.indexOf("const exportChecks") <
+      campaignRoute.indexOf("const archive = createZipArchive"),
+  );
 });
 
 test("repairs model-inserted whitespace in canonical target URLs", () => {

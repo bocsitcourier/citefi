@@ -23,6 +23,72 @@ export interface ArticleOutputValidationOptions {
   maxWords?: number;
 }
 
+export interface RequestedArticleWordBounds {
+  minWords: number;
+  maxWords: number;
+}
+
+/** Read the originally persisted request, never a mutable UI default. */
+export function getPersistedArticleWordBounds(
+  generationParams: unknown,
+): RequestedArticleWordBounds | null {
+  if (!generationParams || typeof generationParams !== "object") return null;
+  const params = generationParams as Record<string, unknown>;
+  const minWords = params.wordCountMin;
+  const maxWords = params.wordCountMax;
+  if (
+    !Number.isInteger(minWords) ||
+    !Number.isInteger(maxWords) ||
+    (minWords as number) <= 0 ||
+    (maxWords as number) < (minWords as number)
+  ) {
+    return null;
+  }
+  return { minWords: minWords as number, maxWords: maxWords as number };
+}
+
+/**
+ * Shared by both download routes so a historical COMPLETE row cannot bypass
+ * the bounds that were persisted with its original generation request.
+ */
+export function validateArticleExportEligibility(
+  article: { articleStatus: string | null; finalHtmlContent: string | null },
+  generationParams: unknown,
+): ArticleOutputValidation {
+  if (article.articleStatus !== "COMPLETE") {
+    return {
+      valid: false,
+      format: "html",
+      reasons: ["article has not passed final COMPLETE quality gate"],
+      wordCount: 0,
+      visibleText: "",
+    };
+  }
+  if (!article.finalHtmlContent) {
+    return {
+      valid: false,
+      format: "html",
+      reasons: ["article has no final HTML output"],
+      wordCount: 0,
+      visibleText: "",
+    };
+  }
+  const bounds = getPersistedArticleWordBounds(generationParams);
+  if (!bounds) {
+    return {
+      valid: false,
+      format: "html",
+      reasons: ["persisted requested word bounds are unavailable"],
+      wordCount: 0,
+      visibleText: "",
+    };
+  }
+  return validateArticleOutput(article.finalHtmlContent, {
+    format: "html",
+    ...bounds,
+  });
+}
+
 const ARTICLE_URL_RE = /(?:https?:\/\/|mailto:)[^\s<>"'`()\[\]]+/gi;
 const URL_TRAILING_PUNCTUATION_RE = /[.,!?;:]+$/;
 
@@ -39,7 +105,10 @@ export function findInvalidArticleUrls(content: string): string[] {
     ...(content.match(ARTICLE_URL_RE) ?? []),
     ...[...content.matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
       .map((match) => match[1] ?? match[2] ?? match[3] ?? ""),
-    ...[...content.matchAll(/\[[^\]]+\]\(([^)\s]+)\)/g)]
+    // Capture the *complete* Markdown destination. Stopping at its first
+    // whitespace would validate only a syntactically-valid prefix of an
+    // otherwise broken target such as "(https://www. Energy. Gov/...)".
+    ...[...content.matchAll(/\[[^\]]+\]\(([^)]*)\)/g)]
       .map((match) => match[1] ?? ""),
   ];
 

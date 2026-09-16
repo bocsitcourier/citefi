@@ -24,6 +24,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { resolvePodcastDurationProvenance } from "@/lib/podcast-duration-provenance";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -170,7 +171,12 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
   }, [playbackRate]);
 
   // Function to inject audio player into article content
-  const injectAudioPlayer = (htmlContent: string, podcastUrl: string, duration: number | null) => {
+  const injectAudioPlayer = (
+    htmlContent: string,
+    podcastUrl: string,
+    duration: number | null,
+    durationSource: string,
+  ) => {
     // Generate stable ID once to ensure audio element and controls reference the same element
     const audioId = `podcast-audio-${articleId}`;
     
@@ -179,7 +185,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--primary));"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
           <strong style="color: hsl(var(--foreground));">🎧 Listen to this Article</strong>
-          ${duration ? `<span style="margin-left: auto; font-size: 0.875rem; color: hsl(var(--muted-foreground));">${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}</span>` : ''}
+          ${duration != null ? `<span style="margin-left: auto; font-size: 0.875rem; color: hsl(var(--muted-foreground));">${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')} (${durationSource})</span>` : ''}
         </div>
         <audio controls style="width: 100%; margin-bottom: 0.75rem;" id="${audioId}">
           <source src="${podcastUrl}" type="audio/mpeg" />
@@ -761,6 +767,12 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
   }
 
   const { article, assets, errors = [] } = data;
+  const podcastDurationProvenance = resolvePodcastDurationProvenance(
+    article.podcastScriptJson,
+    article.podcastDuration,
+  );
+  const podcastDurationSeconds = podcastDurationProvenance.seconds;
+  const podcastDurationSource = podcastDurationProvenance.source;
   const brandErrors = errors.filter((e: any) => e.errorType === 'BRAND_VALIDATION');
   const hasBrandError = article.status === 'FAILED' && brandErrors.length > 0;
 
@@ -986,7 +998,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
       <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
       <line x1="12" x2="12" y1="19" y2="22"></line>
     </svg>
-    <strong style="color: #111827; font-size: 1rem;">🎧 ${article.title}</strong>${article.podcastDuration ? `\n    <span style="margin-left: auto; font-size: 0.875rem; color: #6b7280;">${Math.floor(article.podcastDuration / 60)}:${String(Math.floor(article.podcastDuration % 60)).padStart(2, '0')}</span>` : ''}
+    <strong style="color: #111827; font-size: 1rem;">🎧 ${article.title}</strong>${podcastDurationSeconds != null ? `\n    <span style="margin-left: auto; font-size: 0.875rem; color: #6b7280;">${Math.floor(podcastDurationSeconds / 60)}:${String(Math.floor(podcastDurationSeconds % 60)).padStart(2, '0')} (${podcastDurationSource})</span>` : ''}
   </div>
   <audio controls style="width: 100%;">
     <source src="${fullPodcastUrl}" type="audio/mpeg" />
@@ -1074,9 +1086,9 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                   <source src={article.podcastUrl} type="audio/mpeg" />
                   Your browser does not support the audio element.
                 </audio>
-                {article.podcastDuration && (
+                {podcastDurationSeconds != null && (
                   <div className="text-sm text-muted-foreground">
-                    Duration: {Math.floor(article.podcastDuration / 60)}:{String(article.podcastDuration % 60).padStart(2, '0')} minutes
+                    Duration: {Math.floor(podcastDurationSeconds / 60)}:{String(Math.floor(podcastDurationSeconds % 60)).padStart(2, '0')} minutes ({podcastDurationSource})
                   </div>
                 )}
               </div>
@@ -2604,7 +2616,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                     [&_.hashtag-link]:transition-colors"
                   dangerouslySetInnerHTML={{ 
                     __html: article.podcastUrl && article.podcastStatus === 'ready' 
-                      ? injectAudioPlayer(article.finalHtmlContent || article.htmlContent || '', article.podcastUrl, article.podcastDuration)
+                      ? injectAudioPlayer(article.finalHtmlContent || article.htmlContent || '', article.podcastUrl, podcastDurationSeconds, podcastDurationSource)
                       : article.finalHtmlContent || article.htmlContent || ''
                   }}
                   data-testid="content-html"

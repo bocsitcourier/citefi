@@ -5,6 +5,7 @@ import { db } from "./db";
 import { costTelemetry } from "@/shared/schema";
 import { getDatabaseExecutionContext } from "./tenant-context";
 import { recordProviderUsage } from "./provider-usage-ledger";
+import { redactProviderError } from "./provider-diagnostics";
 
 // ============================================================================
 // PRICING MAP — cost per million tokens (or per unit) in USD
@@ -608,7 +609,7 @@ export async function logFailedProviderAttempt(
       usage,
       latencyMs,
       false,
-      providerError instanceof Error ? providerError.message : String(providerError)
+      redactProviderError(providerError, undefined, `${ctx.operationType}:provider_failure`)
     );
   } catch (accountingError) {
     throw new ProviderAccountingError(

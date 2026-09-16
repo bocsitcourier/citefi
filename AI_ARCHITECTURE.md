@@ -49,6 +49,16 @@ and special handling for durable output whose debit is still pending.
 
 ### Queue reality
 
+**Current architecture decision:** retain and authorize BullMQ backed by Redis as
+the production queue. The migration from pg-boss/Postgres predates RC-1; no
+queue rollback or conversion is authorized. The `pg-boss` package and legacy
+names/fields below are compatibility/documentation residue, not a second
+runtime queue. RC-1's `127.0.0.1:16379` endpoint is isolated test Redis and is
+distinct from application Redis selected by `REDIS_URL` or local port 6379.
+Managed Redis deployment, availability, connectivity, access control, and
+security ownership belong in the production deployment contract; PostgreSQL
+remains durable application state.
+
 BullMQ/Redis is the executable generation queue (`lib/queue.ts`) for batch,
 article, social, image, reformat, social video, idea video, publishing, podcast,
 brief, research and maintenance jobs. `pg-boss` 10.3.3 is still installed;
@@ -213,7 +223,8 @@ report downloads/email are delivery paths, not ad publication.
    an already-issued provider request. Browser abandonment does not cancel work.
 5. BullMQ job IDs alone are not permanent idempotency keys after job removal.
 6. Synchronous web-process AI calls still exist and can use unresolved defaults.
-7. The pg-boss migration footprint makes runbooks and diagnostics ambiguous.
+7. The legacy pg-boss names/dependency footprint can make runbooks and
+   diagnostics ambiguous even though BullMQ/Redis is the canonical runtime.
 8. Privacy scan status is: dependency findings **0**, SAST **0**, privacy **1**,
    medium **2**, low **0**. Income, address and budget data may be sent to GenAI;
    DPA/data-processing and minimization review is required before production.

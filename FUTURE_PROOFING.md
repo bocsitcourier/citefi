@@ -63,8 +63,10 @@ BullMQ/Redis is already the executable queue, with centralized worker policy,
 deterministic IDs, retries/backoff, circuit breaking, graceful drain, telemetry,
 tenant execution and credit settlement. The lowest-risk path is:
 
-1. finish migration away from pg-boss names/fields/dependency after proving no
-   runtime consumer;
+1. treat remaining pg-boss names/fields/dependency metadata as historical
+   compatibility residue; no runtime migration is required by the current
+   architecture decision, and any cleanup is documentation/dependency-scope
+   work only;
 2. persist generation runs and provider submissions in PostgreSQL as the durable
    state machine;
 3. treat BullMQ as delivery/lease infrastructure, not the source of truth;

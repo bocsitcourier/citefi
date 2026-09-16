@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 process.env.DATABASE_URL ??= "postgres://unused:unused@localhost:5432/unused";
 const reports = await import("../lib/agency-report-service");
 const migration = readFileSync("migrations/0019_agency_client_reports.sql", "utf8");
+const concurrencyMigration = readFileSync("migrations/0034_agency_report_period_unique.sql", "utf8");
 const serviceSource = readFileSync("lib/agency-report-service.ts", "utf8");
 
 test("client snapshot sanitizer recursively excludes private accounting and generation data", () => {
@@ -23,6 +24,27 @@ test("report hashes are deterministic across object insertion order", () => {
   const second = reports.deterministicReportSha256({ a: { x: 1, y: 2 }, b: 2 }, { cost: 10 });
   assert.equal(first, second);
   assert.match(first, /^[0-9a-f]{64}$/);
+});
+
+test("agency report advisory lock key is versioned, canonical, and period-ordered", () => {
+  const periodStart = new Date("2042-04-01T00:00:00.000Z");
+  const periodEnd = new Date("2042-05-01T00:00:00.000Z");
+  assert.equal(
+    reports.canonicalAgencyReportPeriodLockKey(10, 20, periodStart, periodEnd),
+    '["agency-report-period-v1",10,20,"2042-04-01T00:00:00.000Z","2042-05-01T00:00:00.000Z"]',
+  );
+  assert.notEqual(
+    reports.canonicalAgencyReportPeriodLockKey(20, 10, periodStart, periodEnd),
+    reports.canonicalAgencyReportPeriodLockKey(10, 20, periodStart, periodEnd),
+  );
+  assert.notEqual(
+    reports.canonicalAgencyReportPeriodLockKey(10, 20, periodEnd, periodStart),
+    reports.canonicalAgencyReportPeriodLockKey(10, 20, periodStart, periodEnd),
+  );
+  const create = serviceSource.slice(serviceSource.indexOf("export async function createAgencyClientReport"));
+  assert.match(create, /assertAgencyDirectChild\(tx[\s\S]*assertAgencyReportPeriodUniqueIndexReady\(tx\)[\s\S]*pg_advisory_xact_lock\(hashtextextended[\s\S]*alreadyCreated/);
+  assert.match(create, /isolationLevel: "read committed"/);
+  assert.match(create, /maxRetries: 5/);
 });
 
 test("approved markup reconciliation uses integer microUSD and draft revenue is unavailable", () => {
@@ -78,4 +100,50 @@ test("report config upsert locks the agency row and performs a legacy-schema-saf
   assert.match(upsert, /tx\.update\(agencyReportConfigs\)/);
   assert.match(upsert, /tx\.insert\(agencyReportConfigs\)/);
   assert.doesNotMatch(upsert, /onConflictDoUpdate/);
+});
+
+test("agency report generation requires the exact period uniqueness prerequisite", async () => {
+  await assert.doesNotReject(
+    reports.assertAgencyReportPeriodUniqueIndexReady({
+      execute: async () => ({ rows: [{ ready: true }] }),
+    } as never),
+  );
+  await assert.rejects(
+    reports.assertAgencyReportPeriodUniqueIndexReady({
+      // A same-named index whose pg_index state is invalid/not ready is not
+      // sufficient, even though its textual definition could look correct.
+      execute: async () => ({ rows: [{ ready: false }] }),
+    } as never),
+    (error: Error & { code?: string }) =>
+      error.name === "AgencyReportSchemaNotReadyError"
+      && error.code === "SCHEMA_NOT_READY"
+      && (error as Error & { statusCode?: number }).statusCode === 503
+      && /agency_client_reports_period_unique/.test(error.message),
+  );
+  await assert.rejects(
+    reports.assertAgencyReportPeriodUniqueIndexReady({
+      execute: async () => ({ rows: [] }),
+    } as never),
+    (error: Error & { code?: string }) =>
+      error.name === "AgencyReportSchemaNotReadyError" && error.code === "SCHEMA_NOT_READY",
+  );
+  assert.match(serviceSource, /assertAgencyReportPeriodUniqueIndexReady\(tx\)/);
+  assert.match(serviceSource, /FROM pg_index/);
+  assert.match(serviceSource, /indisunique/);
+  assert.match(serviceSource, /indisvalid/);
+  assert.match(serviceSource, /indisready/);
+  assert.match(serviceSource, /indpred IS NULL/);
+  assert.match(serviceSource, /indexprs IS NULL/);
+  assert.match(serviceSource, /index_meta\.indkey\[0\]/);
+  assert.match(serviceSource, /index_meta\.indkey\[3\]/);
+  assert.match(serviceSource, /isolationLevel: "read committed"/);
+  const evidenceSource = serviceSource.slice(serviceSource.indexOf("async function assembleAgencyPeriodEvidenceWithDb"));
+  assert.equal((evidenceSource.match(/db\.execute\(sql`/g) ?? []).length, 1);
+  assert.match(evidenceSource, /citefi_rls\.agency_report_period_evidence/);
+  assert.match(serviceSource, /maxRetries: 5/);
+  assert.match(concurrencyMigration, /indisready/);
+  assert.match(concurrencyMigration, /HAVING count\(\*\) > 1/);
+  assert.match(concurrencyMigration, /CREATE UNIQUE INDEX IF NOT EXISTS agency_client_reports_period_unique/);
+  assert.match(concurrencyMigration, /no rows were deleted/);
+  assert.doesNotMatch(concurrencyMigration, /\bDELETE\s+FROM\b/i);
 });

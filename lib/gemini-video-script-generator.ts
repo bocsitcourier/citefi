@@ -3,25 +3,10 @@ import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import { validateContentWithFacts } from "./fact-validated-generators";
 import { humanizeVideoScript } from "./deterministic-humanizer";
-import { jsonrepair } from "jsonrepair";
 import { getClientBrandContext } from "./client-brand-profile-service";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry } from "./cost-telemetry";
-
-function safeParseJSON<T>(text: string, label: string): T {
-  try {
-    return JSON.parse(text) as T;
-  } catch (firstErr) {
-    try {
-      const repaired = jsonrepair(text);
-      const parsed = JSON.parse(repaired) as T;
-      console.warn(`⚠️ [${label}] JSON was malformed — repaired successfully`);
-      return parsed;
-    } catch {
-      throw firstErr;
-    }
-  }
-}
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for video script generation");
@@ -54,6 +39,133 @@ export interface VideoScript {
 }
 
 export type VideoDialogueMode = "narration" | "interview" | "conversation" | "explainer";
+
+export class VideoScriptContractError extends Error {
+  readonly code = "MODEL_OUTPUT_INVALID" as const;
+
+  constructor(message: string, cause?: unknown) {
+    super(`[script_generation] ${message}`, cause === undefined ? undefined : { cause });
+    this.name = "VideoScriptContractError";
+  }
+}
+
+interface GeminiVideoScriptResponseLike {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: Array<{ text?: string; thought?: boolean }>;
+    };
+  }>;
+  text?: string;
+}
+
+export function extractVideoScriptResponseText(
+  response: GeminiVideoScriptResponseLike,
+): string {
+  const answerText = (response.candidates?.[0]?.content?.parts ?? [])
+    .filter((part) => part.thought !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  return (answerText || response.text || "").trim();
+}
+
+function stripVideoScriptCodeFence(text: string): string {
+  return text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+}
+
+function assertVideoScriptResponseFinished(
+  response: GeminiVideoScriptResponseLike,
+): void {
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && String(finishReason).toUpperCase() !== "STOP") {
+    throw new VideoScriptContractError(
+      `provider response ended with finishReason=${String(finishReason)}; refusing incomplete output`,
+    );
+  }
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+function parseVideoScriptJson(text: string): VideoScript {
+  const digest = redactProviderOutput(text, "video_script_json");
+  if (!text) {
+    throw new VideoScriptContractError(`empty provider output (${digest})`);
+  }
+  // Bound the parser before JSON.parse so a provider cannot force unbounded
+  // memory/diagnostic work with an oversized response.
+  if (text.length > 50_000) {
+    throw new VideoScriptContractError(`provider output exceeds 50000 characters (${digest})`);
+  }
+
+  let script: unknown;
+  try {
+    script = JSON.parse(text);
+  } catch (error) {
+    throw new VideoScriptContractError(
+      `malformed or truncated script JSON (${digest})`,
+      error,
+    );
+  }
+
+  const candidate = script as Partial<VideoScript>;
+  if (
+    !candidate ||
+    typeof candidate !== "object" ||
+    !isBoundedString(candidate.title, 500) ||
+    candidate.totalDuration !== 60 ||
+    !Array.isArray(candidate.scenes) ||
+    candidate.scenes.length !== 5 ||
+    !Array.isArray(candidate.hashtags) ||
+    candidate.hashtags.length > 30 ||
+    !isBoundedString(candidate.callToAction, 500) ||
+    !isBoundedString(candidate.companyName, 500) ||
+    !isBoundedString(candidate.location, 500)
+  ) {
+    throw new VideoScriptContractError(`script failed the complete 5-scene contract (${digest})`);
+  }
+
+  const expectedDurations = [10, 12, 12, 12, 14];
+  for (const [index, scene] of candidate.scenes.entries()) {
+    const value = scene as Partial<VideoScene> | null;
+    if (
+      !value ||
+      value.sceneNumber !== index + 1 ||
+      value.targetDuration !== expectedDurations[index] ||
+      !isBoundedString(value.timeRange, 40) ||
+      !isBoundedString(value.narration, 1_000) ||
+      !isBoundedString(value.visualDescription, 2_000) ||
+      !isBoundedString(value.caption, 300) ||
+      !isBoundedString(value.geoReference, 500) ||
+      !Array.isArray(value.seoKeywords) ||
+      value.seoKeywords.length > 30 ||
+      value.seoKeywords.some((keyword) => !isBoundedString(keyword, 200))
+    ) {
+      throw new VideoScriptContractError(
+        `scene ${index + 1} failed the bounded scene contract (${digest})`,
+      );
+    }
+  }
+
+  if (candidate.hashtags.some((tag) => !isBoundedString(tag, 100))) {
+    throw new VideoScriptContractError(`hashtags failed the bounded contract (${digest})`);
+  }
+  return candidate as VideoScript;
+}
+
+export function parseVideoScriptResponse(
+  response: GeminiVideoScriptResponseLike,
+): VideoScript {
+  assertVideoScriptResponseFinished(response);
+  return parseVideoScriptJson(
+    stripVideoScriptCodeFence(extractVideoScriptResponseText(response)),
+  );
+}
 
 export interface DialogueModeAnalysis {
   mode: VideoDialogueMode;
@@ -421,6 +533,7 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
       config: {
         temperature: 0.8,
         maxOutputTokens: 8192,
+        responseMimeType: "application/json",
       },
     });
     await logCostTelemetry(
@@ -432,29 +545,10 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
       extractGeminiUsage(response), Date.now() - startedAt, true
     );
 
-    const text = (response.text || "").trim();
-    
-    // Remove markdown code blocks if present
-    let cleanedText = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-
-    // Auto-correct brand name case before parsing
-    if (companyName) {
-      console.log(`🔧 Auto-correcting brand name case: "${companyName}"`);
-      const escapedBrand = companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const caseInsensitiveRegex = new RegExp(
-        `(?<![\\p{L}\\p{N}_])${escapedBrand}(?![\\p{L}\\p{N}_])`,
-        'gui'
-      );
-      
-      cleanedText = cleanedText.replace(caseInsensitiveRegex, companyName);
-      console.log(`✅ Brand name case corrected to: "${companyName}"`);
-    }
-
-    const script: VideoScript = safeParseJSON<VideoScript>(cleanedText, "VideoScript");
+    const text = extractVideoScriptResponseText(response);
+    const outputDiagnostic = redactProviderOutput(text, "video_script_response");
+    const script: VideoScript = parseVideoScriptResponse(response);
+    const cleanedText = JSON.stringify(script);
 
     // Brand lock validation (Layer 2: Runtime Validation)
     if (companyName) {
@@ -462,7 +556,7 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
       const validationResult = validateBrandInOutput(cleanedText, companyName);
       
       if (!validationResult.valid) {
-        const errorMsg = `Brand lock violation in video script! ${validationResult.errors.join("; ")}`;
+        const errorMsg = `Brand lock violation in video script (${validationResult.errors.length} validation error(s); ${outputDiagnostic})`;
         console.error(`❌ ${errorMsg}`);
         throw new Error(errorMsg);
       }
@@ -476,8 +570,12 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
     const foundUrls = scriptJson.match(urlPattern) || [];
     
     if (foundUrls.length > 0) {
-      console.error(`❌ URL HALLUCINATION DETECTED: Found URLs in script when none should exist:`, foundUrls);
-      throw new Error(`URL hallucination detected! Found: ${foundUrls.join(", ")}. Script should not contain any URLs - they are added via FFmpeg overlay.`);
+      console.error(
+        `❌ URL HALLUCINATION DETECTED: ${foundUrls.length} URL(s) in bounded script (${outputDiagnostic})`,
+      );
+      throw new VideoScriptContractError(
+        `URL hallucination detected in bounded script (${outputDiagnostic})`,
+      );
     }
     
     console.log(`✅ URL validation passed - no hallucinated URLs detected`);
@@ -485,11 +583,6 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
     // Validation
     if (!script.scenes || script.scenes.length !== 5) {
       throw new Error(`Expected 5 scenes, got ${script.scenes?.length || 0}`);
-    }
-
-    if (script.totalDuration !== 60) {
-      console.warn(`⚠️ Duration mismatch: ${script.totalDuration}s, forcing to 60s`);
-      script.totalDuration = 60;
     }
 
     console.log(`✅ Generated 60-second video script with 5 scenes (intro, body1, body2, conclusion, branded CTA)`);
@@ -503,12 +596,6 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
       }
     }
     console.log(`🔧 [DH] Video script humanized: ${script.scenes.length} scenes processed`);
-
-    // SCRIPT ENFORCER: Guarantee word budget before TTS receives the script.
-    // This is the upstream fix that prevents over-long audio at the source.
-    // The compositor's 65s hard trim is the downstream safety net.
-    const { enforceScriptLength } = await import("./utils/video-guards");
-    enforceScriptLength(script as any);
 
     if (request.enableFactValidation) {
       try {
@@ -530,14 +617,21 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
         console.log(`✅ [Anti-Hallucination] Video script validated. Safety: ${validationResult.validationResult?.safetyScore}%, Facts: ${validationResult.factPack.totalCount}`);
       } catch (error) {
         if (isProviderAccountingError(error)) throw error;
-        console.warn('⚠️ Fact validation skipped for video script:', (error as Error).message);
+        console.warn(
+          "⚠️ Fact validation skipped for video script:",
+          redactProviderError(error, undefined, "video_script_fact_validation"),
+        );
       }
     }
 
     return script;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    console.error("❌ Failed to generate video script:", error);
-    throw new Error(`Video script generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    const diagnostic = redactProviderError(error, undefined, "video_script_generation");
+    console.error(
+      "❌ Failed to generate video script:",
+      diagnostic,
+    );
+    throw new Error(`Video script generation failed (${diagnostic})`);
   }
 }

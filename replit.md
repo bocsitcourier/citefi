@@ -27,7 +27,7 @@ Citefi is a dual-AI SEO content generation platform specializing in scalable, hi
 ## System Architecture
 
 ### System Design Choices
-- **Tech Stack:** Next.js 14 (App Router), TypeScript, React 18, shadcn/ui + Tailwind CSS, PostgreSQL, Drizzle ORM, pg-boss, Gemini 2.5 Pro/Flash, GPT-4/GPT-4o-mini, TanStack Query, React Hook Form with Zod, Replit Object Storage.
+- **Tech Stack:** Next.js 14 (App Router), TypeScript, React 18, shadcn/ui + Tailwind CSS, PostgreSQL, Drizzle ORM, BullMQ backed by Redis, Gemini 2.5 Pro/Flash, GPT-4/GPT-4o-mini, TanStack Query, React Hook Form with Zod, Replit Object Storage.
 - **Database Schema:** Multi-tenant support with tables for users, teams, job batches, articles, and geo-specific features, including UUIDs and soft delete.
 - **Multi-Tenant Team Architecture:** Team and team member tables with isolation for content and performance optimizations.
 - **UI/UX:** Frontend uses Next.js, shadcn/ui, and Tailwind CSS, featuring real-time monitoring, content export, and media library.
@@ -53,7 +53,7 @@ Citefi is a dual-AI SEO content generation platform specializing in scalable, hi
 - **Article Shadow Run Pre-Flight System:** Before each Gemini call, a shadow run reads the last 50 error log entries, classifies them into failure patterns (brand-lock, structured-output, review-readiness, generation-discipline, format-discipline), and injects a mandatory pre-flight prompt section. This teaches the model to avoid repeating previous failures on every article generation. Results are logged as `ARTICLE_PREFLIGHT` events for observability.
 - **Psychographic Targeting System:** OCEAN-based content personalization using the Big Five Personality Model, audience personas, adaptive messaging, and behavioral learning. Fully integrated across all content generators (articles, social posts, video scripts, podcasts) - each accepts optional teamId/personaId and injects persona-specific messaging guidelines into AI prompts.
 - **Wisdom Pipeline:** 8-step cross-referencing system that forces AI to analyze persona data before generating content: Identity Check, Moral Foundation, Psychological Profile, Pain Point Injection, Motivation Alignment, Objection Pre-Handling, Emotional Anchor, Content Strategy.
-- **Content Publishing Pipeline:** Creates publishing jobs, enqueues them in pg-boss, and processes them to deliver to `@citefi/receiver`. Supports articles, podcasts, and videos with inline image re-hosting. Auto-publish functionality is included.
+- **Content Publishing Pipeline:** Creates publishing jobs, enqueues them in BullMQ backed by Redis, and processes them to deliver to `@citefi/receiver`. Supports articles, podcasts, and videos with inline image re-hosting. Auto-publish functionality is included.
 - **Global Slug Map Hyperlink System:** A single source of truth for hyperlink injection, building a keyword-to-URL dictionary from crawled site pages or batch context terms. Uses Cheerio DOM for injection.
 - **Site Map Crawl & Contextual Hyperlinking:** Crawls client websites to index pages, then matches article topics to relevant pages for multi-URL hyperlinking.
 - **Reddit JSON API + Expert Discovery:** Utilizes Reddit JSON API for intent research and Brave Search API for identifying SMEs.
@@ -80,7 +80,10 @@ Citefi is a dual-AI SEO content generation platform specializing in scalable, hi
 - **Like Video Feature:** Allows users to paste a reference video URL, analyze its visual style, then generate a new video that replicates that style with custom content.
 
 ### Job Queue Architecture
-- `pg-boss` manages `title-pool`, `batch-generation`, and `article-generation` queues for concurrent processing with dynamic rate limiting, auto-retry, and resume logic.
+- BullMQ backed by Redis is the canonical runtime queue for `title-pool`, `batch-generation`, `article-generation`, and the other generation, publishing, research, brief, and maintenance queues. `REDIS_URL` selects the application/managed Redis endpoint, with the local development fallback on port 6379.
+- Production deployment owns the managed Redis availability, connectivity, access control, and security contract; PostgreSQL remains the durable application state source of truth.
+- The BullMQ/Redis production architecture predates RC-1: the July 22 migration replaced the former pg-boss/Postgres queue path. pg-boss references that remain in old names, fields, comments, or dependency metadata are historical compatibility/documentation residue, not a second runtime queue. No queue rollback or conversion is authorized.
+- RC-1's `127.0.0.1:16379` Redis is an isolated test-only endpoint and is distinct from application Redis at `REDIS_URL` or local port 6379.
 - **Job Recovery System:** Automatic protection against server restart failures for various content types and batches.
 - **Real-Time Notification System:** Database-backed notification system for job completion/failure alerts with team isolation, type categorization, and read/dismiss tracking.
 
@@ -100,6 +103,7 @@ All AI models are configured to **AUTO-UPDATE** to the latest stable versions. T
 -   **Google AI:** Gemini 2.5 Pro, Gemini 2.5 Flash Image, Gemini 2.0 Flash
 -   **OpenAI:** GPT-4, GPT-4o-mini, DALL-E 3, OpenAI TTS
 -   **Neon Database:** PostgreSQL hosting
--   **pg-boss:** Job queueing system
+-   **Redis:** Application queue backing service for BullMQ (`REDIS_URL`; local development fallback on port 6379)
+-   **BullMQ:** Canonical application job-queue library
 -   **Replit Object Storage:** Permanent media storage
 -   **Brave Search API:** For smart topic research and fact-checking

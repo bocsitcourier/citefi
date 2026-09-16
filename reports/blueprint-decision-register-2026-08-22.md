@@ -164,6 +164,16 @@ The blueprint’s $79–$799 plan examples and cost-per-credit examples were exp
 | LAUNCH-04 | Business success metrics | Build now | **Product/finance owners.** Exact 30/90-day targets and formulas are locked in the launch checklist. |
 | LAUNCH-05 | Claim “blueprint complete” before all blocking gates pass | Intentionally rejected | **Release owner.** Until then the accurate claim remains “advanced beta / conditional launch candidate.” |
 
+### Current queue-architecture addendum
+
+The ARCH-01 wording above is retained as the historical register entry. The
+current principal decision is to retain and authorize the existing BullMQ/Redis
+production architecture, including managed Redis deployment, availability,
+connectivity, access control, and security ownership; the July 22 migration
+predates RC-1. Remaining pg-boss names, fields, dependency metadata, and
+blueprint references are obsolete compatibility/documentation residue, not a
+second runtime queue. No queue conversion or rollback is authorized.
+
 ## Change control
 
 Any change to pricing, credits, margins, free-tier behavior, rebilling, UTM naming, report ownership, ad policy, external approval status, or release thresholds must:

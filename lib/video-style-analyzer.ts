@@ -8,6 +8,7 @@ import ffprobePath from "@ffprobe-installer/ffprobe";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { validateExternalUrl } from "./url-validation";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for video style analysis");
@@ -35,6 +36,79 @@ export interface VideoAnalysisResult {
   cameraWork: string;
   mood: string;
   editingStyle: string;
+}
+
+export interface VideoStyleAnalysisFields {
+  styleDescription: string;
+  stylePrompt: string;
+  colorPalette: string;
+  cameraWork: string;
+  mood: string;
+  editingStyle: string;
+}
+
+interface VideoStyleAnalysisResponseLike {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: Array<{ text?: string; thought?: boolean }>;
+    };
+  }>;
+  text?: string;
+}
+
+function boundedStyleString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
+export function parseVideoStyleAnalysisResponse(
+  response: VideoStyleAnalysisResponseLike,
+): VideoStyleAnalysisFields {
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && String(finishReason).toUpperCase() !== "STOP") {
+    throw new Error(
+      `Video style provider response ended with finishReason=${String(finishReason)}; refusing incomplete output`,
+    );
+  }
+
+  const candidateText = (response.candidates?.[0]?.content?.parts ?? [])
+    .filter((part) => part.thought !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  const rawText = (candidateText || response.text || "").trim();
+  const digest = redactProviderOutput(rawText, "video_style_analysis_json");
+  if (!rawText) throw new Error(`Video style provider returned empty output (${digest})`);
+  if (rawText.length > 50_000) {
+    throw new Error(`Video style provider output exceeds 50000 characters (${digest})`);
+  }
+
+  const cleaned = rawText
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (error) {
+    throw new Error(`Malformed or truncated video style JSON (${digest})`, { cause: error });
+  }
+
+  const value = parsed as Partial<VideoStyleAnalysisFields>;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !boundedStyleString(value.styleDescription, 3_000) ||
+    !boundedStyleString(value.stylePrompt, 2_000) ||
+    !boundedStyleString(value.colorPalette, 1_000) ||
+    !boundedStyleString(value.cameraWork, 1_500) ||
+    !boundedStyleString(value.mood, 300) ||
+    !boundedStyleString(value.editingStyle, 1_500)
+  ) {
+    throw new Error(`Video style response failed the complete bounded field contract (${digest})`);
+  }
+
+  return value as VideoStyleAnalysisFields;
 }
 
 
@@ -404,6 +478,10 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
           ],
         },
       ],
+      config: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 2_000,
+      },
     });
   } catch (error) {
     await logFailedProviderAttempt(
@@ -426,32 +504,17 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
     extractGeminiUsage(result), Date.now() - startedAt, true
   );
 
-  const responseText = result.text || "";
-
   try {
-    const cleaned = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-
-    return {
-      styleDescription: parsed.styleDescription || "Modern professional video style",
-      stylePrompt: parsed.stylePrompt || "Professional cinematic video with smooth camera movements and warm lighting",
-      colorPalette: parsed.colorPalette || "Neutral tones",
-      cameraWork: parsed.cameraWork || "Standard tripod shots",
-      mood: parsed.mood || "professional",
-      editingStyle: parsed.editingStyle || "Standard cuts",
-    };
+    return parseVideoStyleAnalysisResponse(result);
   } catch (parseError) {
-      if (isProviderAccountingError(parseError)) throw parseError;
-    console.warn("⚠️ Failed to parse Gemini response, using fallback extraction");
-
-    return {
-      styleDescription: responseText.slice(0, 500),
-      stylePrompt: "Professional cinematic video with smooth camera movements, warm color grading, and clean compositions",
-      colorPalette: "Neutral professional tones",
-      cameraWork: "Standard professional shots",
-      mood: "professional",
-      editingStyle: "Clean cuts",
-    };
+    if (isProviderAccountingError(parseError)) throw parseError;
+    const diagnostic = redactProviderError(
+      parseError,
+      result.text || "",
+      "video_style_analysis_json",
+    );
+    console.error("Video style response rejected:", diagnostic);
+    throw new Error(`Video style analysis failed (${diagnostic})`);
   }
 }
 
@@ -609,7 +672,9 @@ export async function analyzeVideoStyle(
   console.log(`✅ Video analysis complete:`);
   console.log(`   Style: ${result.mood}`);
   console.log(`   Pacing: ${result.pacing} (${result.avgShotDuration}s avg shot)`);
-  console.log(`   Color: ${result.colorPalette.slice(0, 60)}...`);
+  console.log(
+    `   Color description received (${redactProviderOutput(result.colorPalette, "video_style_color")})`,
+  );
 
   return result;
 }

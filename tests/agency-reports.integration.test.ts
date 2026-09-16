@@ -115,11 +115,56 @@ before(async () => {
     "migration 0019 must retrofit all report constraints after db:push"
   );
   const compositeUnique = await owner.query<{ count: string }>(
-    `SELECT count(*)::text AS count FROM pg_indexes
-      WHERE schemaname='public' AND tablename='agency_client_reports'
-        AND indexname='agency_client_reports_id_agency_client_unique'`
+    `SELECT count(*)::text AS count
+       FROM pg_index i
+       JOIN pg_class idx ON idx.oid = i.indexrelid
+       JOIN pg_class tbl ON tbl.oid = i.indrelid
+       JOIN pg_namespace idx_schema ON idx_schema.oid = idx.relnamespace
+       JOIN pg_namespace tbl_schema ON tbl_schema.oid = tbl.relnamespace
+      WHERE idx_schema.nspname = 'public'
+        AND tbl_schema.nspname = 'public'
+        AND tbl.relname = 'agency_client_reports'
+        AND idx.relname = 'agency_client_reports_id_agency_client_unique'`
   );
   assert.equal(Number(compositeUnique.rows[0]?.count ?? 0), 1);
+  const periodUnique = await owner.query<{ ready: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1
+       FROM pg_index i
+       JOIN pg_class idx ON idx.oid = i.indexrelid
+       JOIN pg_class tbl ON tbl.oid = i.indrelid
+       JOIN pg_namespace idx_schema ON idx_schema.oid = idx.relnamespace
+       JOIN pg_namespace tbl_schema ON tbl_schema.oid = tbl.relnamespace
+       WHERE idx_schema.nspname = 'public'
+         AND tbl_schema.nspname = 'public'
+         AND idx.relname = 'agency_client_reports_period_unique'
+         AND tbl.relname = 'agency_client_reports'
+         AND i.indisunique
+         AND i.indisvalid
+         AND i.indisready
+         AND i.indnkeyatts = 4
+         AND i.indnatts = 4
+         AND i.indpred IS NULL
+         AND i.indexprs IS NULL
+         AND i.indkey[0] = (
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = tbl.oid AND attname = 'agency_team_id' AND NOT attisdropped
+         )
+         AND i.indkey[1] = (
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = tbl.oid AND attname = 'client_team_id' AND NOT attisdropped
+         )
+         AND i.indkey[2] = (
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = tbl.oid AND attname = 'period_start' AND NOT attisdropped
+         )
+         AND i.indkey[3] = (
+           SELECT attnum FROM pg_attribute
+           WHERE attrelid = tbl.oid AND attname = 'period_end' AND NOT attisdropped
+         )
+     ) AS ready`
+  );
+  assert.equal(periodUnique.rows[0]?.ready, true, "RC5 requires the deployed period uniqueness prerequisite before the 8-way run");
   const broadCreditPolicy = await owner.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM pg_policies
       WHERE schemaname='public' AND tablename='credit_ledger'

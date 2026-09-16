@@ -77,7 +77,7 @@ Disposition vocabulary:
 |---|---|---|---|
 | DigitalOcean target and process separation | **Partial / stale** | Production remains on the existing DO droplet. Immutable release, staging, PM2, rollback, monitoring, and backup foundations exist. The document’s assumed managed-Postgres/topology state is not repository proof. | Preserve the current manual immutable release model. Do not switch production until release-specific staging, rollback, restore, canary, alert-recipient, and launch gates pass. Separate worker compute before selling SLA-backed availability. |
 | GitHub Actions tagged deploy | **Contradictory for current launch** | Current deployment policy is manual-only, built off-host, checksum-verified, and atomically switched through `current`. | Automation may prepare and validate immutable artifacts later, but must not bypass human release authorization or launch gates. Never use `git checkout && build` as production rollback. |
-| pg-boss queue architecture | **Stale / contradictory** | BullMQ/Redis is canonical; centralized pipeline worker policy, retries, dedupe, budgets, and credit settlement exist. pg-boss is legacy compatibility only. | Preserve BullMQ. Migrate legacy jobs when justified; do not restore pg-boss merely to match the document. |
+| pg-boss queue architecture | **Stale / contradictory** | BullMQ/Redis is canonical; centralized pipeline worker policy, retries, dedupe, budgets, and credit settlement exist. pg-boss is legacy compatibility/documentation residue only. | Preserve BullMQ. No queue migration is authorized in the current scope; any future migration requires a separately approved decision and plan. Do not restore pg-boss merely to match the document. |
 | Campaign parent model | **Partial** | Campaign schema, service, migration/backfill, UI, same-team relationships, and Brand snapshot linking exist. Batch remains a generation run. | Normalize the locked lifecycle, finish canonical campaign attribution, prove dual-read retirement, and gate every export through Campaign approval state. |
 | Brand Intelligence as source of truth | **Partial** | Brand profiles and immutable Campaign snapshots exist. | Every campaign-derived prompt, asset, report, export, and event must record the Campaign snapshot identity/hash and provenance. Team live profiles must not mutate an in-flight campaign. |
 | PostgreSQL tenant RLS | **Partial, not missing** | FORCE RLS design and focused isolation tests exist. | Certify the exact release in the target deployment, including pooled context reset, workers, agency-child access, client-reviewer columns, and every tenant table. RLS stays alongside application guards. |
@@ -119,7 +119,7 @@ Disposition vocabulary:
 
 | Document recommendation/assumption | Replacement |
 |---|---|
-| pg-boss as the target queue | BullMQ/Redis remains canonical. |
+| pg-boss as the target queue | BullMQ/Redis remains canonical; pg-boss is an obsolete target-architecture claim, and no queue migration is authorized in the current scope. |
 | Deploy by checking out a tag and rebuilding on production | Build immutable artifacts off-host, verify checksums, atomically switch `current`, and preserve rollback artifacts. |
 | Automatic Stripe overage | Top-up or plan change only at launch. |
 | Separate Veo credit meter | Unified credits plus hard run/provider ceilings. |

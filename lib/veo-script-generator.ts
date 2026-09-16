@@ -3,22 +3,106 @@ import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
-import { jsonrepair } from "jsonrepair";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
-function safeParseJSON<T>(text: string, label: string): T {
+export class VeoScriptContractError extends Error {
+  readonly code = "MODEL_OUTPUT_INVALID" as const;
+
+  constructor(message: string, cause?: unknown) {
+    super(`[script_generation] ${message}`, cause === undefined ? undefined : { cause });
+    this.name = "VeoScriptContractError";
+  }
+}
+
+interface VeoScriptResponseLike {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+  }>;
+  text?: string;
+}
+
+export function extractVeoScriptResponseText(
+  response: VeoScriptResponseLike,
+): string {
+  const answerText = (response.candidates?.[0]?.content?.parts ?? [])
+    .filter((part) => part.thought !== true && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  return (answerText || response.text || "").trim();
+}
+
+function parseVeoScriptJson(text: string): VeoVideoScript {
+  const digest = redactProviderOutput(text, "veo_script_json");
+  if (!text) throw new VeoScriptContractError(`empty provider output (${digest})`);
+  if (text.length > 50_000) {
+    throw new VeoScriptContractError(`provider output exceeds 50000 characters (${digest})`);
+  }
+
+  let value: unknown;
   try {
-    return JSON.parse(text) as T;
-  } catch (firstErr) {
-    try {
-      const repaired = jsonrepair(text);
-      const parsed = JSON.parse(repaired) as T;
-      console.warn(`⚠️ [${label}] JSON was malformed — repaired successfully`);
-      return parsed;
-    } catch {
-      throw firstErr;
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new VeoScriptContractError(
+      `malformed or truncated script JSON (${digest})`,
+      error,
+    );
+  }
+
+  const script = value as Partial<VeoVideoScript>;
+  if (
+    !script ||
+    typeof script !== "object" ||
+    typeof script.title !== "string" ||
+    script.title.length > 500 ||
+    script.totalDuration !== 60 ||
+    typeof script.companyName !== "string" ||
+    typeof script.location !== "string" ||
+    !Array.isArray(script.clips) ||
+    script.clips.length !== 10
+  ) {
+    throw new VeoScriptContractError(`script failed the complete 10-clip contract (${digest})`);
+  }
+
+  for (const [index, clip] of script.clips.entries()) {
+    const candidate = clip as Partial<VeoClipPrompt> | null;
+    if (
+      !candidate ||
+      candidate.sceneNumber !== index + 1 ||
+      candidate.targetDuration !== 6 ||
+      typeof candidate.prompt !== "string" ||
+      candidate.prompt.length === 0 ||
+      candidate.prompt.length > 4_000 ||
+      typeof candidate.narration !== "string" ||
+      candidate.narration.length === 0 ||
+      candidate.narration.length > 1_000 ||
+      typeof candidate.geoReference !== "string" ||
+      candidate.geoReference.length > 500
+    ) {
+      throw new VeoScriptContractError(
+        `clip ${index + 1} failed the bounded clip contract (${digest})`,
+      );
     }
   }
+  return script as VeoVideoScript;
+}
+
+export function parseVeoScriptResponse(
+  response: VeoScriptResponseLike,
+): VeoVideoScript {
+  const finishReason = response.candidates?.[0]?.finishReason;
+  if (finishReason && String(finishReason).toUpperCase() !== "STOP") {
+    throw new VeoScriptContractError(
+      `provider response ended with finishReason=${String(finishReason)}; refusing incomplete output`,
+    );
+  }
+  const text = extractVeoScriptResponseText(response)
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+  return parseVeoScriptJson(text);
 }
 
 if (!process.env.GEMINI_API_KEY) {
@@ -78,7 +162,10 @@ export async function generateVeoScript(
         personaContext = `\n\n**PSYCHOGRAPHIC TARGETING:**${optimizationContext.combinedSystemPrompt}${optimizationContext.combinedUserPrompt}`;
       }
     } catch (error) {
-      console.warn(`⚠️ Failed to fetch psychographic context for video:`, error);
+        console.warn(
+          `⚠️ Failed to fetch psychographic context for video:`,
+          redactProviderError(error, undefined, "veo_script_persona_context"),
+        );
     }
   }
 
@@ -162,6 +249,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
       config: {
         temperature: 0.8,
         maxOutputTokens: 8192,
+        responseMimeType: "application/json",
       },
     });
 
@@ -174,34 +262,15 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
       );
     }
 
-    const text = (response.text || "").trim();
-    
-    let cleanedText = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-
-    if (companyName) {
-      console.log(`🔧 Auto-correcting brand name case: "${companyName}"`);
-      const escapedBrand = companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const caseInsensitiveRegex = new RegExp(
-        `(?<![\\p{L}\\p{N}_])${escapedBrand}(?![\\p{L}\\p{N}_])`,
-        'gui'
-      );
-      
-      cleanedText = cleanedText.replace(caseInsensitiveRegex, companyName);
-      console.log(`✅ Brand name case corrected to: "${companyName}"`);
-    }
-
-    const script: VeoVideoScript = safeParseJSON<VeoVideoScript>(cleanedText, "VeoScript");
+    const script: VeoVideoScript = parseVeoScriptResponse(response);
+    const cleanedText = JSON.stringify(script);
 
     if (companyName) {
       console.log(`🔒 Validating brand spelling: "${companyName}"`);
       const validationResult = validateBrandInOutput(cleanedText, companyName);
       
       if (!validationResult.valid) {
-        const errorMsg = `Brand lock violation in Veo script! ${validationResult.errors.join("; ")}`;
+        const errorMsg = `Brand lock violation in Veo script (${validationResult.errors.length} validation error(s); ${redactProviderOutput(cleanedText, "veo_script_json")})`;
         console.error(`❌ ${errorMsg}`);
         throw new Error(errorMsg);
       }
@@ -217,7 +286,11 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
     return script;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    console.error("❌ Failed to generate Veo script:", error);
-    throw new Error(`Veo script generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    const diagnostic = redactProviderError(error, undefined, "veo_script_generation");
+    console.error(
+      "❌ Failed to generate Veo script:",
+      diagnostic,
+    );
+    throw new Error(`Veo script generation failed (${diagnostic})`);
   }
 }
