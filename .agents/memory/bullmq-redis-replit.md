@@ -7,9 +7,10 @@ description: How to wire BullMQ with local Redis in a Replit dev environment giv
 
 ## Queue acceptance is an integration boundary
 
-Prefer colon-free deterministic IDs for new custom jobs and keep explicit legacy
-lookup compatibility when changing persisted identities. Existing three-part
-IDs may remain only when the installed Queue.add integration test accepts them.
+Require colon-free deterministic IDs for new custom jobs and keep explicit legacy
+lookup compatibility when changing persisted identities. The installed library
+accepts some three-part colon IDs despite its documentation; that is a legacy
+compatibility fact, not permission to generate new colon IDs.
 Verify enqueue helpers
 against a real isolated Redis queue with no worker, not only a mocked `add`.
 
@@ -25,6 +26,16 @@ Isolated queue tests must not inherit credential-bearing application URLs:
 construct localhost-only options instead. Reconnect errors can print the entire
 endpoint into durable tool history; fixing the default cannot revoke a leaked
 credential.
+
+Legacy enqueue deduplication must match the same financial attempt, not merely
+the same content item. Broader historical lookup belongs to settlement recovery.
+
+**Why:** A retained generic podcast job could otherwise be mistaken for a new
+credit-scoped request, leaving its new reservation unprocessed. A successful
+lookup is not proof that the current attempt was accepted.
+
+**How to apply:** Test old completed jobs alongside new credit-scoped requests,
+and distinguish exact-attempt ambiguity recovery from historical reconciliation.
 
 ## The Rule
 Always use local Redis (`redis://127.0.0.1:6379`) for dev, not the Upstash URL injected by the `javascript_mem_db` integration. The integration URL has a known typo and Upstash is unreachable from the Replit dev sandbox.

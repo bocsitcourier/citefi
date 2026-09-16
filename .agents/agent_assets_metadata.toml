@@ -176,3 +176,17 @@ mtime_ms = 1789433033970
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/19c7380c-e0a1-4c11-a99b-60c0b18dc4fb/1d315e6e-99c3-4042-9d67-204dc8687aef"
 storage_version_token = "1789433083905396"
 content_type = "text/html"
+
+[[outputs]]
+id = "ToaalDsP7RA02v1N7uX1f"
+uri = "file://reports/qa-remediation/review-and-results.html"
+type = "text"
+title = "Line-by-line remediation review and verified results"
+description = "Architect review of every nonempty paragraph and table row, corrected scope gates, 39 baseline regression tests, and 5 queue integration tests. Live generation remains unverified; no later scope approved."
+logical_id = "1c062156-42ec-4f25-8537-0a7cf113bc5c"
+content_hash = "sha256:146fd013b92099edf5b62bcd7cde0281bd30143a746385935a363068f4d7dc00"
+size = 41014
+mtime_ms = 1789569110799
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/1c062156-42ec-4f25-8537-0a7cf113bc5c/02cfa120-50f4-4cab-81d9-c778e2729593"
+storage_version_token = "1789569169673206"
+content_type = "text/html"

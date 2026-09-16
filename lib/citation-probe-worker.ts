@@ -187,7 +187,7 @@ export async function enqueueCitationProbes(
   chosenTitle: string,
   keywords: string[] = []
 ): Promise<void> {
-  const { getQueue } = await import("./queue");
+  const { enqueueQueueJobs, getQueue } = await import("./queue");
   const q = getQueue("citation-probe");
 
   const queries: string[] = [
@@ -202,6 +202,6 @@ export async function enqueueCitationProbes(
     opts: { attempts: 2, backoff: { type: "exponential" as const, delay: 30000 } },
   }));
 
-  await q.addBulk(bulkJobs);
+  await enqueueQueueJobs(q, bulkJobs);
   console.log(`[CitationProbe] Enqueued ${bulkJobs.length} probes for article ${articleId}`);
 }

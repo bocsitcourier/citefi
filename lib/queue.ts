@@ -1,4 +1,4 @@
-import { Queue, type Job } from "bullmq";
+import { Queue, type Job, type JobsOptions } from "bullmq";
 import Redis, { type RedisOptions } from "ioredis";
 import { createHash } from "node:crypto";
 
@@ -46,17 +46,90 @@ export const imageGenerationJobId = (articleId: number, runId?: string) =>
     : `image-${articleId}`;
 
 /**
- * Build a deterministic BullMQ job id from a legal, colon-free namespace.
+ * Build a deterministic custom id for new BullMQ jobs.
  *
- * BullMQ rejects custom ids containing ":" (the legacy video ids used that
- * separator), so all new ids must be composed from the namespace and a
- * bounded hash of the arbitrary application key.
+ * The namespace is an application-owned identifier and is deliberately
+ * stricter than BullMQ's parser. The key is opaque application data (and may
+ * contain colons, slashes, or provider/run IDs), so it is hashed rather than
+ * normalized. Keeping the complete digest avoids introducing an application
+ * collision policy or an invented BullMQ length limit.
+ */
+export function canonicalQueueJobId(namespace: string, key: string): string {
+  if (!/^[a-z0-9_-]+$/.test(namespace)) {
+    throw new InvalidQueueCustomIdError(
+      namespace,
+      "new queue-id namespaces must use [a-z0-9_-]",
+    );
+  }
+  return `${namespace}-${createHash("sha256").update(key).digest("hex")}`;
+}
+
+/**
+ * Existing stable IDs are persisted in a few durable rows and are intentionally
+ * left byte-for-byte compatible. New call sites that need to encode opaque
+ * keys use canonicalQueueJobId above.
  */
 export function stableQueueJobId(namespace: string, key: string): string {
   const safeNamespace =
     namespace.replace(/[^A-Za-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") ||
     "job";
   return `${safeNamespace}-${createHash("sha256").update(key).digest("hex").slice(0, 24)}`;
+}
+
+export class InvalidQueueCustomIdError extends TypeError {
+  readonly code = "INVALID_QUEUE_CUSTOM_ID";
+
+  constructor(readonly jobId: unknown, reason: string) {
+    super(`Invalid BullMQ custom job id${jobId == null ? "" : ` "${String(jobId)}"`}: ${reason}`);
+    this.name = "InvalidQueueCustomIdError";
+  }
+}
+
+/**
+ * Every production enqueue goes through enqueueQueueJob/enqueueQueueJobs.
+ * Legacy IDs are lookup-only and therefore must not be passed here.
+ */
+export function assertValidQueueCustomId(jobId: unknown): asserts jobId is string {
+  if (typeof jobId !== "string" || jobId.length === 0) {
+    throw new InvalidQueueCustomIdError(jobId, "expected a non-empty string");
+  }
+  if (/^\d+$/.test(jobId)) {
+    throw new InvalidQueueCustomIdError(jobId, "purely numeric ids are reserved by BullMQ");
+  }
+  if (jobId.includes(":")) {
+    throw new InvalidQueueCustomIdError(
+      jobId,
+      "custom ids must not contain ':'",
+    );
+  }
+}
+
+type QueueBulkJob = {
+  name: string;
+  data: unknown;
+  opts?: JobsOptions;
+};
+
+/** Common validation boundary for all custom Queue.add calls. */
+export async function enqueueQueueJob(
+  queue: Pick<Queue, "add">,
+  name: string,
+  data: unknown,
+  opts?: JobsOptions,
+): Promise<Job> {
+  if (opts?.jobId !== undefined) assertValidQueueCustomId(opts.jobId);
+  return queue.add(name, data, opts) as Promise<Job>;
+}
+
+/** Common validation boundary for Queue.addBulk call sites. */
+export async function enqueueQueueJobs(
+  queue: Pick<Queue, "addBulk">,
+  jobs: QueueBulkJob[],
+): Promise<Job[]> {
+  for (const job of jobs) {
+    if (job.opts?.jobId !== undefined) assertValidQueueCustomId(job.opts.jobId);
+  }
+  return queue.addBulk(jobs) as Promise<Job[]>;
 }
 
 export interface ArticleJobData {
@@ -131,23 +204,67 @@ export function podcastGenerationJobId(
   articleId: number,
   creditRunId?: string
 ): string {
-  return creditRunId
-    ? `podcast:${articleId}:${createHash("sha256").update(creditRunId).digest("hex")}`
-    : `podcast:${articleId}`;
+  return canonicalQueueJobId(
+    "podcast",
+    creditRunId ? `${articleId}:${creditRunId}` : `article:${articleId}`,
+  );
 }
 
 export function legacyPodcastGenerationJobId(articleId: number): string {
   return `podcast:${articleId}`;
 }
 
+/** The old credit-scoped podcast id was colon-delimited but otherwise stable. */
+export function legacyPodcastGenerationJobIdForCreditRun(
+  articleId: number,
+  creditRunId: string,
+): string {
+  return `podcast:${articleId}:${createHash("sha256").update(creditRunId).digest("hex")}`;
+}
+
 export function podcastGenerationJobIdCandidates(
   articleId: number,
   creditRunId: string
 ): string[] {
-  return [
+  return [...new Set([
     podcastGenerationJobId(articleId, creditRunId),
+    legacyPodcastGenerationJobIdForCreditRun(articleId, creditRunId),
     legacyPodcastGenerationJobId(articleId),
-  ];
+  ])];
+}
+
+/**
+ * Enqueue and ambiguous-write recovery must only inspect IDs for this exact
+ * podcast attempt. The broad candidate helper above is intentionally retained
+ * for historical settlement recovery, where an older article-scoped job may
+ * be the only retained evidence of delivery.
+ */
+export function podcastGenerationJobIdEnqueueCandidates(
+  articleId: number,
+  creditRunId?: string,
+): string[] {
+  return creditRunId
+    ? [
+        podcastGenerationJobId(articleId, creditRunId),
+        legacyPodcastGenerationJobIdForCreditRun(articleId, creditRunId),
+      ]
+    : [
+        podcastGenerationJobId(articleId),
+        legacyPodcastGenerationJobId(articleId),
+      ];
+}
+
+export async function findPodcastGenerationJobAfterAmbiguousEnqueue(
+  queue: Pick<Queue, "getJob">,
+  articleId: number,
+  creditRunId?: string,
+  sleep?: (ms: number) => Promise<void>,
+): Promise<Job | null> {
+  for (const candidate of podcastGenerationJobIdEnqueueCandidates(articleId, creditRunId)) {
+    const accepted = await findJobAfterAmbiguousEnqueue(queue, candidate, sleep);
+    if (accepted) return accepted;
+  }
+  return null;
 }
 
 export interface SocialPostJobData {
@@ -247,10 +364,10 @@ export interface DailyBriefJobData {
 }
 
 /**
- * Daily briefs historically used a colon-delimited BullMQ custom id. BullMQ
- * rejects colons in custom ids, so new jobs use the shared stable id adapter.
- * The force flag remains part of the generation payload (and worker behavior)
- * rather than bypassing queue deduplication with a timestamp.
+ * Daily briefs historically used a colon-delimited custom id. New jobs use the
+ * shared stable id adapter; legacy ids remain lookup-only. The force flag
+ * remains part of the generation payload (and worker behavior) rather than
+ * bypassing queue deduplication with a timestamp.
  */
 export function dailyBriefGenerationJobId(
   userId: number,
@@ -282,6 +399,34 @@ export function dailyBriefGenerationJobIdCandidates(
   const current = dailyBriefGenerationJobId(userId, localDate, force);
   const legacy = legacyDailyBriefGenerationJobId(userId, localDate);
   return current === legacy ? [current] : [current, legacy];
+}
+
+export function publishingGenerationJobId(dbJobId: number): string {
+  return canonicalQueueJobId("publishing", String(dbJobId));
+}
+
+export function legacyPublishingGenerationJobId(dbJobId: number): string {
+  return `publishing:${dbJobId}`;
+}
+
+export function publishingGenerationJobIdCandidates(dbJobId: number): string[] {
+  return [publishingGenerationJobId(dbJobId), legacyPublishingGenerationJobId(dbJobId)];
+}
+
+export function intelligenceResearchJobId(campaignId: number): string {
+  return canonicalQueueJobId("intelligence-campaign", String(campaignId));
+}
+
+export function legacyIntelligenceResearchJobId(campaignId: number): string {
+  return `intelligence:campaign:${campaignId}`;
+}
+
+export function intelligenceResearchJobIdCandidates(campaignId: number): string[] {
+  return [intelligenceResearchJobId(campaignId), legacyIntelligenceResearchJobId(campaignId)];
+}
+
+export function socialPostGenerationJobId(singletonKey: string): string {
+  return canonicalQueueJobId("social-post", singletonKey);
 }
 
 export interface SignupCompetitorIntakeJobData {
@@ -330,8 +475,8 @@ export function getLegacyVideoIdeaJobIdForRunId(runId: string): string {
 
 /**
  * Return current and legacy ids in lookup order. Existing durable rows may
- * still contain the legacy form even though BullMQ will only accept the
- * current colon-free form for new jobs.
+ * still contain the legacy form even though new enqueue paths use the
+ * colon-free project convention.
  */
 export function getVideoIdeaJobIdCandidatesForRunId(runId: string): string[] {
   return [getVideoIdeaJobIdForRunId(runId), getLegacyVideoIdeaJobIdForRunId(runId)];
@@ -495,9 +640,11 @@ export async function enqueueBatchGenerationJob(
   data: BatchJobData,
 ): Promise<string | null> {
   const jobId = batchGenerationJobId(data.batchId);
+  const legacyJob = await queue.getJob(legacyBatchGenerationJobId(data.batchId));
+  if (legacyJob) return legacyJob.id ?? legacyBatchGenerationJobId(data.batchId);
   let job: Job;
   try {
-    job = await queue.add("batch", data, {
+    job = await enqueueQueueJob(queue, "batch", data, {
       jobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 10000 },
@@ -563,7 +710,8 @@ export async function addArticleJob(data: ArticleJobData) {
   const queueJobId = articleQueueJobId(runId);
   let job: Job;
   try {
-    job = await queue.add(
+    job = await enqueueQueueJob(
+      queue,
       "article",
       enrichedData,
       {
@@ -615,25 +763,46 @@ export async function findJobAfterAmbiguousEnqueue(
 
 export async function addSocialPostJob(
   data: SocialPostJobData,
-  options?: { singletonKey?: string }
+  options?: { singletonKey?: string },
+  _deps: { queue?: Queue } = {},
 ) {
   const jobOpts: Parameters<Queue["add"]>[2] = {
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
   };
 
-  // BullMQ deduplication via jobId (equivalent to pg-boss singletonKey)
+  const queue = _deps.queue ?? getQueue(SOCIAL_POST_GENERATION_QUEUE);
+  // singletonKey is an application idempotency/deduplication identity, not a
+  // queue custom ID. Keep it exact for callers and hash it only at the queue
+  // boundary so arbitrary request keys cannot create invalid custom IDs.
   const enqueueJobId =
-    options?.singletonKey ?? `social:${data.socialPostId}:${crypto.randomUUID()}`;
+    options?.singletonKey
+      ? socialPostGenerationJobId(options.singletonKey)
+      : canonicalQueueJobId(
+          "social-post",
+          `${data.socialPostId}:${crypto.randomUUID()}`,
+        );
   jobOpts.jobId = enqueueJobId;
 
-  const queue = getQueue(SOCIAL_POST_GENERATION_QUEUE);
+  // A pre-migration pg-boss/BullMQ job may still use the raw singleton key.
+  // Look it up verbatim; never normalize a legacy lookup string.
+  if (options?.singletonKey) {
+    const currentJob = await queue.getJob(enqueueJobId);
+    if (currentJob) return null;
+    const legacyJob = await queue.getJob(options.singletonKey);
+    if (legacyJob) return null;
+  }
+
   let job: Job;
   try {
-    job = await queue.add("social-post", data, jobOpts);
+    job = await enqueueQueueJob(queue, "social-post", data, jobOpts);
   } catch (error) {
     const accepted = await findJobAfterAmbiguousEnqueue(queue, enqueueJobId);
     if (accepted) return accepted.id ?? enqueueJobId;
+    if (options?.singletonKey) {
+      const legacyJob = await queue.getJob(options.singletonKey);
+      if (legacyJob) return null;
+    }
     const [{ db }, { socialPosts }, { eq }] = await Promise.all([
       import("./db"),
       import("@/shared/schema"),
@@ -674,7 +843,7 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
     );
   }
 
-  const job = await getQueue(IMAGE_GENERATION_QUEUE).add("image", data, {
+  const job = await enqueueQueueJob(getQueue(IMAGE_GENERATION_QUEUE), "image", data, {
     // Dedup by articleId: prevents a race where two parallel requests both
     // queue image generation for the same article.
     jobId: imageGenerationJobId(data.articleId, data.runId),
@@ -696,7 +865,7 @@ export async function addImageGenerationJob(data: ImageGenerationJobData) {
 }
 
 export async function addReformatJob(data: ReformatJobData) {
-  const job = await getQueue(REFORMAT_QUEUE).add("reformat", data, {
+  const job = await enqueueQueueJob(getQueue(REFORMAT_QUEUE), "reformat", data, {
     attempts: 3,
     backoff: { type: "exponential", delay: 10000 },
   });
@@ -712,7 +881,7 @@ export async function addReformatJob(data: ReformatJobData) {
 }
 
 export async function addCleanupJob(data: CleanupJobData) {
-  const job = await getQueue(CLEANUP_QUEUE).add("cleanup", data, {
+  const job = await enqueueQueueJob(getQueue(CLEANUP_QUEUE), "cleanup", data, {
     attempts: 2,
     backoff: { type: "exponential", delay: 10000 },
   });
@@ -724,7 +893,7 @@ export async function addCleanupJob(data: CleanupJobData) {
 }
 
 export async function addSiteCrawlJob(data: SiteCrawlJobData) {
-  const job = await getQueue(SITE_CRAWL_QUEUE).add("site-crawl", data, {
+  const job = await enqueueQueueJob(getQueue(SITE_CRAWL_QUEUE), "site-crawl", data, {
     attempts: 1,
     backoff: { type: "fixed", delay: 30000 },
   });
@@ -735,19 +904,26 @@ export async function addSiteCrawlJob(data: SiteCrawlJobData) {
   return job.id ?? null;
 }
 
-export async function addPublishingJob(data: PublishingJobData) {
-  const queue = getQueue(CONTENT_PUBLISHING_QUEUE);
-  const jobId = `publishing:${data.dbJobId}`;
+export async function addPublishingJob(
+  data: PublishingJobData,
+  _deps: { queue?: Queue } = {},
+) {
+  const queue = _deps.queue ?? getQueue(CONTENT_PUBLISHING_QUEUE);
+  const jobId = publishingGenerationJobId(data.dbJobId);
+  const legacyJob = await queue.getJob(legacyPublishingGenerationJobId(data.dbJobId));
+  if (legacyJob) return legacyJob.id ?? legacyPublishingGenerationJobId(data.dbJobId);
   let job: Job;
   try {
-    job = await queue.add("publish", data, {
+    job = await enqueueQueueJob(queue, "publish", data, {
       jobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 30000 },
     });
   } catch (error) {
-    const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
-    if (accepted) return accepted.id ?? jobId;
+    for (const candidate of publishingGenerationJobIdCandidates(data.dbJobId)) {
+      const accepted = await findJobAfterAmbiguousEnqueue(queue, candidate);
+      if (accepted) return accepted.id ?? candidate;
+    }
     const [{ db }, { publishingJobs }, { eq }] = await Promise.all([
       import("./db"),
       import("@/shared/schema"),
@@ -770,17 +946,24 @@ export async function addPublishingJob(data: PublishingJobData) {
 }
 
 export async function addIntelligenceResearchJob(
-  data: IntelligenceResearchJobData
+  data: IntelligenceResearchJobData,
+  _deps: { queue?: Queue } = {},
 ) {
-  const queue = getQueue(INTELLIGENCE_RESEARCH_QUEUE);
+  const queue = _deps.queue ?? getQueue(INTELLIGENCE_RESEARCH_QUEUE);
   // Deterministic per-campaign identity so a retried campaign research request
   // dedupes to the same job. Legacy callers without a campaignId keep the old
   // non-deterministic behaviour (BullMQ assigns an auto id).
   const jobId =
-    data.campaignId != null ? `intelligence:campaign:${data.campaignId}` : undefined;
+    data.campaignId != null ? intelligenceResearchJobId(data.campaignId) : undefined;
+  const legacyJob =
+    data.campaignId != null
+      ? await queue.getJob(legacyIntelligenceResearchJobId(data.campaignId))
+      : null;
+  if (legacyJob) return legacyJob.id ?? legacyIntelligenceResearchJobId(data.campaignId!);
   let job: Job;
   try {
-    job = await queue.add(
+    job = await enqueueQueueJob(
+      queue,
       "intelligence",
       data,
       {
@@ -791,8 +974,10 @@ export async function addIntelligenceResearchJob(
     );
   } catch (error) {
     if (jobId) {
-      const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
-      if (accepted) return accepted.id ?? jobId;
+      for (const candidate of intelligenceResearchJobIdCandidates(data.campaignId!)) {
+        const accepted = await findJobAfterAmbiguousEnqueue(queue, candidate);
+        if (accepted) return accepted.id ?? candidate;
+      }
     }
     throw error;
   }
@@ -813,9 +998,17 @@ export async function addPodcastGenerationJob(
   // retained; creditRunId also lets an ambiguous enqueue find exactly the job
   // associated with the reservation that must be preserved.
   const jobId = podcastGenerationJobId(data.articleId, data.creditRunId);
+  const enqueueCandidates = podcastGenerationJobIdEnqueueCandidates(
+    data.articleId,
+    data.creditRunId,
+  );
+  for (const candidate of enqueueCandidates.slice(1)) {
+    const existing = await queue.getJob(candidate);
+    if (existing) return existing.id ?? candidate;
+  }
   let job: Job;
   try {
-    job = await queue.add("podcast", data, {
+    job = await enqueueQueueJob(queue, "podcast", data, {
     // Dedup by articleId: prevents double-submits while the job is pending/active.
     // Once the job reaches a terminal state and is removed, a new one can be added.
     jobId,
@@ -828,7 +1021,11 @@ export async function addPodcastGenerationJob(
       /custom id.*cannot contain|job.?id.*invalid|job name.*required|invalid.*job options/i.test(message);
     if (!provenLocalRejection) {
       try {
-        const accepted = await findJobAfterAmbiguousEnqueue(queue, jobId);
+        const accepted = await findPodcastGenerationJobAfterAmbiguousEnqueue(
+          queue,
+          data.articleId,
+          data.creditRunId,
+        );
         if (accepted) return accepted.id ?? jobId;
       } catch (lookupError) {
         console.warn(
@@ -898,9 +1095,15 @@ export async function addVideoGenerationJob(
   const jobId = data.creditRunId
     ? getSocialVideoJobIdForRunId(data.creditRunId)
     : stableQueueJobId("social-video", `${data.socialPostId}:${crypto.randomUUID()}`);
+  if (data.creditRunId) {
+    for (const candidate of getSocialVideoJobIdCandidatesForRunId(data.creditRunId).slice(1)) {
+      const existing = await queue.getJob(candidate);
+      if (existing) return existing.id ?? candidate;
+    }
+  }
   let job: Job;
   try {
-    job = await queue.add("social-video", data, {
+    job = await enqueueQueueJob(queue, "social-video", data, {
       // Dedup by creditRunId so a double-submit uses the same reservation.
       // Falls back to socialPostId + timestamp so intentional retries after
       // failure still create new jobs.
@@ -941,9 +1144,15 @@ export async function addVideoIdeaJob(
   const jobId = data.creditRunId
     ? getVideoIdeaJobIdForRunId(data.creditRunId)
     : stableQueueJobId("video-idea", `${data.videoIdeaId}:${crypto.randomUUID()}`);
+  if (data.creditRunId) {
+    for (const candidate of getVideoIdeaJobIdCandidatesForRunId(data.creditRunId).slice(1)) {
+      const existing = await queue.getJob(candidate);
+      if (existing) return existing.id ?? candidate;
+    }
+  }
   let job: Job;
   try {
-    job = await queue.add("video-idea", data, {
+    job = await enqueueQueueJob(queue, "video-idea", data, {
       jobId,
       ...VIDEO_IDEA_JOB_OPTIONS,
     });
@@ -982,9 +1191,14 @@ export async function enqueueDailyBriefJob(
     data.localDate,
     data.force,
   );
+  const legacyJobId = legacyDailyBriefGenerationJobId(data.userId, data.localDate);
+  const legacyJob = await queue.getJob(legacyJobId);
+  if (legacyJob && Boolean(legacyJob.data?.force) === Boolean(data.force)) {
+    return legacyJob.id ?? legacyJobId;
+  }
   let job: Job;
   try {
-    job = await queue.add("daily-brief", data, {
+    job = await enqueueQueueJob(queue, "daily-brief", data, {
       jobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 5000 },
@@ -1014,7 +1228,8 @@ export async function enqueueDailyBriefJob(
 export async function addSignupCompetitorIntakeJob(
   data: SignupCompetitorIntakeJobData
 ) {
-  const job = await getQueue(SIGNUP_COMPETITOR_INTAKE_QUEUE).add(
+  const job = await enqueueQueueJob(
+    getQueue(SIGNUP_COMPETITOR_INTAKE_QUEUE),
     "signup-intake",
     data,
     {

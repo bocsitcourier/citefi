@@ -2,24 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Queue } from "bullmq";
 import Redis from "ioredis";
+import { ISOLATED_TEST_REDIS_PORT } from "../helpers/isolated-redis";
 import {
   articleGenerationJobId,
   articleQueueJobId,
   batchGenerationJobId,
   dailyBriefGenerationJobId,
+  enqueueQueueJob,
   enqueueDailyBriefJob,
   enqueueBatchGenerationJob,
   findArticleGenerationJob,
   imageGenerationJobId,
+  InvalidQueueCustomIdError,
 } from "../../lib/queue";
 
 void test("installed BullMQ accepts stable batch, article, and image IDs", async () => {
   // Never consume an application/provider URL in an isolated destructive test.
-  const port = Number(process.env.LOCAL_TEST_REDIS_PORT ?? "6379");
-  assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535, "Invalid local test Redis port");
   const redis = new Redis({
     host: "127.0.0.1",
-    port,
+    port: ISOLATED_TEST_REDIS_PORT,
     maxRetriesPerRequest: null,
     connectTimeout: 2_000,
     retryStrategy: () => null,
@@ -46,8 +47,8 @@ void test("installed BullMQ accepts stable batch, article, and image IDs", async
     assert.equal((await findArticleGenerationJob(articleRunId, queue))?.id, articleId);
     assert.ok(await queue.getJob(imageId));
     await assert.rejects(
-      queue.add("legacy-invalid", {}, { jobId: "batch:280" }),
-      /Custom Id cannot contain :/,
+      enqueueQueueJob(queue, "legacy-invalid", {}, { jobId: "batch:280" }),
+      InvalidQueueCustomIdError,
     );
 
     // Exercise the real local Redis path without starting any provider worker.
@@ -67,13 +68,24 @@ void test("installed BullMQ accepts stable batch, article, and image IDs", async
       );
       assert.ok(briefId && !briefId.includes(":"));
       assert.ok(await briefQueue.getJob(briefId));
+      // The installed BullMQ version permits some three-segment colon IDs.
+      // Our common enqueue boundary must reject them regardless of vendor
+      // parser behavior.
+      const vendorLegacyJob = await briefQueue.add(
+        "legacy-vendor-fixture",
+        {},
+        { jobId: "daily-brief:1:2099-01-02" },
+      );
+      assert.equal(vendorLegacyJob.id, "daily-brief:1:2099-01-02");
+      await vendorLegacyJob.remove();
       await assert.rejects(
-        briefQueue.add(
+        enqueueQueueJob(
+          briefQueue,
           "legacy-invalid-brief",
           {},
           { jobId: "daily-brief:1:2099-01-02" },
         ),
-        /Custom Id cannot contain :/,
+        InvalidQueueCustomIdError,
       );
     } finally {
       await briefQueue.obliterate({ force: true });
