@@ -1,0 +1,233 @@
+isolated Redis: owned fixture ready on 127.0.0.1:16389
+isolated PostgreSQL: composing source schema on 127.0.0.1:55481
+CREATE EXTENSION
+psql:/tmp/citefi-isolated-qa.FdimnP/source-schema-with-prerequisites.sql:2169: NOTICE:  identifier "persona_behavioral_signals_messaging_template_id_persona_messaging_templates_id_fk" will be truncated to "persona_behavioral_signals_messaging_template_id_persona_messag"
+psql:/tmp/citefi-isolated-qa.FdimnP/source-schema-with-prerequisites.sql:2176: NOTICE:  identifier "provider_usage_ledger_rate_version_id_provider_rate_versions_id_fk" will be truncated to "provider_usage_ledger_rate_version_id_provider_rate_versions_id"
+psql:/tmp/citefi-isolated-qa.FdimnP/source-schema-with-prerequisites.sql:2204: NOTICE:  identifier "stripe_credit_reconciliations_original_grant_id_credit_ledger_id_fk" will be truncated to "stripe_credit_reconciliations_original_grant_id_credit_ledger_i"
+psql:/tmp/citefi-isolated-qa.FdimnP/source-schema-with-prerequisites.sql:2218: NOTICE:  identifier "telemetry_notification_deliveries_incident_id_telemetry_incidents_id_fk" will be truncated to "telemetry_notification_deliveries_incident_id_telemetry_inciden"
+isolated PostgreSQL: running canonical apply-tenant-rls.ts
+⏳ Tenant RLS: apply → executing 0014_tenant_rls.sql
+✅ Tenant RLS apply completed successfully (0014_tenant_rls.sql).
+isolated PostgreSQL: running canonical migrate-t151-campaigns.ts
+⏳ Campaigns (T151): apply → executing 0015_campaigns.sql
+✅ Campaigns (T151) apply completed successfully (0015_campaigns.sql).
+isolated PostgreSQL: applying 0016_campaign_ads.sql
+BEGIN
+DO
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:26: NOTICE:  relation "campaign_ads" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:28: NOTICE:  relation "campaign_ads_team_request_key_unique" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:30: NOTICE:  relation "campaign_ads_public_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:31: NOTICE:  relation "campaign_ads_campaign_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:32: NOTICE:  relation "campaign_ads_team_status_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:46: NOTICE:  relation "campaign_ad_approvals" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:48: NOTICE:  relation "campaign_ad_approvals_public_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:49: NOTICE:  relation "campaign_ad_approvals_ad_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:50: NOTICE:  relation "campaign_ad_approvals_team_type_idx" already exists, skipping
+CREATE INDEX
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:61: NOTICE:  trigger "campaign_ads_immutable" for relation "campaign_ads" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:73: NOTICE:  trigger "campaigns_brand_snapshot_immutable" for relation "campaigns" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:82: NOTICE:  trigger "campaign_ad_approvals_append_only" for relation "campaign_ad_approvals" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_sel" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_ins" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_upd" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_del" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_sel" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_ins" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_upd" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_del" for relation "campaign_ad_approvals" does not exist, skipping
+DO
+COMMIT
+isolated PostgreSQL: applying 0017_provider_usage_ledger.sql
+BEGIN
+DO
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:17: NOTICE:  relation "provider_rate_versions" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:28: NOTICE:  relation "provider_rates" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:44: NOTICE:  relation "provider_usage_ledger" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:52: NOTICE:  relation "provider_invoice_reconciliations" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:53: NOTICE:  relation "provider_rates_lookup_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:54: NOTICE:  relation "provider_usage_ledger_team_occurred_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:55: NOTICE:  relation "provider_usage_ledger_provider_occurred_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:56: NOTICE:  relation "provider_usage_ledger_original_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:57: NOTICE:  relation "provider_invoice_reconciliation_period_idx" already exists, skipping
+CREATE INDEX
+INSERT 0 1
+INSERT 0 25
+INSERT 0 3
+INSERT 0 1
+INSERT 0 4
+INSERT 0 1
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:110: NOTICE:  trigger "provider_usage_ledger_append_only" for relation "provider_usage_ledger" does not exist, skipping
+DROP TRIGGER
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:111: NOTICE:  trigger "provider_rate_versions_immutable" for relation "provider_rate_versions" does not exist, skipping
+DROP TRIGGER
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:112: NOTICE:  trigger "provider_rates_immutable" for relation "provider_rates" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+GRANT
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:124: NOTICE:  policy "provider_usage_ledger_select" for relation "provider_usage_ledger" does not exist, skipping
+DROP POLICY
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:125: NOTICE:  policy "provider_usage_ledger_insert" for relation "provider_usage_ledger" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:129: NOTICE:  policy "provider_rate_versions_select" for relation "provider_rate_versions" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:132: NOTICE:  policy "provider_rates_select" for relation "provider_rates" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+COMMIT
+isolated PostgreSQL: running canonical migrate-t154-agency-reports.ts
+Applying 0019_agency_client_reports.sql
+0019_agency_client_reports.sql completed successfully
+isolated PostgreSQL: applying tracked migrations from 0020
+migration applied: 0020_incident_intelligence.sql
+migration applied: 0021_incident_intelligence_hardening.sql
+migration applied: 0022_billing_integrity.sql
+migration applied: 0023_auth_login_challenges.sql
+migration applied: 0024_pipeline_delivery_settlement.sql
+migration applied: 0025_credit_reservation_tenant_access.sql
+migration applied: 0026_totp_setup_login_challenges.sql
+migration applied: 0027_campaign_public_id_constraints.sql
+migration applied: 0028_legacy_unique_constraint_names.sql
+migration applied: 0029_incident_schema_constraints.sql
+migration applied: 0030_reservation_run_arbiter.sql
+migration applied: 0031_generation_rls_drift_repair.sql
+migration applied: 0032_reservation_reconciliation_hold.sql
+migration applied: 0033_video_idea_billing.sql
+migration applied: 0034_agency_report_period_unique.sql
+migration applied: 0034_provider_attempt_receipts.sql
+migration applied: 0035_provider_attempt_receipt_state_hardening.sql
+migration ledger and schema controls verified
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+DO
+PASS: isolated schema catalog verified (database=citefi_qa host=127.0.0.1 port=55481; no app DB touched)
+isolated PostgreSQL: running one child test batch (2 files)
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🔧 Initializing BullMQ workers...
+# Subtest: a final-attempt crash after COMPLETE settles without provider re-entry
+ok 1 - a final-attempt crash after COMPLETE settles without provider re-entry # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.832104
+  ...
+# Subtest: periodic recovery after debit before batch reconciliation settles a partial batch once
+not ok 2 - periodic recovery after debit before batch reconciliation settles a partial batch once
+  ---
+  duration_ms: 229.319534
+  location: '/home/runner/workspace/tests/pipeline/restart-crash-boundaries.test.ts:11:606'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    <anonymous> (/home/runner/workspace/tests/pipeline/restart-crash-boundaries.test.ts:295:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: legacy COMPLETE runs without billing identity are not promoted into settlement
+ok 3 - legacy COMPLETE runs without billing identity are not promoted into settlement # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.61224
+  ...
+# Subtest: expired finished jobs are retried with the same durable run
+ok 4 - expired finished jobs are retried with the same durable run # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.161654
+  ...
+# Subtest: historical FAILED and payload-less runs are not auto-replayed
+ok 5 - historical FAILED and payload-less runs are not auto-replayed # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.067869
+  ...
+# Subtest: a pre-stage claim crash is retried and completed under the same run ID
+ok 6 - a pre-stage claim crash is retried and completed under the same run ID # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.104991
+  ...
+# Subtest: stalled BullMQ redelivery waits for lease expiry and fences the real article processor
+ok 7 - stalled BullMQ redelivery waits for lease expiry and fences the real article processor # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.088482
+  ...
+# Subtest: an uploaded image is reused after a crash and committed with its checkpoint
+ok 8 - an uploaded image is reused after a crash and committed with its checkpoint # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.050916
+  ...
+# Subtest: an expired image-stage owner cannot commit its provider result
+ok 9 - an expired image-stage owner cannot commit its provider result # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.167689
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 8
+# todo 0
+isolated PostgreSQL QA harness: child test batch failed; the isolated cluster will be removed
+isolated PostgreSQL: cleanup complete (owned cluster stopped; active fixture connections=0)
+isolated Redis: cleanup complete (owned process stopped; port=16389)

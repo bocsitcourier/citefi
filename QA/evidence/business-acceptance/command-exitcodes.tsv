@@ -1,0 +1,6 @@
+operation	command_or_artifact	exit_code	evidence
+retain-red-log	mv QA/evidence/business-acceptance/agency-publication.tap.log QA/evidence/business-acceptance/agency-publication.command-not-found.log	0	red log retained
+prior-bad-agency-command	NODE_ENV=test node ... (shell-expanded assignment)	127	agency-publication.command-not-found.log
+agency-publication-green	env NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs --import ./QA/support/offline-guard.mjs --experimental-loader ./tests/scope-0-alias-loader.mjs --experimental-test-module-mocks --import tsx/esm --test --test-reporter=tap tests/qa/business-acceptance-agency-publication.test.ts	0	agency-publication.tap.log
+artifact-size-and-hash	wc -c and sha256sum on agency TAP/HTML/CSV artifacts	0	verified byte counts and hashes
+ledger-regeneration	awk/wc-based execution-summary.tsv regeneration	0	execution-summary.tsv

@@ -467,12 +467,26 @@ export interface GenerateVideoFromScriptRequest {
     }>;
   };
   onProgress?: (progress: { stage: string; progress: number; message: string }) => Promise<void>;
+  /**
+   * Optional transport seams used by local acceptance fixtures. Production
+   * callers omit this field and retain the normal Gemini/OpenAI/storage
+   * adapters. Keeping the seams at the provider/transport boundary lets the
+   * orchestration and delivery code execute without making network requests.
+   */
+  _deps?: {
+    generateTTS?: typeof generateVeoTTS;
+    generateClip?: typeof generateVeoClip;
+    stitch?: typeof stitchVeoClips;
+    upload?: typeof uploadVeoVideo;
+    cleanup?: typeof cleanupVeoTempFiles;
+  };
 }
 
 export async function generateVideoFromScript(
   request: GenerateVideoFromScriptRequest
 ): Promise<{ videoUrl: string; audioUrl?: string }> {
   const { teamId, videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
+  const deps = request._deps ?? {};
   if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Standalone Veo generation requires a validated teamId");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: request.invocationKey,
@@ -494,7 +508,7 @@ export async function generateVideoFromScript(
       await onProgress({ stage: "tts", progress: 5, message: "Generating natural voiceover..." });
     }
 
-    const audio = await generateVeoTTS({
+    const audio = await (deps.generateTTS ?? generateVeoTTS)({
       teamId,
       socialPostId: videoIdeaId, // Use videoIdeaId for temp file naming
       clips: script.clips.map(clip => ({
@@ -541,7 +555,7 @@ export async function generateVideoFromScript(
             console.log(`  🔄 Retry ${retry}/${MAX_RETRIES - 1} for clip ${index + 1}...`);
             await new Promise(resolve => setTimeout(resolve, 5000));
           }
-          const generated = await generateVeoClip({
+          const generated = await (deps.generateClip ?? generateVeoClip)({
             teamId,
             socialPostId: videoIdeaId,
             sceneNumber: clip.sceneNumber,
@@ -642,7 +656,7 @@ export async function generateVideoFromScript(
       await onProgress({ stage: "stitch", progress: 80, message: "Stitching video..." });
     }
 
-    const finalVideoPath = await stitchVeoClips(
+    const finalVideoPath = await (deps.stitch ?? stitchVeoClips)(
       videoIdeaId,
       generatedClips,
       audio.localPath,
@@ -656,9 +670,9 @@ export async function generateVideoFromScript(
       await onProgress({ stage: "upload", progress: 95, message: "Uploading video..." });
     }
 
-    const videoUrl = await uploadVeoVideo(finalVideoPath, videoIdeaId);
+    const videoUrl = await (deps.upload ?? uploadVeoVideo)(finalVideoPath, videoIdeaId);
 
-    await cleanupVeoTempFiles(videoIdeaId);
+    await (deps.cleanup ?? cleanupVeoTempFiles)(videoIdeaId);
 
     console.log(`\n✅ Standalone video generation complete!`);
     console.log(`📹 Video URL: ${videoUrl}`);
@@ -672,7 +686,7 @@ export async function generateVideoFromScript(
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     console.error(`\n❌ Standalone video generation failed for Video Idea ${videoIdeaId}:`, error);
-    await cleanupVeoTempFiles(videoIdeaId);
+    await (deps.cleanup ?? cleanupVeoTempFiles)(videoIdeaId);
     if (isNonReplayableProviderError(error)) throw error;
     if (paidProviderResultReceived) {
       throw new ProviderResultNotDurableError(

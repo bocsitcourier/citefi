@@ -1,0 +1,427 @@
+isolated Redis: owned fixture ready on 127.0.0.1:16389
+isolated PostgreSQL: composing source schema on 127.0.0.1:55481
+CREATE EXTENSION
+psql:/tmp/citefi-isolated-qa.WxwDMR/source-schema-with-prerequisites.sql:2169: NOTICE:  identifier "persona_behavioral_signals_messaging_template_id_persona_messaging_templates_id_fk" will be truncated to "persona_behavioral_signals_messaging_template_id_persona_messag"
+psql:/tmp/citefi-isolated-qa.WxwDMR/source-schema-with-prerequisites.sql:2176: NOTICE:  identifier "provider_usage_ledger_rate_version_id_provider_rate_versions_id_fk" will be truncated to "provider_usage_ledger_rate_version_id_provider_rate_versions_id"
+psql:/tmp/citefi-isolated-qa.WxwDMR/source-schema-with-prerequisites.sql:2204: NOTICE:  identifier "stripe_credit_reconciliations_original_grant_id_credit_ledger_id_fk" will be truncated to "stripe_credit_reconciliations_original_grant_id_credit_ledger_i"
+psql:/tmp/citefi-isolated-qa.WxwDMR/source-schema-with-prerequisites.sql:2218: NOTICE:  identifier "telemetry_notification_deliveries_incident_id_telemetry_incidents_id_fk" will be truncated to "telemetry_notification_deliveries_incident_id_telemetry_inciden"
+isolated PostgreSQL: running canonical apply-tenant-rls.ts
+⏳ Tenant RLS: apply → executing 0014_tenant_rls.sql
+✅ Tenant RLS apply completed successfully (0014_tenant_rls.sql).
+isolated PostgreSQL: running canonical migrate-t151-campaigns.ts
+⏳ Campaigns (T151): apply → executing 0015_campaigns.sql
+✅ Campaigns (T151) apply completed successfully (0015_campaigns.sql).
+isolated PostgreSQL: applying 0016_campaign_ads.sql
+BEGIN
+DO
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:26: NOTICE:  relation "campaign_ads" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:28: NOTICE:  relation "campaign_ads_team_request_key_unique" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:30: NOTICE:  relation "campaign_ads_public_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:31: NOTICE:  relation "campaign_ads_campaign_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:32: NOTICE:  relation "campaign_ads_team_status_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:46: NOTICE:  relation "campaign_ad_approvals" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:48: NOTICE:  relation "campaign_ad_approvals_public_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:49: NOTICE:  relation "campaign_ad_approvals_ad_id_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:50: NOTICE:  relation "campaign_ad_approvals_team_type_idx" already exists, skipping
+CREATE INDEX
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:61: NOTICE:  trigger "campaign_ads_immutable" for relation "campaign_ads" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:73: NOTICE:  trigger "campaigns_brand_snapshot_immutable" for relation "campaigns" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:82: NOTICE:  trigger "campaign_ad_approvals_append_only" for relation "campaign_ad_approvals" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_sel" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_ins" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_upd" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ads_del" for relation "campaign_ads" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_sel" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_ins" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_upd" for relation "campaign_ad_approvals" does not exist, skipping
+psql:/home/runner/workspace/migrations/0016_campaign_ads.sql:104: NOTICE:  policy "rls_campaign_ad_approvals_del" for relation "campaign_ad_approvals" does not exist, skipping
+DO
+COMMIT
+isolated PostgreSQL: applying 0017_provider_usage_ledger.sql
+BEGIN
+DO
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:17: NOTICE:  relation "provider_rate_versions" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:28: NOTICE:  relation "provider_rates" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:44: NOTICE:  relation "provider_usage_ledger" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:52: NOTICE:  relation "provider_invoice_reconciliations" already exists, skipping
+CREATE TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:53: NOTICE:  relation "provider_rates_lookup_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:54: NOTICE:  relation "provider_usage_ledger_team_occurred_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:55: NOTICE:  relation "provider_usage_ledger_provider_occurred_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:56: NOTICE:  relation "provider_usage_ledger_original_idx" already exists, skipping
+CREATE INDEX
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:57: NOTICE:  relation "provider_invoice_reconciliation_period_idx" already exists, skipping
+CREATE INDEX
+INSERT 0 1
+INSERT 0 25
+INSERT 0 3
+INSERT 0 1
+INSERT 0 4
+INSERT 0 1
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:110: NOTICE:  trigger "provider_usage_ledger_append_only" for relation "provider_usage_ledger" does not exist, skipping
+DROP TRIGGER
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:111: NOTICE:  trigger "provider_rate_versions_immutable" for relation "provider_rate_versions" does not exist, skipping
+DROP TRIGGER
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:112: NOTICE:  trigger "provider_rates_immutable" for relation "provider_rates" does not exist, skipping
+DROP TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+CREATE TRIGGER
+GRANT
+GRANT
+GRANT
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:124: NOTICE:  policy "provider_usage_ledger_select" for relation "provider_usage_ledger" does not exist, skipping
+DROP POLICY
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:125: NOTICE:  policy "provider_usage_ledger_insert" for relation "provider_usage_ledger" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:129: NOTICE:  policy "provider_rate_versions_select" for relation "provider_rate_versions" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+psql:/home/runner/workspace/migrations/0017_provider_usage_ledger.sql:132: NOTICE:  policy "provider_rates_select" for relation "provider_rates" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+ALTER TABLE
+ALTER TABLE
+COMMIT
+isolated PostgreSQL: running canonical migrate-t154-agency-reports.ts
+Applying 0019_agency_client_reports.sql
+0019_agency_client_reports.sql completed successfully
+isolated PostgreSQL: applying tracked migrations from 0020
+migration applied: 0020_incident_intelligence.sql
+migration applied: 0021_incident_intelligence_hardening.sql
+migration applied: 0022_billing_integrity.sql
+migration applied: 0023_auth_login_challenges.sql
+migration applied: 0024_pipeline_delivery_settlement.sql
+migration applied: 0025_credit_reservation_tenant_access.sql
+migration applied: 0026_totp_setup_login_challenges.sql
+migration applied: 0027_campaign_public_id_constraints.sql
+migration applied: 0028_legacy_unique_constraint_names.sql
+migration applied: 0029_incident_schema_constraints.sql
+migration applied: 0030_reservation_run_arbiter.sql
+migration applied: 0031_generation_rls_drift_repair.sql
+migration applied: 0032_reservation_reconciliation_hold.sql
+migration applied: 0033_video_idea_billing.sql
+migration applied: 0034_agency_report_period_unique.sql
+migration applied: 0034_provider_attempt_receipts.sql
+migration applied: 0035_provider_attempt_receipt_state_hardening.sql
+migration ledger and schema controls verified
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+UPDATE 1
+INSERT 0 1
+DO
+PASS: isolated schema catalog verified (database=citefi_qa host=127.0.0.1 port=55481; no app DB touched)
+isolated PostgreSQL: running one child test batch (4 files)
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🔧 Initializing BullMQ workers...
+# 📝 Processing article generation job job-budget-stop-test-1789598059835
+# ❌ Article generation failed for article 1: PipelineError: Run 53c09d56-68f0-4bad-87e9-55673abe8fbd exceeded cost ceiling ($3.6000 >= $0.15) for article. Credits were returned. Retry with a shorter prompt or contact support.
+#     at assertRunBudget (/home/runner/workspace/lib/cost-ceilings.ts:127:11)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async processArticleGenerationJob (/home/runner/workspace/lib/worker.ts:328:11)
+#     at async <anonymous> (/home/runner/workspace/lib/pipeline-worker.ts:458:16)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async <anonymous> (/home/runner/workspace/tests/pipeline/budget-stop-cleanup.test.ts:177:5)
+#     at async Test.run (node:internal/test_runner/test:797:9)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:526:7) {
+#   code: 'BUDGET_EXCEEDED',
+#   stage: 'text_gen',
+#   provider: undefined,
+#   cause: undefined,
+#   retryAfterMs: undefined,
+#   disposition: 'fatal'
+# }
+# [ERROR_LOG] Application error recorded {
+#   severity: 'error',
+#   errorType: 'SYSTEM',
+#   fingerprint: null,
+#   requestId: null
+# }
+# [incident] database unavailable; event safely spooled
+# ⚠️ Article 1 failed after reaching PENDING — terminal status recorded
+# 📢 Notification created: [warning] Budget Limit Reached
+# 📊 Batch 1 progress: 0/1 complete, 1 failed, 0 in progress, 0 pending
+# ✅ Batch 1 finished with status: FAILED
+# ❌ [article-generation:job-budget-stop-test-1789598059835] BUDGET_EXCEEDED (fatal) — final attempt
+# Subtest: budget-stopped ARTICLE: FAILED status, batch not stuck, one release, no retry
+ok 1 - budget-stopped ARTICLE: FAILED status, batch not stuck, one release, no retry
+  ---
+  duration_ms: 221.630007
+  ...
+# 🎬 Processing social video generation job job-budget-stop-video-1789598060057
+# 💾 Disk space check: 29781MB available
+# ⏳ Video worker jitter: 2196ms
+# ❌ Video generation failed for social post 1: PipelineError: Run cc0c16c6-b814-45f4-97bc-bcbf80ed8d9f exceeded cost ceiling ($3.6000 >= $3) for video. Credits were returned. Retry with a shorter prompt or contact support.
+#     at assertRunBudget (/home/runner/workspace/lib/cost-ceilings.ts:127:11)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async processSocialVideoJob (/home/runner/workspace/lib/worker.ts:2514:15)
+#     at async <anonymous> (/home/runner/workspace/lib/pipeline-worker.ts:458:16)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async <anonymous> (/home/runner/workspace/tests/pipeline/budget-stop-cleanup.test.ts:300:5)
+#     at async Test.run (node:internal/test_runner/test:797:9)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:526:7) {
+#   code: 'BUDGET_EXCEEDED',
+#   stage: 'video_gen',
+#   provider: undefined,
+#   cause: undefined,
+#   retryAfterMs: undefined,
+#   disposition: 'fatal'
+# }
+# ✅ Redis connected (redis://127.0.0.1:16389/0)
+# 🧹 Cleaned up temp files for video 1
+# 🧹 Cleaned up temp files after failure for post 1
+# ❌ [social-video-generation:job-budget-stop-video-1789598060057] BUDGET_EXCEEDED (fatal) — final attempt
+# Subtest: budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one release, no retry
+ok 2 - budget-stopped VIDEO: temp files cleaned, videoStatus FAILED, one release, no retry
+  ---
+  duration_ms: 2327.819018
+  ...
+# Subtest: provider telemetry inherits the worker tenant and trips its run budget
+ok 3 - provider telemetry inherits the worker tenant and trips its run budget
+  ---
+  duration_ms: 54.793927
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+# ❌ [q:job-1] PROVIDER_ERROR (retry)
+# ❌ [article-generation:job-1] PROVIDER_ERROR (retry)
+# ❌ [article-generation:job-1] PARSE_ERROR (retry)
+# ❌ [q:job-1] PROVIDER_ERROR (retry) — final attempt
+# ❌ [q:job-1] TIMEOUT (retry)
+# ❌ [q:job-1] TIMEOUT (retry)
+# ❌ [q:job-1] TIMEOUT (retry) — final attempt
+# Subtest: transient failure on NON-final attempt: no release, original error rethrown
+ok 4 - transient failure on NON-final attempt: no release, original error rethrown
+  ---
+  duration_ms: 2.9446
+  ...
+# Subtest: provider 503 is reported to the shared provider circuit breaker
+ok 5 - provider 503 is reported to the shared provider circuit breaker
+  ---
+  duration_ms: 3.135707
+  ...
+# Subtest: non-provider failures do not trip the provider circuit
+ok 6 - non-provider failures do not trip the provider circuit
+  ---
+  duration_ms: 0.471331
+  ...
+# Subtest: transient failure on FINAL attempt: releases reservation exactly once
+ok 7 - transient failure on FINAL attempt: releases reservation exactly once
+  ---
+  duration_ms: 0.377013
+  ...
+# Subtest: full retry lifecycle (3 attempts): release fires exactly once total
+ok 8 - full retry lifecycle (3 attempts): release fires exactly once total
+  ---
+  duration_ms: 0.777305
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# ❌ [article-generation:job-1] GENERATION_ERROR (retry) — final attempt
+# ❌ [article-generation:job-1] GENERATION_ERROR (retry) — final attempt
+# [billing] Release already recorded for runId=test-batch-release-1789598062972-fy3tp0xnzs key=article:101 — skipping (idempotent)
+# ❌ [q:job-1] AUTH_FAILURE (fatal) — final attempt
+# ❌ [q:job-1] GENERATION_ERROR (retry) — final attempt
+# ❌ [q:job-1] GENERATION_ERROR (retry) — final attempt
+# Subtest: a failed batch article releases only its share and duplicate final failures are idempotent
+ok 9 - a failed batch article releases only its share and duplicate final failures are idempotent
+  ---
+  duration_ms: 305.856787
+  ...
+# Subtest: fatal error: releases immediately and throws UnrecoverableError
+ok 10 - fatal error: releases immediately and throws UnrecoverableError
+  ---
+  duration_ms: 0.613655
+  ...
+# Subtest: DEBIT_FAILED: never releases (content was delivered; only the debit retries)
+ok 11 - DEBIT_FAILED: never releases (content was delivered; only the debit retries)
+  ---
+  duration_ms: 0.305946
+  ...
+# Subtest: no billing info (missing runId): final failure does not call release
+ok 12 - no billing info (missing runId): final failure does not call release
+  ---
+  duration_ms: 0.436837
+  ...
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# Subtest: BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once
+ok 13 - BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once
+  ---
+  duration_ms: 3.967747
+  ...
+# Subtest: success path: processor result returned, no release
+ok 14 - success path: processor result returned, no release
+  ---
+  duration_ms: 0.684779
+  ...
+# Subtest: run-context identity: wrapper enters the SAME runId the processor's budget gate asserts
+ok 15 - run-context identity: wrapper enters the SAME runId the processor's budget gate asserts
+  ---
+  duration_ms: 1.395967
+  ...
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# Subtest: every metered content type: telemetry under creditRunId attributes AND trips that type's budget gate
+ok 16 - every metered content type: telemetry under creditRunId attributes AND trips that type's budget gate
+  ---
+  duration_ms: 94.225546
+  ...
+# ❌ [q:job-1] BUDGET_EXCEEDED (fatal) — final attempt
+# Subtest: recorded telemetry under the run ID trips the next attempt's budget gate (production ID path)
+ok 17 - recorded telemetry under the run ID trips the next attempt's budget gate (production ID path)
+  ---
+  duration_ms: 36.179966
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🔧 Initializing BullMQ workers...
+# 📊 Batch 2 progress: 1/1 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 2 finished with status: COMPLETE
+# Subtest: a final-attempt crash after COMPLETE settles without provider re-entry
+ok 18 - a final-attempt crash after COMPLETE settles without provider re-entry
+  ---
+  duration_ms: 181.493114
+  ...
+# Subtest: legacy COMPLETE runs without billing identity are not promoted into settlement
+ok 19 - legacy COMPLETE runs without billing identity are not promoted into settlement
+  ---
+  duration_ms: 51.993596
+  ...
+# Subtest: expired finished jobs are retried with the same durable run
+ok 20 - expired finished jobs are retried with the same durable run
+  ---
+  duration_ms: 55.751795
+  ...
+# Subtest: historical FAILED and payload-less runs are not auto-replayed
+ok 21 - historical FAILED and payload-less runs are not auto-replayed
+  ---
+  duration_ms: 60.998713
+  ...
+# 📝 Processing article generation job 18cd9c2e-9e47-46be-8703-f0a24936ecdc
+# 🔄 RESUMING: Article 6 run 18cd9c2e (from running)
+# 🤖 Stage 1: Gemini generating article 6 for Crash Boundary Test...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 6: 1 failure pattern(s) loaded
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 6
+# 📋 Using 1 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 6
+# ⚡ Article 6 completed in SPEED MODE (Gemini-only)
+# ✅ Article 6 completed successfully
+# ⚠️ No image prompts found for article 6 - skipping image generation
+# No agent found for content type: article
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 6 progress: 1/1 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 6 finished with status: COMPLETE
+# Subtest: a pre-stage claim crash is retried and completed under the same run ID
+ok 22 - a pre-stage claim crash is retried and completed under the same run ID
+  ---
+  duration_ms: 4717.772567
+  ...
+# 📝 Processing article generation job 2f3440bc-9130-4b8f-b2ba-4d6b75722c34
+# ▶️ STARTING: Article 7 run 2f3440bc (from queued)
+# 🤖 Stage 1: Gemini generating article 7 for Crash Boundary Test...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 7: 1 failure pattern(s) loaded
+# 📝 Processing article generation job 2f3440bc-9130-4b8f-b2ba-4d6b75722c34
+# 📝 Processing article generation job 2f3440bc-9130-4b8f-b2ba-4d6b75722c34
+# 🔄 RESUMING: Article 7 run 2f3440bc (from running)
+# 🤖 Stage 1: Gemini generating article 7 for Crash Boundary Test...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 7: 1 failure pattern(s) loaded
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 7
+# 📋 Using 1 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 7
+# ⚡ Article 7 completed in SPEED MODE (Gemini-only)
+# ✅ Article 7 completed successfully
+# ⚠️ No image prompts found for article 7 - skipping image generation
+# No agent found for content type: article
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 7 progress: 1/1 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 7 finished with status: COMPLETE
+# ❌ [t119-stalled-2f3440bc-9130-4b8f-b2ba-4d6b75722c34:2f3440bc-9130-4b8f-b2ba-4d6b75722c34] GENERATION_ERROR (retry) — final attempt
+# Subtest: stalled BullMQ redelivery waits for lease expiry and fences the real article processor
+ok 23 - stalled BullMQ redelivery waits for lease expiry and fences the real article processor
+  ---
+  duration_ms: 2039.298006
+  ...
+# ♻️ Reusing already-uploaded image for article 8, run 32b8155b
+# Subtest: an uploaded image is reused after a crash and committed with its checkpoint
+ok 24 - an uploaded image is reused after a crash and committed with its checkpoint
+  ---
+  duration_ms: 60.178287
+  ...
+# Subtest: an expired image-stage owner cannot commit its provider result
+ok 25 - an expired image-stage owner cannot commit its provider result
+  ---
+  duration_ms: 57.369426
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# Subtest: production DB receipt store and CAS admit one physical concurrent submission
+ok 26 - production DB receipt store and CAS admit one physical concurrent submission
+  ---
+  duration_ms: 108.611762
+  ...
+# Subtest: DB capture and ledger faults recover from a recreated spool without replay
+ok 27 - DB capture and ledger faults recover from a recreated spool without replay
+  ---
+  duration_ms: 91.359674
+  ...
+# Subtest: tenant RLS rejects another tenant's receipt during recovery
+ok 28 - tenant RLS rejects another tenant's receipt during recovery
+  ---
+  duration_ms: 72.258721
+  ...
+1..28
+# tests 28
+# suites 0
+# pass 28
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+isolated PostgreSQL: cleanup complete (owned cluster stopped; active fixture connections=0)
+isolated Redis: cleanup complete (owned process stopped; port=16389)

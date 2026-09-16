@@ -63,3 +63,15 @@ while every reservation INSERT fails its ON CONFLICT arbitration.
 EXPLAIN ANALYZE) of the real INSERT target, not just table/index-name checks.
 Restore missing uniqueness additively and fail on duplicates rather than
 deleting financial history.
+
+An authentication-only fixture does not prove that tenant generation writes
+have the correct grants. Disposable pipeline databases need the canonical
+security bootstrap, not just exported table definitions.
+
+**Why:** Authentication can pass through privileged system queries while the
+first authenticated batch submission fails under the ordinary tenant role.
+This repeatedly concealed missing fixture grants during full-chain testing.
+
+**How to apply:** Verify tenant DML grants and forced RLS before starting workers.
+Keep export-only SQL corrections inside the disposable fixture; do not alter
+applied migrations or bypass tenant roles to make an integration test pass.

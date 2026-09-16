@@ -289,6 +289,49 @@ function applyBurstiness(content: string, targetCV: number = 0.45): string {
   return modifiedSentences.filter(s => s.length > 0).join(" ");
 }
 
+/**
+ * Article Markdown is a document, not a flat string.  Keep the legacy
+ * sentence algorithm for the other channels, but use a deterministic variant
+ * for article prose so headings, lists, and other Markdown syntax are never
+ * consumed by sentence splitting.
+ */
+function applyBurstinessToProse(content: string, targetCV: number = 0.45): string {
+  const sentences = splitSentences(content);
+  if (sentences.length < 3) return content;
+
+  const lengths = sentences.map((sentence) => sentence.split(/\s+/).length);
+  const currentCV = calculateBurstiness(lengths);
+  if (currentCV >= targetCV * 0.9) return content;
+
+  const modifiedSentences = [...sentences];
+  // Pick stable positions rather than Math.random().  Humanization is
+  // deliberately repeatable for retries and receipt-safe worker redelivery.
+  for (let index = 0; index < sentences.length; index += 3) {
+    const sentence = modifiedSentences[index];
+    if (!sentence) continue;
+    const words = sentence.split(/\s+/);
+    if (words.length > 12) {
+      const midpoint = Math.floor(words.length / 2);
+      const firstHalf = words.slice(0, midpoint).join(" ");
+      const secondHalf = words.slice(midpoint).join(" ");
+      if (firstHalf && secondHalf.length > 3) {
+        modifiedSentences[index] =
+          `${firstHalf}. ${secondHalf.charAt(0).toUpperCase()}${secondHalf.slice(1)}`;
+      }
+    } else if (words.length < 8 && index + 1 < modifiedSentences.length) {
+      const nextSentence = modifiedSentences[index + 1];
+      const nextWords = nextSentence?.split(/\s+/) ?? [];
+      if (nextSentence && nextWords.length < 8 && words.length + nextWords.length < 20) {
+        modifiedSentences[index] =
+          `${sentence.replace(/[.!?]$/, "")} – ${nextSentence.charAt(0).toLowerCase()}${nextSentence.slice(1)}`;
+        modifiedSentences[index + 1] = "";
+      }
+    }
+  }
+
+  return modifiedSentences.filter((sentence) => sentence.length > 0).join(" ");
+}
+
 function applyLexicalScrub(content: string, level: "minimal" | "standard" | "aggressive"): { content: string; scrubCount: number } {
   let scrubbed = content;
   let scrubCount = 0;
@@ -322,6 +365,147 @@ function applyLexicalScrub(content: string, level: "minimal" | "standard" | "agg
   scrubbed = capitalizedSentences.join(" ");
 
   return { content: scrubbed, scrubCount };
+}
+
+function isFenceStart(line: string): boolean {
+  return /^\s{0,3}(?:`{3,}|~{3,})/.test(line);
+}
+
+function getFenceMarker(line: string): string {
+  return line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1] ?? "";
+}
+
+function isFenceEnd(line: string, fence: string): boolean {
+  return new RegExp(`^\\s{0,3}${fence}`).test(line);
+}
+
+function isHeading(line: string): boolean {
+  return /^\s{0,3}#{1,6}\s+\S/.test(line);
+}
+
+function isListItem(line: string): boolean {
+  return /^\s{0,3}(?:[-+*]|\d+[.)])\s+/.test(line);
+}
+
+function isBlockQuote(line: string): boolean {
+  return /^\s{0,3}>/.test(line);
+}
+
+function isIndentedCode(line: string): boolean {
+  return /^(?: {4}|\t)\S?/.test(line);
+}
+
+function isTableDelimiter(line: string): boolean {
+  return /^\s{0,3}\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  return index + 1 < lines.length &&
+    lines[index]!.trim().length > 0 &&
+    isTableDelimiter(lines[index + 1]!);
+}
+
+function isProtectedMarkdownLine(lines: string[], index: number): boolean {
+  const line = lines[index]!;
+  return isFenceStart(line) ||
+    isHeading(line) ||
+    isListItem(line) ||
+    isBlockQuote(line) ||
+    isIndentedCode(line) ||
+    isTableStart(lines, index) ||
+    /^\s{0,3}(?:---+|\*\*\*+|___+)\s*$/.test(line) ||
+    /^\s*<\/?[A-Za-z][^>]*>\s*$/.test(line);
+}
+
+/**
+ * Humanize only paragraph blocks in an article Markdown document.  Protected
+ * blocks are copied byte-for-byte: this includes blank lines around them,
+ * headings, list indentation/continuations, quotes, tables, fenced/indented
+ * code, and standalone HTML.  This boundary is intentionally Markdown-only;
+ * social/video/podcast channels continue to use their existing flat-string
+ * behavior.
+ */
+function humanizeArticleMarkdown(
+  content: string,
+  targetCV: number,
+  level: "minimal" | "standard" | "aggressive",
+): { content: string; scrubCount: number } {
+  const lines = content.split("\n");
+  const output: string[] = [];
+  let scrubCount = 0;
+  let index = 0;
+
+  while (index < lines.length) {
+    if (lines[index]!.trim() === "") {
+      output.push(lines[index]!);
+      index += 1;
+      continue;
+    }
+
+    const protectedBlock = isProtectedMarkdownLine(lines, index);
+    const block: string[] = [lines[index]!];
+    const fence = isFenceStart(lines[index]!) ? getFenceMarker(lines[index]!) : "";
+    index += 1;
+
+    if (fence) {
+      while (index < lines.length) {
+        block.push(lines[index]!);
+        const closingLine = lines[index]!;
+        index += 1;
+        if (isFenceEnd(closingLine, fence)) break;
+      }
+      output.push(...block);
+      continue;
+    }
+
+    // Keep only the structural continuation of this protected block. A
+    // heading/list/quote may legally be followed by a paragraph without a
+    // blank line; that paragraph is still prose and should be transformed.
+    if (protectedBlock && !fence) {
+      const first = block[0]!;
+      const continuation = (line: string): boolean => {
+        if (isListItem(first)) return isListItem(line) || /^\s{2,}\S/.test(line);
+        if (isBlockQuote(first)) return isBlockQuote(line);
+        if (isTableStart(lines, index - block.length)) {
+          return /^\s*\|/.test(line) || isTableDelimiter(line);
+        }
+        if (isIndentedCode(first)) return isIndentedCode(line);
+        if (/^\s*<\/?[A-Za-z][^>]*>\s*$/.test(first)) {
+          return /^\s*<\/?[A-Za-z][^>]*>\s*$/.test(line);
+        }
+        return false;
+      };
+      while (index < lines.length && lines[index]!.trim() !== "" && continuation(lines[index]!)) {
+        block.push(lines[index]!);
+        index += 1;
+      }
+    } else {
+      while (index < lines.length && lines[index]!.trim() !== "") {
+        const nextProtected = isProtectedMarkdownLine(lines, index);
+        if (!protectedBlock && nextProtected) break;
+        block.push(lines[index]!);
+        index += 1;
+      }
+    }
+
+    if (protectedBlock) {
+      output.push(...block);
+      continue;
+    }
+
+    // Keep soft line breaks in prose blocks. Each physical line is a prose
+    // unit, while blank-line paragraph boundaries remain untouched.
+    for (const proseLine of block) {
+      const hardBreak = / {2,}$/.test(proseLine) ? "  " : "";
+      const sourceLine = proseLine.replace(/ {2,}$/, "");
+      const bursty = applyBurstinessToProse(sourceLine, targetCV);
+      const scrubbed = applyLexicalScrub(bursty, level);
+      scrubCount += scrubbed.scrubCount;
+      output.push(scrubbed.content + hardBreak);
+    }
+  }
+
+  return { content: output.join("\n"), scrubCount };
 }
 
 function extractEntities(content: string): Set<string> {
@@ -436,10 +620,17 @@ export function humanizeContent(
   
   let processed = content;
   
-  processed = applyBurstiness(processed, burstinessTarget);
-  
-  const { content: scrubbed, scrubCount } = applyLexicalScrub(processed, scrubLevel);
-  processed = scrubbed;
+  let scrubCount = 0;
+  if (channelFormat === "article") {
+    const article = humanizeArticleMarkdown(processed, burstinessTarget, scrubLevel);
+    processed = article.content;
+    scrubCount = article.scrubCount;
+  } else {
+    processed = applyBurstiness(processed, burstinessTarget);
+    const scrubbed = applyLexicalScrub(processed, scrubLevel);
+    processed = scrubbed.content;
+    scrubCount = scrubbed.scrubCount;
+  }
   
   processed = applyChannelFormatting(processed, channelFormat);
   

@@ -28,6 +28,27 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+type SingleImageProviderDependencies = {
+  generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
+};
+
+// Optional process-local transport override used by isolated acceptance
+// runners. It is intentionally unset in production, preserving the Gemini
+// adapter as the default. The override is kept at the low-level provider
+// boundary so route authorization, billing, receipts, and persistence still
+// execute normally.
+let defaultSingleImageProviderDependencies: SingleImageProviderDependencies = {};
+
+export function setSingleImageProviderTransportForTests(
+  dependencies: SingleImageProviderDependencies,
+): () => void {
+  const previous = defaultSingleImageProviderDependencies;
+  defaultSingleImageProviderDependencies = dependencies;
+  return () => {
+    defaultSingleImageProviderDependencies = previous;
+  };
+}
+
 // Fallback placeholder image (data URI - simple gradient)
 const FALLBACK_HERO_IMAGE = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZyIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3R5bGU9InN0b3AtY29sb3I6cmdiKDEzMywgNzcsIDI1MCk7c3RvcC1vcGFjaXR5OjEiIC8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjpyZ2IoMTk5LCAxNTAsIDI1NSk7c3RvcC1vcGFjaXR5OjEiIC8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMjQiIGhlaWdodD0iMTAyNCIgZmlsbD0idXJsKCNnKSIgLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjQ4IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIFBlbmRpbmc8L3RleHQ+PC9zdmc+";
 
@@ -408,6 +429,7 @@ export async function generateSingleImage(
       },
       () =>
         (_deps.generateContent ??
+          defaultSingleImageProviderDependencies.generateContent ??
           ((request) => genAI.models.generateContent(request)))(
           generationRequest,
         ),

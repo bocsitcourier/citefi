@@ -110,8 +110,9 @@ event.
 **Append-only evidence additions:** `E-012` accounting maintenance,
 `E-018` independent security verification (which does not close financial
 reconciliation), `E-020` architect receipt verification logs, and `E-021`
-isolated migration/RLS evidence. Final additions are `E-022` through `E-030`;
-current Phase 2 disposition remains `UNKNOWN / UNRECONCILED` for both calls.
+isolated migration/RLS evidence. Final checkpoint additions are `E-022`
+through `E-030`; continuation evidence is recorded under E-038 through E-042.
+Current Phase 2 disposition remains `UNKNOWN / UNRECONCILED` for both calls.
 
 ## Final provider and receipt boundary
 
@@ -144,3 +145,67 @@ validation controls. No sign-in, MFA, reset submission, or signup submission
 was performed; safety interception caused no actual mutation, and expected
 anonymous `/api/auth/me` 401s are not defects. This browser result does not
 reconcile either historical provider call.
+
+## Controlled execution continuation
+
+E-037 records the exhaustive historical search result: no recoverable original
+receipt was found for either unresolved call. The canonical retained aggregate
+remains **99 unique provider events totaling `$0.517071`**. Both historical
+calls remain `UNKNOWN / UNRECONCILED`; the `$6` reserve is a coverage treatment,
+not spend approval, a ledger event, or an invoice. No reconciliation retry or
+paid rerun is authorized.
+
+The later controlled evidence does not close this Phase 2 limit:
+
+- E-031 auth is a bounded 7/7 owned fixture/browser result with SMTP capture,
+  not provider accounting evidence.
+- E-032 is safe-local Redis/file/memory CAS load at 1/10/100, 2/2, with no
+  PostgreSQL or live-provider path.
+- E-033 is 5/5 service plus 6/6 route content sandbox coverage with explicit
+  provider/database/queue/billing mocks.
+- E-034 is corrected business acceptance 17/17 across five green TAP suites.
+- E-035 is 9/9 media service tests with ownership/release/no-replay controls,
+  not full orchestrator evidence.
+- E-038 and E-039 now have controlled cross-run green observations, but they
+  are not single-run full-chain certification. Article evidence is the union
+  of three TAP runs: final 2 pass/3 historical fail, targeted 2 pass/1
+  historical fail/2 skip, and shared-settlement 1 pass/0 fail/4 skip, with
+  humanizer structure 1/1. Media evidence is RUN 3 rows 9/15/16 green plus
+  targeted final rows 10/17 green and 3 skips; RUN 3 exit 124 teardown is
+  historical and targeted exit 0 follows proper queue cleanup. The raw sources
+  are `QA/evidence/article-full-chain-final.tap`,
+  `article-full-chain-targeted.tap`, `article-shared-settlement-final.tap`,
+  `humanizer-structure-regression.tap`, `media-fullchain-run3.log`, and
+  `media-fullchain-final-targeted.tap`.
+- E-040 is a fresh coherent 28/28 worker regression on owned PostgreSQL
+  `127.0.0.1:55481` and Redis `127.0.0.1:16389`
+  (`QA/evidence/continuation-worker-regression.tap`); it overlaps earlier
+  scopes and must not be added to unique aggregate counts. The historical two
+  provider calls remain `UNKNOWN / UNRECONCILED`, with no new funding or numeric
+  maximum.
+- E-041 is a Real-PostgreSQL targeted recovery/settlement crash retest:
+  `QA/evidence/recovery-settlement-crash-retest.tap` is 1 pass/0 fail/8 skip.
+  Recovery completion is LAST after idempotent debit, cap, and batch
+  reconciliation, excluding the exact current run while other active siblings
+  block. The prior `recovery-settlement-crash-final.tap` red
+  fixture-missing-credit-balance result remains retained and superseded.
+
+The production premature reserve release on retry and shared-sibling
+billing-pending race are fixed behind a scoped run-reconciliation gate; this
+controlled evidence does not verify live settlement. The external Redis `6379`
+to `3001` mapping remains removed in the verified configuration. No main
+workflow restart has occurred; a planned safe app restart after the code batch
+is not claimed. No application/customer database migration, paid provider call,
+real email, publication, or deployment occurred.
+
+E-042 adds a read-only runtime boundary, not provider reconciliation: published
+recurrent Neon HTTP fetches failed or sockets closed, and journey-scheduler
+connections timed out. The development workflow reports Redis `6379
+ECONNREFUSED` while effective configuration is `workersDisabled=false` and
+`localRedisEnabled=true`. HTTP 200 health is not operational certification.
+The normal workflow was not restarted because workers could enable potential
+paid jobs without a paid cap; the owned Next UI was started/stopped and its
+screenshot passed, with no app deployment or main restart. Explicit
+authorization is required for a worker-enabled runtime retest after the
+Neon/Redis/scheduler gap is addressed; a paid cap alone is not the only
+remaining gate, and full-scope completion remains pending.

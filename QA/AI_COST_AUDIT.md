@@ -34,7 +34,8 @@ by this documentation handoff.
 
 The matrix below is the retained initialization plan. Its `PENDING` and
 `BLOCKED` cells remain the planned mode boundaries; the final evidence-bearing
-current dispositions are appended under E-022 through E-030 below.
+current dispositions are appended under E-022 through E-030 below, with the
+later E-038 through E-042 continuation evidence recorded separately.
 
 ## Cost-control matrix
 
@@ -45,8 +46,8 @@ current dispositions are appended under E-022 through E-030 below.
 | Cost-rate selection and model identity | RECORDED / UNVERIFIED | PENDING | PENDING | BLOCKED | Current defaults cannot repair history |
 | Receipt-to-ledger linkage | RECORDED / UNVERIFIED | PENDING | 3/3 WITH LIMITATION (`E-027`) | BLOCKED | Isolated convergence passes; live/provider path remains blocked |
 | Retry/duplicate charge prevention | RECORDED / UNVERIFIED | PENDING | 3/3 WITH LIMITATION (`E-027`) | BLOCKED | No live-provider proof; isolated no-replay path passes |
-| Cap reservation/debit/release | RECORDED / UNVERIFIED | PENDING | PENDING | BLOCKED | No paid retest authorized |
-| Cancellation/partial completion settlement | RECORDED / UNVERIFIED | PENDING | PENDING | BLOCKED | Local fault tests pending |
+| Cap reservation/debit/release | RECORDED / UNVERIFIED | CONTROLLED — E-038/E-040/E-041 | CONTROLLED — E-038/E-040/E-041 | BLOCKED | Retry release and shared-sibling billing-pending race fixed under scoped reconciliation; idempotent debit/cap recovery retest is controlled only; no live settlement claim |
+| Cancellation/partial completion settlement | RECORDED / UNVERIFIED | CONTROLLED — E-038 | CONTROLLED — E-038 | BLOCKED | Cross-run article settlement evidence only; paused two-article `-20` ledger assertion is correct, no live/provider settlement |
 | Accounting failure after provider response | RECORDED / UNVERIFIED | PENDING | PENDING | BLOCKED | Historical audio call remains unresolved |
 | Cost visibility to tenant/client | RECORDED / UNVERIFIED | PENDING | PENDING | PENDING | Security/accounting report required |
 | 10x/100x rate, queue, and reservation behavior | PREDICTED RISK ONLY | PENDING | PENDING | BLOCKED | No load result is claimed |
@@ -100,7 +101,8 @@ fixture remains historical red evidence. None changes the recorded cost
 snapshot or permits paid work.
 
 **Append-only evidence additions:** `E-012`, `E-015`, `E-020`, `E-021`, and
-final `E-022` through `E-030`.
+final checkpoint `E-022` through `E-030`; continuation evidence is recorded
+under E-038 through E-042 below.
 
 ## Final cost boundary
 
@@ -121,3 +123,40 @@ overflow. Earlier native validation controls remained passed. No sign-in, MFA,
 reset submission, or signup submission was performed; safety interception
 caused no actual mutation, and expected anonymous `/api/auth/me` 401s are not
 defects. This creates no usage, cost, invoice, or paid-provider authorization.
+
+## Controlled execution continuation
+
+E-037 records an exhaustive historical search with no recoverable original
+receipts. The retained accounting remains **99 unique provider events at
+`$0.517071`**. Both historical calls are still `UNKNOWN / UNRECONCILED`; the
+`$6` reserve is coverage treatment only and is not spend approval, a ledger
+event, or an invoice.
+
+| Evidence | Current result | Cost boundary |
+|---|---|---|
+| E-031 | Auth fixture 7/7 plus bounded browser/email-MFA SMTP capture | No provider spend or new ledger event. |
+| E-032 | Safe-local load 2/2 with owned Redis and file/memory CAS at 1/10/100; strict-spool message fix | No PostgreSQL, live provider, or production-capacity measurement. |
+| E-033 | Content service 5/5 and route 6/6 over 19 rows | Provider, DB, queue, and billing are mocks; no spend or settlement. |
+| E-034 | Business acceptance 17/17 in five green TAP suites | Controlled local seams only; earlier agency command exit 127 red evidence remains. |
+| E-035 | Media service tests 9/9 with ownership/release/no-replay assertions | Boundary/service evidence, not full orchestrator settlement. |
+| E-036 | Read-only public route statuses, including anonymous `/api/auth/me` 401 | No paid action, deployment change, publication, or email spend. |
+| E-037 | No original receipts recovered; two calls remain unknown | Historical gate remains paused; reserve is not approval. |
+| E-038 | Article full-chain cross-run union (`article-full-chain-final.tap`, `article-full-chain-targeted.tap`, `article-shared-settlement-final.tap`): five unique cases green across three runs, not one 5/5; final 2 pass/3 historical fail, targeted 2 pass/1 historical fail/2 skip, shared-settlement 1 pass/0 fail/4 skip; humanizer 1/1 | Deterministic-humanizer Markdown flattening, renderability guard, premature retry reserve release/shared-sibling billing-pending race, and scoped reconciliation gate are fixed in controlled evidence; no full-feature/live settlement certification. |
+| E-039 | Media full-chain cross-run union (`media-fullchain-run3.log`, `media-fullchain-final-targeted.tap`): RUN 3 rows 9/15/16 pass with historical exit 124 teardown; targeted final rows 10/17 pass, 3 skips, clean exit 0 after queue cleanup | Identity tenant context is fixed at `/api/media/assets/[identity]/regenerate`; row-17 fixture brand corrected without validator weakening; no full-feature/live media settlement claim. |
+| E-040 | Fresh continuation worker regression 28/28 on canonical owned PostgreSQL `127.0.0.1:55481` and Redis `127.0.0.1:16389` | Restart, budget-stop, pipeline-billing, receipt-CAS, and RLS cases are green; overlapping scopes are not a unique aggregate, and old 8/8 is not a new run. |
+| E-041 | Real-PostgreSQL targeted recovery-settlement-crash retest 1 pass/0 fail/8 skip; completion is LAST after idempotent debit, cap, and batch reconciliation with exact current-run exclusion while other active siblings block | Controlled recovery evidence only; prior red `recovery-settlement-crash-final.tap` missing-credit-balance fixture is retained and superseded. No provider spend, live settlement, or new funding claim. |
+| E-042 | Read-only runtime logs show published recurrent Neon HTTP fetch/socket failures and journey-scheduler timeouts; development Redis `6379 ECONNREFUSED`; effective `workersDisabled=false`, `localRedisEnabled=true`; owned Next UI screenshot passed and latest typecheck is clean | HTTP 200 health is not operational certification. Normal workflow was not restarted because workers could enable potential paid jobs without a paid cap; no deployment/main restart. Full-scope completion remains pending runtime authorization/remediation, not paid-cap approval alone. |
+
+The earlier helper/summary `17` claim is ignored until an actual green TAP
+supports it. No main workflow restart has occurred; a planned safe app restart
+after the code batch is not claimed. No application/customer DB migration,
+paid provider call, real customer email, publication, or deployment occurred.
+The external Redis `6379` to `3001` mapping remains removed in the verified
+configuration. The two historical calls remain unknown with no new funding or
+numeric maximum.
+
+E-042 is not a paid-cap-only gate: the published Neon/HTTP and journey-scheduler
+failures plus development Redis refusal are known runtime gaps. Explicit
+authorization is required before a worker-enabled runtime retest after
+remediation; controlled recovery evidence does not create spend or certify the
+full feature scope.

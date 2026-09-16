@@ -1,0 +1,22 @@
+Safe-local measured load audit
+command: env -u DATABASE_URL -u NEON_DATABASE_URL -u REDIS_URL QA/support/load-local.sh
+fixture: owned Redis 127.0.0.1:16386/15; receipt primary memory + local filesystem spool; PostgreSQL not used
+
+TAP version 13
+ok 1 - measured 1/10/100 production queue processor load and lease-expiry fault
+ok 2 - measured 1/10/100 receipt CAS load is safe-local and bounded
+1..2
+# tests 2
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+
+Measured values are recorded in load-local.md:
+- queue success and lease-expiry cases at concurrency 1/10/100
+- receipt same-identity and unique-identity cases at concurrency 1/10/100
+- p50/p95, throughput, errors, provider physical calls, ledger/receipt counts,
+  queue terminal counts, reservation releases, and rss/heap deltas
+- pre-admission storage, post-provider-ledger/reopened-spool, and
+  primary-response-storage fault injections

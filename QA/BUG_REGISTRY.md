@@ -132,8 +132,9 @@ become person-level; free-form social `location` should be constrained to
 city/region/ZIP rather than a street address; and the `.invalid` fixture email
 is test-only. These results are not full feature certification.
 
-Current evidence additions are `E-012` through `E-030` in
-`QA/CERTIFICATION_STATUS.md`.
+Current evidence additions are `E-012` through `E-042` in
+`QA/CERTIFICATION_STATUS.md`; E-041/E-042 record the latest recovery and
+runtime continuation boundaries.
 
 ## Final fix and retest register
 
@@ -147,7 +148,7 @@ Each result remains bounded by its evidence mode.
 | QA-S-007 / SEC-P2-002 DNS deadline | Fixed and independently retested: 13/13 helper/three-sink plus 1/1 original SSRF. No live/deployed claim. | E-025 |
 | QA-F-001 external Redis exposure | `.replit` external `localPort=6379` → `externalPort=3001` mapping removed; internal developer/test Redis 6379 remains. | E-014, E-026 |
 | QA-F-002 / Provider accounting retry order | Typed accounting terminals are checked before 429/transient classification; ordinary retries remain bounded. | E-022, E-023 |
-| QA-F-003 / SPEED MODE Markdown-to-HTML rendering | Latest restart handoff reports 8/8 after the actual renderer correction, not merely a fixture adjustment. A standalone `speed-mode-renderer-fix.md` is not present, so no extra 3/3 is counted. | E-026 |
+| QA-F-003 / SPEED MODE Markdown-to-HTML rendering | Fresh continuation worker regression is 28/28, and the humanizer structure regression is 1/1. The real bug was deterministic-humanizer Markdown flattening, not fixtures or caches; the renderability guard preserves the validated original with a warning when an optional transform is invalid. The old 8/8 handoff is not a new run. | E-026, E-038, E-040 |
 | QA-F-004 / Receipt DB/spool convergence | `finalizeAccounted` converges primary and independent spool after DB/ledger faults without provider replay; isolated production receipt path is 3/3. | E-027 |
 | QA-F-005 / Receipt schema 0035 hardening | Null/malformed aggregate predicate corrected; seven historical scenarios, three constraints, and receipt suite 3/3 pass in disposable local PostgreSQL. | E-028 |
 
@@ -172,3 +173,60 @@ non-GET/HEAD safety interception caused no actual mutation, and expected
 anonymous `/api/auth/me` 401s are not defects. These are public
 unauthenticated observations and do not alter the supported inventory
 dispositions; there is no current forgot-password browser blocker.
+
+## Controlled execution continuation
+
+The current evidence adds controlled coverage without certifying a full feature.
+E-033 covers 19 supported inventory rows with production service/route handlers
+under explicit mocks. E-035 covers the media service set for rows 8–10 and
+13–17. E-034 covers rows 25 and 28–33 through five corrected, green business
+acceptance TAPs. Together these reports cover all 34 supported rows at a
+controlled service and/or route boundary; every row remains `UNVERIFIED` or
+`BLOCKED`, never `VERIFIED`.
+
+### Current evidence dispositions
+
+| Evidence | Current observation | Registry disposition |
+|---|---|---|
+| E-031 auth | Auth HTTP fixture is 7/7. Bounded real Next UI browser evidence observed member login, refresh, 90-day remember-me retention, logout, protected denial, email MFA, and verified SMTP capture; screenshot retained. | **CONTROLLED PASS WITH LIMITATION** — owned fixture/browser scope only. |
+| E-032 load/CAS | Safe-local 2/2 at owned Redis plus file/memory CAS concurrency 1/10/100; measured latency is recorded and no PostgreSQL/live path was used. The strict-spool human-readable failure-message defect was corrected. | **FIX RETAINED WITH LIMITATION** — earlier red proof remains historical; no production capacity claim. |
+| E-033 content | Service 5/5 and route 6/6, with 19 rows mapped and DB/queue/billing/provider boundaries explicit. | **CONTROLLED MOCK COVERAGE** — not live/provider/database certification. |
+| E-034 business | 17/17 from five green TAP suites after the agency command was corrected. | **CONTROLLED MOCK/LOCAL-SEAM COVERAGE** — the earlier agency command exit 127 remains historical red evidence; not the earlier helper `17` claim. |
+| E-035 media | 9/9 service tests with enhanced ownership, release-count, receipt, and no-replay assertions. | **CONTROLLED SERVICE COVERAGE** — full route/orchestrator layers remain unverified. |
+| E-036 public read-only | Public status observations are `/login` 200, `/forgot-password` 200, `/signup` 200, `/health` 200, anonymous `/api/auth/me` 401. | **OBSERVATION ONLY** — no deploy, paid action, or publication. |
+| E-037 historical search | No recoverable original receipt was found; 99 events/$0.517071 retained, two calls unknown, `$6` reserve not spend approval. | **UNRECONCILED** — no invented receipt, cost, or retry. |
+| E-038 article full chain | Five unique cases each have a green observation across three runs, not one 5/5 run: final TAP 2 pass/3 historical fail; targeted TAP 2 pass/1 historical fail/2 skip; shared-settlement TAP 1 pass/0 fail/4 skip. Humanizer structure is 1/1. | **CONTROLLED CROSS-RUN EVIDENCE WITH LIMITATION** — deterministic-humanizer Markdown flattening, renderability guard, premature retry reserve release/shared-sibling billing-pending race, and scoped run-reconciliation gate are fixed; no full-feature/live settlement certification. |
+| E-039 media full chain | All five unique cases have green observations across RUN 3 (rows 9/15/16 pass; exit-124 teardown retained historical) and targeted final (rows 10/17 pass, 3 skips; clean exit 0). | **CONTROLLED CROSS-RUN EVIDENCE WITH LIMITATION** — identity tenant context is fixed at `/api/media/assets/[identity]/regenerate`; row-17 fixture brand was corrected without weakening validation; no full-feature/live media certification. |
+| E-041 recovery settlement crash retest | Real-PostgreSQL targeted retest is 1 pass/0 fail/8 skip. Recovery completion is LAST after idempotent debit, cap, and batch reconciliation, with exact current-run exclusion while other active siblings block. | **CONTROLLED RECOVERY EVIDENCE WITH LIMITATION** — prior `recovery-settlement-crash-final.tap` red fixture-missing-credit-balance result remains retained and superseded; no live/provider settlement certification. |
+| E-042 runtime read-only gap | Published recurrent Neon HTTP fetch failures/socket closures and journey-scheduler connection timeouts; development workflow Redis `6379 ECONNREFUSED` with effective `workersDisabled=false` and `localRedisEnabled=true`. Owned Next UI start/stop screenshot passed; latest typecheck is clean. | **KNOWN RUNTIME GAP / NOT CERTIFIED** — HTTP 200 health is not operational certification. Normal workflow was not restarted because workers could enable potential paid jobs without a paid cap; no deployment or main restart occurred. Full-scope completion remains pending explicit runtime authorization/remediation, not paid-cap approval alone. |
+
+The production premature reserve release on retry and shared-sibling
+billing-pending race are fixed, with scoped run reconciliation gating settlement.
+This controlled result is not a live or full-feature settlement certification.
+Unknown-resource browser `403` URLs remain unresolved observations and are not
+classified as a core failure. A guessed `/api/auth/session` 404 is not a bug
+because it is not an application route; `/api/auth/me` is the known route.
+
+### Current root causes and regression evidence
+
+| Surface | Actual root cause and correction | Current regression evidence |
+|---|---|---|
+| Article humanizer/renderability | Deterministic humanizer flattened Markdown blocks. The renderability guard now keeps the validated original and emits a warning when an optional transform is invalid; the defect was not fixture/cache-only. | `QA/evidence/humanizer-structure-regression.tap`: 1/1. |
+| Article billing/reconciliation | Production retry handling could release a reservation prematurely while a shared sibling remained billing-pending. The retry-release correction and scoped run-reconciliation gate are fixed; the paused two-article credit-ledger `-20` assertion is correct. | `article-full-chain-final.tap` 2/5; `article-full-chain-targeted.tap` 2/5 plus 2 skips; `article-shared-settlement-final.tap` 1/5 plus 4 skips. Union: five unique cases green across three runs, not a single 5/5 run. |
+| Media identity regeneration | The identity regeneration route used an unscoped tenant query; production route context is now tenant-scoped. | `media-fullchain-run3.log` rows 9/15/16 observed green; `media-fullchain-final-targeted.tap` rows 10/17 green, 3 skips, clean exit 0. |
+| Media podcast fixture | Row 17's fixture brand was wrong and was corrected to the expected brand; no validator weakening was used. | Targeted final TAP row 17 green; RUN 3's historical mismatch remains retained. |
+| Worker continuation | Fresh canonical owned PostgreSQL/Redis continuation regression covers restart, budget-stop, pipeline billing, receipt CAS, and RLS. | `QA/evidence/continuation-worker-regression.tap`: 28/28. It overlaps earlier scopes and is not added to unique aggregate counts. |
+| Recovery settlement crash | Recovery now completes LAST after idempotent debit, cap, and batch reconciliation; exact current-run exclusion prevents active sibling interference. | `QA/evidence/recovery-settlement-crash-retest.tap`: 1 pass/0 fail/8 skip in targeted Real PostgreSQL; prior red fixture-missing-credit-balance run remains superseded. |
+| Published/development runtime | Read-only published logs show recurrent Neon fetch/socket and journey-scheduler timeout failures; development Redis refuses 6379 while effective config leaves workers enabled. | HTTP 200 health and an owned Next UI screenshot are not operational certification; normal workflow restart remains unauthorized pending runtime remediation and explicit worker-enabled retest authorization. |
+
+The `.replit` external Redis `6379` to `3001` mapping removal remains the
+verified configuration correction; internal Redis 6379 remains. The earlier
+helper/summary `17` claim is ignored until an actual green TAP supports it.
+No main workflow restart has occurred; a planned safe app restart after the code
+batch is not claimed. No application/customer DB migration, paid provider call,
+real customer email, publication, or deployment occurred.
+
+E-042 requires a known runtime gap to be addressed before any full-scope
+completion claim: Neon/HTTP, journey-scheduler, and development Redis behavior
+must be remediated or explicitly bounded, then a worker-enabled runtime retest
+must be authorized. A paid cap alone is not the only remaining gate.

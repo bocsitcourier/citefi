@@ -4,6 +4,7 @@ import {
   normalizeArticleTargetUrls,
   validateArticleOutput,
 } from "./article-output-safety";
+import { renderArticleMarkdown } from "./article-markdown";
 import Bottleneck from "bottleneck";
 import { getModel } from "./model-resolver";
 import { createBrandLockPromptSegment } from "./branding";
@@ -25,6 +26,18 @@ import {
   allocateProviderAttemptIdentity,
   runWithProviderInvocationIdentity,
 } from "./provider-invocation-identity";
+
+/**
+ * Optional low-level transport for the physical Gemini generateContent call.
+ *
+ * This seam is deliberately below throttling, receipt capture, response
+ * parsing, and article validation. Production callers omit it and continue to
+ * use the configured Google GenAI client; isolated QA callers can provide a
+ * deterministic transport without replacing the article generator itself.
+ */
+export type GeminiGenerateContentTransport = (
+  request: GeminiGenerateRequest,
+) => Promise<GenerateContentResponse>;
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY environment variable is required");
@@ -1044,7 +1057,8 @@ export async function generateArticleContent(
   enableFactValidation?: boolean, // Anti-Hallucination: enable fact-based validation
   articleId?: number, // Article ID for fact claims audit trail
   serpFeatureTarget?: string, // SERP feature optimization: Featured Snippet | PAA | List | Q&A
-  shadowRunPlan?: ArticleShadowRunPlan // Pre-flight failure pattern awareness
+  shadowRunPlan?: ArticleShadowRunPlan, // Pre-flight failure pattern awareness
+  generateContentTransport?: GeminiGenerateContentTransport,
 ): Promise<ArticleGenerationResult> {
   if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated teamId");
@@ -1803,7 +1817,9 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
     }
   };
   const result = await throttledGeminiRequest(
-    () => genAI.models.generateContent(articleRequest),
+    () => (generateContentTransport
+      ? generateContentTransport(articleRequest)
+      : genAI.models.generateContent(articleRequest)),
     {
       request: articleRequest,
       context: {
@@ -2050,6 +2066,7 @@ export async function generateArticleWithGemini(
   personaId?: number,
   shadowRunPlan?: ArticleShadowRunPlan,
   articleId?: number,
+  generateContentTransport?: GeminiGenerateContentTransport,
 ): Promise<AdvancedArticleResult> {
   if (!Number.isInteger(articleId) || (articleId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated articleId");
@@ -2071,7 +2088,8 @@ export async function generateArticleWithGemini(
     undefined, // enableFactValidation
     articleId,
     serpFeatureTarget,
-    shadowRunPlan
+     shadowRunPlan,
+     generateContentTransport
   );
 
   let geoAccuracyScore: number | undefined;
@@ -2080,23 +2098,97 @@ export async function generateArticleWithGemini(
     geoAccuracyScore = Math.min(100, locationMentions * 10 + 50);
   }
 
-  // DETERMINISTIC HUMANIZATION: Apply burstiness and scrub AI-isms
-  const humanized = humanizeArticle(result.articleText, 0.45);
-  const humanizedContent = normalizeArticleTargetUrls(humanized.content, targetUrl);
-  console.log(`🔧 [DH] Article humanized: burstiness=${humanized.metrics.burstinessApplied}, scrubs=${humanized.metrics.scrubsApplied}, integrity=${humanized.metrics.integrityPassed}`);
-  const humanizedOutput = validateArticleOutput(humanizedContent, {
+  // DETERMINISTIC HUMANIZATION: Apply burstiness and scrub AI-isms only after
+  // generateArticleContent has accepted the provider Markdown. Humanization is
+  // optional middleware; it must never turn an invalid provider response into
+  // a different error or hide the original validation failure.
+  const originalContent = normalizeArticleTargetUrls(result.articleText, targetUrl);
+  const originalOutput = validateArticleOutput(originalContent, {
     format: "markdown",
     minWords: wordCountMin,
     maxWords: wordCountMax,
   });
-  if (!humanizedOutput.valid) {
+  if (!originalOutput.valid) {
     throw new Error(
-      `INVALID_ARTICLE_OUTPUT: ${humanizedOutput.reasons.join("; ")}`,
+      `INVALID_ARTICLE_OUTPUT: ${originalOutput.reasons.join("; ")}`,
+    );
+  }
+  let originalRendered: string;
+  try {
+    originalRendered = renderArticleMarkdown(originalContent);
+  } catch (renderError) {
+    const reason = renderError instanceof Error ? renderError.message : String(renderError);
+    throw new Error(`INVALID_ARTICLE_OUTPUT: provider Markdown could not render: ${reason}`);
+  }
+  const originalRenderedOutput = validateArticleOutput(originalRendered, {
+    format: "html",
+    minWords: wordCountMin,
+    maxWords: wordCountMax,
+  });
+  if (!originalRenderedOutput.valid) {
+    throw new Error(
+      `INVALID_ARTICLE_OUTPUT: rendered provider Markdown is invalid: ${originalRenderedOutput.reasons.join("; ")}`,
     );
   }
 
+  let finalContent = originalContent;
+  let finalOutput = originalOutput;
+  let humanizationMetrics: Record<string, unknown> = {
+    humanizationSkipped: true,
+  };
+  try {
+    const humanized = humanizeArticle(originalContent, 0.45);
+    const humanizedContent = normalizeArticleTargetUrls(humanized.content, targetUrl);
+    console.log(`🔧 [DH] Article humanized: burstiness=${humanized.metrics.burstinessApplied}, scrubs=${humanized.metrics.scrubsApplied}, integrity=${humanized.metrics.integrityPassed}`);
+    humanizationMetrics = { ...humanized.metrics };
+
+    if (!humanized.metrics.integrityPassed) {
+      throw new Error("entity integrity check failed");
+    }
+
+    const humanizedOutput = validateArticleOutput(humanizedContent, {
+      format: "markdown",
+      minWords: wordCountMin,
+      maxWords: wordCountMax,
+    });
+    if (!humanizedOutput.valid) {
+      throw new Error(
+        `Markdown validation failed: ${humanizedOutput.reasons.join("; ")}`,
+      );
+    }
+
+    // Validate the representation that readers actually receive. Markdown
+    // validation alone cannot catch a renderer rejection or malformed body.
+    const renderedHumanized = renderArticleMarkdown(humanizedContent);
+    const renderedOutput = validateArticleOutput(renderedHumanized, {
+      format: "html",
+      minWords: wordCountMin,
+      maxWords: wordCountMax,
+    });
+    if (!renderedOutput.valid) {
+      throw new Error(
+        `Rendered HTML validation failed: ${renderedOutput.reasons.join("; ")}`,
+      );
+    }
+
+    finalContent = humanizedContent;
+    finalOutput = humanizedOutput;
+  } catch (humanizationError) {
+    const reason = humanizationError instanceof Error
+      ? humanizationError.message
+      : String(humanizationError);
+    console.warn(
+      `[DH] Optional humanization rejected; preserving validated provider Markdown: ${reason}`,
+    );
+    humanizationMetrics = {
+      ...humanizationMetrics,
+      fallbackToOriginal: true,
+      fallbackWarning: reason,
+    };
+  }
+
   return {
-    rawContent: humanizedContent,
+    rawContent: finalContent,
     seoTitle: result.seoTitle,
     metaDescription: result.metaDescription,
     slug: result.slug,
@@ -2104,9 +2196,9 @@ export async function generateArticleWithGemini(
     hashtags: result.hashtags,
     faq: result.faq,
     imagePrompts: result.imagePrompts || [],
-    wordCount: humanizedOutput.wordCount,
+    wordCount: finalOutput.wordCount,
     geoAccuracyScore,
     tokensUsed: result.wordCount,
-    humanizationMetrics: humanized.metrics,
+    humanizationMetrics,
   };
 }

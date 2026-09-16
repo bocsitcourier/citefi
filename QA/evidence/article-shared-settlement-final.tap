@@ -1,0 +1,103 @@
+TAP version 13
+# (node:14949) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🔧 Initializing BullMQ workers...
+# Subtest: authenticated submit reaches COMPLETE and retrieval is team-scoped
+ok 1 - authenticated submit reaches COMPLETE and retrieval is team-scoped # SKIP test name does not match pattern
+  ---
+  duration_ms: 9021.003414
+  ...
+# Subtest: duplicate idempotency key creates one submission and one charge
+ok 2 - duplicate idempotency key creates one submission and one charge # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.274489
+  ...
+# 📦 Submitting batch 2 with 2 articles
+# ✅ Redis connected (redis://127.0.0.1:16390/0)
+# 📦 Queued batch generation job: batch-2 for batch 2 (brand: QA Article Chain)
+# 📦 Processing batch generation job batch-2
+# ✅ Batch 2 submitted successfully with job ID: batch-2
+# ✅ Article job queued: article-run-e3b3b29a083b9d16b902be6d for article 1 (brand: QA Article Chain, runId: article-...)
+# 📝 Processing article generation job article-run-e3b3b29a083b9d16b902be6d
+# ✅ Article job queued: article-run-a45a4c50d4806756a3badcd2 for article 2 (brand: QA Article Chain, runId: article-...)
+# ✅ Batch 2 processed: 2 new, 0 retried, 0 skipped (already complete/running)
+# 📝 Processing article generation job article-run-a45a4c50d4806756a3badcd2
+# 📊 Batch 2 progress: 0/2 complete, 0 failed, 0 in progress, 2 pending
+# ⏳ Batch 2 still has 2 unfinished articles - keeping RUNNING status
+# ▶️ STARTING: Article 1 run article- (from queued)
+# ▶️ STARTING: Article 2 run article- (from queued)
+# 🤖 Stage 1: Gemini generating article 1 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 1: 1 failure pattern(s) loaded
+# 📦 [Batch 2] Checking for cached SEO context...
+# ✅ [Batch 2] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 2)
+# ⚠️ No learning agent found for article, initializing...
+# ✅ Initialized Article Optimization Agent for team 1
+# ✅ Initialized Video Script Agent for team 1
+# ✅ Initialized Social Media Agent for team 1
+# ✅ Initialized Podcast Script Agent for team 1
+# ✅ Initialized Image Generation Agent for team 1
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ⚡ Article critique skipped (DISABLE_ARTICLE_CRITIQUE=true) - saving ~30s
+# 🔧 [DH] Article humanized: burstiness=0.42, scrubs=0, integrity=true
+# 🤖 Stage 1: Gemini generating article 2 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 2: 1 failure pattern(s) loaded
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 1
+# 📋 Using 6 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 1
+# 📦 [Batch 2] Checking for cached SEO context...
+# ✅ [Batch 2] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 2)
+# ⚡ Article 1 completed in SPEED MODE (Gemini-only)
+# ✅ Article 1 completed successfully
+# ⚠️ No image prompts found for article 1 - skipping image generation
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 2 progress: 1/2 complete, 0 failed, 1 in progress, 0 pending
+# ⏳ Batch 2 still has 1 unfinished articles - keeping RUNNING status
+# ⚡ Article critique skipped (DISABLE_ARTICLE_CRITIQUE=true) - saving ~30s
+# 🔧 [DH] Article humanized: burstiness=0.42, scrubs=0, integrity=true
+# ⚠️ Slug collision detected - using unique slug: san-francisco-home-care-planning-2
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 2
+# 📋 Using 6 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 2
+# ⚡ Article 2 completed in SPEED MODE (Gemini-only)
+# ✅ Article 2 completed successfully
+# ⚠️ No image prompts found for article 2 - skipping image generation
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 2 progress: 2/2 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 2 finished with status: COMPLETE
+# Subtest: two-article shared reservation waits for a paused sibling debit
+ok 3 - two-article shared reservation waits for a paused sibling debit
+  ---
+  duration_ms: 2335.264971
+  ...
+# Subtest: malformed provider output and timeout fail without a published artifact
+ok 4 - malformed provider output and timeout fail without a published artifact # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.183731
+  ...
+# Subtest: provider evidence is accounted once and remains non-replayable
+ok 5 - provider evidence is accounted once and remains non-replayable # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.078443
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+1..5
+# tests 5
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 4
+# todo 0

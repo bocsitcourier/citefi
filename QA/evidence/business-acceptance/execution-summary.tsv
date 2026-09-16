@@ -1,0 +1,7 @@
+suite	tap_log	tap_bytes	tests	pass	fail	cancelled	status
+daily-brief	QA/evidence/business-acceptance/daily-brief.tap.log	3514	3	3	0	0	TAP_GREEN
+journey	QA/evidence/business-acceptance/journey.tap.log	1219	3	3	0	0	TAP_GREEN
+learning-decisioning	QA/evidence/business-acceptance/learning-decisioning.tap.log	2763	4	4	0	0	TAP_GREEN
+admin	QA/evidence/business-acceptance/admin.tap.log	2039	4	4	0	0	TAP_GREEN
+agency-publication	QA/evidence/business-acceptance/agency-publication.tap.log	5118	3	3	0	0	TAP_GREEN
+TOTAL	-	-	17	17	0	0	5/5_TAP_GREEN

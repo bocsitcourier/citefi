@@ -16,7 +16,8 @@ import {
   prepareArticleRunForEnqueue,
   reconcilePendingArticleBilling,
 } from "../../lib/article-run-state";
-import { reserveCredits } from "../../lib/billing";
+import { debitReservation, reserveCredits } from "../../lib/billing";
+import { checkUsageCap } from "../../lib/usage-caps";
 import { generateImagesForArticle } from "../../lib/gemini-image-generator";
 import {
   getRedisClientConfig,
@@ -32,11 +33,14 @@ import {
   articles,
   creditBalances,
   creditLedger,
+  creditReservations,
   errorLogs,
   jobEvents,
   jobBatches,
   teamMembers,
   teams,
+  spendingCaps,
+  usageEvents,
   users,
 } from "../../shared/schema";
 
@@ -246,6 +250,154 @@ test("a final-attempt crash after COMPLETE settles without provider re-entry", a
       "DEBITED"
     );
   } finally {
+    await cleanupSeed(seed);
+  }
+});
+
+test("periodic recovery after debit before batch reconciliation settles a partial batch once", async () => {
+  const seed = await seedArticle("aggregate-settlement-crash");
+  const articleRunId = randomUUID();
+  const billingRunId = `batch:${seed.batch.id}:aggregate-recovery-${randomUUID()}`;
+  const billingJobId = `job-${randomUUID()}`;
+  const [sibling] = await db.insert(articles).values({
+    batchId: seed.batch.id,
+    teamId: seed.team.id,
+    chosenTitle: `${seed.article.chosenTitle} sibling`,
+    articleStatus: "FAILED",
+    errorMessage: "fixture sibling failure",
+  }).returning();
+  assert.ok(sibling);
+
+  try {
+    await db.insert(spendingCaps).values({
+      teamId: seed.team.id,
+      monthlyCapCents: 10_000,
+      hardStop: true,
+    });
+    const capReservationId = await checkUsageCap(seed.team.id, 10);
+    assert.ok(capReservationId);
+    await db
+      .update(jobBatches)
+      .set({
+        generationParams: {
+          capReservationId,
+          capReservationScope: "batch",
+        },
+      })
+      .where(eq(jobBatches.id, seed.batch.id));
+
+    await db.insert(creditBalances).values({
+      teamId: seed.team.id,
+      allowanceCredits: 100,
+      purchasedCredits: 0,
+      allowanceUsed: 0,
+      purchasedUsed: 0,
+      reservedCredits: 0,
+      balance: 100,
+    });
+    const reservation = await reserveCredits({
+      teamId: seed.team.id,
+      operationType: "article",
+      runId: billingRunId,
+      amount: 20,
+    });
+    assert.equal(reservation.ok, true);
+    await db.insert(articleRuns).values({
+      articleId: seed.article.id,
+      runId: articleRunId,
+      status: "running",
+      leaseExpiresAt: new Date(Date.now() - 1_000),
+      billingTeamId: seed.team.id,
+      billingRunId,
+      billingAmount: 10,
+      billingJobId,
+      jobDataJson: {
+        capReservationId,
+        capReservationScope: "batch",
+      },
+    });
+
+    // This is the durable crash boundary: the child debit committed, but the
+    // process disappeared before cap/batch reconciliation could run.
+    const debit = await debitReservation({
+      teamId: seed.team.id,
+      runId: billingRunId,
+      amount: 10,
+      jobId: billingJobId,
+    });
+    assert.equal(debit.ok, true);
+    const [beforeRecovery] = await db
+      .select({
+        remainingAmount: creditReservations.remainingAmount,
+        status: creditReservations.status,
+      })
+      .from(creditReservations)
+      .where(and(
+        eq(creditReservations.teamId, seed.team.id),
+        eq(creditReservations.runId, billingRunId),
+      ));
+    assert.equal(beforeRecovery?.remainingAmount, 10);
+    assert.equal(beforeRecovery?.status, "RESERVED");
+
+    // The periodic sweeper sees the expired claimed run, idempotently confirms
+    // the debit, excludes only that exact run from the sibling guard, and then
+    // finalizes the partial batch. A second pass must be a no-op.
+    const recovered = await reconcilePendingArticleBilling(
+      new Date(),
+      1,
+      [articleRunId],
+    );
+    assert.deepEqual(recovered, { settled: 1, deferred: 0 });
+    assert.deepEqual(
+      await reconcilePendingArticleBilling(new Date(), 1, [articleRunId]),
+      { settled: 0, deferred: 0 },
+    );
+
+    const [[run], [batch], [creditReservation], [capReservation], ledger] =
+      await Promise.all([
+        db
+          .select({ status: articleRuns.status, leaseToken: articleRuns.leaseToken })
+          .from(articleRuns)
+          .where(eq(articleRuns.runId, articleRunId)),
+        db
+          .select({ status: jobBatches.status })
+          .from(jobBatches)
+          .where(eq(jobBatches.id, seed.batch.id)),
+        db
+          .select({
+            remainingAmount: creditReservations.remainingAmount,
+            status: creditReservations.status,
+          })
+          .from(creditReservations)
+          .where(and(
+            eq(creditReservations.teamId, seed.team.id),
+            eq(creditReservations.runId, billingRunId),
+          )),
+        db
+          .select({ id: usageEvents.id })
+          .from(usageEvents)
+          .where(eq(usageEvents.id, capReservationId)),
+        db
+          .select({ eventType: creditLedger.eventType })
+          .from(creditLedger)
+          .where(and(
+            eq(creditLedger.teamId, seed.team.id),
+            eq(creditLedger.runId, billingRunId),
+          )),
+      ]);
+    assert.equal(run?.status, "completed");
+    assert.equal(run?.leaseToken, null);
+    assert.equal(batch?.status, "PARTIAL_COMPLETE");
+    assert.equal(creditReservation?.status, "RELEASED");
+    assert.equal(creditReservation?.remainingAmount, 0);
+    assert.equal(capReservation, undefined, "partial batch cap must be canceled once");
+    assert.equal(ledger.filter((row) => row.eventType === "debit").length, 1);
+    assert.equal(ledger.filter((row) => row.eventType === "release").length, 1);
+  } finally {
+    await db.delete(articleRuns).where(eq(articleRuns.articleId, sibling.id));
+    await db.delete(usageEvents).where(eq(usageEvents.teamId, seed.team.id));
+    await db.delete(creditReservations).where(eq(creditReservations.teamId, seed.team.id));
+    await db.delete(articles).where(eq(articles.id, sibling.id));
     await cleanupSeed(seed);
   }
 });

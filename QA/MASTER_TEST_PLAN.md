@@ -210,7 +210,7 @@ converted into passes.
 | Provider retry/accounting | Typed accounting terminals are checked before 429/transient classification; hardening is 10/10 and Daily Brief injection is 4/4. The final provider regression is 113 unique cases across two modes: 108 pass plus 5 DB-guard failures in the first TAP, with the same 5 passing in isolated ledger mode. | No provider call or application/customer DB; do not count the five cases twice or call this 113/113 pass. |
 | Typecheck | Final and later TypeScript checks pass with no diagnostics. | Typecheck evidence only; 0035 SQL was locally tested and no application/customer migration occurred. |
 | Security | DNS deadline fixed/retested with 13/13 helper/three-sink plus 1/1 original SSRF; auth/CSRF 11/11, reset 3/3, existing 6/6. Architect approval covers tested auth/SSRF origins. | Offline/mock/helper and route-boundary scope; live/deployed security remains outside the gate. |
-| Database/operations | Maintenance 51/51; extended isolated 45/45; real queue 5/5; separate canary 27/27; latest restart durability 8/8 after actual SPEED MODE Markdown-to-HTML correction. | Isolated fixtures; prior 65/48/17 and pre-correction red logs remain historical. |
+| Database/operations | Maintenance 51/51; extended isolated 45/45; real queue 5/5; separate canary 27/27; fresh continuation worker regression 28/28 on owned PostgreSQL `127.0.0.1:55481` and Redis `127.0.0.1:16389`. | Isolated fixtures; prior 65/48/17, 11-total/9-pass/2-fail durability log, and old 8/8 handoff remain historical; overlapping cases are not unique aggregate counts. |
 | Receipt durability/schema | Receipt DB/spool convergence 3/3; migration 0035 has seven historical scenarios, three constraints, and receipt suite 3/3 after predicate fix. | Disposable local PostgreSQL/spool only; no application/customer DB migration. |
 | Browser observation | Public forms render. The temporary cold/HMR navigation delay was not reproduced after hard-load, 20-second wait, and warmed pages; no code fix. Hydrated forgot-password/back/signup/back navigation passes; 390x844 mobile has no overflow; earlier toggle, remember-checkbox, required-empty, and invalid-email native validation remain passed. | Public unauthenticated observation only; no sign-in, MFA, reset submission, or signup submission. Expected `/api/auth/me` 401s are not defects; safety interception caused no actual mutation. |
 
@@ -222,5 +222,44 @@ restart, or customer/application database migration occurred. The six
 unsupported rows remain `NOT APPLICABLE`; supported rows remain `UNVERIFIED` or
 `BLOCKED`; no full feature is source-only `VERIFIED`.
 
-Final evidence summary: `QA/evidence/final-execution-summary.md`. Final IDs:
-`E-022` through `E-030`.
+Final evidence summary: `QA/evidence/final-execution-summary.md`. Final
+checkpoint IDs: `E-022` through `E-030`; continuation IDs through `E-042`.
+
+## Controlled execution continuation
+
+The current controlled reports now supply service and/or route coverage for all
+34 supported source rows without changing the exact 40-name source register:
+E-033 maps 19 rows, E-035 supplies the media service set for rows 8–10 and
+13–17, and E-034 covers rows 25 and 28–33. These are controlled boundaries,
+not live/full-feature `VERIFIED` results. The six unsupported rows remain
+`NOT APPLICABLE`, and historical grades remain separate from current status.
+
+| Evidence | Current execution result | Required interpretation |
+|---|---|---|
+| E-031 | Auth HTTP 7/7; bounded real Next UI browser member login/refresh/90-day remember-me/logout/protected denial/email MFA with SMTP capture and screenshot | Controlled owned fixture/browser security evidence only; unknown-resource browser `403` URLs are unresolved/non-core; guessed `/api/auth/session` 404 is not a bug because it is not a route; `/api/auth/me` is the known route. |
+| E-032 | Safe-local load 2/2 using owned Redis and file/memory CAS at 1/10/100; latency recorded; strict-spool failure-message fix applied | No PostgreSQL, live provider, or production capacity claim; retained red proof remains historical. |
+| E-033 | Content service 5/5 plus route 6/6; 19 rows mapped | Explicit DB/queue/billing/provider mocks; no paid or worker execution. |
+| E-034 | Business acceptance 17/17; all five TAP files green after agency command correction | Corrected run only; earlier agency command exit 127 remains red history, and this is not the earlier helper `17` claim. |
+| E-035 | Media service tests 9/9 with ownership/release-count/no-replay controls | Full media routes and orchestrators remain unverified. |
+| E-036 | Read-only public URL statuses: login 200, forgot-password 200, signup 200, health 200, anonymous `/api/auth/me` 401 | No deployment change, paid action, publication, or version-change claim. |
+| E-037 | No recoverable original receipts; 99 events/$0.517071; two calls unknown; `$6` reserve not spend approval | Historical reconciliation remains blocked; no retry or cost invention. |
+| E-038 | Article full chain: five unique cases observed green across three runs, not one 5/5; final 2 pass/3 historical fail, targeted 2 pass/1 historical fail/2 skip, shared-settlement 1 pass/0 fail/4 skip; humanizer 1/1 | Controlled cross-run evidence only. Deterministic-humanizer Markdown flattening, renderability guard, premature retry reserve release/shared-sibling billing-pending race, and scoped reconciliation gate are fixed; no full-feature/live settlement certification. |
+| E-039 | Media full chain: RUN 3 rows 9/15/16 pass with historical exit 124 teardown; targeted final rows 10/17 pass, 3 skips, clean exit 0 after queue cleanup; all five unique cases green across both | Controlled cross-run evidence only. Identity tenant context is fixed at `/api/media/assets/[identity]/regenerate`; row-17 fixture brand corrected without validator weakening; no full-feature/live media certification. |
+| E-040 | Fresh continuation-worker regression 28/28 on canonical owned PostgreSQL `127.0.0.1:55481` and Redis `127.0.0.1:16389` | Includes restart, budget-stop, pipeline-billing, receipt-CAS, and RLS coverage; overlaps earlier scopes and is not added to unique aggregate counts. |
+| E-041 | Real-PostgreSQL targeted recovery-settlement-crash retest 1 pass/0 fail/8 skip; completion is LAST after idempotent debit, cap, and batch reconciliation with exact current-run exclusion while other active siblings block | Controlled recovery evidence only. The prior `recovery-settlement-crash-final.tap` red fixture-missing-credit-balance run is retained and superseded; no live/provider settlement certification. |
+| E-042 | Read-only runtime logs show recurrent published Neon HTTP fetch failures/socket closures and journey-scheduler connection timeouts; development Redis `6379 ECONNREFUSED`; effective config `workersDisabled=false`, `localRedisEnabled=true`; owned Next UI start/stop screenshot passed; latest typecheck clean | HTTP 200 health is not operational certification. Normal workflow was not restarted because workers could enable potential paid jobs without a paid cap; no deployment/main restart. Full-scope completion remains pending explicit runtime authorization/remediation, not paid-cap approval alone. |
+
+The production premature reserve release on retry and shared-sibling
+billing-pending race are fixed behind a scoped reconciliation gate; this does
+not verify live settlement. The external Redis `6379` to `3001` mapping remains
+removed in the verified configuration. No main workflow restart has occurred;
+a planned safe app restart after the code batch is not claimed. No
+application/customer DB migration, paid provider call, real email, publication,
+or deployment occurred.
+
+E-041 closes the named recovery crash hole only within controlled Real
+PostgreSQL evidence. E-042 leaves a known runtime gap: published Neon/HTTP and
+journey-scheduler failures plus development Redis refusal require remediation
+and explicit authorization before a worker-enabled runtime retest. A paid cap
+alone is not the only remaining gate, and full-scope completion remains
+pending.

@@ -1,0 +1,26 @@
+Safe-local historical red proof retained before the bounded spool fix
+=====================================================================
+
+Command:
+  env -u DATABASE_URL -u NEON_DATABASE_URL -u REDIS_URL QA/support/load-local.sh
+
+The first actual run reached the post-provider ledger-failure scenario.  The
+provider stub had already crossed submit once, but the injected ledger outage
+then caused the receipt status fallback to fail with:
+
+  ProviderAttemptNotDurableError:
+  provider attempt receipt status could not be durably persisted
+
+The expected accounting-failed terminal could not be written to the strict
+local object-spool validator because the runtime used a human-readable
+failureMessage while that validator requires the fixed failureCode taxonomy.
+This was a real production receipt-core fault, not an AST-only check.
+
+Bounded fix:
+  lib/provider-attempt-receipts.ts persistSpool() now preserves the
+  human-readable failure message in the primary store but writes the fixed
+  failure code into the strict spool record.
+
+After the fix, the same command passed both load tests (2/2), and the
+post-provider ledger fault recovered with one provider physical call, one
+ledger event, and one accounted receipt after reopening the spool adapter.

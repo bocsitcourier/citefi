@@ -7,7 +7,10 @@ import {
   isBillingSettlementError,
   isFinalPipelineAttempt,
 } from "@/lib/pipeline-worker";
-import { orchestrateVideoIdeaGeneration } from "@/lib/veo-idea-orchestrator";
+import {
+  orchestrateVideoIdeaGeneration,
+  type VideoIdeaOrchestrationDependencies,
+} from "@/lib/veo-idea-orchestrator";
 import { db } from "@/lib/db";
 import { videoIdeas } from "@/shared/schema";
 import { eq } from "drizzle-orm";
@@ -26,6 +29,8 @@ export interface VideoIdeaGenerationDependencies {
   isStorageConfigured?: boolean;
   assertRunBudget?: typeof import("@/lib/cost-ceilings").assertRunBudget;
   orchestrate?: typeof orchestrateVideoIdeaGeneration;
+  /** Optional provider transport seams; production workers omit these. */
+  orchestrationDependencies?: VideoIdeaOrchestrationDependencies;
   debitReservation?: typeof import("@/lib/billing").debitReservation;
   completeCapReservation?: typeof import("@/lib/usage-caps").completeCapReservation;
   recordUsageEvent?: typeof import("@/lib/usage-caps").recordUsageEvent;
@@ -141,7 +146,7 @@ export async function processVideoIdeaGenerationJob(
                 website: idea.website || undefined,
                 companyLogoUrl: idea.companyLogoUrl || undefined,
                 stylePromptOverride: isLikeVideo ? (idea.stylePrompt || undefined) : undefined,
-              });
+              }, undefined, dependencies.orchestrationDependencies);
 
         console.log(`✅ Video idea generation complete: ${result.videoUrl}`);
 

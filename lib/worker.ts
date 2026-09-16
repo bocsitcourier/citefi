@@ -5,6 +5,7 @@ import {
   assertEntityTeam,
   createPipelineWorker,
   currentTenantTeamId,
+  isFinalPipelineAttempt,
   isArticleRunLeaseConflictError,
   isBillingSettlementError,
 } from "./pipeline-worker";
@@ -51,7 +52,7 @@ import {
 import { cancelCapReservation } from "@/lib/usage-caps";
 import { db, getTxDb, systemDb } from "./db";
 import { jobBatches, articles, articleRuns, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   claimArticleImageStage,
   claimArticleRun,
@@ -85,6 +86,7 @@ import { scoreInformationGain } from "./information-gain";
 import { enqueueCitationProbes } from "./citation-probe-worker";
 import { getModel } from "./model-resolver";
 import { classifyError } from "./errors";
+import type { GenerateSocialVideoDependencies } from "./social-video-generator";
 import {
   isNonReplayableProviderError,
   isProviderAccountingError,
@@ -175,7 +177,20 @@ console.log("🔧 Initializing BullMQ workers...");
 
 export interface ArticleGenerationDependencies {
   generateGemini?: typeof generateArticleWithGemini;
+  /**
+   * Narrow injection seam for the deterministic Guardian boundary. Production
+   * uses auditArticle directly; QA may provide an approved structural verdict
+   * without replacing generation, persistence, or finalization.
+   */
+  guardianAudit?: typeof auditArticle;
   beforeProvider?: (stage: string) => Promise<void> | void;
+  /** QA-only barrier used to exercise debit/reconciliation crash ordering. */
+  afterDebit?: (input: {
+    articleId: number;
+    batchId: number;
+    runId: string;
+    billingRunId: string;
+  }) => Promise<void> | void;
   finalizationGate?: FinalizationGateDependencies;
 }
 
@@ -189,6 +204,7 @@ export const processArticleGenerationJob = async (
         // a long but healthy Gemini/GPT call should never be mistaken for a crash.
         let runLeaseToken: string | null = null;
         let runLeaseLost = false;
+        let runCompletedAfterDebit = false;
         let currentStage = "ORCHESTRATION";
         const stageForOperation = (operation: string): string => {
           const normalized = operation.toLowerCase();
@@ -377,9 +393,17 @@ export const processArticleGenerationJob = async (
                 .update(articles)
                 .set({ errorMessage: null, updatedAt: new Date() })
                 .where(eq(articles.id, articleId));
+              // A completed run proves the child debit already committed.
+              // If aggregate reconciliation fails on redelivery, the common
+              // settlement catch below reopens this exact run for recovery.
+              runCompletedAfterDebit = true;
               try {
                 await checkBatchCompletion(batchId, {
                   settleAggregateCap: effectiveArticleCapReservationScope === "batch",
+                  sharedRunId:
+                    effectiveArticleCapReservationScope === "batch"
+                      ? (persistedBillingRunId ?? articleCreditRunId)
+                      : undefined,
                 });
               } catch (capError) {
                 throw new BillingSettlementError(
@@ -490,6 +514,23 @@ export const processArticleGenerationJob = async (
                 `Debit settlement failed for article ${articleId}`
               );
             }
+            const settled = await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken!,
+              values: {
+                status: "completed",
+                completedAt: new Date(),
+                leaseToken: null,
+                leaseExpiresAt: null,
+                settlementLastError: null,
+                settlementNextAttemptAt: null,
+              },
+            });
+            if (!settled) {
+              throw new Error(`LEASE_LOST: cannot complete recovered run ${runId}`);
+            }
+            runCompletedAfterDebit = true;
             try {
             if (
               articleCapReservationId != null &&
@@ -517,6 +558,10 @@ export const processArticleGenerationJob = async (
               await checkBatchCompletion(batchId, {
                 settleAggregateCap:
                   effectiveArticleCapReservationScope === "batch",
+                sharedRunId:
+                  effectiveArticleCapReservationScope === "batch"
+                    ? settlementRunId
+                    : undefined,
               });
             } catch (capError) {
               throw new BillingSettlementError(
@@ -545,19 +590,6 @@ export const processArticleGenerationJob = async (
               `Billing settlement metadata is incomplete for article ${articleId}`
             );
           }
-          await updateClaimedArticleRun({
-            articleId,
-            runId,
-            leaseToken: runLeaseToken,
-            values: {
-              status: "completed",
-              completedAt: new Date(),
-              leaseToken: null,
-              leaseExpiresAt: null,
-              settlementLastError: null,
-              settlementNextAttemptAt: null,
-            },
-          });
           clearInterval(heartbeatTimer);
           return;
         }
@@ -613,6 +645,23 @@ export const processArticleGenerationJob = async (
                 `Debit settlement failed for completed article ${articleId}`
               );
             }
+            const settled = await updateClaimedArticleRun({
+              articleId,
+              runId,
+              leaseToken: runLeaseToken!,
+              values: {
+                status: "completed",
+                completedAt: new Date(),
+                leaseToken: null,
+                leaseExpiresAt: null,
+                settlementLastError: null,
+                settlementNextAttemptAt: null,
+              },
+            });
+            if (!settled) {
+              throw new Error(`LEASE_LOST: cannot complete recovered article ${runId}`);
+            }
+            runCompletedAfterDebit = true;
             try {
               if (
                 articleCapReservationId != null &&
@@ -640,6 +689,10 @@ export const processArticleGenerationJob = async (
               await checkBatchCompletion(batchId, {
                 settleAggregateCap:
                   effectiveArticleCapReservationScope === "batch",
+                sharedRunId:
+                  effectiveArticleCapReservationScope === "batch"
+                    ? articleCreditRunId
+                    : undefined,
               });
             } catch (capError) {
               throw new BillingSettlementError(
@@ -649,19 +702,6 @@ export const processArticleGenerationJob = async (
               );
             }
           }
-          await updateClaimedArticleRun({
-            articleId,
-            runId,
-            leaseToken: runLeaseToken,
-            values: {
-              status: "completed",
-              completedAt: new Date(),
-              leaseToken: null,
-              leaseExpiresAt: null,
-              settlementLastError: null,
-              settlementNextAttemptAt: null,
-            },
-          });
           clearInterval(heartbeatTimer);
           return;
         }
@@ -1542,10 +1582,11 @@ export const processArticleGenerationJob = async (
           // ====================================================================
           let guardianHtml = finalHtmlWithLinks;
           const GUARDIAN_MAX_ATTEMPTS = 2;
+          const guardianAudit = dependencies.guardianAudit ?? auditArticle;
 
           for (let attempt = 1; attempt <= GUARDIAN_MAX_ATTEMPTS; attempt++) {
             await enterProviderStage(`Guardian audit attempt ${attempt}`);
-            const audit = await auditArticle(guardianHtml, {
+            const audit = await guardianAudit(guardianHtml, {
               minImages: 1,
               minHyperlinks: 3,
               minFaqQuestions: 2,
@@ -1888,6 +1929,12 @@ export const processArticleGenerationJob = async (
               `(teamId=${articleTeamId} runId=${articleCreditRunId} amount=${articleCreditCost})`
             );
           }
+          await dependencies.afterDebit?.({
+            articleId,
+            batchId,
+            runId,
+            billingRunId: articleCreditRunId,
+          });
 
           // Record usage only after credit debit succeeds. Batch-owned cap
           // reservations are aggregate holds and settle in checkBatchCompletion;
@@ -1930,22 +1977,9 @@ export const processArticleGenerationJob = async (
           }
         }
 
-        // Aggregate batch cap settlement runs while this article run is still
-        // billing_pending. If it fails, the catch below can preserve this
-        // delivered article for settlement-only recovery.
-        try {
-          await checkBatchCompletion(batchId, {
-            settleAggregateCap:
-              effectiveArticleCapReservationScope === "batch",
-          });
-        } catch (capError) {
-          throw new BillingSettlementError(
-            `Aggregate spending-cap settlement failed for article ${articleId}`,
-            articleCreditRunId,
-            capError,
-          );
-        }
-
+        // Mark this run financially complete only after the child debit has
+        // committed. Batch reconciliation below must never treat a
+        // billing_pending run as delivered work.
         const settled = await updateClaimedArticleRun({
           articleId,
           runId,
@@ -1961,6 +1995,27 @@ export const processArticleGenerationJob = async (
         });
         if (!settled) {
           throw new Error(`LEASE_LOST: cannot complete settled run ${runId}`);
+        }
+        runCompletedAfterDebit = true;
+
+        // Reconcile the aggregate only after this run is complete. If another
+        // sibling is still running/billing_pending, checkBatchCompletion
+        // defers and the sibling will reconcile after its own debit.
+        try {
+          await checkBatchCompletion(batchId, {
+            settleAggregateCap:
+              effectiveArticleCapReservationScope === "batch",
+            sharedRunId:
+              effectiveArticleCapReservationScope === "batch"
+                ? articleCreditRunId
+                : undefined,
+          });
+        } catch (capError) {
+          throw new BillingSettlementError(
+            `Aggregate spending-cap settlement failed for article ${articleId}`,
+            articleCreditRunId,
+            capError,
+          );
         }
 
         clearInterval(heartbeatTimer);
@@ -1978,7 +2033,33 @@ export const processArticleGenerationJob = async (
 
         if (error instanceof BillingSettlementError) {
           console.error(`💳 Article ${articleId} content is complete but billing is pending:`, error);
-          if (runLeaseToken) {
+          if (runCompletedAfterDebit) {
+            // The debit is durable, but aggregate reconciliation failed after
+            // this run was marked complete. Re-open only this exact completed
+            // run so the settlement sweeper can retry cap/batch cleanup.
+            await db
+              .update(articleRuns)
+              .set({
+                status: "billing_pending",
+                completedAt: new Date(),
+                billingTeamId: persistedBillingTeamId,
+                billingRunId: persistedBillingRunId,
+                billingAmount: persistedBillingAmount,
+                billingJobId: persistedBillingJobId,
+                settlementAttempts: persistedSettlementAttempts + 1,
+                settlementLastError: errorMessage.slice(0, 2000),
+                settlementNextAttemptAt: nextSettlementAttemptAt(
+                  persistedSettlementAttempts + 1,
+                ),
+              })
+              .where(and(
+                eq(articleRuns.articleId, articleId),
+                eq(articleRuns.runId, runId),
+                eq(articleRuns.status, "completed"),
+                isNull(articleRuns.leaseToken),
+              ))
+              .catch(() => undefined);
+          } else if (runLeaseToken) {
             await updateClaimedArticleRun({
               articleId,
               runId,
@@ -2020,6 +2101,7 @@ export const processArticleGenerationJob = async (
 
         // Classify the error for disposition, user-facing message, and admin log type.
         const classified = classifyError(error, "text_gen");
+        const finalArticleAttempt = isFinalPipelineAttempt(job, classified);
         const requiresProviderReconciliation =
           classified.code === "PROVIDER_ACCOUNTING_FAILED" ||
           classified.code === "PROVIDER_SUBMISSION_UNCERTAIN" ||
@@ -2146,12 +2228,15 @@ export const processArticleGenerationJob = async (
             .limit(1);
           const statusNow = statusCheck?.articleStatus;
           // A checkpoint is valuable history, but it is not a successful
-          // terminal result.  Preserve its content while making the article
-          // explicitly FAILED so the UI and batch cannot remain intermediate.
+          // terminal result. Preserve its content. A retriable BullMQ delivery
+          // remains IN_PROGRESS so batch reconciliation cannot mistake a
+          // transient failure for terminal work while another attempt is
+          // still queued.
+          const failureStatus = finalArticleAttempt ? "FAILED" : "IN_PROGRESS";
           if (runLeaseToken) {
             await updateOwnedArticle(
               {
-                articleStatus: "FAILED",
+                articleStatus: failureStatus,
                 errorMessage: `${userFriendlyError} (stage: ${currentStage}; detail: ${errorMessage})`,
               },
               "recording generation failure"
@@ -2160,7 +2245,7 @@ export const processArticleGenerationJob = async (
             await db
               .update(articles)
               .set({
-                articleStatus: "FAILED",
+                articleStatus: failureStatus,
                 errorMessage: `${userFriendlyError} (stage: ${currentStage}; detail: ${errorMessage})`,
                 updatedAt: new Date(),
               })
@@ -2168,7 +2253,7 @@ export const processArticleGenerationJob = async (
           }
           console.warn(
             `⚠️ Article ${articleId} failed after reaching ${statusNow ?? "unknown"} — ` +
-            `checkpoint content preserved, terminal status recorded`,
+            `${finalArticleAttempt ? "terminal status recorded" : "retry remains queued; status kept IN_PROGRESS"}`,
           );
         } catch (dbError) {
           if (isArticleRunLeaseConflictError(dbError)) throw dbError;
@@ -2219,8 +2304,22 @@ export const processArticleGenerationJob = async (
           }).catch(() => {});
         }
 
-        // Check batch completion even on failure
-        await checkBatchCompletion(batchId);
+        // A retriable article remains IN_PROGRESS while its BullMQ delivery is
+        // active. Do not let batch reconciliation release the aggregate
+        // reservation before the final delivery; the pipeline wrapper and
+        // batch reconciler otherwise race to settle the same run.
+        if (finalArticleAttempt) {
+          await checkBatchCompletion(batchId, {
+            sharedRunId:
+              articleCapReservationScope === "batch"
+                ? persistedBillingRunId
+                : undefined,
+          });
+        } else {
+          console.log(
+            `⏳ Deferring batch ${batchId} completion reconciliation until article ${articleId} reaches its final queue attempt`,
+          );
+        }
 
         // Rethrow — createPipelineWorker classifies, releases the reservation
         // on the final attempt, and converts fatal codes to UnrecoverableError.
@@ -2228,7 +2327,16 @@ export const processArticleGenerationJob = async (
       }
 };
 
-export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
+export interface SocialVideoJobDependencies {
+  generateSocialVideo?: typeof import("./social-video-generator").generateSocialVideo;
+  generateVeoSocialVideo?: typeof import("./veo-social-video-generator").generateVeoSocialVideo;
+  generationDependencies?: GenerateSocialVideoDependencies;
+}
+
+export const processSocialVideoJob = async (
+  job: Job<SocialVideoJobData>,
+  dependencies: SocialVideoJobDependencies = {},
+) => {
           console.log(`🎬 Processing social video generation job ${job.id}`);
            const {
              socialPostId,
@@ -2451,7 +2559,9 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
             if (videoType === "veo") {
               // Veo AI video generation (~50 minutes for 5 clips)
               console.log(`🎬 Using Veo AI video generation (premium quality)`);
-              const { generateVeoSocialVideo } = await import("./veo-social-video-generator");
+              const { generateVeoSocialVideo: importedGenerateVeoSocialVideo } = await import("./veo-social-video-generator");
+              const generateVeoSocialVideo =
+                dependencies.generateVeoSocialVideo ?? importedGenerateVeoSocialVideo;
 
               // Veo takes much longer - 90 minute timeout
               const VEO_TIMEOUT_MS = 90 * 60 * 1000;
@@ -2492,7 +2602,11 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
 
                   const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
                   result = await withTimeout(
-                    generateSocialVideo({ socialPostId, platform: platform || "tiktok" }),
+                    (dependencies.generateSocialVideo ?? (await import("./social-video-generator")).generateSocialVideo)({
+                      socialPostId,
+                      platform: platform || "tiktok",
+                      _deps: dependencies.generationDependencies,
+                    }),
                     VIDEO_TIMEOUT_MS,
                     `Slideshow fallback for post ${socialPostId}`
                   );
@@ -2508,9 +2622,10 @@ export const processSocialVideoJob = async (job: Job<SocialVideoJobData>) => {
               const VIDEO_TIMEOUT_MS = 15 * 60 * 1000;
 
               result = await withTimeout(
-                generateSocialVideo({
+                (dependencies.generateSocialVideo ?? (await import("./social-video-generator")).generateSocialVideo)({
                   socialPostId,
                   platform: platform || "tiktok",
+                  _deps: dependencies.generationDependencies,
                 }),
                 VIDEO_TIMEOUT_MS,
                 `Video generation for post ${socialPostId}`
@@ -2961,7 +3076,11 @@ export async function processBatchGenerationJob(
 
         console.log(`✅ Batch ${batchId} processed: ${spawned} new, ${retried} retried, ${skipped} skipped (already complete/running)`);
         if (childWorkEnqueued) {
-          await checkBatchCompletion(batchId);
+          await checkBatchCompletion(batchId, {
+            settleAggregateCap: effectiveBatchCapReservationId != null,
+            sharedRunId:
+              effectiveBatchCapReservationId != null ? creditRunId : undefined,
+          });
         } else if (effectiveBatchCapReservationId != null) {
           // No child owns any paid work (all titles were already terminal).
           // Release this aggregate hold only after orchestration has proved it
@@ -6280,9 +6399,19 @@ async function cleanupSessions(data: CleanupJobData, retentionDays: number) {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-async function checkBatchCompletion(
+export async function checkBatchCompletion(
   batchId: number,
-  options: { settleAggregateCap?: boolean } = {},
+  options: {
+    settleAggregateCap?: boolean;
+    /** Shared billing run for this batch, when child work owns the aggregate. */
+    sharedRunId?: string | null;
+    /**
+     * The one claimed recovery run that is currently performing aggregate
+     * reconciliation. It remains retry-visible until this reconciliation
+     * finishes, so exclude only that exact row from the active-sibling guard.
+     */
+    excludeSharedRun?: { articleId: number; runId: string };
+  } = {},
 ) {
   const batchArticles = await db
     .select()
@@ -6314,6 +6443,37 @@ async function checkBatchCompletion(
       .set({ status: "RUNNING", completedAt: null })
       .where(eq(jobBatches.id, batchId));
     return;
+  }
+
+  // Article rows are marked COMPLETE before settlement metadata is finalized
+  // so the durable artifact survives a worker crash. Never reconcile the
+  // shared batch reservation while a child run for this exact batch/run is
+  // still settling; otherwise a sibling can release the pending child's share
+  // before its debit commits. Scope this guard to the actual shared run so
+  // unrelated historical article_runs cannot block this batch.
+  if (options.sharedRunId) {
+    const activeSharedRuns = await db
+      .select({ id: articleRuns.id, status: articleRuns.status })
+      .from(articleRuns)
+      .innerJoin(articles, eq(articles.id, articleRuns.articleId))
+      .where(and(
+        eq(articles.batchId, batchId),
+        eq(articleRuns.billingRunId, options.sharedRunId),
+        inArray(articleRuns.status, ["running", "billing_pending"]),
+        options.excludeSharedRun
+          ? or(
+              ne(articleRuns.articleId, options.excludeSharedRun.articleId),
+              ne(articleRuns.runId, options.excludeSharedRun.runId),
+            )
+          : undefined,
+      ));
+    if (activeSharedRuns.length > 0) {
+      console.log(
+        `⏳ Batch ${batchId} reconciliation deferred: ` +
+        `${activeSharedRuns.length} shared billing run(s) remain active`,
+      );
+      return;
+    }
   }
 
   // All articles are in terminal state (COMPLETE or FAILED)

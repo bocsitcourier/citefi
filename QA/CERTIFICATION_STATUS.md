@@ -71,46 +71,46 @@ The following is the complete source inventory, in the order present in
 
 | Source row | Exact feature name | Historical inventory status | Current certification disposition | Source | Mock | Local integration | Live |
 |---:|---|---|---|---|---|---|---|
-| 1 | Article title pool and topic research | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 2 | Batch article generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 3 | Single article regeneration | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 4 | Batch title regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 5 | Article metadata regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 6 | Article reformatting | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 7 | Article and batch hyperlink transforms | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 8 | Direct hero and media image regeneration | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 9 | Batch image and caption repair | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 10 | Identity-based social/media image regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 11 | Social text generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 12 | Social variant regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 13 | Social image generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 14 | Social slideshow video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 15 | Idea video | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 16 | Like-this video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 17 | Podcast generation | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 18 | SEO content audit | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 19 | SEO local research | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 20 | SEO competitor analysis | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 21 | SEO schema markup | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 22 | SEO content structure | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 23 | SEO pillar and cluster planning | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 24 | SEO create articles | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 25 | Daily brief generation | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | PENDING | BLOCKED — queue/runtime gate | BLOCKED — no current retry |
-| 26 | Campaign ad copy generation | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 27 | Campaign brand confirmation and intelligence context | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
-| 28 | Journey orchestration and recommendations | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | PENDING | BLOCKED — runtime gate | BLOCKED — no current run |
-| 29 | Learning, corpus mining and decisioning analysis | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | PENDING | BLOCKED — runtime gate | BLOCKED — no current run |
-| 30 | Admin incident AI analysis | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 31 | Admin SEO report generation | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | PENDING |
-| 32 | Agency report rendering and delivery | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | UNVERIFIED — historical evidence only |
-| 33 | Content publication adapters | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | BLOCKED — no-publish authorization |
+| 1 | Article title pool and topic research | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 2 | Batch article generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 3 | Single article regeneration | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 4 | Batch title regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
+| 5 | Article metadata regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
+| 6 | Article reformatting | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
+| 7 | Article and batch hyperlink transforms | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
+| 8 | Direct hero and media image regeneration | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
+| 9 | Batch image and caption repair | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
+| 10 | Identity-based social/media image regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
+| 11 | Social text generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 12 | Social variant regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
+| 13 | Social image generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
+| 14 | Social slideshow video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
+| 15 | Idea video | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
+| 16 | Like-this video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
+| 17 | Podcast generation | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
+| 18 | SEO content audit | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 19 | SEO local research | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 20 | SEO competitor analysis | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 21 | SEO schema markup | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 22 | SEO content structure | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 23 | SEO pillar and cluster planning | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 24 | SEO create articles | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 25 | Daily brief generation | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | BLOCKED — queue/runtime gate | BLOCKED — no current retry |
+| 26 | Campaign ad copy generation | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
+| 27 | Campaign brand confirmation and intelligence context | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
+| 28 | Journey orchestration and recommendations | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | BLOCKED — runtime gate | BLOCKED — no current run |
+| 29 | Learning, corpus mining and decisioning analysis | `BLOCKED` | **BLOCKED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | BLOCKED — runtime gate | BLOCKED — no current run |
+| 30 | Admin incident AI analysis | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | PENDING | PENDING |
+| 31 | Admin SEO report generation | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | PENDING | PENDING |
+| 32 | Agency report rendering and delivery | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | PENDING | UNVERIFIED — historical evidence only |
+| 33 | Content publication adapters | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED COVERAGE — E-034 (17/17 business suite) | PENDING | BLOCKED — no-publish authorization |
 | 34 | Landing-page generation | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
 | 35 | AI email-campaign generation | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
 | 36 | Live Google/Meta ad publishing and spend | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
 | 37 | Provider-backed image editing or inpainting | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
 | 38 | Atomic article-to-all-channels flywheel | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
 | 39 | Threads and YouTube generation contracts | `NOT_TESTABLE` | **NOT APPLICABLE** | SOURCE-CONFIRMED unsupported | NOT APPLICABLE | NOT APPLICABLE | NOT APPLICABLE |
-| 40 | Standalone Brand Intelligence | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | PENDING | PENDING | HISTORICAL PASS — not a new pass |
+| 40 | Standalone Brand Intelligence | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
 
 ## Specialist ownership
 
@@ -177,7 +177,7 @@ historical grades.
 | Canary | `canary-worker` is 27/27 in its own manual TAP against the owned isolated Redis fixture; it is not combined with the 5/5 queue result. | Separate operational guardrail; no feature promotion. |
 | Receipt/provider convergence | Final provider regression has 113 unique cases across two modes: 108 pass plus 5 database-guard failures in `final-provider-regression.tap`, with the same 5 passing in isolated `provider-ledger-final.log`. Receipt DB/spool convergence is 3/3. | Production receipt-store code path and isolated ledger evidence only; no live provider or application/customer database certification. |
 | Database integration | Final maintenance is 51/51 and the separate extended isolated batch is 45/45. The earlier 65 total / 48 pass / 17 fail fixture remains historical red evidence. | Disposable local integration only; no live feature pass. |
-| Queue, canary, restart | Owned real-Redis queue is 5/5, separate canary is 27/27, and latest restart durability is 8/8 after the actual SPEED MODE Markdown-to-HTML correction. | Isolated operational evidence; no provider, publishing, or full-feature promotion. |
+| Queue, canary, restart | Owned real-Redis queue is 5/5, separate canary is 27/27, and the fresh continuation worker regression is 28/28 on canonical owned PostgreSQL/Redis. | Isolated operational evidence; no provider, publishing, or full-feature promotion. The 28/28 scope overlaps earlier counts; old 8/8 is not a new run. |
 | Receipt migration/RLS | Migration 0035 passes seven historical scenarios, three canonical constraints, and the receipt suite 3/3 after the predicate fix. | Disposable local migration only; no application/customer DB migration or production certification. |
 | Security | DNS-resolution deadline is fixed and independently retested: 13/13 helper/three-sink plus 1/1 original SSRF. Auth/CSRF 11/11, reset 3/3, and existing auth/security 6/6 remain separate; architect approval covers tested auth/SSRF origins. | Named offline controls are VERIFIED WITH LIMITATION; deployed/full security remains UNVERIFIED. |
 | Scans | Dependency audit 0 findings; SAST 0 findings; HoundDog 4 privacy findings (1 medium, 3 low), triaged in the security report. | Scan/triage evidence only; not a full security certification. |
@@ -262,7 +262,7 @@ initial inventory or erase the older red evidence.
 | Provider retry/accounting | Typed provider-accounting terminals are guarded before 429/transient classification. Focused hardening is 10/10 and Daily Brief dependency injection is 4/4. The final provider regression is 113 unique cases across two modes: 108 pass plus 5 database-guard failures in the first TAP, with the same 5 passing in isolated `provider-ledger-final.log`. | No provider call or application/customer DB. The 5 cases are not counted twice and the result is not called 113/113 pass. |
 | Typecheck | Final and later TypeScript checks pass with no diagnostics. | Typecheck is not certification; the new 0035 SQL is locally tested only. |
 | Security | DNS deadline fixed and retested: 13/13 helper/three-sink plus 1/1 original SSRF. Auth/CSRF 11/11, reset 3/3, existing auth/security 6/6; architect-approved auth/SSRF origins remain bounded to these tests. | Offline/mock/helper and route-boundary evidence; no deployed or live security certification. |
-| Database and operations | Maintenance 51/51; extended isolated batch 45/45; real owned queue 5/5; separate canary 27/27; latest `final-durability-integration.log` handoff is 8/8 after the actual SPEED MODE Markdown-to-HTML correction. | Isolated fixtures only. The prior 65/48/17 and pre-correction red restart logs remain historical. |
+| Database and operations | Maintenance 51/51; extended isolated batch 45/45; real owned queue 5/5; separate canary 27/27; fresh continuation worker regression 28/28 on owned PostgreSQL `127.0.0.1:55481` and Redis `127.0.0.1:16389`. | Isolated fixtures only. The prior 65/48/17, 11-total/9-pass/2-fail durability log, and old 8/8 handoff remain historical; overlapping cases are not added as unique totals. |
 | Receipt convergence and schema | Production receipt-store/CAS DB/spool convergence 3/3. Migration 0035 covers seven historical scenarios, three canonical constraints, and receipt integration 3/3 after the predicate fix. | Disposable local PostgreSQL/spool only; no application/customer DB migration. Independent scenario RLS failures no longer cascade into convergence. |
 | Browser observation | Public forms render. The temporary cold/HMR navigation delay was not reproduced after a hard load, a 20-second wait, and warmed pages; no code fix was made. Forgot-password navigation to the hydrated reset page, Back to login, Sign up to the hydrated signup page, and Back to login all pass. The 390x844 mobile check passes with no horizontal overflow. Earlier toggle, remember-checkbox, required-empty, and invalid-email native validation remain passed. | Public unauthenticated browser observation only; no sign-in, MFA, reset submission, signup submission, or authenticated certification was performed. Expected anonymous `/api/auth/me` 401s are not defects, and the non-GET/HEAD safety interception caused no actual mutation. |
 
@@ -285,7 +285,7 @@ paid/live certification gates remain missing.
 | E-023 | `QA/evidence/final-provider-regression.tap` and `provider-ledger-final.log` | 113 unique cases across two modes: 108 pass plus five DB guards, then the same five pass in isolated ledger mode. |
 | E-024 | `QA/evidence/final-typecheck.md` and later TypeScript result | Typecheck clean; no feature certification. |
 | E-025 | `QA/evidence/ssrf-security-fixes.md` and independent security TAPs | DNS deadline fixed/retested; auth and SSRF origin approval remains bounded to offline evidence. |
-| E-026 | Database maintenance, extended batch, queue/canary TAPs, and final durability handoff | 51/51, 45/45, 5/5, separate 27/27, and latest 8/8 restart status after real speed-mode renderer correction. |
+| E-026 | Database maintenance, extended batch, queue/canary TAPs, and prior durability handoff | 51/51, 45/45, 5/5, separate 27/27, and the old 8/8 handoff; newer continuation regression is recorded separately. |
 | E-027 | `QA/evidence/receipt-convergence-fix.md` and `receipt-durability-final.log` | DB/spool receipt convergence and no-replay result 3/3. |
 | E-028 | `QA/evidence/receipt-migration-hardening.md` and SQL log | 0035 seven historical scenarios, three constraints, and receipt suite 3/3; local-only migration. |
 | E-029 | `QA/evidence/final-execution-summary.md` and final tester/architect handoff | Unambiguous final counts, historical supersessions, and all non-certification boundaries before the targeted browser follow-up. |
@@ -299,3 +299,67 @@ evidence remains retained and the overall decision remains NOT CERTIFIED.
 follow-up. It supersedes the earlier temporary forgot-password navigation
 observation only; no code fix, authentication, MFA, reset submission, signup
 submission, or other runtime mutation is claimed.
+
+## Controlled execution continuation — current view
+
+This section is the current controlled-evidence view through E-042. It does not
+rewrite the exact 40-row source register or promote a full feature. The 34
+supported rows now have controlled service and/or route coverage: E-033 covers
+19 rows, E-035 covers the media service set for rows 8–10 and 13–17, and E-034
+covers rows 25 and 28–33. The six source-unsupported rows remain
+`NOT APPLICABLE`; every supported row remains `UNVERIFIED` or `BLOCKED`.
+
+| Evidence ID | Current controlled result | Current boundary |
+|---|---|---|
+| E-031 | Auth HTTP fixture 7/7 pass. Controlled real Next UI browser follow-up observed member login, refresh, 90-day remember-me retention, logout, protected denial, and email MFA with verified SMTP capture; screenshot retained. | Owned fixture/browser evidence only. Unknown-resource browser `403` URLs remain unresolved observations, not a core failure. A guessed `/api/auth/session` 404 is not a product bug because it is not an application route; `/api/auth/me` is the known route. |
+| E-032 | Safe-local load 2/2 pass using owned Redis and file/memory receipt-CAS fixtures at concurrency 1/10/100 with latency measurements. The actual strict-spool failure-message defect was corrected; red proof remains. | No PostgreSQL, live provider, or production capacity measurement. |
+| E-033 | Content sandbox service suite 5/5 and route suite 6/6; 19 source rows mapped. | Explicit provider, DB, queue, and billing mocks; no paid provider, worker, application DB, or live feature certification. |
+| E-034 | Business acceptance 17/17 with five green TAP suites after the agency command was corrected. | The earlier agency command exit 127 remains historical red evidence. This 17/17 is not the earlier helper claim and is not a full-feature count. |
+| E-035 | Media acceptance 9/9 service tests with ownership, release-count, receipt, and no-replay assertions. | Service/boundary coverage only; full route and orchestrator layers remain unverified. |
+| E-036 | Read-only public deployment observation reports `/login` 200, `/forgot-password` 200, `/signup` 200, `/health` 200, and anonymous `/api/auth/me` 401 at `https://contentualyzai.replit.app`. | No paid action, publication, deployment change, or version-change claim; the reported version match is observation-only. |
+| E-037 | Exhaustive historical search recovered no original receipts. Retained aggregate is 99 events and `$0.517071`; two historical calls remain unknown. | `$6` is a historical coverage reserve, not spend approval, an event, or an invoice. |
+| E-038 | Article full-chain controlled cross-run result: five unique cases each observed green across three runs, not one 5/5 run. Final TAP is 2 pass/3 historical fail; targeted TAP is 2 pass/1 historical fail/2 skip; shared-settlement TAP is 1 pass/0 fail/4 skip; humanizer structure is 1/1. The earlier `article-full-chain-run5.log` remains historical. | Controlled evidence only; the deterministic-humanizer Markdown-flattening bug, renderability guard, premature retry reserve release/shared-sibling billing-pending race, and scoped run-reconciliation gate are fixed. No full-feature/live settlement certification. |
+| E-039 | Media full-chain controlled cross-run result: RUN 3 log rows 9/15/16 pass with exit-124 teardown history; targeted final TAP rows 10/17 pass with 3 skips and clean exit 0 after queue cleanup. All five unique cases have green observations. | Controlled evidence only; real identity tenant context is fixed at `/api/media/assets/[identity]/regenerate`, and the row-17 fixture brand was corrected without validator weakening. No full-feature/live media certification. |
+| E-041 | Real-PostgreSQL targeted recovery/settlement crash retest is 1 pass/0 fail/8 skip. Recovery now completes LAST after idempotent debit, cap, and batch reconciliation, excluding the exact current run while other active siblings block. | Controlled recovery evidence only. The previous `recovery-settlement-crash-final.tap` red fixture-missing-credit-balance result remains retained and superseded; no live/provider settlement certification. |
+| E-042 | Read-only runtime evidence records published recurrent Neon HTTP fetch failures/socket closures and journey-scheduler connection timeouts. Development workflow currently logs Redis `6379 ECONNREFUSED` with effective `workersDisabled=false` and `localRedisEnabled=true`; owned Next UI start/stop screenshot passed, and latest typecheck is clean. | HTTP 200 health is not operational certification. The normal workflow was not restarted because it would enable workers with potential paid jobs and no paid cap. No app deployment or main restart occurred; full-scope completion remains pending runtime authorization and remediation, not paid-cap approval alone. |
+
+The `.replit` external Redis `6379` to `3001` mapping remains removed in the
+verified configuration; internal developer/test Redis on 6379 remains. No main
+workflow restart has occurred; a planned safe app restart after the code batch
+is not claimed here. No application/customer DB migration, paid provider call,
+real email, publication, or deployment occurred. The earlier helper/summary
+`17` claim is ignored until supported by an actual green TAP.
+
+E-042 is a known runtime gap, not a completion signal: published recurrent Neon
+HTTP fetches failed or sockets closed, and journey-scheduler connections timed
+out, so HTTP 200 health is not operational certification. The development
+workflow currently reports Redis `6379 ECONNREFUSED` while its effective config
+has `workersDisabled=false` and `localRedisEnabled=true`. The normal workflow
+was deliberately not restarted because that would enable workers with potential
+paid jobs and no paid cap. The owned Next UI was started/stopped and its
+screenshot passed, but no app deployment or main restart occurred. Explicit
+authorization is still required for a worker-enabled runtime retest after the
+Neon/Redis/scheduler gap is addressed; a paid cap alone is not the only
+remaining gate, and full-scope completion remains pending.
+
+## E-031 through E-042 evidence index additions
+
+| Evidence ID | Source | Current disposition added |
+|---|---|---|
+| E-031 | `QA/evidence/auth-http-execution-pass.log`; `QA/evidence/auth-browser-login.jpg` | Auth fixture 7/7 and bounded authenticated browser/SMTP observations; no full security certification. |
+| E-032 | `QA/evidence/load-local.md`; `QA/evidence/load-local.txt`; retained `load-failure-injection.red.txt` | Safe-local 2/2 load/CAS result at 1/10/100; no DB/live claim; strict spool message fix recorded. |
+| E-033 | `QA/evidence/content-acceptance-sandbox.md` | 5/5 service and 6/6 route mock acceptance covering 19 rows. |
+| E-034 | `QA/evidence/business-acceptance/execution-summary.tsv`, `command-exitcodes.tsv`, and five TAP files | Corrected 17/17 across five green TAP suites; earlier agency command exit 127 retained. |
+| E-035 | `QA/evidence/media-acceptance-8-10-13-17.md` and its accounting TAP | 9/9 media service tests with explicit ownership/release/accounting limits. |
+| E-036 | Read-only public observation of `https://contentualyzai.replit.app` | Public route statuses only; no deployment or paid/external side effect. |
+| E-037 | `reports/live-generation/execution-summary.md` and exhaustive historical-search handoff | No recoverable original receipts; 99 events/$0.517071 retained, two calls unknown, `$6` reserve not spend approval. |
+| E-038 | `QA/evidence/article-full-chain-final.tap`, `article-full-chain-targeted.tap`, `article-shared-settlement-final.tap`, `humanizer-structure-regression.tap` | Five unique article cases observed green across three TAP runs with exact per-run counts; humanizer structure 1/1; controlled fixes remain bounded. |
+| E-039 | `QA/evidence/media-fullchain-run3.log`, `media-fullchain-final-targeted.tap` | Five unique media cases observed green across RUN 3 and targeted final evidence; exit-124 teardown retained historical, targeted exit 0 after cleanup, identity and fixture fixes recorded. |
+| E-040 | `QA/evidence/continuation-worker-regression.tap` | Fresh coherent 28/28 on canonical owned PostgreSQL/Redis; overlapping scopes are not aggregated and old 8/8 is not a new run. |
+| E-041 | `QA/evidence/recovery-settlement-crash-retest.tap`; retained `QA/evidence/recovery-settlement-crash-final.tap` | Real-PostgreSQL targeted recovery retest 1 pass/0 fail/8 skip; prior red missing-credit-balance fixture is retained as superseded. |
+| E-042 | Read-only published/runtime logs, owned Next UI screenshot, and latest typecheck handoff | Neon/socket and journey-scheduler runtime gaps, development Redis refusal, effective worker-enabled config, no normal workflow restart, and clean typecheck recorded; HTTP 200 health is not operational certification. |
+
+**Append-only log entry 006:** Added E-041 through E-042. These entries update
+only the named controlled-evidence current columns and boundaries. Historical
+source counts, red logs, and the overall **NOT CERTIFIED** decision remain
+unchanged.

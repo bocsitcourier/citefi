@@ -1,0 +1,81 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: row 8: direct hero/media image uses the real operation, fixture transport, storage roundtrip, and settlement
+ok 1 - row 8: direct hero/media image uses the real operation, fixture transport, storage roundtrip, and settlement
+  ---
+  duration_ms: 20.131235
+  ...
+# Subtest: row 8/9: cancellation, provider rejection, post-success storage failure, and accounting failure are non-replayable
+ok 2 - row 8/9: cancellation, provider rejection, post-success storage failure, and accounting failure are non-replayable
+  ---
+  duration_ms: 6.602059
+  ...
+# Subtest: row 9: batch caption repair uses the production sanitizer and rejects unsafe boundary output
+ok 3 - row 9: batch caption repair uses the production sanitizer and rejects unsafe boundary output
+  ---
+  duration_ms: 1.020557
+  ...
+# Subtest: row 10: identity regeneration roundtrip is tenant-resource scoped and rejects malformed identities
+ok 4 - row 10: identity regeneration roundtrip is tenant-resource scoped and rejects malformed identities
+  ---
+  duration_ms: 9.536162
+  ...
+# Subtest: row 13: social image provider bytes normalize to platform contract before persisted URL
+ok 5 - row 13: social image provider bytes normalize to platform contract before persisted URL
+  ---
+  duration_ms: 43.702077
+  ...
+# 🎬 Composing 60-second video with FFmpeg
+#   💾 /tmp free space: 31711MB
+#   🔍 Validating image dimensions...
+#     Scene 1: 1920x1080 (expected: 1920x1080)
+#     Scene 2: 1920x1080 (expected: 1920x1080)
+#     Scene 3: 1920x1080 (expected: 1920x1080)
+#     Scene 4: 1920x1080 (expected: 1920x1080)
+#     Scene 5: 1920x1080 (expected: 1920x1080)
+#   ✅ All images validated and dimensionally correct
+#   🎙️ Audio duration: 6.03s (TTS raw: 6.0s, TTS estimate was: 6s)
+#   ⏱️ Scene durations: 1s, 1s, 1s, 1s, 2s (total: 6s = audio)
+#   📐 Scale+crop: scale='if(gt(a,1.7777777777777777),-2,1920)':'if(gt(a,1.7777777777777777),1080,-2)',crop=1920:1080
+#   🔤 Using bundled font
+#   ✏️ Caption 1 sanitized: "Caption: "Openai and Ai"" → "OpenAI and AI"
+#   🔗 URL overlay Scene 5 (4s-6s): fixture.invalid
+#   🎬 Single-pass: concat→scale/crop→captions+audio
+#   🎬 Executing FFmpeg [single-pass]: /home/runner/workspace/node_modules/ffmpeg-static/ffmpeg -hide_banner -y -f concat -safe 0...
+#   ✅ Video + audio + captions composed
+#   🔍 Running ffprobe to get video duration...
+#   ✅ Final video: 1920x1080, 7s, 0.05MB
+#   ☁️ Uploading to permanent storage...
+# ✅ Video uploaded to permanent storage
+# 🧹 Cleaned up temp workspace: /tmp/video-14
+# Subtest: row 14: slideshow compositor executes FFmpeg with local images/audio, persists MP4 metadata, URL, range, and playback duration
+ok 6 - row 14: slideshow compositor executes FFmpeg with local images/audio, persists MP4 metadata, URL, range, and playback duration
+  ---
+  duration_ms: 536.003819
+  ...
+# Subtest: rows 15/16: idea and like-video paid media boundary has one fixture submission, no replay after delivery loss, and concurrent duplicate recovery
+ok 7 - rows 15/16: idea and like-video paid media boundary has one fixture submission, no replay after delivery loss, and concurrent duplicate recovery
+  ---
+  duration_ms: 47.375679
+  ...
+# Subtest: row 17: podcast preflight, ffprobe playback metadata, audio storage/export, and settlement recovery
+ok 8 - row 17: podcast preflight, ffprobe playback metadata, audio storage/export, and settlement recovery
+  ---
+  duration_ms: 269.498332
+  ...
+# Subtest: rows 8-10/13-17: receipt recovery converges spool evidence without a second fixture provider call
+ok 9 - rows 8-10/13-17: receipt recovery converges spool evidence without a second fixture provider call
+  ---
+  duration_ms: 2.369602
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2748.094761

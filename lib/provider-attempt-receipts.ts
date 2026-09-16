@@ -1167,7 +1167,17 @@ export async function captureProviderSdkResponse(capture: ProviderResponseCaptur
 }
 
 async function persistSpool(runtime: AttemptRuntime): Promise<void> {
-  await runtime.spool.write(toSpoolRecord(runtime.receipt));
+  // The strict spool contract stores only the fixed failure taxonomy, never a
+  // free-form provider/runtime message.  The primary store may retain the
+  // human-readable message, but a status write fault after a provider response
+  // must still be recoverable through the independent spool.
+  const receipt = runtime.receipt.failureCode
+    ? {
+        ...runtime.receipt,
+        failureMessage: runtime.receipt.failureCode,
+      }
+    : runtime.receipt;
+  await runtime.spool.write(toSpoolRecord(receipt));
   runtime.durableLocation = "spool";
 }
 

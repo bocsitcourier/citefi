@@ -1,0 +1,58 @@
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# Legacy storage reads remain enabled: no destination-matched PASS evidence was found
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: row 9: owned authenticated repair route persists production DB output
+ok 1 - row 9: owned authenticated repair route persists production DB output # SKIP test name does not match pattern
+  ---
+  duration_ms: 1.118387
+  ...
+# 🔄 Regenerating image 811 with image brand lock: "Fixture Media Co"
+# ✅ Gemini image generated, extracting data...
+# 📤 Uploading to storage: public/article-810/images/regenerated-1789597395144.png
+# ✅ Uploaded image: /api/public-objects/private/uploads/image/1789597395144-regenerated-1789597395144.png
+# ✅ Uploaded to permanent storage: /api/public-objects/private/uploads/image/1789597395144-regenerated-1789597395144.png
+# ✅ Image 811 regenerated successfully
+# Subtest: row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+ok 2 - row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+  ---
+  duration_ms: 501.560665
+  ...
+# Subtest: row 15: idea route -> Redis job -> exported worker persists and debits fixture video
+ok 3 - row 15: idea route -> Redis job -> exported worker persists and debits fixture video # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.181311
+  ...
+# Subtest: row 16: like-video route -> Redis job -> same exported worker settles reference-led output
+ok 4 - row 16: like-video route -> Redis job -> same exported worker settles reference-led output # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.074097
+  ...
+# ✅ Redis connected (redis://127.0.0.1:16388/0)
+# 🎙️ Podcast generation job queued: podcast-f5df00b76db596e400e50b5973f2f4723b3c2c3c9e2ff08b2028a868969a0d0c for article 810
+# [Podcast Worker] Starting podcast generation for article 810
+# [Podcast Worker] Generating script for article 810
+# [Podcast Worker] Script generated with 1 segments
+# ✅ Podcast script brand name validation passed: "Fixture Media Co"
+# [Podcast Worker] Generating audio for article 810
+# [Podcast Worker] Audio generated, size: 240344 bytes
+# [Podcast Worker] Uploading to object storage: private/teams/810/articles/810/podcasts/podcast-article-810-1789597396152.mp3
+# [Podcast Worker] Object storage upload complete
+# [Podcast Worker] Podcast generated successfully for article 810
+# Subtest: row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles
+ok 5 - row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles
+  ---
+  duration_ms: 1012.13833
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+# 📢 Notification created: [success] Podcast Ready
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 3
+# todo 0
+# duration_ms 19027.33537

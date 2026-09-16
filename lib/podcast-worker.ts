@@ -44,6 +44,15 @@ export interface PodcastGenerationJob {
   capReservationId?: number | null;
 }
 
+export interface PodcastGenerationDependencies {
+  generatePodcastScript?: typeof generatePodcastScript;
+  mergeAudioSegments?: typeof mergeAudioSegments;
+  getPromptEnhancement?: typeof getPromptEnhancement;
+  runGenerationOrchestrator?: typeof runGenerationOrchestrator;
+  recordContentGenerated?: typeof recordContentGenerated;
+  uploadPodcastToDrive?: typeof uploadPodcastToDrive;
+}
+
 export async function settleDeliveredPodcast(
   job: PodcastGenerationJob,
   articleId: number,
@@ -96,7 +105,10 @@ export async function settleDeliveredPodcast(
   }
 }
 
-export async function generateArticlePodcast(job: PodcastGenerationJob): Promise<void> {
+export async function generateArticlePodcast(
+  job: PodcastGenerationJob,
+  dependencies: PodcastGenerationDependencies = {},
+): Promise<void> {
   const { articleId, tone, duration, teamId, personaId } = job;
   let paidAudioCompleted = false;
   
@@ -169,7 +181,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       .trim();
     
     console.log(`[Podcast Worker] Generating script for article ${articleId}${personaId ? ' [PERSONA TARGETED]' : ''}`);
-    const script: PodcastScript = await generatePodcastScript(
+    const script: PodcastScript = await (dependencies.generatePodcastScript ?? generatePodcastScript)(
       article.chosenTitle,
       textContent,
       { tone, duration, companyName, teamId, personaId }
@@ -205,7 +217,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       try {
         // Thread terminalKpi from batch generationParams for per-journey KPI weighting.
         const podcastTerminalKpi = (article.batch?.generationParams as Record<string, unknown> | null)?.terminalKpi as string | undefined;
-        const podcastEnhancement = await getPromptEnhancement(teamId, ContentType.PODCAST, {
+        const podcastEnhancement = await (dependencies.getPromptEnhancement ?? getPromptEnhancement)(teamId, ContentType.PODCAST, {
           stableId: String(articleId),
           terminalKpi: podcastTerminalKpi,
           campaignId: article.campaignId ?? null,
@@ -215,7 +227,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         podcastVariantArmId = podcastEnhancement.variantArmId;
 
         const scriptText = script.segments.map(s => s.text).join(' ');
-        const orchResult = await runGenerationOrchestrator({
+        const orchResult = await (dependencies.runGenerationOrchestrator ?? runGenerationOrchestrator)({
           teamId,
           campaignId: article.campaignId ?? null,
           contentType: ContentType.PODCAST,
@@ -277,7 +289,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       text: seg.text,
     }));
     
-    const audioBuffer = await mergeAudioSegments(audioSegments, {
+    const audioBuffer = await (dependencies.mergeAudioSegments ?? mergeAudioSegments)(audioSegments, {
       operationType: "podcast_tts",
       teamId: teamId ?? article.teamId,
       userId: job.userId,
@@ -339,7 +351,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
       
       // Google Drive backup (non-blocking - don't fail if this fails)
       try {
-        const driveFileId = await uploadPodcastToDrive(
+        const driveFileId = await (dependencies.uploadPodcastToDrive ?? uploadPodcastToDrive)(
           audioBuffer,
           fileName,
           {
@@ -406,7 +418,7 @@ export async function generateArticlePodcast(job: PodcastGenerationJob): Promise
         // so the engagement scorer can label it and Wilson attribution can fire.
         const effectiveTeamId = teamId ?? article.teamId;
         if (effectiveTeamId) {
-          recordContentGenerated(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore, { armId: podcastArmId, variantArmId: podcastVariantArmId })
+          (dependencies.recordContentGenerated ?? recordContentGenerated)(effectiveTeamId, ContentType.PODCAST, articleId, capturedPodcastPatternIds, podcastQualityScore, { armId: podcastArmId, variantArmId: podcastVariantArmId })
             .catch(err => console.warn('[Podcast Worker] Non-fatal: could not record learning:', err));
         }
       } catch (dbError) {

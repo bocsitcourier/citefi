@@ -13,6 +13,20 @@ import { isProviderAccountingError } from "./cost-telemetry";
 export interface GenerateSocialVideoRequest {
   socialPostId: number;
   platform?: string;
+  /** Optional low-level provider/storage seams for isolated acceptance runs. */
+  _deps?: GenerateSocialVideoDependencies;
+}
+
+export interface GenerateSocialVideoDependencies {
+  generateVideoScript?: typeof generateVideoScript;
+  generateVideoImages?: typeof generateVideoImages;
+  generateVideoTTS?: typeof generateVideoTTS;
+  composeVideo?: typeof composeVideo;
+  cleanupTempFiles?: typeof cleanupTempFiles;
+  generateVideoSEOMetadata?: typeof generateVideoSEOMetadata;
+  runGenerationOrchestrator?: typeof runGenerationOrchestrator;
+  getPromptEnhancement?: typeof getPromptEnhancement;
+  recordContentGenerated?: typeof recordContentGenerated;
 }
 
 export interface GenerateSocialVideoResult {
@@ -31,6 +45,7 @@ export async function generateSocialVideo(
   request: GenerateSocialVideoRequest
 ): Promise<GenerateSocialVideoResult> {
   const { socialPostId, platform = "facebook" } = request;
+  const dependencies = request._deps ?? {};
 
   const timings: Record<string, number> = {};
   const startTotal = Date.now();
@@ -105,7 +120,7 @@ export async function generateSocialVideo(
     // Script generation (Gemini call ~10-30s)
     console.log(`\n📝 Step 2/5: Generating video script with Gemini...`);
     markTime("script_start");
-    const script = await generateVideoScript({
+    const script = await (dependencies.generateVideoScript ?? generateVideoScript)({
       topic: post.topic,
       title: post.title,
       location: post.location,
@@ -128,7 +143,7 @@ export async function generateSocialVideo(
     try {
       // Fetch learned patterns for attribution so Wilson/EMA updates fire on the
       // right patterns. Must be done before the orchestrator call.
-      const videoEnhancement = await getPromptEnhancement(teamId, ContentType.VIDEO, {
+      const videoEnhancement = await (dependencies.getPromptEnhancement ?? getPromptEnhancement)(teamId, ContentType.VIDEO, {
         stableId: String(socialPostId),
         campaignId: post.campaignId ?? null,
       })
@@ -136,7 +151,7 @@ export async function generateSocialVideo(
       const capturedVideoPatternIds = videoEnhancement.patternsUsed;
       const videoVariantArmId = videoEnhancement.variantArmId;
 
-      const orchResult = await runGenerationOrchestrator({
+      const orchResult = await (dependencies.runGenerationOrchestrator ?? runGenerationOrchestrator)({
         teamId,
         campaignId: post.campaignId ?? null,
         contentType: ContentType.VIDEO,
@@ -162,7 +177,7 @@ export async function generateSocialVideo(
       // Social videos are stored in social_posts (not video_ideas), so we record
       // under ContentType.SOCIAL so the learning service maps the ID to
       // socialPostId (not videoIdeaId) — preventing a silent FK mismatch.
-      recordContentGenerated(
+      (dependencies.recordContentGenerated ?? recordContentGenerated)(
         teamId,
         ContentType.SOCIAL,
         socialPostId,
@@ -190,7 +205,7 @@ export async function generateSocialVideo(
     const [images, audio] = await Promise.all([
       (async () => {
         console.log(`🖼️ [Parallel] Generating 5 cinematic images...`);
-        const result = await generateVideoImages({
+        const result = await (dependencies.generateVideoImages ?? generateVideoImages)({
           teamId,
           socialPostId,
           scenes: reviewedScript.scenes,
@@ -204,7 +219,7 @@ export async function generateSocialVideo(
       })(),
       (async () => {
         console.log(`🎙️ [Parallel] Generating voiceover with OpenAI TTS...`);
-        const result = await generateVideoTTS({
+        const result = await (dependencies.generateVideoTTS ?? generateVideoTTS)({
           teamId,
           socialPostId,
           scenes: reviewedScript.scenes,
@@ -278,7 +293,7 @@ export async function generateSocialVideo(
 
     const [video, seoMetadata] = await Promise.all([
       (async () => {
-        const result = await composeVideo({
+        const result = await (dependencies.composeVideo ?? composeVideo)({
           socialPostId,
           images,
           audio,
@@ -295,7 +310,7 @@ export async function generateSocialVideo(
       })(),
       (async () => {
         console.log(`🏷️ [Parallel] Generating SEO metadata with GPT-4...`);
-        const result = await generateVideoSEOMetadata({
+        const result = await (dependencies.generateVideoSEOMetadata ?? generateVideoSEOMetadata)({
           topic: post.topic,
           title: reviewedScript.title,
           location: post.location,
@@ -325,7 +340,7 @@ export async function generateSocialVideo(
 
     if (currentStatus?.videoStatus === "FAILED") {
       console.log(`🛑 Social post ${socialPostId} was cancelled by user — skipping READY update`);
-      await cleanupTempFiles(socialPostId);
+      await (dependencies.cleanupTempFiles ?? cleanupTempFiles)(socialPostId);
       return {
         videoUrl: video.videoUrl,
         duration: video.duration,
@@ -368,7 +383,7 @@ export async function generateSocialVideo(
       })
     );
 
-    await cleanupTempFiles(socialPostId);
+    await (dependencies.cleanupTempFiles ?? cleanupTempFiles)(socialPostId);
 
     markTime("complete");
     console.log(`\n✅ Video generation complete!`);
@@ -407,7 +422,7 @@ export async function generateSocialVideo(
         .where(eq(socialPosts.id, socialPostId))
     );
 
-    await cleanupTempFiles(socialPostId);
+    await (dependencies.cleanupTempFiles ?? cleanupTempFiles)(socialPostId);
     throw error;
   }
 }

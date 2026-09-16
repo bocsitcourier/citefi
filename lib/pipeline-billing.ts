@@ -17,9 +17,13 @@ export type ArticleGenerationBillingJobData = {
 export async function getArticleGenerationBilling(
   job: Pick<Job<ArticleGenerationBillingJobData>, "data">
 ) {
+  const aggregateBatchReservation = job.data.capReservationScope === "batch";
   return {
     teamId: job.data.teamId,
-    runId: job.data.creditRunId,
+    // Batch-scoped reservations are settled by checkBatchCompletion after all
+    // child attempts are terminal. The pipeline wrapper must not release the
+    // same aggregate run on a child retry/final failure.
+    runId: aggregateBatchReservation ? undefined : job.data.creditRunId,
     // Legacy jobs predating creditCostPerUnit must resolve the normal article
     // price. Leaving amount undefined would release the entire batch reserve.
     amount:
@@ -33,7 +37,7 @@ export async function getArticleGenerationBilling(
     // the batch completion reconciler settles it once, after all children are
     // terminal.
     capReservationId:
-      job.data.capReservationScope === "batch"
+      aggregateBatchReservation
         ? null
         : job.data.capReservationId,
   };

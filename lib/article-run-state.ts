@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db, getTxDb } from "./db";
 import { articleRuns, articles, jobBatches } from "@/shared/schema";
 
@@ -419,17 +419,21 @@ export async function updateActiveArticleRun(input: {
 }
 
 /**
- * Settle the spending-cap hold after credit debit recovery.  This is kept
+ * Prepare spending-cap reconciliation after credit debit recovery. This is
  * separate from provider recovery: the article content is already delivered,
- * so a cap error must defer settlement without re-entering generation.
+ * so a cap error must defer settlement without re-entering generation. Batch
+ * reservations are finalized by checkBatchCompletion while this run remains
+ * claimed, and the run is marked completed only after that reconciliation.
  */
 async function settleRecoveredArticleCap(input: {
   articleId: number;
+  articleRunId: string;
   batchId: number | null;
   teamId: number;
+  billingRunId: string;
   billingJobId: string;
   jobDataJson: unknown;
-}): Promise<void> {
+}): Promise<"batch" | "article" | "none"> {
   const jobData =
     input.jobDataJson && typeof input.jobDataJson === "object"
       ? (input.jobDataJson as Record<string, unknown>)
@@ -472,11 +476,11 @@ async function settleRecoveredArticleCap(input: {
           : "batch";
     }
   }
-  if (capReservationId == null) return;
+  if (capReservationId == null) {
+    return scope === "batch" ? "batch" : "none";
+  }
 
-  const { cancelCapReservation, completeCapReservation } = await import(
-    "./usage-caps"
-  );
+  const { completeCapReservation } = await import("./usage-caps");
   if (scope === "article" || input.batchId == null) {
     await completeCapReservation({
       reservationId: capReservationId,
@@ -484,7 +488,7 @@ async function settleRecoveredArticleCap(input: {
       jobId: input.billingJobId,
       metadata: { articleId: input.articleId, batchId: input.batchId },
     });
-    return;
+    return "article";
   }
 
   const batchParams =
@@ -515,36 +519,31 @@ async function settleRecoveredArticleCap(input: {
       `Aggregate cap reservation ${persistedCapId} is waiting for sibling articles`,
     );
   }
-
-  const failed = batchArticles.some((article) => article.articleStatus === "FAILED");
-  if (failed) {
-    await cancelCapReservation(persistedCapId);
-  } else {
-    await completeCapReservation({
-      reservationId: persistedCapId,
-      teamId: batch?.teamId ?? input.teamId,
-      jobId: `batch:${input.batchId}:cap`,
-      metadata: { batchId: input.batchId, recoveredByArticleId: input.articleId },
-    });
-  }
-  const completed = batchArticles.filter(
-    (article) => article.articleStatus === "COMPLETE",
-  ).length;
-  const finalStatus =
-    failed && completed > 0
-      ? "PARTIAL_COMPLETE"
-      : failed
-        ? "FAILED"
-        : "COMPLETE";
-  await db
-    .update(jobBatches)
-    .set({ status: finalStatus, completedAt: new Date() })
-    .where(
-      and(
-        eq(jobBatches.id, input.batchId),
-        inArray(jobBatches.status, ["RUNNING", "PENDING", "SUBMITTING", "QUEUED"]),
+  const activeSharedRuns = await db
+    .select({ id: articleRuns.id, status: articleRuns.status })
+    .from(articleRuns)
+    .innerJoin(articles, eq(articles.id, articleRuns.articleId))
+    .where(and(
+      eq(articles.batchId, input.batchId),
+      eq(articleRuns.billingRunId, input.billingRunId),
+      inArray(articleRuns.status, ["running", "billing_pending"]),
+      or(
+        ne(articleRuns.articleId, input.articleId),
+        ne(articleRuns.runId, input.articleRunId),
       ),
+    ));
+  if (activeSharedRuns.length > 0) {
+    throw new Error(
+      `Aggregate cap reservation ${persistedCapId} is waiting for ` +
+      `${activeSharedRuns.length} shared billing run(s)`,
     );
+  }
+
+  // Aggregate cap completion/cancellation and batch status are reconciled by
+  // checkBatchCompletion after this run is durably marked completed. Keeping
+  // that finalization in one path prevents recovery from racing a sibling's
+  // pending debit or duplicating batch events.
+  return "batch";
 }
 
 export async function reconcilePendingArticleBilling(
@@ -616,7 +615,7 @@ export async function reconcilePendingArticleBilling(
     const attempts = (run.settlementAttempts ?? 0) + 1;
     const defer = async (error: unknown) => {
       deferred += 1;
-      await updateClaimedArticleRun({
+      const deferredRun = await updateClaimedArticleRun({
         articleId: run.articleId,
         runId: run.runId,
         leaseToken: claim.leaseToken,
@@ -630,6 +629,28 @@ export async function reconcilePendingArticleBilling(
           settlementNextAttemptAt: nextSettlementAttemptAt(attempts, now),
         },
       });
+      if (!deferredRun) {
+        // A concurrent owner may have completed the run while reconciliation
+        // failed. Reopen only that exact row so the next recovery pass can
+        // retry its durable cap/batch settlement.
+        await db
+          .update(articleRuns)
+          .set({
+            status: "billing_pending",
+            completedAt: new Date(),
+            leaseToken: null,
+            leaseExpiresAt: null,
+            settlementAttempts: attempts,
+            settlementLastError: errorMessage(error),
+            settlementNextAttemptAt: nextSettlementAttemptAt(attempts, now),
+          })
+          .where(and(
+            eq(articleRuns.articleId, run.articleId),
+            eq(articleRuns.runId, run.runId),
+            eq(articleRuns.status, "completed"),
+            isNull(articleRuns.leaseToken),
+          ));
+      }
     };
 
     if (
@@ -657,14 +678,35 @@ export async function reconcilePendingArticleBilling(
         continue;
       }
 
-      await settleRecoveredArticleCap({
+      // Keep this claimed run visibly recoverable until every aggregate
+      // settlement side effect has committed. In particular, a process crash
+      // between the idempotent debit and batch reconciliation must leave the
+      // run eligible for the periodic sweeper rather than strand a partial
+      // batch's remaining reservation.
+      const recoveredCapScope = await settleRecoveredArticleCap({
         articleId: run.articleId,
+        articleRunId: run.runId,
         batchId: run.batchId,
         teamId: run.billingTeamId,
+        billingRunId: run.billingRunId,
         billingJobId: run.billingJobId,
         jobDataJson: run.jobDataJson,
       });
+      if (run.batchId != null) {
+        const { checkBatchCompletion } = await import("./worker");
+        await checkBatchCompletion(run.batchId, {
+          settleAggregateCap: recoveredCapScope === "batch",
+          sharedRunId:
+            recoveredCapScope === "batch" ? run.billingRunId : undefined,
+          excludeSharedRun: recoveredCapScope === "batch"
+            ? { articleId: run.articleId, runId: run.runId }
+            : undefined,
+        });
+      }
 
+      // Only now make the run terminal and release its recovery lease. If the
+      // process dies before this point, the expired claimed run is picked up
+      // again and all debit/cap/batch operations are idempotent.
       const completed = await updateClaimedArticleRun({
         articleId: run.articleId,
         runId: run.runId,
@@ -679,7 +721,8 @@ export async function reconcilePendingArticleBilling(
           settlementNextAttemptAt: null,
         },
       });
-      if (completed) settled += 1;
+      if (!completed) continue;
+      settled += 1;
     } catch (error) {
       await defer(error);
     }

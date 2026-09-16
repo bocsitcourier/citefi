@@ -1,0 +1,278 @@
+TAP version 13
+# (node:14788) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🔧 Initializing BullMQ workers...
+# Subtest: authenticated submit reaches COMPLETE and retrieval is team-scoped
+ok 1 - authenticated submit reaches COMPLETE and retrieval is team-scoped # SKIP test name does not match pattern
+  ---
+  duration_ms: 18615.671527
+  ...
+# 📦 Submitting batch 2 with 1 articles
+# ✅ Redis connected (redis://127.0.0.1:16390/0)
+# 📦 Queued batch generation job: batch-2 for batch 2 (brand: QA Article Chain)
+# 📦 Processing batch generation job batch-2
+# ✅ Batch 2 submitted successfully with job ID: batch-2
+# ✅ Article job queued: article-run-e3b3b29a083b9d16b902be6d for article 1 (brand: QA Article Chain, runId: article-...)
+# ✅ Batch 2 processed: 1 new, 0 retried, 0 skipped (already complete/running)
+# 📝 Processing article generation job article-run-e3b3b29a083b9d16b902be6d
+# 📊 Batch 2 progress: 0/1 complete, 0 failed, 0 in progress, 1 pending
+# ⏳ Batch 2 still has 1 unfinished articles - keeping RUNNING status
+# ▶️ STARTING: Article 1 run article- (from queued)
+# 🤖 Stage 1: Gemini generating article 1 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 1: 1 failure pattern(s) loaded
+# 📦 [Batch 2] Checking for cached SEO context...
+# ✅ [Batch 2] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 2)
+# ⚠️ No learning agent found for article, initializing...
+# ✅ Initialized Article Optimization Agent for team 1
+# ✅ Initialized Video Script Agent for team 1
+# ✅ Initialized Social Media Agent for team 1
+# ✅ Initialized Podcast Script Agent for team 1
+# ✅ Initialized Image Generation Agent for team 1
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ⚡ Article critique skipped (DISABLE_ARTICLE_CRITIQUE=true) - saving ~30s
+# 🔧 [DH] Article humanized: burstiness=0.42, scrubs=0, integrity=true
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 1
+# 📋 Using 6 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 1
+# ⚡ Article 1 completed in SPEED MODE (Gemini-only)
+# ✅ Article 1 completed successfully
+# ⚠️ No image prompts found for article 1 - skipping image generation
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 2 progress: 1/1 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 2 finished with status: COMPLETE
+# Subtest: duplicate idempotency key creates one submission and one charge
+ok 2 - duplicate idempotency key creates one submission and one charge
+  ---
+  duration_ms: 3371.15034
+  ...
+# 📦 Submitting batch 3 with 2 articles
+# 📦 Queued batch generation job: batch-3 for batch 3 (brand: QA Article Chain)
+# 📦 Processing batch generation job batch-3
+# ✅ Batch 3 submitted successfully with job ID: batch-3
+# ✅ Article job queued: article-run-6973db56293fa2f28a41d152 for article 2 (brand: QA Article Chain, runId: article-...)
+# 📝 Processing article generation job article-run-6973db56293fa2f28a41d152
+# ✅ Article job queued: article-run-6eb90547d03b6bf2da427988 for article 3 (brand: QA Article Chain, runId: article-...)
+# ✅ Batch 3 processed: 2 new, 0 retried, 0 skipped (already complete/running)
+# 📝 Processing article generation job article-run-6eb90547d03b6bf2da427988
+# 📊 Batch 3 progress: 0/2 complete, 0 failed, 0 in progress, 2 pending
+# ⏳ Batch 3 still has 2 unfinished articles - keeping RUNNING status
+# ▶️ STARTING: Article 2 run article- (from queued)
+# ▶️ STARTING: Article 3 run article- (from queued)
+# 🤖 Stage 1: Gemini generating article 3 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 3: 1 failure pattern(s) loaded
+# 📦 [Batch 3] Checking for cached SEO context...
+# ✅ [Batch 3] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 3)
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ⚡ Article critique skipped (DISABLE_ARTICLE_CRITIQUE=true) - saving ~30s
+# 🔧 [DH] Article humanized: burstiness=0.42, scrubs=0, integrity=true
+# ⚠️ Slug collision detected - using unique slug: san-francisco-home-care-planning-3
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 3
+# 📋 Using 6 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 3
+# ⚡ Article 3 completed in SPEED MODE (Gemini-only)
+# ✅ Article 3 completed successfully
+# ⚠️ No image prompts found for article 3 - skipping image generation
+# 📊 Recorded article generation for AI Learning
+# 🤖 Stage 1: Gemini generating article 2 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 2: 1 failure pattern(s) loaded
+# 📦 [Batch 3] Checking for cached SEO context...
+# ✅ [Batch 3] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 3)
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# 📊 Batch 3 progress: 1/2 complete, 0 failed, 1 in progress, 0 pending
+# ⏳ Batch 3 still has 1 unfinished articles - keeping RUNNING status
+# ⚡ Article critique skipped (DISABLE_ARTICLE_CRITIQUE=true) - saving ~30s
+# 🔧 [DH] Article humanized: burstiness=0.42, scrubs=0, integrity=true
+# ⚠️ Slug collision detected - using unique slug: san-francisco-home-care-planning-2
+# ⏩ Skipping Stage 2 ChatGPT review (manually disabled) - article 2
+# 📋 Using 6 Gemini keywords as hyperlink fallback
+# ⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article 2
+# ⚡ Article 2 completed in SPEED MODE (Gemini-only)
+# ✅ Article 2 completed successfully
+# ⚠️ No image prompts found for article 2 - skipping image generation
+# 📊 Recorded article generation for AI Learning
+# 📊 Batch 3 progress: 2/2 complete, 0 failed, 0 in progress, 0 pending
+# ✅ Batch 3 finished with status: COMPLETE
+# Subtest: two-article shared reservation waits for a paused sibling debit
+not ok 3 - two-article shared reservation waits for a paused sibling debit
+  ---
+  duration_ms: 4810.568002
+  location: '/home/runner/workspace/tests/qa/article-full-chain.test.ts:36:426'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    -20 !== 20
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 20
+  actual: -20
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/home/runner/workspace/tests/qa/article-full-chain.test.ts:400:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# 📦 Submitting batch 4 with 1 articles
+# 📦 Queued batch generation job: batch-4 for batch 4 (brand: QA Article Chain)
+# 📦 Processing batch generation job batch-4
+# ✅ Batch 4 submitted successfully with job ID: batch-4
+# ✅ Article job queued: article-run-f212e192207a198e4d8dd6ea for article 4 (brand: QA Article Chain, runId: article-...)
+# ✅ Batch 4 processed: 1 new, 0 retried, 0 skipped (already complete/running)
+# 📝 Processing article generation job article-run-f212e192207a198e4d8dd6ea
+# 📊 Batch 4 progress: 0/1 complete, 0 failed, 0 in progress, 1 pending
+# ⏳ Batch 4 still has 1 unfinished articles - keeping RUNNING status
+# ▶️ STARTING: Article 4 run article- (from queued)
+# 🤖 Stage 1: Gemini generating article 4 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 4: 1 failure pattern(s) loaded
+# 📦 [Batch 4] Checking for cached SEO context...
+# ✅ [Batch 4] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 4)
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ❌ Article generation failed for article 4: SyntaxError: Unexpected token 'h', "this is not"... is not valid JSON
+#     at JSON.parse (<anonymous>)
+#     at generateArticleContent (/home/runner/workspace/lib/gemini.ts:1858:23)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async generateArticleWithGemini (/home/runner/workspace/lib/gemini.ts:2074:18)
+#     at async processArticleGenerationJob (/home/runner/workspace/lib/worker.ts:831:26)
+#     at async <anonymous> (/home/runner/workspace/lib/pipeline-worker.ts:458:16)
+#     at async /home/runner/workspace/node_modules/bullmq/dist/cjs/classes/worker.js:601:32
+# [ERROR_LOG] Application error recorded {
+#   severity: 'error',
+#   errorType: 'GEMINI',
+#   fingerprint: null,
+#   requestId: null
+# }
+# [incident] database unavailable; event safely spooled
+# ⚠️ Article 4 failed after reaching IN_PROGRESS — retry remains queued; status kept IN_PROGRESS
+# ⏳ Deferring batch 4 completion reconciliation until article 4 reaches its final queue attempt
+# ❌ [article-generation:article-run-f212e192207a198e4d8dd6ea] PARSE_ERROR (retry)
+# 📢 Notification created: [error] Article Generation Failed
+# 📝 Processing article generation job article-run-f212e192207a198e4d8dd6ea
+# 🔄 RESUMING: Article 4 run article- (from failed)
+# 🤖 Stage 1: Gemini generating article 4 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 4: 1 failure pattern(s) loaded
+# 📦 [Batch 4] Checking for cached SEO context...
+# ✅ [Batch 4] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 4)
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ❌ Article generation failed for article 4: ProviderAttemptAlreadySubmittedError: provider attempt provider-attempt:4d9abd85b3c642391bca85daac2c5ff382da0853b7d24bc37efae580ab6333b3 already has a physical submission; reconcile instead of replaying
+#     at runWithProviderAttempt (/home/runner/workspace/lib/provider-attempt-receipts.ts:1376:11) {
+#   code: 'PROVIDER_ATTEMPT_ALREADY_SUBMITTED',
+#   retryable: false
+# }
+# [ERROR_LOG] Application error recorded {
+#   severity: 'error',
+#   errorType: 'SYSTEM',
+#   fingerprint: null,
+#   requestId: null
+# }
+# [incident] database unavailable; event safely spooled
+# ⚠️ Article 4 failed after reaching IN_PROGRESS — terminal status recorded
+# 📊 Batch 4 progress: 0/1 complete, 1 failed, 0 in progress, 0 pending
+# 📢 Notification created: [error] Article Generation Failed
+# ✅ Batch 4 finished with status: FAILED
+# [billing] Batch 4 reconciliation: releasing 10 unreleased credits for runId=batch:4:qa-malformed-chain-v1
+# [billing] Batch reconciliation release failed: ReservationReconciliationRequiredError: Billing reconciliation is required for runId=batch:4:qa-malformed-chain-v1 before provider work may resume: Article 4 PROVIDER_ACCOUNTING_FAILED: provider attempt provider-attempt:4d9abd85b3c642391bca85daac2c5ff382da0853b7d24bc37efae580ab6333b3 already has a physical submission; reconcile instead of replaying
+#     at <anonymous> (/home/runner/workspace/lib/billing.ts:728:13)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async withBoundedTransactionRetry.maxRetries (/home/runner/workspace/lib/db.ts:435:22)
+#     at async withBoundedTransactionRetry (/home/runner/workspace/lib/db.ts:397:14)
+#     at async releaseReservation (/home/runner/workspace/lib/billing.ts:704:3)
+#     at async checkBatchCompletion (/home/runner/workspace/lib/worker.ts:6556:11)
+#     at async processArticleGenerationJob (/home/runner/workspace/lib/worker.ts:2312:11)
+#     at async <anonymous> (/home/runner/workspace/lib/pipeline-worker.ts:458:16)
+#     at async /home/runner/workspace/node_modules/bullmq/dist/cjs/classes/worker.js:601:32 {
+#   runId: 'batch:4:qa-malformed-chain-v1',
+#   code: 'PROVIDER_RESULT_NOT_DURABLE'
+# }
+# ❌ [article-generation:article-run-f212e192207a198e4d8dd6ea] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# 📦 Submitting batch 5 with 1 articles
+# 📦 Queued batch generation job: batch-5 for batch 5 (brand: QA Article Chain)
+# 📦 Processing batch generation job batch-5
+# ✅ Batch 5 submitted successfully with job ID: batch-5
+# ✅ Article job queued: article-run-431e3add41e8006e5052076e for article 5 (brand: QA Article Chain, runId: article-...)
+# ✅ Batch 5 processed: 1 new, 0 retried, 0 skipped (already complete/running)
+# 📝 Processing article generation job article-run-431e3add41e8006e5052076e
+# 📊 Batch 5 progress: 0/1 complete, 0 failed, 0 in progress, 1 pending
+# ⏳ Batch 5 still has 1 unfinished articles - keeping RUNNING status
+# ▶️ STARTING: Article 5 run article- (from queued)
+# 🤖 Stage 1: Gemini generating article 5 for QA Article Chain...
+# 🔮 [SHADOW RUN] Pre-flight complete for article 5: 1 failure pattern(s) loaded
+# 📦 [Batch 5] Checking for cached SEO context...
+# ✅ [Batch 5] Found existing SEO cache (v3.1) - reusing!
+# ✅ [CACHE HIT] Using batch SEO cache for article generation (batch 5)
+# [model-resolver] getModel("geminiArticle") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ❌ Article generation failed for article 5: ProviderAttemptSubmissionUncertainError: provider submission outcome is uncertain; refusing replay
+#     at <anonymous> (/home/runner/workspace/lib/provider-attempt-receipts.ts:1516:15)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+#   code: 'PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN',
+#   retryable: false,
+#   [cause]: Error: provider timeout (QA transport)
+#       at transport (/home/runner/workspace/tests/qa/article-full-chain.test.ts:68:11)
+#       at throttledGeminiRequest.request (/home/runner/workspace/lib/gemini.ts:1821:9)
+#       at Object.submit (/home/runner/workspace/lib/gemini-attempt-receipt.ts:266:30)
+#       at <anonymous> (/home/runner/workspace/lib/provider-attempt-receipts.ts:1438:38)
+#       at AsyncLocalStorage.run (node:async_hooks:346:14)
+#       at runWithProviderAttempt (/home/runner/workspace/lib/provider-attempt-receipts.ts:1436:25)
+#       at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+# }
+# [ERROR_LOG] Application error recorded {
+#   severity: 'error',
+#   errorType: 'SYSTEM',
+#   fingerprint: null,
+#   requestId: null
+# }
+# [incident] database unavailable; event safely spooled
+# ⚠️ Article 5 failed after reaching IN_PROGRESS — terminal status recorded
+# 📊 Batch 5 progress: 0/1 complete, 1 failed, 0 in progress, 0 pending
+# 📢 Notification created: [error] Article Generation Failed
+# ✅ Batch 5 finished with status: FAILED
+# [billing] Batch 5 reconciliation: releasing 10 unreleased credits for runId=batch:5:qa-timeout-chain-v1
+# [billing] Batch reconciliation release failed: ReservationReconciliationRequiredError: Billing reconciliation is required for runId=batch:5:qa-timeout-chain-v1 before provider work may resume: Article 5 PROVIDER_ACCOUNTING_FAILED: provider submission outcome is uncertain; refusing replay
+#     at <anonymous> (/home/runner/workspace/lib/billing.ts:728:13)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async withBoundedTransactionRetry.maxRetries (/home/runner/workspace/lib/db.ts:435:22)
+#     at async withBoundedTransactionRetry (/home/runner/workspace/lib/db.ts:397:14)
+#     at async releaseReservation (/home/runner/workspace/lib/billing.ts:704:3)
+#     at async checkBatchCompletion (/home/runner/workspace/lib/worker.ts:6556:11)
+#     at async processArticleGenerationJob (/home/runner/workspace/lib/worker.ts:2312:11)
+#     at async <anonymous> (/home/runner/workspace/lib/pipeline-worker.ts:458:16)
+#     at async /home/runner/workspace/node_modules/bullmq/dist/cjs/classes/worker.js:601:32 {
+#   runId: 'batch:5:qa-timeout-chain-v1',
+#   code: 'PROVIDER_RESULT_NOT_DURABLE'
+# }
+# ❌ [article-generation:article-run-431e3add41e8006e5052076e] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# Subtest: malformed provider output and timeout fail without a published artifact
+ok 4 - malformed provider output and timeout fail without a published artifact
+  ---
+  duration_ms: 14791.247907
+  ...
+# Subtest: provider evidence is accounted once and remains non-replayable
+ok 5 - provider evidence is accounted once and remains non-replayable # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.179732
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+# 🔥 DB pool error (dead connection discarded): terminating connection due to administrator command [code: 57P01]
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 1
+# cancelled 0
+# skipped 2
+# todo 0

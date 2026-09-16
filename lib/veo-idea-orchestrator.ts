@@ -24,6 +24,18 @@ export interface VideoIdeaOrchestrationRequest {
   stylePromptOverride?: string;
 }
 
+export interface VideoIdeaOrchestrationDependencies {
+  expandVideoIdea?: typeof expandVideoIdea;
+  generateIdeaVideoScript?: typeof generateIdeaVideoScript;
+  generateVideoFromScript?: typeof generateVideoFromScript;
+  getPromptEnhancement?: typeof getPromptEnhancement;
+  runGenerationOrchestrator?: typeof runGenerationOrchestrator;
+  recordContentGenerated?: typeof recordContentGenerated;
+  videoGenerationDeps?: NonNullable<
+    Parameters<typeof generateVideoFromScript>[0]["_deps"]
+  >;
+}
+
 export async function generateVeoVideoForIdea(
   scriptPayload: Parameters<typeof generateVideoFromScript>[0],
   generate: typeof generateVideoFromScript = generateVideoFromScript
@@ -66,7 +78,8 @@ async function updateVideoIdeaProgress(
 
 export async function orchestrateVideoIdeaGeneration(
   request: VideoIdeaOrchestrationRequest,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  dependencies: VideoIdeaOrchestrationDependencies = {},
 ): Promise<{ videoUrl: string; thumbnailUrl?: string }> {
   const { videoIdeaId } = request;
   
@@ -100,7 +113,7 @@ export async function orchestrateVideoIdeaGeneration(
     videoTeamId = ideaRow.teamId;
     videoCampaignId = ideaRow.campaignId ?? null;
     try {
-        const enhancement = await getPromptEnhancement(videoTeamId, ContentType.VIDEO, {
+        const enhancement = await (dependencies.getPromptEnhancement ?? getPromptEnhancement)(videoTeamId, ContentType.VIDEO, {
           stableId: String(videoIdeaId),
           campaignId: videoCampaignId,
         })
@@ -129,7 +142,7 @@ export async function orchestrateVideoIdeaGeneration(
       location: request.location
     };
 
-    const expandedConcept = await expandVideoIdea(ideaInput);
+    const expandedConcept = await (dependencies.expandVideoIdea ?? expandVideoIdea)(ideaInput);
     
     await updateVideoIdeaProgress(videoIdeaId, "EXPANDING", 15, "expand_idea", {
       expandedConceptJson: expandedConcept
@@ -145,7 +158,7 @@ export async function orchestrateVideoIdeaGeneration(
       await onProgress({ stage: "generate_script", progress: 20, message: "Generating video script with style..." });
     }
 
-    const script = await generateIdeaVideoScript({
+    const script = await (dependencies.generateIdeaVideoScript ?? generateIdeaVideoScript)({
       teamId: videoTeamId,
       ideaTitle: request.ideaTitle,
       companyName: request.companyName,
@@ -175,7 +188,7 @@ export async function orchestrateVideoIdeaGeneration(
           .filter(Boolean)
           .join('\n\n');
         if (scriptNarration.length > 50) {
-          const orchResult = await runGenerationOrchestrator({
+          const orchResult = await (dependencies.runGenerationOrchestrator ?? runGenerationOrchestrator)({
             teamId: videoTeamId,
             campaignId: videoCampaignId,
             contentType: ContentType.VIDEO,
@@ -270,7 +283,13 @@ export async function orchestrateVideoIdeaGeneration(
     // Provider failures, including quota/429, must escape to the BullMQ worker.
     // The queue owns bounded retries/backoff and final credit settlement; an
     // inline slideshow fallback would swallow that policy.
-    const result = await generateVeoVideoForIdea(scriptPayload);
+    const result = await generateVeoVideoForIdea(
+      {
+        ...scriptPayload,
+        _deps: dependencies.videoGenerationDeps,
+      },
+      dependencies.generateVideoFromScript ?? generateVideoFromScript,
+    );
     const videoUrl = result.videoUrl;
 
     await updateVideoIdeaProgress(videoIdeaId, "READY", 100, "complete", {
@@ -287,7 +306,7 @@ export async function orchestrateVideoIdeaGeneration(
     // Record generation for AI Learning System (uses pre-captured team/patterns/quality)
     try {
       if (videoTeamId) {
-        await recordContentGenerated(
+        await (dependencies.recordContentGenerated ?? recordContentGenerated)(
           videoTeamId,
           ContentType.VIDEO,
           videoIdeaId,

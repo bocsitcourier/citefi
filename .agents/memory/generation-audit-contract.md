@@ -55,3 +55,15 @@ hidden the production failure.
 **How to apply:** Keep fixtures faithful to the upstream provider contract,
 then trace the actual transformation and persisted output. Preserve both input
 and final-output validation rather than weakening a gate to make tests pass.
+
+Exercise both accepted and rejected enhancement paths, including entity
+integrity checks, when validating article structure.
+
+**Why:** Returning the original text on an integrity failure concealed a
+Markdown-destroying humanizer; articles only broke when the enhancement was
+accepted. Passing examples therefore did not establish structural safety.
+
+**How to apply:** Preserve Markdown blocks through prose transformations and
+validate the rendered result. A valid pre-enhancement article can be retained
+with an explicit warning when an optional enhancement breaks its structure;
+invalid provider input must still fail validation.
