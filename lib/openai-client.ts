@@ -1,11 +1,7 @@
 import OpenAI from 'openai';
 import Bottleneck from 'bottleneck';
-import { randomUUID } from "node:crypto";
 import {
-  extractOpenAIUsage,
   isProviderAccountingError,
-  logFailedProviderAttempt,
-  logCostTelemetry,
   ProviderSubmissionUncertainError,
   resolveTelemetryTeamId,
 } from "./cost-telemetry";
@@ -18,6 +14,17 @@ import type {
   TokenUsage,
   VideoUsage,
 } from "./cost-telemetry";
+import {
+  currentProviderAttempt,
+  isProviderAttemptTerminalError,
+  providerAttemptUsageFromTelemetry,
+  runWithProviderAttempt,
+} from "./provider-attempt-receipts";
+import type {
+  ProviderAttemptReceiptDependencies,
+  SafeProviderRequest,
+} from "./provider-attempt-receipts";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 
 const OPENAI_CONCURRENCY = parseInt(process.env.OPENAI_CONCURRENCY || "15");
 const MAX_RETRIES = 3;
@@ -27,12 +34,6 @@ const TIMEOUT_MS = 60000; // 60 seconds - fail faster
 if (OPENAI_CONCURRENCY > 50) {
   console.warn(`⚠️  OPENAI_CONCURRENCY=${OPENAI_CONCURRENCY} exceeds safe limit (50). OpenAI may return 429 errors. Recommended: 25-35`);
 }
-
-export const openaiClient = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: TIMEOUT_MS,
-  maxRetries: 0,
-});
 
 // Bottleneck rate limiter for OpenAI with concurrent request limiting
 export const openaiLimiter = new Bottleneck({
@@ -70,20 +71,217 @@ export type OpenAICallTelemetry = Omit<
   TelemetryContext,
   "operationType" | "provider" | "model" | "providerRequestId" | "attempt"
 > & {
+  /** Stable logical invocation supplied by a queue/job idempotency boundary. */
+  invocationKey?: string | null;
   operationType?: OperationType;
   model?: string;
   usage?: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage;
+  /**
+   * The exact bounded request controls sent to the SDK.  This is deliberately
+   * separate from providerMetadata: receipt preparation happens before the SDK
+   * callback is invoked and must not infer limits from a response or a cost
+   * estimate.
+   */
+  request?: Omit<SafeProviderRequest, "model" | "timeoutMs"> & {
+    model: string;
+  };
 };
 
 type OpenAIResponseWithUsage = {
   id?: string;
+  _request_id?: string;
+  headers?: Pick<Headers, "get">;
   model?: string;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      audio_tokens?: number;
+    } | null;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+      audio_tokens?: number;
+      accepted_prediction_tokens?: number;
+      rejected_prediction_tokens?: number;
+    } | null;
   } | null;
+  choices?: Array<{ finish_reason?: string | null }>;
 };
+
+/**
+ * The SDK response usage is the only token usage source accepted for OpenAI
+ * text requests.  A missing usage block is represented explicitly as unknown;
+ * null counts are retained as unknown and are never sent to the ledger because
+ * `known` is false.
+ */
+function captureOpenAIResponse(
+  result: unknown,
+  providedUsage: OpenAICallTelemetry["usage"],
+  latencyMs: number,
+) {
+  const response = result as OpenAIResponseWithUsage;
+  const usage = response.usage;
+  const promptTokens = usage?.prompt_tokens;
+  const completionTokens = usage?.completion_tokens;
+  const totalTokens = usage?.total_tokens;
+  const hasNumericUsage =
+    typeof promptTokens === "number" &&
+    Number.isSafeInteger(promptTokens) &&
+    promptTokens >= 0 &&
+    typeof completionTokens === "number" &&
+    Number.isSafeInteger(completionTokens) &&
+    completionTokens >= 0 &&
+    typeof totalTokens === "number" &&
+    Number.isSafeInteger(totalTokens) &&
+    totalTokens >= 0;
+  const numericUsage = hasNumericUsage
+    ? {
+        unitType: "tokens",
+        unitCount: totalTokens as number,
+        inputUnits: promptTokens as number,
+        outputUnits: completionTokens as number,
+        known: true as const,
+        raw: {
+          // Receipt-core keeps raw usage scalar-only; these prefixed keys retain
+          // the provider's nested token-detail fields without persisting payload.
+          prompt_tokens: promptTokens as number,
+          completion_tokens: completionTokens as number,
+          total_tokens: totalTokens as number,
+          ...(safeUsageNumber(usage?.prompt_tokens_details?.cached_tokens)
+            ? { prompt_cached_tokens: usage.prompt_tokens_details!.cached_tokens as number }
+            : {}),
+          ...(safeUsageNumber(usage?.prompt_tokens_details?.audio_tokens)
+            ? { prompt_audio_tokens: usage.prompt_tokens_details!.audio_tokens as number }
+            : {}),
+          ...(safeUsageNumber(usage?.completion_tokens_details?.reasoning_tokens)
+            ? { completion_reasoning_tokens: usage.completion_tokens_details!.reasoning_tokens as number }
+            : {}),
+          ...(safeUsageNumber(usage?.completion_tokens_details?.audio_tokens)
+            ? { completion_audio_tokens: usage.completion_tokens_details!.audio_tokens as number }
+            : {}),
+          ...(safeUsageNumber(usage?.completion_tokens_details?.accepted_prediction_tokens)
+            ? { completion_accepted_prediction_tokens: usage.completion_tokens_details!.accepted_prediction_tokens as number }
+            : {}),
+          ...(safeUsageNumber(usage?.completion_tokens_details?.rejected_prediction_tokens)
+            ? { completion_rejected_prediction_tokens: usage.completion_tokens_details!.rejected_prediction_tokens as number }
+            : {}),
+        },
+      }
+    : null;
+
+  // TTS has no token usage object. Its character count is an exact request
+  // billing unit supplied by the TTS callsite, not a token/cost estimate.
+  // Other missing SDK usage remains explicitly unknown.
+  const responseUsage = numericUsage ??
+    (providedUsage && "characters" in providedUsage
+      ? providerAttemptUsageFromTelemetry(providedUsage)
+      : {
+          unitType: "tokens",
+          unitCount: null,
+          inputUnits: null,
+          outputUnits: null,
+          known: false,
+        });
+  const providerRequestId = response._request_id ??
+    response.headers?.get("x-request-id") ?? response.id ?? null;
+
+  return {
+    providerRequestId,
+    usage: responseUsage,
+    metadata: {
+      providerRequestId,
+      actualModel: response.model ?? null,
+      finishReason: response.choices?.[0]?.finish_reason ?? null,
+      latencyMs,
+    },
+  };
+}
+
+function safeUsageNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isReceiptTerminalError(error: unknown): boolean {
+  return isProviderAttemptTerminalError(error);
+}
+
+function requestMetadataMismatch(message: string): Error {
+  const error = new Error(message) as Error & { code: string };
+  error.code = "OPENAI_REQUEST_METADATA_MISMATCH";
+  return error;
+}
+
+function isRequestMetadataMismatch(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 3; depth++) {
+    if (
+      current &&
+      typeof current === "object" &&
+      (current as { code?: unknown }).code === "OPENAI_REQUEST_METADATA_MISMATCH"
+    ) {
+      return true;
+    }
+    current = current && typeof current === "object"
+      ? (current as { cause?: unknown }).cause
+      : undefined;
+  }
+  return false;
+}
+
+/**
+ * Validate the actual JSON sent by the OpenAI SDK against the request receipt
+ * prepared before submission. Only allow-listed scalar fields are inspected;
+ * prompt/content fields are never copied, logged, or persisted here.
+ */
+const receiptAwareFetch: typeof fetch = async (input, init) => {
+  const current = currentProviderAttempt();
+  if (current && typeof init?.body === "string") {
+    let body: Record<string, unknown> = {};
+    try {
+      body = JSON.parse(init.body) as Record<string, unknown>;
+    } catch {
+      // The SDK will report malformed request bodies itself.
+    }
+    const expected = current.receipt.requestMetadata;
+    if (body.model !== expected.model) {
+      throw requestMetadataMismatch(
+        "OpenAI SDK request model did not match prepared receipt metadata",
+      );
+    }
+    const actualMaxOutput = body.max_tokens ?? body.max_completion_tokens;
+    const expectedMaxOutput = expected.maxOutputTokens ?? null;
+    if (
+      (typeof actualMaxOutput === "number" ? actualMaxOutput : null) !==
+      expectedMaxOutput
+    ) {
+      throw requestMetadataMismatch(
+        "OpenAI SDK output limit did not match prepared receipt metadata",
+      );
+    }
+    const expectedMaxCharacters = expected.maxCharacters ?? null;
+    if (expectedMaxCharacters != null) {
+      const actualInput = body.input;
+      if (
+        typeof actualInput !== "string" ||
+        actualInput.length !== expectedMaxCharacters
+      ) {
+        throw requestMetadataMismatch(
+          "OpenAI SDK TTS input length did not match prepared receipt metadata",
+        );
+      }
+    }
+  }
+  return fetch(input, init);
+};
+
+export const openaiClient = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: TIMEOUT_MS,
+  maxRetries: 0,
+  fetch: receiptAwareFetch,
+});
 
 export async function callOpenAI<T>(
   operation: (client: OpenAI) => Promise<T>,
@@ -91,9 +289,18 @@ export async function callOpenAI<T>(
   timeoutMs?: number, // Optional per-operation timeout override
   telemetry: OpenAICallTelemetry = {},
   _deps: {
-    logSuccess?: typeof logCostTelemetry;
-    logFailure?: typeof logFailedProviderAttempt;
+    /**
+     * Retained as a type-compatible test seam for older callers. Receipt-core
+     * is now authoritative, so these legacy hooks are intentionally ignored.
+     */
+    logSuccess?: unknown;
+    logFailure?: unknown;
     sleep?: (milliseconds: number) => Promise<void>;
+    /**
+     * Receipt dependencies are injectable for deterministic adapter tests.
+     * Production uses the receipt-core database/spool defaults.
+     */
+    receipt?: ProviderAttemptReceiptDependencies;
   } = {}
 ): Promise<T> {
   const effectiveTeamId = resolveTelemetryTeamId(telemetry.teamId);
@@ -103,103 +310,114 @@ export async function callOpenAI<T>(
   // Seam 3 guard: model calls belong in the worker process only.
   if (process.env.WORKER_PROCESS !== "true") {
     console.warn(
-      `⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set): ${context}. ` +
-      `This should go through the BullMQ job queue.`
+      `⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); ` +
+      `operation=${telemetry.operationType ?? "other"}.`
     );
   }
-  // This is deliberately created before scheduling, rather than per retry:
-  // failures use this stable invocation key plus their attempt number, while a
-  // successful OpenAI response uses its provider request id when available.
-  const invocationId = `openai-call:${randomUUID()}`;
-  const { usage: providedUsage, ...rawTelemetryContext } = telemetry;
+  // This is deliberately allocated before scheduling, rather than per retry:
+  // failures reuse this logical slot while their explicit attempt number
+  // distinguishes each physical 429 submission.
+  const { usage: providedUsage, request: requestedMetadata, ...rawTelemetryContext } = telemetry;
   const telemetryContext = { ...rawTelemetryContext, teamId: effectiveTeamId };
+  const effectiveTimeout = timeoutMs || TIMEOUT_MS;
+  const requestMetadata = requestedMetadata;
+  if (!requestMetadata) {
+    throw new Error(
+      "OpenAI request metadata is required before physical submission",
+    );
+  }
+  const model = requestMetadata.model;
+  const exactCharacterBound =
+    providedUsage && "characters" in providedUsage
+      ? providedUsage.characters
+      : undefined;
+
+  const providerIdentity = allocateProviderAttemptIdentity({
+    invocationKey: telemetryContext.invocationKey,
+    attemptKey: requestMetadata.requestKey,
+    provider: "openai",
+    operationType: telemetryContext.operationType ?? "other",
+    model,
+  });
+
   return openaiLimiter.schedule(async () => {
     totalCalls++;
     const startTime = Date.now();
     let lastError: Error | null = null;
     
     // Create client with custom timeout if specified
-    const effectiveTimeout = timeoutMs || TIMEOUT_MS;
     const client = timeoutMs && timeoutMs !== TIMEOUT_MS
       ? new OpenAI({
           apiKey: process.env.OPENAI_API_KEY,
           timeout: timeoutMs,
           maxRetries: 0,
+          fetch: receiptAwareFetch,
         })
       : openaiClient;
     
     // Log timeout configuration for visibility
     if (timeoutMs && timeoutMs !== TIMEOUT_MS) {
-      console.log(`[OpenAI] 🕐 Using extended timeout: ${timeoutMs}ms for ${context}`);
+      console.log(`[OpenAI] 🕐 Using extended timeout: ${timeoutMs}ms`);
     }
     
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       const attemptStartedAt = Date.now();
       try {
-        const result = await operation(client);
-        const response = result as OpenAIResponseWithUsage;
-        await (_deps.logSuccess ?? logCostTelemetry)(
-            {
-              ...telemetryContext,
-              operationType: telemetryContext.operationType ?? "other",
-              provider: "openai",
-              model: response.model ?? telemetryContext.model ?? "unknown",
-              providerRequestId: response.id ?? `${invocationId}:attempt:${attempt}`,
-              providerMetadata: {
-                ...(telemetryContext.providerMetadata ?? {}),
-                context,
-                invocationId,
-              },
-              attempt,
-            },
-            providedUsage ?? extractOpenAIUsage(response),
-            Date.now() - attemptStartedAt,
-            true
-        );
+        const result = await runWithProviderAttempt({
+          context: {
+            teamId: effectiveTeamId,
+            userId: telemetryContext.userId,
+            campaignId: telemetryContext.campaignId,
+            runId: telemetryContext.runId,
+            jobId: telemetryContext.jobId,
+            resourceType: telemetryContext.resourceType,
+            resourceId: telemetryContext.resourceId,
+            contentId: telemetryContext.articleId,
+            operationType: telemetryContext.operationType ?? "other",
+            provider: "openai",
+            model,
+            attempt,
+            invocationKey: providerIdentity.invocationKey,
+            attemptKey: providerIdentity.attemptKey,
+          },
+          request: {
+            ...requestMetadata,
+            model,
+            timeoutMs: effectiveTimeout,
+            maxCharacters: requestMetadata.maxCharacters ?? exactCharacterBound ?? null,
+            adapterVersion: requestMetadata.adapterVersion ?? "openai-client/receipt-v1",
+          },
+          submit: async ({ captureResponse }) => {
+            const response = await operation(client);
+            await captureResponse(
+              captureOpenAIResponse(response, providedUsage, Date.now() - attemptStartedAt),
+            );
+            return response;
+          },
+          _deps: _deps.receipt,
+        });
         const duration = Date.now() - startTime;
         
         if (attempt > 1) {
-          console.log(`[OpenAI] ✓ ${context} succeeded on attempt ${attempt} (${duration}ms)`);
+          console.log(`[OpenAI] ✓ request succeeded on attempt ${attempt} (${duration}ms)`);
         } else if (duration > 30000) {
           // Log slow operations (>30s) for performance monitoring
-          console.log(`[OpenAI] ⏱️  ${context} completed in ${duration}ms`);
+          console.log(`[OpenAI] ⏱️  request completed in ${duration}ms`);
         }
         
         return result;
       } catch (error: any) {
-        if (isProviderAccountingError(error)) throw error;
+        // Receipt-core failures are terminal. In particular, a response that
+        // was paid but could not be captured/accounted must never enter this
+        // retry loop.
+        if (
+          isProviderAccountingError(error) ||
+          isReceiptTerminalError(error) ||
+          isRequestMetadataMismatch(error)
+        ) {
+          throw error;
+        }
         lastError = error;
-        // An API failure can still be billable.  Keep a separate stable source
-        // id for every physical attempt so retry accounting never collapses.
-        // Do not treat telemetry failures as provider failures: only wrap the
-        // operation above in the retry path.
-          await (_deps.logFailure ?? logFailedProviderAttempt)(
-            {
-              ...telemetryContext,
-              operationType: telemetryContext.operationType ?? "other",
-              provider: "openai",
-              model: telemetryContext.model ?? "unknown",
-              providerRequestId: `${invocationId}:attempt:${attempt}`,
-              providerMetadata: {
-                ...(telemetryContext.providerMetadata ?? {}),
-                context,
-                invocationId,
-                errorCode: error?.code ?? null,
-              },
-              attempt,
-            },
-            providedUsage && "characters" in providedUsage
-              ? { characters: 0 }
-              : providedUsage && "imageCount" in providedUsage
-                ? { imageCount: 0 }
-                : providedUsage && "videoSeconds" in providedUsage
-                  ? { videoSeconds: 0 }
-                  : providedUsage && "requestCount" in providedUsage
-                    ? { requestCount: 0 }
-                    : { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            Date.now() - attemptStartedAt,
-            error
-          );
         const isRateLimit = error?.status === 429 || error?.code === 'rate_limit_exceeded';
         const isTimeout = error?.code === 'ETIMEDOUT' || error?.message?.includes('timeout');
         
@@ -208,7 +426,7 @@ export async function callOpenAI<T>(
         // an ambiguous request. Explicit 429 responses are safe to retry.
         if (isTimeout) {
           throw new ProviderSubmissionUncertainError(
-            `OpenAI submission outcome is uncertain for ${context}; refusing automatic replay`,
+            "OpenAI submission outcome is uncertain; refusing automatic replay",
             error
           );
         }
@@ -219,11 +437,13 @@ export async function callOpenAI<T>(
           const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1) + jitter;
           
           console.warn(
-            `[OpenAI] ⚠️  ${context} failed (attempt ${attempt}/${MAX_RETRIES}): ${error?.message || error}. Retrying in ${Math.round(delay)}ms...`
+            `[OpenAI] ⚠️ request rejected (attempt ${attempt}/${MAX_RETRIES}, ` +
+            `status=${error?.status ?? error?.code ?? "unknown"}). ` +
+            `Retrying in ${Math.round(delay)}ms...`
           );
           
           if (attempt > 2) {
-            console.warn(`[OpenAI] 🔔 High retry count for ${context} - investigate rate limits`);
+            console.warn(`[OpenAI] 🔔 High retry count for OpenAI request - investigate rate limits`);
           }
           
           await (_deps.sleep ?? ((milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds))))(delay);
@@ -234,7 +454,10 @@ export async function callOpenAI<T>(
     }
     
     totalFailures++;
-    console.error(`[OpenAI] ❌ ${context} failed after ${MAX_RETRIES} attempts:`, lastError);
+    console.error(
+      `[OpenAI] ❌ request failed after ${MAX_RETRIES} attempts ` +
+      `(status=${(lastError as any)?.status ?? (lastError as any)?.code ?? "unknown"})`,
+    );
     throw lastError;
   });
 }

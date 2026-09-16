@@ -9,6 +9,7 @@ import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
 import { runWithSystemContext } from "./tenant-context";
 import { campaignAds, campaignAdApprovals, campaigns, teamMembers, teams, users } from "@/shared/schema";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 export const AD_EXPORT_NOTICE = PRODUCT_POLICY_DEFAULTS.advertising.exportNotice;
 export type AdPlatform = "google" | "meta";
@@ -251,10 +252,20 @@ async function generateAssets(prompt: string, telemetry: CampaignAdsTelemetryCon
   const startedAt = Date.now();
   let providerAttemptLogged = false;
   try {
-    const result = await client.models.generateContent({
+    const request = {
       model, contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId: telemetry.teamId,
+      operationType: "campaign_ads",
+      campaignId: telemetry.campaignId,
+      resourceType: "campaign",
+      resourceId: telemetry.campaignId,
+      invocationKey: `campaign-ad:${telemetry.teamId}:${telemetry.campaignId}:${telemetry.requestKey}`,
+      attemptKey: "generate-assets",
+      attempt: 1,
+    }, () => client.models.generateContent(request));
     await logCostTelemetry(
       { operationType: "campaign_ads", provider: "gemini", model, ...telemetry, attempt: 1,
         providerRequestId: (result as any).responseId ?? null, resourceType: "campaign", resourceId: telemetry.campaignId },

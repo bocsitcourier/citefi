@@ -1,5 +1,6 @@
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface VideoSEOMetadataRequest {
   topic: string;
@@ -119,6 +120,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
     }), "Video SEO metadata", undefined, {
       operationType: "seo_analysis",
       model: "gpt-4.1-mini",
+      request: { model: "gpt-4.1-mini", maxOutputTokens: 1500 },
     });
 
     const text = response.choices[0]?.message?.content?.trim() || "";
@@ -207,7 +209,7 @@ Return ONLY valid JSON. No markdown, no explanations.`;
       videoHashtags,
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Video SEO metadata generation failed:", error);
     
     // Fallback to basic metadata (using dashes without spaces, location always included)

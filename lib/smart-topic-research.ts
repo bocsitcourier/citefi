@@ -1,6 +1,9 @@
 import { getModel } from "./model-resolver";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { submitBraveSearchWithReceipt } from "./brave-attempt-receipt";
 /**
  * ============================================================================
  * SMART TOPIC RESEARCH MODULE
@@ -125,7 +128,7 @@ export class SmartTopicResearch {
       console.log(`✅ Research complete: ${result.localEntities.length} local entities, ${result.competitorTitles.length} competitor titles, ${result.suggestedAngles.length} angles`);
       
     } catch (error) {
-      if (isProviderAccountingError(error)) throw error;
+      if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
       console.error('Research error:', (error as Error).message);
       return this.getFallbackResearch(topic, location);
     }
@@ -175,7 +178,7 @@ export class SmartTopicResearch {
         const extracted = this.extractEntitiesFromResults(results, location);
         entities.push(...extracted);
       } catch (error) {
-        if (isProviderAccountingError(error)) throw error;
+        if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
         console.error(`Entity search failed: ${query}`, (error as Error).message);
       }
     }
@@ -214,7 +217,8 @@ export class SmartTopicResearch {
           });
         }
       } catch (error) {
-        console.error(`Competitor search failed: ${query}`);
+        if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
+        console.error(`Competitor search failed: ${query}`, (error as Error).message);
       }
     }
 
@@ -278,6 +282,7 @@ export class SmartTopicResearch {
       );
 
     } catch (error) {
+      if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
       console.error('Topic insights error:', (error as Error).message);
     }
 
@@ -286,30 +291,19 @@ export class SmartTopicResearch {
 
   private async braveSearch(query: string, teamId: number): Promise<any[]> {
     this.searchCount++;
-    const startedAt = Date.now();
-    const providerMetadata = { queryHash: createHash("sha256").update(query).digest("hex") };
-    
-    const params = new URLSearchParams({
-      q: query,
-      count: '10',
-      safesearch: 'moderate'
+    const data = await submitBraveSearchWithReceipt({
+      query,
+      apiKey: this.apiKey!,
+      count: 10,
+      safesearch: "moderate",
+      context: {
+        teamId,
+        operationType: "topic_research",
+        resourceType: "topic_research",
+        attempt: 1,
+      },
     });
-
-    try {
-      const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-        headers: { 'Accept': 'application/json', 'X-Subscription-Token': this.apiKey! }
-      });
-      if (!response.ok) throw new Error(`Brave API error: ${response.status}`);
-      const data = await response.json();
-      await logCostTelemetry({ operationType: "topic_research", provider: "brave", model: "web-search", teamId,
-        providerRequestId: response.headers.get("x-request-id"), providerMetadata }, { requestCount: 1 }, Date.now() - startedAt);
-      return (data as any).web?.results || [];
-    } catch (error) {
-      if (isProviderAccountingError(error)) throw error;
-      await logFailedProviderAttempt({ operationType: "topic_research", provider: "brave", model: "web-search", teamId, providerMetadata },
-        { requestCount: 0 }, Date.now() - startedAt, error);
-      throw error;
-    }
+    return data.web?.results || [];
   }
 
   private extractEntitiesFromResults(results: any[], location: string): LocalEntity[] {
@@ -626,7 +620,17 @@ Return as JSON:
       const providerMetadata = { queryHash: createHash("sha256").update(critiquePrompt).digest("hex") };
       let result;
       try {
-        result = await genAI.models.generateContent({ model, contents: [{ role: 'user', parts: [{ text: critiquePrompt }] }], config: { temperature: 0.1 } });
+        const generationRequest = {
+          model,
+          contents: [{ role: "user" as const, parts: [{ text: critiquePrompt }] }],
+          config: { temperature: 0.1 },
+        };
+        result = await submitGeminiRequest(generationRequest, {
+          teamId,
+          operationType: "topic_research",
+          resourceType: "topic_research",
+          attempt: 1,
+        }, () => genAI.models.generateContent(generationRequest));
         await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model, teamId,
           providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
         extractGeminiUsage(result), Date.now() - startedAt);

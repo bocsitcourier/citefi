@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required");
@@ -16,7 +17,16 @@ async function generateSeoField(prompt: string, teamId: number) {
   const model = getModel("geminiFlash"), startedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
-    const result = await genAI.models.generateContent({ model, contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    const generationRequest = {
+      model,
+      contents: [{ role: "user" as const, parts: [{ text: prompt }] }],
+    };
+    const result = await submitGeminiRequest(generationRequest, {
+      teamId,
+      operationType: "seo_analysis",
+      resourceType: "seo_analysis",
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model, teamId, providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata }, extractGeminiUsage(result), Date.now() - startedAt);
     return result;
   } catch (error) {

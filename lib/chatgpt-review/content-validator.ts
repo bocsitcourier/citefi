@@ -384,7 +384,9 @@ Be thorough and specific. List ALL paragraph violations. Identify exact missing 
       max_tokens: 4000,
       response_format: { type: "json_object" },
     }),
-    `Content Validator: ${title.substring(0, 50)}`
+    `Content Validator: ${title.substring(0, 50)}`,
+    undefined,
+    { request: { model: "gpt-4.1-mini", maxOutputTokens: 4000 } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";

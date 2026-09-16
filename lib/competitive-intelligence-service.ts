@@ -15,8 +15,10 @@
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { PATTERN_DIMENSION } from "./pattern-dimension-map";
-import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { submitBraveSearchWithReceipt } from "./brave-attempt-receipt";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -170,29 +172,21 @@ function validateTeamId(teamId: number): void {
 }
 
 async function braveSearch(query: string, apiKey: string, teamId: number): Promise<any[]> {
-  const startedAt = Date.now();
-  const queryHash = createHash("sha256").update(query).digest("hex");
-  const params = new URLSearchParams({ q: query, count: "10", safesearch: "moderate" });
   try {
-    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-      headers: { Accept: "application/json", "X-Subscription-Token": apiKey },
+    const data = await submitBraveSearchWithReceipt({
+      query,
+      apiKey,
+      count: 10,
+      safesearch: "moderate",
+      context: {
+        teamId,
+        operationType: "competitive_intelligence",
+        attempt: 1,
+      },
     });
-    if (!response.ok) throw new Error(`Brave API error: ${response.status}`);
-    const data = await response.json() as any;
-    const results = data.web?.results || [];
-    await logCostTelemetry(
-      { operationType: "competitive_intelligence", provider: "brave", model: "web-search", teamId,
-        attempt: 1, providerMetadata: { queryHash, resultCount: results.length } },
-      { requestCount: 1 }, Date.now() - startedAt, true
-    );
-    return results;
+    return data.web?.results || [];
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
-    await logFailedProviderAttempt(
-      { operationType: "competitive_intelligence", provider: "brave", model: "web-search", teamId,
-        attempt: 1, providerMetadata: { queryHash } },
-      { requestCount: 1 }, Date.now() - startedAt, error
-    );
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     throw error;
   }
 }
@@ -257,7 +251,7 @@ export class CompetitiveIntelligenceService {
           });
         }
       } catch (err) {
-        if (isProviderAccountingError(err)) throw err;
+        if (isProviderAccountingError(err) || isProviderAttemptTerminalError(err)) throw err;
         console.warn(`[CompetitiveIntel] Search failed for "${query}":`, (err as Error).message);
       }
     }
@@ -333,11 +327,16 @@ Return ONLY valid JSON array, no markdown, no explanations.`;
 
     const startedAt = Date.now();
     try {
-      const response = await genAI.models.generateContent({
+      const generationRequest = {
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.3, maxOutputTokens: 2048 },
-      });
+      };
+      const response = await submitGeminiRequest(generationRequest, {
+        teamId,
+        operationType: "competitive_intelligence",
+        attempt: 1,
+      }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry(
         { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
           attempt: 1, providerRequestId: (response as any).responseId ?? null },
@@ -423,11 +422,16 @@ Return ONLY valid JSON, no markdown.`;
 
     const startedAt = Date.now();
     try {
-      const response = await genAI.models.generateContent({
+      const generationRequest = {
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.5, maxOutputTokens: 1536 },
-      });
+      };
+      const response = await submitGeminiRequest(generationRequest, {
+        teamId,
+        operationType: "competitive_intelligence",
+        attempt: 1,
+      }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry(
         { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
           attempt: 1, providerRequestId: (response as any).responseId ?? null },

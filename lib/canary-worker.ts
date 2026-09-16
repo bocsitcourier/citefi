@@ -250,7 +250,7 @@ export interface CanaryDeps {
    * completely provider/DB independent.
    */
   accountingTeamId?: number;
-  /** Stable identity for this BullMQ delivery/physical attempt. */
+  /** Stable logical job identity for operational attribution, not delivery count. */
   attemptId?: string;
 }
 
@@ -310,7 +310,7 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       const accountingTeamId = requireCanaryAccountingTeamId(deps?.accountingTeamId);
       const { GoogleGenAI } = await import("@google/genai");
       const { getModel } = await import("./model-resolver");
-      const { throttledGeminiRequest } = await import("./gemini");
+       const { throttledGeminiRequest } = await import("./gemini");
       const {
         extractGeminiUsage,
         isProviderAccountingError,
@@ -326,31 +326,44 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       let textResponse: Awaited<ReturnType<typeof genAI.models.generateContent>>;
       try {
         textResponse = await withCanaryTimeout(
-          (signal) => throttledGeminiRequest(() => {
+           (signal) => {
+             const generationRequest = {
+               model: textModel,
+               contents: [
+                 {
+                   role: "user" as const,
+                   parts: [
+                     {
+                       text: [
+                         "Write a 200-word professional article titled",
+                         '"How AI Content Tools Help Small Businesses".',
+                         "Return plain HTML with <h1>, <p> tags only.",
+                         "This is an automated health check — content quality does not matter.",
+                       ].join(" "),
+                     },
+                   ],
+                 },
+               ],
+               config: {
+                 abortSignal: signal,
+                 httpOptions: { timeout: timeoutMs },
+               },
+             };
+             return throttledGeminiRequest(() => {
             providerSubmitted = true;
-            return genAI.models.generateContent({
-              model: textModel,
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: [
-                        "Write a 200-word professional article titled",
-                        '"How AI Content Tools Help Small Businesses".',
-                        "Return plain HTML with <h1>, <p> tags only.",
-                        "This is an automated health check — content quality does not matter.",
-                      ].join(" "),
-                    },
-                  ],
-                },
-              ],
-              config: {
-                abortSignal: signal,
-                httpOptions: { timeout: timeoutMs },
-              },
-            });
-          }),
+               return genAI.models.generateContent(generationRequest);
+             }, {
+               request: generationRequest,
+               context: {
+                 teamId: accountingTeamId,
+                 operationType: "other",
+                 resourceType: "canary",
+                 resourceId: "text_generation",
+                 attempt: 1,
+                 attemptKey: "text-generation",
+               },
+             });
+           },
           stage,
           timeoutMs
         );
@@ -426,12 +439,15 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       const accountingTeamId = requireCanaryAccountingTeamId(deps?.accountingTeamId);
       const { GoogleGenAI } = await import("@google/genai");
       const { getModel } = await import("./model-resolver");
-      const { throttledGeminiRequest } = await import("./gemini");
+       const { throttledGeminiRequest } = await import("./gemini");
       const {
         isProviderAccountingError,
         logCostTelemetry,
         logFailedProviderAttempt,
       } = await import("./cost-telemetry");
+      const {
+        providerAttemptSourceEventIdForResponse,
+      } = await import("./provider-attempt-receipts");
 
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const imageModel = getModel("geminiImage");
@@ -441,27 +457,40 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       let imgResponse: Awaited<ReturnType<typeof genAI.models.generateContent>>;
       try {
         imgResponse = await withCanaryTimeout(
-          (signal) => throttledGeminiRequest(() => {
+         (signal) => {
+           const generationRequest = {
+             model: imageModel,
+             contents: [
+               {
+                 role: "user" as const,
+                 parts: [
+                   {
+                     text: "A minimal abstract blue gradient background, professional, no text. 256×256 pixels.",
+                   },
+                 ],
+               },
+             ],
+             config: {
+               responseModalities: ["Image"],
+               abortSignal: signal,
+               httpOptions: { timeout: timeoutMs },
+             },
+           };
+           return throttledGeminiRequest(() => {
             providerSubmitted = true;
-            return genAI.models.generateContent({
-              model: imageModel,
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: "A minimal abstract blue gradient background, professional, no text. 256×256 pixels.",
-                    },
-                  ],
-                },
-              ],
-              config: {
-                responseModalities: ["Image"],
-                abortSignal: signal,
-                httpOptions: { timeout: timeoutMs },
-              },
-            });
-          }),
+             return genAI.models.generateContent(generationRequest);
+           }, {
+             request: generationRequest,
+             context: {
+               teamId: accountingTeamId,
+               operationType: "image_generation",
+               resourceType: "canary",
+               resourceId: "image_generation",
+               attempt: 1,
+                attemptKey: "image-generation",
+             },
+           });
+         },
           stage,
           timeoutMs
         );
@@ -480,7 +509,10 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
               providerResponseId: (imgResponse as { responseId?: string }).responseId ?? null,
             },
           },
-          { imageCount: 1 },
+          {
+            imageCount: 1,
+            providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(imgResponse),
+          },
           Date.now() - attemptStartedAt,
           true
         );

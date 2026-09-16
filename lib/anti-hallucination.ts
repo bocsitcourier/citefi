@@ -16,6 +16,7 @@ import { factStore, FactPack } from "./fact-store";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -27,10 +28,16 @@ async function callGeminiForValidation(prompt: string, teamId: number): Promise<
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   let result;
   try {
-    result = await genAI.models.generateContent({
+    const generationRequest = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-    });
+    };
+    result = await submitGeminiRequest(generationRequest, {
+      teamId,
+      operationType: "other",
+      resourceType: "fact_validation",
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },

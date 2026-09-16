@@ -13,6 +13,7 @@
 
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface SurgicalFixResult {
   html: string;
@@ -121,6 +122,7 @@ ${html}`;
     }), "Surgical article fix", undefined, {
       operationType: "article_generation",
       model: "gpt-4.1-mini",
+      request: { model: "gpt-4.1-mini", maxOutputTokens },
     });
 
     const fixedHtml = response.choices[0]?.message?.content || html;
@@ -147,7 +149,7 @@ ${html}`;
       tokenCount: response.usage?.total_tokens,
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Surgical fix failed:", error);
     return { html, appliedFixes: [], unchanged: true };
   }

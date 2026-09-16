@@ -46,6 +46,10 @@ import {
   runWithSystemContext,
   getDatabaseExecutionContext,
 } from "./tenant-context";
+import {
+  providerInvocationIdentityForJob,
+  runWithProviderInvocationIdentity,
+} from "./provider-invocation-identity";
 
 // Indirection keeps the queue import tree-shakeable for handler-only unit tests.
 function queueModule() {
@@ -304,10 +308,15 @@ const DEFAULT_RETRY_DISPOSITIONS: readonly ErrorDisposition[] = [
 ];
 
 export function isPipelineErrorRetryable(
-  error: Pick<PipelineError, "disposition">,
+  error: Pick<PipelineError, "disposition"> & Partial<Pick<PipelineError, "code">>,
   retryFatalErrors = false,
   retryDispositions: readonly ErrorDisposition[] = DEFAULT_RETRY_DISPOSITIONS
 ): boolean {
+  if (
+    error.code === "PROVIDER_ACCOUNTING_FAILED" ||
+    error.code === "PROVIDER_SUBMISSION_UNCERTAIN" ||
+    error.code === "PROVIDER_RESULT_NOT_DURABLE"
+  ) return false;
   if (error.disposition === "fatal") return retryFatalErrors;
   return retryDispositions.includes(error.disposition);
 }
@@ -388,6 +397,8 @@ export function createPipelineHandler<T>(
 ) {
   const execution = opts.execution;
   return async (job: Job<T>): Promise<unknown> => {
+    const invocationIdentity = providerInvocationIdentityForJob(queueName, job);
+    return runWithProviderInvocationIdentity(invocationIdentity, async () => {
     let tenantFailureContext:
       | {
           actorType: "worker";
@@ -572,6 +583,7 @@ export function createPipelineHandler<T>(
       }
       return await handleFailure();
     }
+    });
   };
 }
 

@@ -23,6 +23,31 @@ Platform canaries need an explicitly configured internal accounting owner. They 
 
 A priced ledger with zero unpriced rows does not prove that every paid call was recorded. Keep unresolved post-provider accounting failures separate from recorded totals; never invent a usage event to fill the gap.
 
-**Why:** Live execution exposed a successful provider response rejected during ownership validation before any immutable usage row existed. The remaining error envelope did not retain the exact usage or request identity.
+**Why:** Successful provider responses and committed accounting writes can lose their acknowledgements. An error envelope alone does not establish exact usage or provider request identity.
 
 **How to apply:** Reconcile physical submissions against receipts as well as ledger rows. Until missing receipts can be recovered, reserve a conservative bound using the provider's request limits and locked rates, and label the amount as exposure—not confirmed expense.
+
+Receipt identity must distinguish a new logical generation from redelivery of
+the same generation. Resource identity and logical invocation identity are
+not interchangeable.
+
+**Why:** A permanent resource key blocks intentional regeneration, while a new
+random key on queue redelivery permits duplicate paid submissions. Neither
+failure is detectable by testing ledger insertion alone.
+
+**How to apply:** Preserve durable job/request/operation identity at the entry
+boundary and allocate stage-specific call slots beneath it before throttling
+or retrying. Test both intentional regeneration and crash/redelivery together.
+
+Receipt recovery must never resubmit a provider request or infer missing usage.
+Admission requires the primary store; an independent durable fallback is for
+retaining returned evidence, not for permitting spending during a database outage.
+
+**Why:** A ledger insert can commit and then report failure, and a provider can
+return only partial usage. Replaying either operation without its original
+identity risks duplicate charges or invented financial evidence.
+
+**How to apply:** Reconcile by the original receipt identity, retain absent
+counts as absent, and test both concurrent admission and committed-then-error
+accounting. Keep actual provider usage distinct from request bounds. Future
+receipt coverage does not reconstruct the historical unrecoverable call.

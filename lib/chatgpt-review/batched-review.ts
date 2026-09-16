@@ -2,6 +2,7 @@ import { openaiClient, callOpenAI } from "../openai-client";
 import { validateContent, type ContentValidationResult } from "./content-validator";
 import { isHighQualityAnchor } from "../seo-policy";
 import { isProviderAccountingError } from "../cost-telemetry";
+import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
 
 export interface BatchedReviewResult {
   hyperlinks: {
@@ -296,7 +297,8 @@ ${content}
       response_format: { type: "json_object" },
     }),
     `Batched Review: ${title.substring(0, 50)}`,
-    chatgptReviewTimeout // Pass timeout to callOpenAI wrapper (controls request timeout)
+    chatgptReviewTimeout, // Pass timeout to callOpenAI wrapper (controls request timeout)
+    { request: { model: "gpt-4.1-mini", maxOutputTokens: 3000 } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";
@@ -319,7 +321,7 @@ ${content}
       });
       console.log(`✅ Content validation complete - Overall Score: ${contentValidation.overallScore}/100`);
     } catch (error) {
-      if (isProviderAccountingError(error)) throw error;
+      if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
       console.error(`❌ Content validation failed:`, error);
       contentValidation = undefined;
     }

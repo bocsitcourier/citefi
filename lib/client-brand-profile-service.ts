@@ -28,6 +28,9 @@ import { and, eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { submitBraveSearchWithReceipt } from "./brave-attempt-receipt";
 
 async function recordBrandGeminiAttempt(teamId: number, result: any, startedAt: number, success: boolean, error?: unknown, prompt?: string): Promise<void> {
   await logCostTelemetry(
@@ -565,11 +568,17 @@ Return a JSON object with EXACTLY this structure (all fields required):
 
   const startedAt = Date.now();
   try {
-    const result = await genAI.models.generateContent({
+    const request = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId,
+      operationType: "brand_intelligence",
+      resourceType: "brand_profile",
+      attempt: 1,
+    }, () => genAI.models.generateContent(request));
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (
@@ -644,29 +653,22 @@ async function discoverCompetitors(
     ];
     const allResults: any[] = [];
     for (const q of queries) {
-      const startedAt = Date.now();
-      const queryHash = createHash("sha256").update(q).digest("hex");
       try {
-        const res = await fetch(
-          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8`,
-          { headers: { Accept: "application/json", "X-Subscription-Token": braveApiKey } }
-        );
-        if (!res.ok) throw new Error(`Brave API error: ${res.status}`);
-        const data = await res.json();
+        const data = await submitBraveSearchWithReceipt({
+          query: q,
+          apiKey: braveApiKey,
+          count: 8,
+          context: {
+            teamId,
+            operationType: "brand_intelligence",
+            resourceType: "brand_profile",
+            attempt: 1,
+          },
+        });
         const results = data.web?.results ?? [];
         allResults.push(...results);
-        await logCostTelemetry(
-          { operationType: "brand_intelligence", provider: "brave", model: "web-search", teamId, attempt: 1,
-            providerRequestId: res.headers.get("x-request-id"), providerMetadata: { queryHash, resultCount: results.length } },
-          { requestCount: 1 }, Date.now() - startedAt, true
-        );
       } catch (err) {
-        if (isProviderAccountingError(err)) throw err;
-        await logFailedProviderAttempt(
-          { operationType: "brand_intelligence", provider: "brave", model: "web-search", teamId, attempt: 1,
-            providerMetadata: { queryHash } },
-          { requestCount: 0 }, Date.now() - startedAt, err
-        );
+        if (isProviderAccountingError(err) || isProviderAttemptTerminalError(err)) throw err;
       }
     }
     // Deduplicate by URL and exclude the client's own domain
@@ -707,11 +709,17 @@ Use real companies — not placeholder names. If Brave results are provided, pri
 
   const startedAt = Date.now();
   try {
-    const result = await genAI.models.generateContent({
+    const request = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId,
+      operationType: "brand_intelligence",
+      resourceType: "brand_profile",
+      attempt: 1,
+    }, () => genAI.models.generateContent(request));
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     const rawCompetitors: Competitor[] = Array.isArray(parsed.competitors) ? parsed.competitors : [];
@@ -841,11 +849,17 @@ Return a JSON object:
 
   const startedAt = Date.now();
   try {
-    const result = await genAI.models.generateContent({
+    const request = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId,
+      operationType: "brand_intelligence",
+      resourceType: "brand_profile",
+      attempt: 1,
+    }, () => genAI.models.generateContent(request));
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (
@@ -929,11 +943,17 @@ If the source does not explicitly support a claim, omit it. An empty approvedCla
 
   const startedAt = Date.now();
   try {
-    const result = await genAI.models.generateContent({
+    const request = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId,
+      operationType: "brand_intelligence",
+      resourceType: "brand_profile",
+      attempt: 1,
+    }, () => genAI.models.generateContent(request));
     await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (

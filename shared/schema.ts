@@ -3001,6 +3001,61 @@ export type InsertCostTelemetry = z.infer<typeof insertCostTelemetrySchema>;
 export type CostTelemetry = typeof costTelemetry.$inferSelect;
 
 // ============================================================================
+// PROVIDER ATTEMPT RECEIPTS — non-secret physical submission evidence
+// ============================================================================
+//
+// This is deliberately separate from provider_usage_ledger.  The receipt is
+// written before a provider call and can therefore preserve the safe request
+// limits and ownership context even when the later accounting transaction is
+// unavailable.  request_metadata/response_usage are allow-listed numeric and
+// identifier metadata only; prompts, generated content, credentials, and
+// media bytes must never be placed in either JSON document.
+export const providerAttemptReceipts = pgTable("provider_attempt_receipts", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  sourceEventId: varchar("source_event_id", { length: 255 }).notNull().unique(),
+  teamId: integer("team_id").notNull().references(() => teams.id),
+  userId: integer("user_id").references(() => users.id),
+  campaignId: integer("campaign_id"),
+  contentId: integer("content_id"),
+  resourceType: varchar("resource_type", { length: 50 }),
+  resourceId: varchar("resource_id", { length: 100 }),
+  runId: varchar("run_id", { length: 100 }),
+  jobId: varchar("job_id", { length: 100 }),
+  operationType: varchar("operation_type", { length: 80 }).notNull(),
+  provider: varchar("provider", { length: 40 }).notNull(),
+  model: varchar("model", { length: 120 }).notNull(),
+  attempt: integer("attempt").notNull().default(1),
+  requestMetadata: jsonb("request_metadata").notNull(),
+  providerRequestId: varchar("provider_request_id", { length: 255 }),
+  responseUsage: jsonb("response_usage"),
+  responseMetadata: jsonb("response_metadata"),
+  status: varchar("status", { length: 40 }).notNull().default("prepared"),
+  failureCode: varchar("failure_code", { length: 80 }),
+  failureMessage: varchar("failure_message", { length: 255 }),
+  preparedAt: timestamp("prepared_at").notNull().defaultNow(),
+  submittedAt: timestamp("submitted_at"),
+  usageCapturedAt: timestamp("usage_captured_at"),
+  accountedAt: timestamp("accounted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => ({
+  sourceEventIdx: uniqueIndex("provider_attempt_receipts_source_event_idx").on(t.sourceEventId),
+  teamCreatedIdx: index("provider_attempt_receipts_team_created_idx").on(t.teamId, t.createdAt),
+  teamStatusIdx: index("provider_attempt_receipts_team_status_idx").on(t.teamId, t.status),
+  providerRequestIdx: index("provider_attempt_receipts_provider_request_idx").on(t.provider, t.providerRequestId),
+  resourceIdx: index("provider_attempt_receipts_resource_idx").on(t.teamId, t.resourceType, t.resourceId),
+  contentIdx: index("provider_attempt_receipts_content_idx").on(t.teamId, t.contentId),
+})).enableRLS();
+
+export const insertProviderAttemptReceiptSchema = createInsertSchema(providerAttemptReceipts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertProviderAttemptReceipt = z.infer<typeof insertProviderAttemptReceiptSchema>;
+export type ProviderAttemptReceipt = typeof providerAttemptReceipts.$inferSelect;
+
+// ============================================================================
 // PROVIDER USAGE LEDGER — immutable COGS source of truth (Task #153)
 // ============================================================================
 export const providerRateVersions = pgTable("provider_rate_versions", {

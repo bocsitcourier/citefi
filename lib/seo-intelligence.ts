@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { openaiClient, callOpenAI } from "./openai-client";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 async function generateSeoIntelligence(prompt: string, teamId: number) {
@@ -11,10 +12,16 @@ async function generateSeoIntelligence(prompt: string, teamId: number) {
   }
   const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
-    const result = await genAI.models.generateContent({
+    const request = {
       model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { temperature: 0.7, responseMimeType: "application/json" },
-    });
+    };
+    const result = await submitGeminiRequest(request, {
+      teamId,
+      operationType: "seo_analysis",
+      resourceType: "seo_analysis",
+      attempt: 1,
+    }, () => genAI.models.generateContent(request));
     await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
       providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);
@@ -306,7 +313,9 @@ Return ONLY valid JSON:
       response_format: { type: "json_object" },
       temperature: 0.7,
     }),
-    `Competitor Analysis: ${competitor_url}`
+    `Competitor Analysis: ${competitor_url}`,
+    undefined,
+    { request: { model: "gpt-4.1-mini" } },
   );
 
   return JSON.parse(completion.choices[0]!.message.content!) as CompetitorAnalysis;
@@ -727,7 +736,9 @@ Return ONLY valid JSON:
       response_format: { type: "json_object" },
       temperature: 0.8,
     }),
-    `Pillar Cluster Strategy: ${main_topic}`
+    `Pillar Cluster Strategy: ${main_topic}`,
+    undefined,
+    { request: { model: "gpt-4.1-mini" } },
   );
 
   return JSON.parse(completion.choices[0]!.message.content!) as PillarClusterStrategy;

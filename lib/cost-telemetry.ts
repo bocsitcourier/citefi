@@ -6,12 +6,23 @@ import { costTelemetry } from "@/shared/schema";
 import { getDatabaseExecutionContext } from "./tenant-context";
 import { recordProviderUsage } from "./provider-usage-ledger";
 import { redactProviderError } from "./provider-diagnostics";
+import {
+  captureProviderSdkResponse,
+  currentProviderAttempt,
+  markCurrentProviderAttemptAccountingFailed,
+  reconcileCurrentProviderAttempt,
+  reconcileProviderAttempt,
+  providerAttemptUsageFromTelemetry,
+  providerAttemptSourceEventIdForResponse,
+  isProviderAttemptTerminalError,
+  ProviderAttemptUsageUnavailableError,
+} from "./provider-attempt-receipts";
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // PRICING MAP — cost per million tokens (or per unit) in USD
 // Stored as microUSD internally to avoid floating-point drift.
 // 1 USD = 1,000,000 microUSD
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 const PRICE_PER_MILLION: Record<string, { input: number; output: number }> = {
   // ── Gemini 3.x family (verified in ListModels 2026-08) ───────────────────
@@ -111,7 +122,7 @@ export function resolveTelemetryTeamId(
       requestedTeamId != null &&
       requestedTeamId !== execution.teamId
     ) {
-      throw new Error(
+      throw new ProviderAttemptUsageUnavailableError(
         `Cost telemetry teamId ${requestedTeamId} does not match the validated tenant ${execution.teamId}`
       );
     }
@@ -129,22 +140,62 @@ export interface TokenUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** False means the provider SDK omitted its usage block. */
+  known?: boolean;
+  /** Internal idempotency bridge for post-call telemetry after receipt context. */
+  providerAttemptSourceEventId?: string;
 }
 
 export interface CharacterUsage {
   characters: number;
+  known?: boolean;
+  providerAttemptSourceEventId?: string;
 }
 
 export interface ImageUsage {
   imageCount: number;
+  known?: boolean;
+  providerAttemptSourceEventId?: string;
 }
 
 export interface VideoUsage {
   videoSeconds: number;
+  known?: boolean;
+  providerAttemptSourceEventId?: string;
 }
 
 export interface RequestUsage {
   requestCount: number;
+  known?: boolean;
+  providerAttemptSourceEventId?: string;
+}
+
+export interface CostTelemetryOptions {
+  /** Record only operational telemetry; never write provider usage ledger. */
+  skipLedger?: boolean;
+  /** Receipt already contains exact provider usage; do not replace it. */
+  skipCapture?: boolean;
+}
+
+const SAFE_UNCORRELATED_PROVIDER_METADATA_KEYS = new Set([
+  "providerRequestId",
+  "operationId",
+  "actualModel",
+  "finishReason",
+]);
+
+function safeUncorrelatedProviderMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): Record<string, string> | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const safe: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!SAFE_UNCORRELATED_PROVIDER_METADATA_KEYS.has(key)) continue;
+    if (typeof value !== "string") continue;
+    const bounded = value.trim();
+    if (bounded && bounded.length <= 255) safe[key] = bounded;
+  }
+  return Object.keys(safe).length ? safe : null;
 }
 
 /**
@@ -163,8 +214,10 @@ export class ProviderAccountingError extends Error {
   }
 }
 
-export function isProviderAccountingError(error: unknown): error is ProviderAccountingError {
-  return error instanceof ProviderAccountingError ||
+export function isProviderAccountingError(error: unknown): error is ProviderAccountingError | import("./provider-attempt-receipts").ProviderAttemptTerminalError {
+  // Legacy optional-provider fallbacks already use this guard. Receipt
+  // failures belong to the same no-replay boundary, including missing usage.
+  return isProviderAttemptTerminalError(error) || error instanceof ProviderAccountingError ||
     (
       typeof error === "object" &&
       error !== null &&
@@ -231,7 +284,8 @@ export function isProviderResultNotDurableError(
 export function isNonReplayableProviderError(error: unknown): boolean {
   return isProviderAccountingError(error) ||
     isProviderSubmissionUncertainError(error) ||
-    isProviderResultNotDurableError(error);
+    isProviderResultNotDurableError(error) ||
+    isProviderAttemptTerminalError(error);
 }
 
 /**
@@ -320,9 +374,9 @@ export function evaluateMarginCertification(
   };
 }
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // COST CALCULATION
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 export function calculateTokenCostMicrousd(
   model: string,
@@ -362,11 +416,11 @@ export function microusdToUsd(microusd: number): number {
   return microusd / 1_000_000;
 }
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // CREDIT ANCHOR VALIDATION
 // Validates that assigned credit costs cover actual API costs at each plan's
 // credit rate. Returns a health status for each operation type.
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 export const CREDIT_ANCHORS: Record<string, number> = {
   article: CREDIT_MENU.article,
@@ -416,16 +470,38 @@ export function validateCreditAnchor(
   };
 }
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // LOGGING
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 export async function logCostTelemetry(
   ctx: TelemetryContext,
   usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage,
   latencyMs: number,
   success = true,
-  errorMessage?: string
+  errorMessage?: string,
+  options: CostTelemetryOptions = {},
+): Promise<void> {
+  try {
+    await writeCostTelemetry(ctx, usage, latencyMs, success, errorMessage, options);
+  } catch (error) {
+    if (isProviderAccountingError(error)) throw error;
+    // Attribution can fail before the ledger insertion block. This function
+    // runs after submission, so that failure must never trigger generation.
+    throw new ProviderAccountingError(
+      "Provider accounting attribution or persistence failed; automatic replay is blocked",
+      error,
+    );
+  }
+}
+
+async function writeCostTelemetry(
+  ctx: TelemetryContext,
+  usage: TokenUsage | CharacterUsage | ImageUsage | VideoUsage | RequestUsage,
+  latencyMs: number,
+  success = true,
+  errorMessage?: string,
+  options: CostTelemetryOptions = {},
 ): Promise<void> {
   // Provider helpers deep in the call graph often omit teamId. The validated
   // database execution context is authoritative: inherit it for tenant work
@@ -438,7 +514,7 @@ export async function logCostTelemetry(
   let effectiveCampaignId: number | null = ctx.campaignId ?? null;
   if (effectiveCampaignId != null) {
     if (effectiveTeamId == null) {
-      throw new Error(
+      throw new ProviderAttemptUsageUnavailableError(
         "Cost telemetry campaignId requires an attributable tenant context"
       );
     }
@@ -531,31 +607,87 @@ export async function logCostTelemetry(
 
   const effectiveRunId = ctx.runId ?? (await import("./run-context")).currentRunId() ?? null;
 
+  // If a wrapper is inside runWithProviderAttempt, capture the normalized
+  // provider-returned usage before attempting the immutable ledger insert.
+  // This AsyncLocalStorage bridge lets existing post-call telemetry become a
+  // receipt response checkpoint without passing a receipt through every SDK
+  // helper.  Unknown SDK usage is terminal; it is never converted into a
+  // fabricated zero-usage receipt.
+  const activeAttempt = currentProviderAttempt();
+  if (!options.skipLedger && activeAttempt) {
+    if (
+      activeAttempt.receipt.teamId !== effectiveTeamId ||
+      activeAttempt.receipt.provider !== ctx.provider ||
+      activeAttempt.receipt.model !== ctx.model
+    ) {
+      throw new Error("cost telemetry context does not match active provider attempt receipt");
+    }
+    if (!options.skipCapture) {
+      await captureProviderSdkResponse({
+        usage: providerAttemptUsageFromTelemetry(usage),
+        providerRequestId: ctx.providerRequestId ?? null,
+      });
+    }
+    if (
+      activeAttempt.receipt.responseUsage?.known !== true ||
+      activeAttempt.receipt.responseUsage.unitCount == null
+    ) {
+      throw new Error(
+        "provider response usage is partial or unknown; immutable ledger insertion is blocked",
+      );
+    }
+  }
+
   // The immutable ledger is the COGS source of truth. cost_telemetry remains a
   // best-effort operational observability stream and must never be used to
   // mutate credit balances.
-  try {
-    await recordProviderUsage({
-      teamId: effectiveTeamId,
-      campaignId: effectiveCampaignId,
-      runId: effectiveRunId,
-      jobId: ctx.jobId ?? null,
-      contentId: ctx.articleId ?? null,
-      resourceType: ctx.resourceType ?? (ctx.articleId != null ? "article" : ctx.batchId != null ? "batch" : null),
-      resourceId: ctx.resourceId ?? ctx.articleId ?? ctx.batchId ?? null,
-      operationType: ctx.operationType,
-      provider: ctx.provider,
-      model: ctx.model,
-      unitType,
-      inputUnits: inputTokens ?? null,
-      outputUnits: outputTokens ?? null,
-      unitCount: unitCount ?? 0,
-      costMicrousd,
-      providerRequestId: ctx.providerRequestId ?? null,
-      providerMetadata: ctx.providerMetadata ?? null,
-      attempt: ctx.attempt ?? null,
-    });
+  const usageSourceEventId = "providerAttemptSourceEventId" in usage
+    ? (usage as TokenUsage).providerAttemptSourceEventId
+    : undefined;
+  const correlatedSourceEventId = activeAttempt?.receipt.sourceEventId ?? usageSourceEventId;
+  if (!options.skipLedger) try {
+    if (activeAttempt) {
+      // Reconcile the receipt's canonical persisted usage. Never rebuild a
+      // ledger payload from post-call context, which may differ on retries.
+      await reconcileCurrentProviderAttempt();
+    } else if (correlatedSourceEventId) {
+      // A response-correlated source ID is a typed WeakMap bridge. The
+      // receipt, not caller-supplied telemetry, owns immutable attribution.
+      await reconcileProviderAttempt({ sourceEventId: correlatedSourceEventId });
+    } else {
+      await recordProviderUsage({
+        teamId: effectiveTeamId,
+        campaignId: effectiveCampaignId,
+        runId: effectiveRunId,
+        jobId: ctx.jobId ?? null,
+        contentId: ctx.articleId ?? null,
+        resourceType: ctx.resourceType ?? (ctx.articleId != null ? "article" : ctx.batchId != null ? "batch" : null),
+        resourceId: ctx.resourceId ?? ctx.articleId ?? ctx.batchId ?? null,
+        operationType: ctx.operationType,
+        provider: ctx.provider,
+        model: ctx.model,
+        unitType,
+        inputUnits: inputTokens ?? null,
+        outputUnits: outputTokens ?? null,
+        unitCount: unitCount ?? 0,
+        costMicrousd,
+        providerRequestId: ctx.providerRequestId ?? null,
+        providerMetadata: safeUncorrelatedProviderMetadata(ctx.providerMetadata),
+        attempt: ctx.attempt ?? null,
+      });
+    }
   } catch (error) {
+    if (activeAttempt) {
+      try {
+        await markCurrentProviderAttemptAccountingFailed();
+      } catch (statusError) {
+        throw new ProviderAccountingError(
+          `Provider attempt receipt status failed after ${ctx.provider}/${ctx.model} accounting failure`,
+          statusError,
+          error,
+        );
+      }
+    }
     throw new ProviderAccountingError(
       `Immutable provider accounting failed for ${ctx.provider}/${ctx.model}`,
       error
@@ -603,13 +735,27 @@ export async function logFailedProviderAttempt(
   latencyMs: number,
   providerError: unknown
 ): Promise<void> {
+  const activeAttempt = currentProviderAttempt();
+  const usageSourceEventId = "providerAttemptSourceEventId" in usage
+    ? (usage as TokenUsage).providerAttemptSourceEventId
+    : undefined;
+  const hasExactCapturedUsage =
+    activeAttempt?.receipt.responseUsage?.known === true &&
+    activeAttempt.receipt.responseUsage.unitCount != null;
+  const skipLedger = !hasExactCapturedUsage && !usageSourceEventId;
+  const safeFailureDiagnostic = redactProviderError(
+    providerError,
+    undefined,
+    `${ctx.operationType}:provider_failure`,
+  );
   try {
     await logCostTelemetry(
       ctx,
       usage,
       latencyMs,
       false,
-      redactProviderError(providerError, undefined, `${ctx.operationType}:provider_failure`)
+      safeFailureDiagnostic,
+      { skipLedger, skipCapture: hasExactCapturedUsage },
     );
   } catch (accountingError) {
     throw new ProviderAccountingError(
@@ -633,6 +779,11 @@ export function extractGeminiUsage(result: {
     inputTokens: meta.promptTokenCount ?? 0,
     outputTokens: meta.candidatesTokenCount ?? 0,
     totalTokens: meta.totalTokenCount ?? 0,
+    known:
+      meta.promptTokenCount != null ||
+      meta.candidatesTokenCount != null ||
+      meta.totalTokenCount != null,
+    providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
   };
 }
 
@@ -649,5 +800,10 @@ export function extractOpenAIUsage(result: {
     inputTokens: u.prompt_tokens ?? 0,
     outputTokens: u.completion_tokens ?? 0,
     totalTokens: u.total_tokens ?? 0,
+    known:
+      u.prompt_tokens != null ||
+      u.completion_tokens != null ||
+      u.total_tokens != null,
+    providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
   };
 }

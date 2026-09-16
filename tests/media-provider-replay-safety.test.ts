@@ -20,7 +20,22 @@ const {
   generateAndStoreHeroImage,
 } = await import("../lib/gemini-image-generator");
 const { callOpenAI } = await import("../lib/openai-client");
+const {
+  MemoryProviderAttemptReceiptSpool,
+  MemoryProviderAttemptReceiptStore,
+} = await import("../lib/provider-attempt-receipts");
 const { settleDeliveredPodcast } = await import("../lib/podcast-worker");
+
+function receiptDeps() {
+  const store = new MemoryProviderAttemptReceiptStore();
+  const spool = new MemoryProviderAttemptReceiptSpool();
+  return {
+    store,
+    spool,
+    validateOwnership: async () => undefined,
+    recordUsage: async () => ({ inserted: true }),
+  };
+}
 
 void test("paid-provider boundary failures classify fatal instead of consuming queue retries", () => {
   const cases = [
@@ -223,9 +238,12 @@ void test("actual generateSingleImage treats timeout and missing paid payload as
           throw new Error("fetch failed: ETIMEDOUT");
         },
         logFailure: async () => undefined,
-      }
+        receipt: receiptDeps(),
+       },
     ),
-    (error: any) => error?.code === "PROVIDER_SUBMISSION_UNCERTAIN"
+     (error: any) =>
+       error?.code === "PROVIDER_SUBMISSION_UNCERTAIN" ||
+       error?.code === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN"
   );
   assert.equal(timeoutPhysicalCalls, 1);
 
@@ -237,10 +255,15 @@ void test("actual generateSingleImage treats timeout and missing paid payload as
       {
         generateContent: async () => {
           completedPhysicalCalls++;
-          return { responseId: "fake-gemini-complete", candidates: [] };
+          return {
+            responseId: "fake-gemini-complete",
+            usageMetadata: { totalTokenCount: 1 },
+            candidates: [],
+          };
         },
         logSuccess: async () => undefined,
-      }
+        receipt: receiptDeps(),
+       },
     ),
     (error: any) =>
       error?.code === "PROVIDER_RESULT_NOT_DURABLE" &&
@@ -259,22 +282,25 @@ void test("actual stored-image production path submits once when fake storage fa
       9,
       7,
       undefined,
-      {
-        generateContent: async () => {
-          physicalCalls++;
-          return {
-            responseId: "fake-gemini-stored",
-            candidates: [{
-              content: { parts: [{ inlineData: { data: Buffer.from("image").toString("base64") } }] },
-            }],
-          };
-        },
-        logSuccess: async () => undefined,
-        upload: async () => {
-          storageCalls++;
-          throw new Error("fake object storage outage");
-        },
-      }
+       undefined,
+       {
+         generateContent: async () => {
+           physicalCalls++;
+           return {
+             responseId: "fake-gemini-stored",
+             usageMetadata: { totalTokenCount: 1 },
+             candidates: [{
+               content: { parts: [{ inlineData: { data: Buffer.from("image").toString("base64") } }] },
+             }],
+           };
+         },
+         logSuccess: async () => undefined,
+         upload: async () => {
+           storageCalls++;
+           throw new Error("fake object storage outage");
+         },
+         receipt: receiptDeps(),
+       },
     ),
     (error: any) =>
       error?.code === "PROVIDER_RESULT_NOT_DURABLE" &&
@@ -282,6 +308,48 @@ void test("actual stored-image production path submits once when fake storage fa
   );
   assert.equal(physicalCalls, 1);
   assert.equal(storageCalls, 1);
+});
+
+void test("intentional image regenerations get distinct invocations while redelivery dedupes", async () => {
+  const receipt = receiptDeps();
+  let physicalCalls = 0;
+  const deps = {
+    generateContent: async () => {
+      physicalCalls++;
+      return {
+        responseId: `fake-image-${physicalCalls}`,
+        usageMetadata: { totalTokenCount: 1 },
+        candidates: [{
+          content: { parts: [{ inlineData: { data: Buffer.from("image").toString("base64") } }] },
+        }],
+      };
+    },
+    logSuccess: async () => undefined,
+    receipt,
+  };
+
+  await generateSingleImage(
+    "fake prompt",
+    { teamId: 7, invocationKey: "route:regen:one" },
+    deps,
+  );
+  await assert.rejects(
+    () => generateSingleImage(
+      "fake prompt",
+      { teamId: 7, invocationKey: "route:regen:one" },
+      deps,
+    ),
+    (error: any) =>
+      error?.code === "PROVIDER_ATTEMPT_TERMINAL" ||
+      error?.code === "PROVIDER_ATTEMPT_ALREADY_SUBMITTED",
+  );
+  await generateSingleImage(
+    "fake prompt",
+    { teamId: 7, invocationKey: "route:regen:two" },
+    deps,
+  );
+  assert.equal(physicalCalls, 2);
+  assert.equal(receipt.store.rows.size, 2);
 });
 
 void test("actual callOpenAI 429 policy has one owner and three physical calls, not twelve", async () => {
@@ -295,10 +363,20 @@ void test("actual callOpenAI 429 policy has one owner and three physical calls, 
       },
       "fake 429 retry ownership",
       undefined,
-      { teamId: 7, operationType: "podcast_tts", model: "fake-model" },
       {
-        logFailure: async () => undefined,
+        teamId: 7,
+        operationType: "podcast_tts",
+        model: "fake-model",
+        request: { model: "fake-model" },
+      },
+      {
         sleep: async () => undefined,
+        receipt: {
+          store: new MemoryProviderAttemptReceiptStore(),
+          spool: new MemoryProviderAttemptReceiptSpool(),
+          validateOwnership: async () => undefined,
+          recordUsage: async () => undefined,
+        },
       }
     ),
     (error) => error === rateLimitError

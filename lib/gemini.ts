@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { AsyncResource } from "node:async_hooks";
 import {
   normalizeArticleTargetUrls,
   validateArticleOutput,
@@ -13,6 +14,17 @@ import { buildShadowRunPromptPreamble } from "./article-shadow-run";
 import { validateContentWithFacts, FactValidationOptions } from "./fact-validated-generators";
 import { humanizeArticle } from "./deterministic-humanizer";
 import { isProviderAccountingError, throwIfProviderAccountingFailed } from "./cost-telemetry";
+import {
+  submitGeminiWithReceipt,
+  type GeminiAttemptReceiptContext,
+  type GeminiGenerateRequest,
+} from "./gemini-attempt-receipt";
+import type { GenerateContentResponse } from "@google/genai";
+import type { ProviderAttemptReceiptDependencies } from "./provider-attempt-receipts";
+import {
+  allocateProviderAttemptIdentity,
+  runWithProviderInvocationIdentity,
+} from "./provider-invocation-identity";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY environment variable is required");
@@ -217,7 +229,13 @@ export function parseMultipleCities(geographicFocus: string): string[] {
   return cities;
 }
 
-export async function throttledGeminiRequest<T>(fn: () => Promise<T>): Promise<T> {
+export async function throttledGeminiRequest<T>(
+  fn: () => Promise<T>,
+  receipt?: {
+    request: GeminiGenerateRequest;
+    context: GeminiAttemptReceiptContext;
+  },
+): Promise<T> {
   // Seam 3 guard: model calls belong in the worker process. If this fires in a
   // web-process route, that route should enqueue a job instead of calling directly.
   if (process.env.WORKER_PROCESS !== "true") {
@@ -227,7 +245,68 @@ export async function throttledGeminiRequest<T>(fn: () => Promise<T>): Promise<T
       `Route: ${new Error().stack?.split("\n")[2]?.trim() ?? "unknown"}`
     );
   }
-  return geminiRateLimiter.schedule(() => fn());
+
+  // Reserve one logical slot before entering Bottleneck.  The limiter may
+  // execute the callback later, or retry it in a different async context; the
+  // returned pair must remain unchanged for each receipt boundary it enters.
+  const providerIdentity = allocateProviderAttemptIdentity({
+    invocationKey: receipt?.context.invocationKey,
+    attemptKey: receipt?.context.attemptKey,
+    provider: "gemini",
+    operationType: receipt?.context.operationType ?? "other",
+    model: receipt?.request.model ?? "gemini",
+  });
+  const receiptWithInvocationKey = receipt
+    ? {
+        ...receipt,
+        context: {
+          ...receipt.context,
+          invocationKey: providerIdentity.invocationKey,
+          attemptKey: providerIdentity.attemptKey,
+        },
+      }
+    : undefined;
+  // Bottleneck invokes the same bound callback again for a 429/transient
+  // failure.  Keep one logical invocation slot, but advance the physical
+  // provider attempt so each retry has its own durable receipt.
+  let physicalAttempt = receipt?.context.attempt ?? 1;
+
+  // Bottleneck owns the callback's queue and can otherwise run it under the
+  // context of whichever job happens to submit next.  Bind it while inside a
+  // provider identity scope so identity, tenant, run and receipt ALS stores
+  // all follow the callback through limiter retries.
+  // Always enter the allocated child slot, including anonymous callbacks.
+  // Reusing the ambient root here would reset the child allocation and make
+  // two same-stage throttled calls collide.
+  return runWithProviderInvocationIdentity(providerIdentity.invocationKey, () => {
+    const boundSubmission = AsyncResource.bind(() => {
+      if (!receiptWithInvocationKey) return fn();
+      const attemptContext = {
+        ...receiptWithInvocationKey.context,
+        attempt: physicalAttempt++,
+      };
+      return submitGeminiWithReceipt(
+        receiptWithInvocationKey.request,
+        attemptContext,
+        fn as () => Promise<GenerateContentResponse>,
+      ) as Promise<T>;
+    });
+    return geminiRateLimiter.schedule(boundSubmission);
+  });
+}
+
+/**
+ * Direct-call variant for Gemini callers that do not use the shared
+ * rate-limiter.  It is intentionally just the receipt boundary; retries and
+ * throttling remain owned by the caller.
+ */
+export function submitGeminiRequest<TResponse extends GenerateContentResponse>(
+  request: GeminiGenerateRequest,
+  context: GeminiAttemptReceiptContext,
+  call: () => Promise<TResponse>,
+  _deps?: ProviderAttemptReceiptDependencies,
+): Promise<TResponse> {
+  return submitGeminiWithReceipt(request, context, call, _deps);
 }
 
 /**
@@ -537,11 +616,12 @@ Return ONLY valid JSON with enhanced coverage mapping:
 ✓ ZERO company names, business names, provider names, or competitor names in any title — titles are about the TOPIC only`;
 
   console.log(`🤖 Calling Gemini API for ${numTitles} titles...`);
-  const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-    model: getModel("geminiFlash"),
+  const titleModel = getModel("geminiFlash");
+  const titleRequest = {
+    model: titleModel,
     contents: [
       {
-        role: "user",
+        role: "user" as const,
         parts: [{ text: prompt }],
       },
     ],
@@ -570,14 +650,14 @@ Return ONLY valid JSON with enhanced coverage mapping:
               type: "object",
               properties: {
                 title: { type: "string" },
-                subtopicCategory: { 
+                subtopicCategory: {
                   type: "string",
                   enum: ["types", "costs", "laws", "providers", "faqs", "best_practices", "neighborhoods"]
                 },
                 clusterPillar: { type: "string" },
-                eatSignals: { 
+                eatSignals: {
                   type: "array",
-                  items: { 
+                  items: {
                     type: "string",
                     enum: ["experience", "expertise", "authoritativeness", "trustworthiness"]
                   }
@@ -592,7 +672,15 @@ Return ONLY valid JSON with enhanced coverage mapping:
         required: ["titles", "primaryKeywords", "contentStrategy", "coverageMapping"]
       }
     }
-  }));
+  };
+  const result = await throttledGeminiRequest(() => genAI.models.generateContent(titleRequest), {
+    request: titleRequest,
+    context: {
+      teamId: teamId!,
+      operationType: "article_title_pool",
+      resourceType: "article_title_pool",
+    },
+  });
   console.log(`✅ Gemini API returned response`);
 
   if (result?.usageMetadata) {
@@ -1635,7 +1723,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   const { getModel: gm } = await import("./model-resolver");
   const model = gm("geminiArticle");
   
-  const result = await throttledGeminiRequest(() => genAI.models.generateContent({
+  const articleRequest = {
     model,
     contents: [
       {
@@ -1712,7 +1800,21 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
         ]
       }
     }
-  }));
+  };
+  const result = await throttledGeminiRequest(
+    () => genAI.models.generateContent(articleRequest),
+    {
+      request: articleRequest,
+      context: {
+        teamId: teamId!,
+        articleId: articleId!,
+        batchId,
+        operationType: "article_generation",
+        resourceType: "article",
+        resourceId: articleId,
+      },
+    },
+  );
 
   if (result?.usageMetadata) {
     const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");

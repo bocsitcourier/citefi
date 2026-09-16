@@ -32,6 +32,11 @@ import {
 } from "../../lib/canary-worker";
 import { createPipelineHandler } from "../../lib/pipeline-worker";
 import { getRedisClientConfig, normalizeRedisUrl } from "../../lib/queue";
+import {
+  MemoryProviderAttemptReceiptSpool,
+  MemoryProviderAttemptReceiptStore,
+  runWithProviderAttempt,
+} from "../../lib/provider-attempt-receipts";
 
 const TEST_REDIS_URL = "redis://127.0.0.1:6379/14";
 const redis = new Redis(TEST_REDIS_URL, {
@@ -179,7 +184,7 @@ async function main(): Promise<void> {
     }
   });
 
-  await check("worker registration threads owner and stable delivery attempt identity", () => {
+  await check("worker registration threads owner and stable logical job identity", () => {
     const source = readFileSync("lib/worker.ts", "utf8");
     const registration = source.slice(
       source.indexOf("// Daily model health canary"),
@@ -189,8 +194,55 @@ async function main(): Promise<void> {
     assert.match(registration, /accountingTeamId: canaryAccountingTeamId/);
     assert.match(
       registration,
-      /attemptId: `canary:\$\{String\(job\.id\)\}:attempt:\$\{job\.attemptsMade \+ 1\}`/
+      /attemptId: `canary:\$\{String\(job\.id\)\}`/
     );
+    assert.doesNotMatch(readFileSync("lib/canary-worker.ts", "utf8"), /invocationKey:\s*(?:deps\??\.attemptId|attemptId)/);
+  });
+
+  await check("canary accounting failure stays terminal and redelivery cannot resubmit", async () => {
+    const store = new MemoryProviderAttemptReceiptStore();
+    const spool = new MemoryProviderAttemptReceiptSpool();
+    let physicalCalls = 0;
+    let ledgerAttempts = 0;
+    const handler = createPipelineHandler("canary", async () => runCanary(makeTestDeps({
+      textGen: () => runWithProviderAttempt({
+        context: {
+          teamId: 7, provider: "gemini", model: "fixture-model",
+          operationType: "other", resourceType: "canary",
+          resourceId: "text_generation", attemptKey: "text-generation", attempt: 1,
+        },
+        request: { model: "fixture-model" },
+        submit: async ({ captureResponse }) => {
+          physicalCalls++;
+          await captureResponse({
+            providerRequestId: "canary-paid-response",
+            usage: { unitType: "tokens", unitCount: 3, known: true },
+          });
+          return "paid result";
+        },
+        _deps: {
+          store, spool, validateOwnership: async () => undefined,
+          recordUsage: async () => {
+            ledgerAttempts++;
+            throw new Error("ledger unavailable after provider response");
+          },
+        },
+      }),
+      notifyAdmins: async () => undefined,
+      logError: async () => undefined,
+    })), {
+      stage: "text_gen",
+      execution: { scope: "system", reason: "canary receipt redelivery test" },
+      retryFatalErrors: true,
+      _deps: { recordProviderFailure: async () => undefined },
+    });
+    const original = { id: "canary-paid-job", data: {}, attemptsMade: 0, opts: { attempts: 2 } } as Job;
+    await assert.rejects(handler(original), UnrecoverableError);
+    // Force a redelivery even though the normal worker retry policy forbids it.
+    await assert.rejects(handler({ ...original, attemptsMade: 1 } as Job), UnrecoverableError);
+    assert.equal(physicalCalls, 1);
+    assert.equal(ledgerAttempts, 1);
+    assert.equal([...store.rows.values()][0]?.responseUsage?.unitCount, 3);
   });
 
   await check("missing persisted result reads as never_run", async () => {

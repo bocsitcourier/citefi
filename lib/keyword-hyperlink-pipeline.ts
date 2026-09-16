@@ -4,6 +4,7 @@ import type { AnyNode } from "domhandler";
 import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "./seo-policy";
 import { GPT_HYPERLINK_EXTRACT_MODEL, GPT_HYPERLINK_CORRECTION_MODEL } from "./ai-config";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 // ---------------------------------------------------------------------------
 // CHEERIO-BASED HYPERLINK INJECTOR
@@ -255,7 +256,8 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
         response_format: { type: "json_object" },
       }),
       `Keyword Extraction from Article`,
-      120000
+      120000,
+      { request: { model: GPT_HYPERLINK_EXTRACT_MODEL, maxOutputTokens: 2000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -282,7 +284,7 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
       },
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Article keyword extraction error:", error);
     throw new Error("Failed to extract keywords from article");
   }
@@ -357,7 +359,8 @@ CRITICAL RULES:
         response_format: { type: "json_object" },
       }),
       `Long-Phrase Keyword Extraction`,
-      120000
+      120000,
+      { request: { model: GPT_HYPERLINK_EXTRACT_MODEL, maxOutputTokens: 2000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -380,7 +383,7 @@ CRITICAL RULES:
       },
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Keyword extraction error:", error);
     throw new Error("Failed to extract long-phrase keywords");
   }
@@ -669,7 +672,8 @@ Output JSON:
         response_format: { type: "json_object" },
       }),
       `Keyword Validation Pass`,
-      300000
+      300000,
+      { request: { model: GPT_HYPERLINK_CORRECTION_MODEL, maxOutputTokens: 16000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -680,7 +684,7 @@ Output JSON:
       corrections: Array.isArray(parsed.corrections) ? parsed.corrections : [],
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ GPT-4 validation pass error:", error);
     // Fall back to programmatic result
     return {

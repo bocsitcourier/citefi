@@ -9,6 +9,7 @@ import { db } from "./db";
 import { articles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface AuditCriterion {
   criterion: string;
@@ -174,6 +175,7 @@ ${articleHtml}
     }), "Content quality audit", undefined, {
       operationType: "article_review",
       model: "gpt-4.1-mini",
+      request: { model: "gpt-4.1-mini", maxOutputTokens: 2000 },
     });
 
     const content = response.choices[0]?.message?.content;
@@ -202,7 +204,7 @@ ${articleHtml}
       complianceIssues: auditData.complianceIssues || [],
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Quality audit failed:", error);
     throw new Error(`Quality audit failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
@@ -295,6 +297,7 @@ Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highes
       model: "gpt-4.1-mini",
       teamId,
       articleId,
+      request: { model: "gpt-4.1-mini", maxOutputTokens: 1500 },
     });
 
     const content = response.choices[0]?.message?.content;
@@ -307,7 +310,7 @@ Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highes
 
     return linkData.opportunities || [];
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Internal link discovery failed:", error);
     return [];
   }

@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "./openai-client";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import { 
   createBrandValidationPrompt, 
   getHashtagStrategy,
@@ -124,7 +125,9 @@ ${location && city ? `- MUST include location-based hashtags (${city}) in the ev
       temperature: 0.7,
       response_format: { type: "json_object" },
     }),
-    `Social Enhancement: ${platform} for ${companyName || userEmail}`
+    `Social Enhancement: ${platform} for ${companyName || userEmail}`,
+    undefined,
+    { request: { model: "gpt-4.1-mini" } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";
@@ -143,7 +146,8 @@ ${location && city ? `- MUST include location-based hashtags (${city}) in the ev
       hyperlinks: parsed.hyperlinks || [],
     };
   } catch (error) {
-    console.error("Failed to parse GPT response, using defaults:", error);
+    if (isProviderAttemptTerminalError(error)) throw error;
+    console.error("Failed to parse GPT response, using defaults");
     result = {
       caption,
       hashtags: [

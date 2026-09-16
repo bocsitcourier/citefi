@@ -47,9 +47,10 @@ function catchPreservesAccounting(
   const errorName = catchClause.variableDeclaration?.name.getText(sourceFile);
   const first = catchClause.block.statements[0];
   if (!errorName || !first || !ts.isIfStatement(first)) return false;
+  const guard = first.expression.getText(sourceFile).replace(/\s/g, "");
   if (
-    first.expression.getText(sourceFile).replace(/\s/g, "") !==
-    `isProviderAccountingError(${errorName})`
+    guard !== `isProviderAccountingError(${errorName})` &&
+    guard !== `isProviderAccountingError(${errorName})||isProviderAttemptTerminalError(${errorName})`
   ) {
     return false;
   }

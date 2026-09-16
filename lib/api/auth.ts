@@ -8,6 +8,7 @@ import {
   runWithSystemContext,
 } from "@/lib/tenant-context";
 import { requireCookieCsrf } from "@/lib/csrf";
+import { runWithProviderHttpInvocation } from "@/lib/provider-http-invocation";
 
 /** Five-minute throttle for lastActivityAt writes — one DB write per session per 5 min. */
 const ACTIVITY_THROTTLE_MS = 5 * 60 * 1000;
@@ -57,7 +58,8 @@ export async function withAuthenticatedTeamContext<T>(
   fn: (auth: TeamAuthResult) => T,
 ): Promise<Awaited<T>> {
   const auth = await requireTeamMember(req);
-  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+  return await runWithProviderHttpInvocation(req, auth, () =>
+    runWithAuthenticatedTeamContext(auth, () => fn(auth)));
 }
 
 export async function withAuthenticatedTeamAdminContext<T>(
@@ -65,7 +67,8 @@ export async function withAuthenticatedTeamAdminContext<T>(
   fn: (auth: TeamAuthResult) => T,
 ): Promise<Awaited<T>> {
   const auth = await requireTeamAdmin(req);
-  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+  return await runWithProviderHttpInvocation(req, auth, () =>
+    runWithAuthenticatedTeamContext(auth, () => fn(auth)));
 }
 
 export async function withAuthenticatedClientReviewerContext<T>(
@@ -73,7 +76,8 @@ export async function withAuthenticatedClientReviewerContext<T>(
   fn: (auth: TeamAuthResult) => T,
 ): Promise<Awaited<T>> {
   const auth = await requireClientReviewer(req);
-  return await runWithAuthenticatedTeamContext(auth, () => fn(auth));
+  return await runWithProviderHttpInvocation(req, auth, () =>
+    runWithAuthenticatedTeamContext(auth, () => fn(auth)));
 }
 
 function activateTenantContext(result: TeamAuthResult): TeamAuthResult {

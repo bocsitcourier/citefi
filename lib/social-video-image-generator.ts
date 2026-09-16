@@ -11,6 +11,9 @@ import {
   ProviderResultNotDurableError,
   ProviderSubmissionUncertainError,
 } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
+import { providerAttemptSourceEventIdForResponse } from "./provider-attempt-receipts";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -33,6 +36,8 @@ interface GenerateVideoImagesRequest {
   companyName: string;
   platform: string; // Determines aspect ratio
   landingPageUrl?: string; // For Scene 5 to show exact website URL
+  /** Logical route/job invocation identity; distinct regenerations must differ. */
+  invocationKey?: string;
 }
 
 const PLATFORM_ASPECT_RATIOS: Record<string, string> = {
@@ -63,6 +68,13 @@ export async function generateVideoImages(
   if (!Number.isInteger(teamId) || teamId <= 0) {
     throw new Error("Video image generation requires a validated teamId");
   }
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: request.invocationKey,
+    attemptKey: "social-video-image",
+    provider: "gemini",
+    operationType: "image_generation",
+    model: "gemini-2.5-flash-image",
+  });
 
   console.log(`🖼️ Generating 5 images in parallel for 60-second video (${platform} format)`);
 
@@ -146,14 +158,23 @@ Visual Elements:
     const callGeminiWithRetry = async (prompt: string, attempt = 1): Promise<any> => {
       try {
         const startedAt = Date.now();
-        const result = await genAI.models.generateContent({
+        const generationRequest = {
           model: "gemini-2.5-flash-image",
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           config: {
             responseModalities: ["Image"],
             imageConfig: { aspectRatio },
           },
-        });
+        };
+        const result = await submitGeminiRequest(generationRequest, {
+          teamId,
+          operationType: "image_generation",
+          resourceType: "social_post",
+          resourceId: socialPostId,
+          attempt,
+          invocationKey: providerAttemptIdentity.invocationKey,
+          attemptKey: `${providerAttemptIdentity.attemptKey}:scene-${scene.sceneNumber}`,
+        }, () => genAI.models.generateContent(generationRequest));
         // A safety/refusal response is still a provider submission. Each
         // fallback prompt is deliberately recorded as its own submission.
         await logCostTelemetry(
@@ -162,7 +183,11 @@ Visual Elements:
             resourceType: "social_post", resourceId: socialPostId, attempt,
             providerRequestId: (result as any).responseId ?? `${socialPostId}:scene:${scene.sceneNumber}:${attempt}`,
           },
-          { imageCount: 1 }, Date.now() - startedAt, true
+          {
+            imageCount: 1,
+            providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
+          },
+          Date.now() - startedAt, true
         );
         return result;
       } catch (err: any) {

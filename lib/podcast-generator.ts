@@ -195,19 +195,32 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
   try {
     const _podStart = Date.now();
-    const result = await throttledGeminiRequest(() => genAI.models.generateContent({
-      model: getModel("geminiFlash"),
+    const model = getModel("geminiFlash");
+    const generationRequest = {
+      model,
       contents: [
         {
           role: "user",
           parts: [{ text: prompt }],
         },
       ],
-    }));
+    };
+    const result = await throttledGeminiRequest(
+      () => genAI.models.generateContent(generationRequest),
+      {
+        request: generationRequest,
+        context: {
+          teamId: teamId!,
+          operationType: "podcast_script",
+          resourceType: "podcast",
+          resourceId: podcastId,
+        },
+      },
+    );
 
     if (result?.usageMetadata) {
       await logCostTelemetry(
-        { operationType: "podcast_script", provider: "gemini", model: getModel("geminiFlash"),
+        { operationType: "podcast_script", provider: "gemini", model,
           teamId, resourceType: "podcast", resourceId: podcastId,
           providerRequestId: (result as any).responseId ?? null },
         extractGeminiUsage(result),

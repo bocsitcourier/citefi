@@ -11,6 +11,7 @@ import { redactProviderError, redactProviderOutput } from "./provider-diagnostic
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for video script generation");
 }
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -527,18 +528,26 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
 
   try {
     const startedAt = Date.now();
-    const response = await genAI.models.generateContent({
-      model: getModel("geminiFlash"),
+    const model = getModel("geminiFlash");
+    const generationRequest = {
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,
         maxOutputTokens: 8192,
         responseMimeType: "application/json",
       },
-    });
+    };
+    const response = await submitGeminiRequest(generationRequest, {
+      teamId: request.teamId,
+      operationType: "video_script",
+      resourceType: "video",
+      resourceId: request.videoId,
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry(
       {
-        operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+        operationType: "video_script", provider: "gemini", model,
         teamId: request.teamId,
         providerRequestId: (response as any).responseId ?? null, attempt: 1,
       },

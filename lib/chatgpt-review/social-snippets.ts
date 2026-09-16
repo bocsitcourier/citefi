@@ -1,5 +1,6 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
+import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
 
 export interface SocialSnippets {
   openGraph: {
@@ -100,7 +101,9 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
         max_tokens: 1000,
         response_format: { type: "json_object" },
       }),
-      `Social Snippets: ${title.substring(0, 50)}`
+      `Social Snippets: ${title.substring(0, 50)}`,
+      undefined,
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 1000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -115,7 +118,7 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
       },
     } as SocialSnippets;
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("Social snippet generation error:", error);
     throw new Error("Failed to generate social snippets");
   }

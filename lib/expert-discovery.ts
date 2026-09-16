@@ -6,8 +6,9 @@
  * Finds subject matter experts via web search to improve E-E-A-T signals.
  * Integrates with Brave Search API for real-time expert identification.
  */
-import { createHash } from "node:crypto";
-import { isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { submitBraveSearchWithReceipt } from "./brave-attempt-receipt";
 
 interface ExpertProfile {
   name: string;
@@ -62,7 +63,7 @@ export class ExpertDiscovery {
         const experts = this.extractExpertsFromResults(results, topic);
         allExperts.push(...experts);
       } catch (error) {
-        if (isProviderAccountingError(error)) throw error;
+        if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
         console.error(`Search failed for: ${query}`, (error as Error).message);
       }
     }
@@ -93,39 +94,20 @@ export class ExpertDiscovery {
   private async webSearch(query: string, teamId: number): Promise<any[]> {
     // If using Brave Search API
     if (this.searchApiKey) {
-      const startedAt = Date.now();
-      const queryHash = createHash("sha256").update(query).digest("hex");
       try {
-        const params = new URLSearchParams({
-          q: query,
-          count: '10'
+        const data = await submitBraveSearchWithReceipt({
+          query,
+          apiKey: this.searchApiKey,
+          count: 10,
+          context: {
+            teamId,
+            operationType: "expert_discovery",
+            attempt: 1,
+          },
         });
-        
-        const fullUrl = `https://api.search.brave.com/res/v1/web/search?${params}`;
-        const searchResponse = await fetch(fullUrl, {
-          headers: {
-            'Accept': 'application/json',
-            'X-Subscription-Token': this.searchApiKey
-          }
-        });
-        if (!searchResponse.ok) throw new Error(`Brave API error: ${searchResponse.status}`);
-        const data = await searchResponse.json();
-        const results = (data as any).web?.results || [];
-        // Only the query-bearing request is a search operation; do not meter
-        // the legacy endpoint probe or the local mock fallback.
-        await logCostTelemetry(
-          { operationType: "expert_discovery", provider: "brave", model: "web-search", teamId, attempt: 1,
-            providerMetadata: { queryHash, resultCount: results.length } },
-          { requestCount: 1 }, Date.now() - startedAt, true
-        );
-        return results;
+        return data.web?.results || [];
       } catch (error) {
-        if (isProviderAccountingError(error)) throw error;
-        await logFailedProviderAttempt(
-          { operationType: "expert_discovery", provider: "brave", model: "web-search", teamId, attempt: 1,
-            providerMetadata: { queryHash } },
-          { requestCount: 1 }, Date.now() - startedAt, error
-        );
+        if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
         console.error('Brave API error:', (error as Error).message);
       }
     }

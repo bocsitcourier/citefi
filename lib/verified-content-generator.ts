@@ -10,15 +10,30 @@ import {
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 async function callGeminiWithRetry(prompt: string, options?: { model?: string; responseFormat?: string; teamId?: number; contentId?: number }): Promise<string> {
   const model = options?.model || GEMINI_FLASH_MODEL;
+  if (!Number.isInteger(options?.teamId) || (options?.teamId ?? 0) <= 0) {
+    throw new Error("Verified Gemini generation requires a validated teamId");
+  }
   const startedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
-    const result = await genAI.models.generateContent({ model, contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    const generationRequest = {
+      model,
+      contents: [{ role: "user" as const, parts: [{ text: prompt }] }],
+    };
+    const result = await submitGeminiRequest(generationRequest, {
+      teamId: options!.teamId!,
+      contentId: options?.contentId,
+      operationType: "article_generation",
+      resourceType: options?.contentId != null ? "article" : "verified_content",
+      resourceId: options?.contentId,
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry({ operationType: "article_generation", provider: "gemini", model, teamId: options?.teamId,
       articleId: options?.contentId, providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);

@@ -7,6 +7,7 @@ import {
   isProviderAccountingError,
   ProviderResultNotDurableError,
 } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 // Voice selection based on content tone
 const TONE_VOICE_MAP: Record<string, "alloy" | "ash" | "coral" | "echo" | "fable" | "nova" | "onyx" | "sage" | "shimmer"> = {
@@ -152,6 +153,7 @@ export async function generateVeoTTS(
         resourceType: "social_post",
         resourceId: socialPostId,
         usage: { characters: ttsNarration.length },
+        request: { model: TTS_MODEL },
       }
     );
     paidProviderResultReceived = true;
@@ -208,6 +210,7 @@ export async function generateVeoTTS(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isProviderAttemptTerminalError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
     if (paidProviderResultReceived) {
       throw new ProviderResultNotDurableError(
@@ -216,7 +219,7 @@ export async function generateVeoTTS(
         error
       );
     }
-    console.error("❌ Failed to generate Veo TTS:", error);
-    throw new Error(`Veo TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("❌ Failed to generate Veo TTS");
+    throw new Error("Veo TTS generation failed");
   }
 }

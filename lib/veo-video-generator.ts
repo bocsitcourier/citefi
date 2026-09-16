@@ -1,4 +1,4 @@
-import { GoogleGenAI, createPartFromUri } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { objectStorageClient } from "./storage";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -9,16 +9,24 @@ import { sanitizeVeoPrompt } from "@/types/video-schema";
 import {
   isNonReplayableProviderError,
   isProviderAccountingError,
-  logFailedProviderAttempt,
-  logCostTelemetry,
   ProviderResultNotDurableError,
   ProviderSubmissionUncertainError,
 } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
+import {
+  isProviderAttemptTerminalError,
+  runWithProviderAttempt,
+  type ProviderAttemptContext,
+} from "./provider-attempt-receipts";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Veo video generation");
 }
+import { db } from "./db";
+import { socialPosts, videoIdeas } from "@/shared/schema";
+import { and, eq } from "drizzle-orm";
+import { validateProviderUsageOwnership } from "./provider-usage-ledger";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -56,16 +64,102 @@ interface GenerateVeoClipRequest {
   prompt: string;
   aspectRatio?: "16:9" | "9:16";
   duration?: 4 | 6 | 8;
+  /**
+   * Standalone idea videos use the same clip adapter but have a different
+   * durable owner than social posts.  Keep this explicit so the receipt
+   * admission check cannot accidentally attribute an idea to a post.
+   */
+  resourceType?: "social_post" | "video_idea";
+  resourceId?: number;
+  campaignId?: number | null;
+  runId?: string | null;
+  jobId?: string | null;
+  /** Durable queue/route invocation identity; distinct regenerations must differ. */
+  invocationKey?: string | null;
+  /**
+   * Provider rejection retries must use a distinct physical attempt.  A
+   * replay of an accepted/ambiguous operation intentionally keeps the same
+   * default identity and is rejected by the receipt core.
+   */
+  attempt?: number;
+  attemptKey?: string | null;
 }
 
+async function validateVeoAttemptOwnership(
+  context: ProviderAttemptContext,
+): Promise<void> {
+  await validateProviderUsageOwnership({
+    teamId: context.teamId,
+    campaignId: context.campaignId,
+    contentId: context.contentId,
+    resourceType: context.resourceType,
+    resourceId: context.resourceId,
+  });
+  const resourceId = Number(context.resourceId);
+  if (!Number.isSafeInteger(resourceId) || resourceId <= 0) {
+    throw new Error("Veo receipt requires a positive resource id");
+  }
+
+  if (context.resourceType === "video_idea") {
+    const [idea] = await db
+      .select({ id: videoIdeas.id })
+      .from(videoIdeas)
+      .where(and(eq(videoIdeas.id, resourceId), eq(videoIdeas.teamId, context.teamId)))
+      .limit(1);
+    if (!idea) {
+      throw new Error(
+        `Video idea ${resourceId} does not belong to team ${context.teamId}`,
+      );
+    }
+    return;
+  }
+
+  const [post] = await db
+    .select({ id: socialPosts.id })
+    .from(socialPosts)
+    .where(and(eq(socialPosts.id, resourceId), eq(socialPosts.teamId, context.teamId)))
+    .limit(1);
+  if (!post) {
+    throw new Error(
+      `Social post ${resourceId} does not belong to team ${context.teamId}`,
+    );
+  }
+}
 export async function generateVeoClip(
   request: GenerateVeoClipRequest
 ): Promise<VeoClip> {
-  const { teamId, socialPostId, sceneNumber, prompt, aspectRatio = "16:9", duration = 8 } = request;
+  const {
+    teamId,
+    socialPostId,
+    sceneNumber,
+    prompt,
+    aspectRatio = "16:9",
+    duration = 8,
+    resourceType = "social_post",
+    resourceId = socialPostId,
+    campaignId = null,
+    runId = null,
+    jobId = null,
+    attempt = 1,
+  } = request;
   if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Veo generation requires a validated teamId");
-  let providerUsageRecorded = false;
+  if (!Number.isSafeInteger(resourceId) || resourceId <= 0) {
+    throw new Error("Veo generation requires a positive resourceId");
+  }
+  if (!Number.isSafeInteger(attempt) || attempt <= 0) {
+    throw new Error("Veo generation attempt must be a positive integer");
+  }
+  const model = getModel("veoVideo");
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: request.invocationKey ?? jobId ?? runId,
+    attemptKey: request.attemptKey ?? "veo-clip",
+    provider: "gemini",
+    operationType: "veo_clip",
+    model,
+  });
   let operationId: string | null = null;
   let providerSubmitted = false;
+  let providerRejected = false;
 
   // Sanitize prompt to avoid content policy rejections
   const sanitizedPrompt = sanitizeVeoPrompt(prompt);
@@ -82,149 +176,211 @@ export async function generateVeoClip(
   }
 
   try {
-    const operation = await genAI.models.generateVideos({
-      model: getModel("veoVideo"),
-      prompt: sanitizedPrompt,
-      config: {
-        aspectRatio: aspectRatio,
-        durationSeconds: duration,
-        numberOfVideos: 1,
+    /**
+     * Veo is asynchronous, so the physical submission and the eventual
+     * completion are one receipt attempt.  Do not account the initial
+     * operation response (it has no billable usage); capture the numeric
+     * duration only once the operation is done, then let the receipt core
+     * (rather than legacy logCostTelemetry) reconcile that same source event.
+     */
+    const attemptKey = providerAttemptIdentity.attemptKey;
+    const receiptContext: ProviderAttemptContext = {
+      teamId,
+      campaignId,
+      runId,
+      jobId,
+      resourceType,
+      resourceId,
+      operationType: "veo_clip",
+      provider: "gemini",
+      model,
+      attempt,
+      invocationKey: providerAttemptIdentity.invocationKey,
+      attemptKey,
+    };
+    const providerResult = await runWithProviderAttempt({
+      context: receiptContext,
+      request: {
+        model,
+        maxDurationSeconds: duration,
+        maxImages: 1,
+        timeoutMs: 3_600_000,
+        adapterVersion: "veo-video-generator-v1",
+        requestKey: providerAttemptIdentity.attemptKey,
+      },
+      _deps: { validateOwnership: validateVeoAttemptOwnership },
+      submit: async ({ captureResponse }) => {
+        const operation = await genAI.models.generateVideos({
+          model,
+          prompt: sanitizedPrompt,
+          config: {
+            aspectRatio: aspectRatio,
+            durationSeconds: duration,
+            numberOfVideos: 1,
+          },
+        });
+        providerSubmitted = true;
+        operationId = operation.name ?? null;
+        // Preserve the paid submission acknowledgement before the first
+        // potentially long poll. A crash must not lose the operation ID.
+        await captureResponse({
+          providerRequestId: operationId,
+          usage: { unitType: "seconds", unitCount: null, known: false },
+          metadata: { operationId },
+        });
+
+        console.log(`  ⏳ Veo operation started: ${operation.name}`);
+        console.log(`  📋 Initial operation state - done: ${operation.done}`);
+
+        let currentOperation = operation;
+        let pollCount = 0;
+        // Veo clips (5-8s each) typically complete in 10-30 min.
+        // Allow up to 360 polls × 10s = 60 min to handle slow generations.
+        const maxPolls = 360;
+
+        // Poll using operation object (SDK expects { operation: operationObject })
+        while (!currentOperation.done && pollCount < maxPolls) {
+          await new Promise((resolve) => setTimeout(resolve, 10000));
+          pollCount++;
+
+          // Guard against undefined operation name
+          if (!currentOperation || !currentOperation.name) {
+            console.log(`  ❌ Invalid operation state - operation or name is undefined`);
+            throw new Error("Veo operation state is invalid - cannot poll");
+          }
+
+          console.log(`  ⏳ Polling Veo (${pollCount}/${maxPolls}) for operation: ${currentOperation.name}...`);
+
+          try {
+            const pollResult = await genAI.operations.getVideosOperation({
+              operation: currentOperation,
+            });
+
+            // Guard against undefined poll result
+            if (!pollResult) {
+              console.log(`  ⚠️ Poll returned undefined, retrying...`);
+              continue;
+            }
+
+            currentOperation = pollResult;
+            console.log(`  📋 Poll ${pollCount} - done: ${currentOperation.done}`);
+          } catch (pollError: any) {
+            console.log(
+              `  ⚠️ Poll error (attempt ${pollCount}): ${redactProviderError(pollError, undefined, "veo_poll")}`,
+            );
+            // Continue polling on transient errors
+            if (pollCount >= maxPolls) {
+              throw new Error("Veo polling failed (provider error; see redacted diagnostics)");
+            }
+          }
+        }
+
+        if (!currentOperation.done) {
+          throw new Error(`Veo video generation timed out after ${maxPolls * 10 / 60} minutes for scene ${sceneNumber}`);
+        }
+
+        // Log full operation response for debugging
+        console.log(`  📋 Veo operation complete after ${pollCount} polls`);
+        console.log(`  📋 Operation keys:`, Object.keys(currentOperation));
+        console.log(`  📋 Response keys:`, Object.keys(currentOperation.response || {}));
+
+        // Check for operation-level error
+        if (currentOperation.error) {
+          console.error(
+            `  ❌ Veo operation.error (${redactProviderError(currentOperation.error, undefined, "veo_operation_error")})`,
+          );
+          providerRejected = true;
+          throw new Error("Veo operation failed (provider error; see redacted diagnostics)");
+        }
+
+        // Check for response-level error
+        const responseError = (currentOperation.response as any)?.error;
+        if (responseError) {
+          console.error(
+            `  ❌ Veo response.error (${redactProviderError(responseError, undefined, "veo_response_error")})`,
+          );
+          providerRejected = true;
+          throw new Error("Veo response error (provider error; see redacted diagnostics)");
+        }
+
+        // Try both response.generatedVideos and result.generatedVideos
+        let generatedVideos = currentOperation.response?.generatedVideos;
+        if (!generatedVideos || generatedVideos.length === 0) {
+          const result = (currentOperation as any).result;
+          if (result?.generatedVideos) {
+            console.log(`  📋 Found videos in result field instead of response`);
+            generatedVideos = result.generatedVideos;
+          }
+        }
+
+        console.log(`  📋 Generated videos count:`, generatedVideos?.length || 0);
+        if (generatedVideos && generatedVideos.length > 0) {
+          console.log(`  📋 First video keys:`, Object.keys(generatedVideos[0] || {}));
+        }
+
+        if (!generatedVideos || generatedVideos.length === 0) {
+          // Check for RAI filtering in multiple locations
+          const raiFilteredReasons = (currentOperation.response as any)?.raiMediaFilteredReasons;
+          const raiFilteredCount = (currentOperation.response as any)?.raiMediaFilteredCount;
+          const raiFilteredReason = (currentOperation.response as any)?.raiFilteredReason
+            || (currentOperation as any).raiFilteredReason
+            || (currentOperation as any).result?.raiFilteredReason;
+
+          if (raiFilteredReasons && raiFilteredReasons.length > 0) {
+            console.log(
+              `  ❌ Veo content blocked by RAI filter (${raiFilteredCount} media filtered; ${redactProviderOutput(raiFilteredReasons, "veo_rai_reasons")})`,
+            );
+            providerRejected = true;
+            throw new Error("Veo content blocked by safety filter");
+          }
+
+          if (raiFilteredReason) {
+            console.log(
+              `  ❌ Veo safety filter reason redacted (${redactProviderOutput(raiFilteredReason, "veo_rai_reason")})`,
+            );
+            providerRejected = true;
+            throw new Error("Veo content blocked by safety filter");
+          }
+
+          console.error(
+            `  ❌ Veo response contained no video (${redactProviderOutput(currentOperation, "veo_empty_operation")})`,
+          );
+          providerRejected = true;
+          throw new Error("No video generated from Veo - response was empty");
+        }
+
+        const videoFile = generatedVideos[0]!.video;
+        if (!videoFile) {
+          providerRejected = true;
+          throw new Error("No video file in Veo response");
+        }
+
+        if (!operationId) {
+          throw new Error(
+            "Veo provider completed without a durable operation identity",
+          );
+        }
+
+        // Completion is the billing boundary. Capture the requested seconds
+        // and provider operation identity before downloading any bytes.
+        await captureResponse({
+          providerRequestId: operationId,
+          usage: {
+            unitType: "seconds",
+            unitCount: duration,
+            known: true,
+          },
+          metadata: {
+            providerRequestId: operationId,
+            operationId,
+            latencyMs: Date.now() - clipStartMs,
+          },
+        });
+
+        return { videoFile };
       },
     });
-    providerSubmitted = true;
-    operationId = operation.name ?? null;
-
-    console.log(`  ⏳ Veo operation started: ${operation.name}`);
-    console.log(`  📋 Initial operation state - done: ${operation.done}`);
-
-    let currentOperation = operation;
-    let pollCount = 0;
-    // Veo 2 clips (5-8s each) typically complete in 10-30 min.
-    // Allow up to 360 polls × 10s = 60 min to handle slow generations.
-    const maxPolls = 360;
-
-    // Poll using operation object (SDK expects { operation: operationObject })
-    while (!currentOperation.done && pollCount < maxPolls) {
-      await new Promise((resolve) => setTimeout(resolve, 10000));
-      pollCount++;
-      
-      // Guard against undefined operation name
-      if (!currentOperation || !currentOperation.name) {
-        console.log(`  ❌ Invalid operation state - operation or name is undefined`);
-        throw new Error("Veo operation state is invalid - cannot poll");
-      }
-      
-      console.log(`  ⏳ Polling Veo (${pollCount}/${maxPolls}) for operation: ${currentOperation.name}...`);
-      
-      try {
-        const pollResult = await genAI.operations.getVideosOperation({
-          operation: currentOperation,
-        });
-        
-        // Guard against undefined poll result
-        if (!pollResult) {
-          console.log(`  ⚠️ Poll returned undefined, retrying...`);
-          continue;
-        }
-        
-        currentOperation = pollResult;
-        console.log(`  📋 Poll ${pollCount} - done: ${currentOperation.done}`);
-      } catch (pollError: any) {
-        console.log(
-          `  ⚠️ Poll error (attempt ${pollCount}): ${redactProviderError(pollError, undefined, "veo_poll")}`,
-        );
-        // Continue polling on transient errors
-        if (pollCount >= maxPolls) {
-          throw new Error("Veo polling failed (provider error; see redacted diagnostics)");
-        }
-      }
-    }
-
-    if (!currentOperation.done) {
-      throw new Error(`Veo video generation timed out after ${maxPolls * 10 / 60} minutes for scene ${sceneNumber}`);
-    }
-
-    // Log full operation response for debugging
-    console.log(`  📋 Veo operation complete after ${pollCount} polls`);
-    console.log(`  📋 Operation keys:`, Object.keys(currentOperation));
-    console.log(`  📋 Response keys:`, Object.keys(currentOperation.response || {}));
-    
-    // Check for operation-level error
-    if (currentOperation.error) {
-      console.error(
-        `  ❌ Veo operation.error (${redactProviderError(currentOperation.error, undefined, "veo_operation_error")})`,
-      );
-      throw new Error("Veo operation failed (provider error; see redacted diagnostics)");
-    }
-    
-    // Check for response-level error
-    const responseError = (currentOperation.response as any)?.error;
-    if (responseError) {
-      console.error(
-        `  ❌ Veo response.error (${redactProviderError(responseError, undefined, "veo_response_error")})`,
-      );
-      throw new Error("Veo response error (provider error; see redacted diagnostics)");
-    }
-
-    // Try both response.generatedVideos and result.generatedVideos
-    let generatedVideos = currentOperation.response?.generatedVideos;
-    if (!generatedVideos || generatedVideos.length === 0) {
-      const result = (currentOperation as any).result;
-      if (result?.generatedVideos) {
-        console.log(`  📋 Found videos in result field instead of response`);
-        generatedVideos = result.generatedVideos;
-      }
-    }
-    
-    console.log(`  📋 Generated videos count:`, generatedVideos?.length || 0);
-    if (generatedVideos && generatedVideos.length > 0) {
-      console.log(`  📋 First video keys:`, Object.keys(generatedVideos[0] || {}));
-    }
-    
-    if (!generatedVideos || generatedVideos.length === 0) {
-      // Check for RAI filtering in multiple locations
-      const raiFilteredReasons = (currentOperation.response as any)?.raiMediaFilteredReasons;
-      const raiFilteredCount = (currentOperation.response as any)?.raiMediaFilteredCount;
-      const raiFilteredReason = (currentOperation.response as any)?.raiFilteredReason 
-        || (currentOperation as any).raiFilteredReason
-        || (currentOperation as any).result?.raiFilteredReason;
-      
-      if (raiFilteredReasons && raiFilteredReasons.length > 0) {
-        console.log(
-          `  ❌ Veo content blocked by RAI filter (${raiFilteredCount} media filtered; ${redactProviderOutput(raiFilteredReasons, "veo_rai_reasons")})`,
-        );
-        throw new Error("Veo content blocked by safety filter");
-      }
-      
-      if (raiFilteredReason) {
-        console.log(
-          `  ❌ Veo safety filter reason redacted (${redactProviderOutput(raiFilteredReason, "veo_rai_reason")})`,
-        );
-        throw new Error("Veo content blocked by safety filter");
-      }
-      
-      console.error(
-        `  ❌ Veo response contained no video (${redactProviderOutput(currentOperation, "veo_empty_operation")})`,
-      );
-      throw new Error("No video generated from Veo - response was empty");
-    }
-
-    const videoFile = generatedVideos[0]!.video;
-    if (!videoFile) {
-      throw new Error("No video file in Veo response");
-    }
-
-    // Provider completion is the billing boundary. Record it before download
-    // or local storage so delivery failures cannot erase real provider spend.
-    await logCostTelemetry(
-      { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo"),
-        teamId, resourceType: "social_post", resourceId: socialPostId, attempt: 1,
-        providerRequestId: operationId },
-      { videoSeconds: duration },
-      Date.now() - clipStartMs,
-      true
-    );
-    providerUsageRecorded = true;
+    const videoFile = providerResult.videoFile;
 
     const tempDir = `/tmp/veo-clips/${socialPostId}`;
     await fs.mkdir(tempDir, { recursive: true });
@@ -298,22 +454,14 @@ export async function generateVeoClip(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isProviderAttemptTerminalError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
     console.error(
       `❌ Veo clip ${sceneNumber} generation failed:`,
       redactProviderError(error, undefined, "veo_clip_generation"),
     );
-    // Failed attempts still cost money on the provider side in some failure
-    // modes; record them so the budget ceiling and spend breaker see them.
-    if (!providerUsageRecorded) {
-      await logFailedProviderAttempt(
-        { operationType: "veo_clip", provider: "gemini", model: getModel("veoVideo"),
-          teamId, resourceType: "social_post", resourceId: socialPostId, attempt: 1,
-          providerRequestId: operationId },
-        { videoSeconds: 0 },
-        Date.now() - clipStartMs,
-        error
-      );
+    if (providerRejected) {
+      throw new Error("Veo provider rejected the clip request (see redacted diagnostics)");
     }
     if (providerSubmitted) {
       throw new ProviderResultNotDurableError(
@@ -331,9 +479,11 @@ export async function generateVeoClip(
       errorMessage.includes("socket hang up") ||
       errorMessage.includes("fetch failed")
     ) {
+      // The receipt wrapper normally classifies ambiguous failures.  This
+      // fallback only covers failures before the wrapper can be entered.
       throw new ProviderSubmissionUncertainError(
         `Veo submission outcome is uncertain for scene ${sceneNumber}; refusing automatic replay`,
-        error
+        error,
       );
     }
     throw new Error(

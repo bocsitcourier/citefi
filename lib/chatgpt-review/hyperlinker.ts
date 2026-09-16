@@ -1,6 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isHighQualityAnchor } from "../seo-policy";
 import { isProviderAccountingError } from "../cost-telemetry";
+import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
 
 export interface HyperlinkResult {
   keywords: Array<{
@@ -96,7 +97,9 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
         max_tokens: 2500,
         response_format: { type: "json_object" },
       }),
-      `Hyperlinker: ${coreTopic.substring(0, 50)}`
+      `Hyperlinker: ${coreTopic.substring(0, 50)}`,
+      undefined,
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 2500 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -143,7 +146,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
       },
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("Hyperlink generation error:", error);
     throw new Error("Failed to generate hyperlinks");
   }

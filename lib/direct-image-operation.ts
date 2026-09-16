@@ -15,6 +15,7 @@ import {
   checkUsageCap,
   recordUsageEvent,
 } from "@/lib/usage-caps";
+import { runWithProviderInvocationIdentity } from "@/lib/provider-invocation-identity";
 
 const OPERATION_TYPE = "section_regenerate" as const;
 
@@ -323,7 +324,7 @@ export async function runDirectImageOperation<Generated, Persisted>(params: {
 
     let generated: Generated;
     try {
-      generated = await generate();
+      generated = await runWithProviderInvocationIdentity(runId, generate);
     } catch (error) {
       if (isNonReplayableProviderError(error)) {
         await (_deps.markReconciliation ?? markReservationForReconciliation)({

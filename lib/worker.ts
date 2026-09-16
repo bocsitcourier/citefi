@@ -5841,7 +5841,7 @@ export async function registerWorkers() {
       await runCanary({
         reportFailure: job.attemptsMade === 0,
         accountingTeamId: canaryAccountingTeamId,
-        attemptId: `canary:${String(job.id)}:attempt:${job.attemptsMade + 1}`,
+        attemptId: `canary:${String(job.id)}`,
       });
     }, {
       stage: "text_gen",

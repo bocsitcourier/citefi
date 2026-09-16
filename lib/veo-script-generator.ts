@@ -5,6 +5,7 @@ import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
 import { getContentOptimizationContext, type ContentOptimizationContext } from "./persona-content-integration";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
+import { submitGeminiRequest } from "./gemini";
 
 export class VeoScriptContractError extends Error {
   readonly code = "MODEL_OUTPUT_INVALID" as const;
@@ -243,7 +244,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
 
   try {
     const _veoStart = Date.now();
-    const response = await genAI.models.generateContent({
+    const generationRequest = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
@@ -251,7 +252,14 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
         maxOutputTokens: 8192,
         responseMimeType: "application/json",
       },
-    });
+    };
+    const response = await submitGeminiRequest(generationRequest, {
+      teamId,
+      operationType: "video_script",
+      // Script preparation precedes a stored video resource. Keep it
+      // deliberately team-scoped instead of inventing a resource identity.
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
 
     if (response?.usageMetadata) {
       const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");

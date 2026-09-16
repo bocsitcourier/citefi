@@ -1,5 +1,6 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
+import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
 
 export interface SEOAnalysis {
   seoScore: number; // 0-100
@@ -85,7 +86,9 @@ Return ONLY this JSON structure:
         max_tokens: 1000,
         response_format: { type: "json_object" },
       }),
-      `SEO Analyzer: ${title.substring(0, 50)}`
+      `SEO Analyzer: ${title.substring(0, 50)}`,
+      undefined,
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 1000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -100,7 +103,7 @@ Return ONLY this JSON structure:
       },
     } as SEOAnalysis;
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("SEO analysis error:", error);
     throw new Error("Failed to analyze SEO");
   }

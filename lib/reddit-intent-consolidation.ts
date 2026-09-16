@@ -10,6 +10,7 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -162,10 +163,16 @@ Generate the JSON outline now:`;
     const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
     let result;
     try {
-      result = await genAI.models.generateContent({
+      const generationRequest = {
         model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.3, responseMimeType: "application/json" },
-      });
+      };
+      result = await submitGeminiRequest(generationRequest, {
+        teamId,
+        operationType: "topic_research",
+        resourceType: "reddit_intent",
+        attempt: 1,
+      }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
         providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
       extractGeminiUsage(result), Date.now() - startedAt);

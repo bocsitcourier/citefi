@@ -7,6 +7,7 @@ import {
 } from "./cost-telemetry";
 import { executePaidMediaBoundary } from "./media-provider-boundary";
 import { redactProviderError } from "./provider-diagnostics";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface TTSOptions {
   voice: 'nova' | 'onyx' | 'alloy' | 'echo' | 'fable' | 'shimmer';
@@ -41,6 +42,7 @@ export async function generateSpeech(
           resourceType: telemetryCtx?.articleId != null ? "article" : undefined,
           resourceId: telemetryCtx?.articleId,
           usage: { characters: text.length },
+          request: { model: "gpt-4o-mini-tts" },
         }
       ),
       persist: async (mp3Response) => {
@@ -49,6 +51,7 @@ export async function generateSpeech(
     });
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isProviderAttemptTerminalError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
     const diagnostic = redactProviderError(error, undefined, "podcast_tts");
     console.error(`Error generating speech for voice ${voice}:`, diagnostic);

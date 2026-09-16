@@ -9,6 +9,7 @@ import {
   isProviderAccountingError,
   ProviderResultNotDurableError,
 } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import { 
   getVoiceProfile, 
   getEmotionInstruction, 
@@ -162,6 +163,7 @@ export async function generateVideoTTS(
         resourceType: "social_post",
         resourceId: socialPostId,
         usage: { characters: fullNarration.length },
+        request: { model: TTS_MODEL },
       }
     );
     paidProviderResultReceived = true;
@@ -212,6 +214,7 @@ export async function generateVideoTTS(
     };
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
+    if (isProviderAttemptTerminalError(error)) throw error;
     if (isNonReplayableProviderError(error)) throw error;
     if (paidProviderResultReceived) {
       throw new ProviderResultNotDurableError(
@@ -220,8 +223,8 @@ export async function generateVideoTTS(
         error
       );
     }
-    console.error("❌ Failed to generate TTS:", error);
-    throw new Error(`TTS generation failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("❌ Failed to generate TTS");
+    throw new Error("TTS generation failed");
   }
 }
 
@@ -322,6 +325,7 @@ export async function generateMultiVoiceTTS(
           resourceId: socialPostId,
           providerMetadata: { segmentIndex: i },
           usage: { characters: combinedText.length },
+          request: { model: TTS_MODEL },
         }
       );
       paidProviderResultReceived = true;
@@ -340,6 +344,7 @@ export async function generateMultiVoiceTTS(
 
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
+      if (isProviderAttemptTerminalError(error)) throw error;
       if (isNonReplayableProviderError(error)) throw error;
       if (paidProviderResultReceived) {
         throw new ProviderResultNotDurableError(
@@ -348,8 +353,8 @@ export async function generateMultiVoiceTTS(
           error
         );
       }
-      console.error(`  ❌ Failed to generate TTS for ${speaker}:`, error);
-      throw new Error(`TTS generation failed for ${speaker}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error("  ❌ Failed to generate TTS segment");
+      throw new Error("TTS generation failed for segment");
     }
   }
 
@@ -481,7 +486,7 @@ async function stitchAudioSegments(segments: AudioSegment[]): Promise<Buffer> {
 
     return stitchedBuffer;
   } catch (error) {
-    console.error("FFmpeg stitch failed:", error);
+    console.error("FFmpeg stitch failed");
     console.log("Falling back to simple concatenation...");
     
     for (const segPath of normalizedPaths) {

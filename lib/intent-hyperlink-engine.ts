@@ -20,11 +20,12 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { throttledGeminiRequest } from "./gemini";
+import { throttledGeminiRequest, submitGeminiRequest } from "./gemini";
 import type { SitePage } from "../shared/schema";
 import type { SlugMapEntry } from "./slug-map-injector";
 import { isHighQualityAnchor, getFullArticleContext } from "./seo-policy";
 import { createHash } from "node:crypto";
+import type { ProviderAttemptReceiptDependencies } from "./provider-attempt-receipts";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -75,7 +76,12 @@ export async function buildIntentDrivenAnchors(
   articleHtml: string,
   pages: SitePage[],
   targetUrl: string,
-  teamId: number
+  teamId: number,
+  _deps: {
+    generateContent?: typeof genAI.models.generateContent;
+    receipt?: ProviderAttemptReceiptDependencies;
+    logSuccess?: typeof logCostTelemetry;
+  } = {},
 ): Promise<SlugMapEntry[]> {
   if (!Number.isInteger(teamId) || teamId <= 0) {
     throw new Error("Intent-driven anchors require a validated teamId");
@@ -149,10 +155,11 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
   let providerResponseReceived = false;
   const providerStartedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  const attemptKey = "intent-hyperlink";
   try {
     const startedAt = Date.now();
-    const result = await throttledGeminiRequest(() =>
-      genAI.models.generateContent({
+    const result = await throttledGeminiRequest(() => {
+      const request = {
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
@@ -180,10 +187,17 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
           },
           temperature: 0.1,
         },
-      })
-    );
+      };
+      return submitGeminiRequest(request, {
+        teamId,
+        operationType: "article_hyperlink",
+        resourceType: "article",
+        attempt: 1,
+        attemptKey,
+      }, () => (_deps.generateContent ?? ((input) => genAI.models.generateContent(input)))(request), _deps.receipt);
+    });
     providerResponseReceived = true;
-    await logCostTelemetry({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+    await (_deps.logSuccess ?? logCostTelemetry)({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
       providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);
 

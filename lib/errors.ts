@@ -119,6 +119,22 @@ export function classifyError(
       ? (err as { code?: unknown }).code
       : undefined;
 
+  // Receipt failures must reach the worker's existing terminal accounting
+  // policy. A generic retry here would submit a second paid request after
+  // the first response (or its accounting acknowledgement) was lost.
+  if (
+    explicitCode === "PROVIDER_ATTEMPT_NOT_DURABLE" ||
+    explicitCode === "PROVIDER_ATTEMPT_USAGE_UNAVAILABLE" ||
+    explicitCode === "PROVIDER_ATTEMPT_ACCOUNTING_FAILED" ||
+    explicitCode === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN" ||
+    explicitCode === "PROVIDER_ATTEMPT_ALREADY_SUBMITTED"
+  ) {
+    return new PipelineError(
+      "Provider attempt requires reconciliation; automatic replay is blocked",
+      "PROVIDER_ACCOUNTING_FAILED", "fatal", stage, prov, err,
+    );
+  }
+
   if (
     explicitCode === "PROVIDER_ACCOUNTING_FAILED" ||
     explicitCode === "PROVIDER_SUBMISSION_UNCERTAIN" ||

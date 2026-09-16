@@ -81,8 +81,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
       const startedAt = Date.now();
       let result;
       try {
-        result = await throttledGeminiRequest(() =>
-          genAI.models.generateContent({
+        const generationRequest = {
             model: getModel("geminiFlash"),
             contents: userPrompt,
             config: {
@@ -90,7 +89,19 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
               temperature: 0.3,
               maxOutputTokens: 1000,
             },
-          })
+          };
+        result = await throttledGeminiRequest(
+          () => genAI.models.generateContent(generationRequest),
+          {
+            request: generationRequest,
+            context: {
+              teamId: this.teamId,
+              operationType: "video_script",
+              resourceType: "video_scene",
+              resourceId: scene.id,
+              attempt: 1,
+            },
+          },
         );
       } catch (error) {
         await logFailedProviderAttempt(

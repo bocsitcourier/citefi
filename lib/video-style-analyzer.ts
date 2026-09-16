@@ -13,6 +13,7 @@ import { redactProviderError, redactProviderOutput } from "./provider-diagnostic
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for video style analysis");
 }
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -467,7 +468,7 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
   const startedAt = Date.now();
   let result;
   try {
-    result = await genAI.models.generateContent({
+    const generationRequest = {
       model: GEMINI_FLASH_MODEL,
       contents: [
         {
@@ -482,7 +483,13 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
         responseMimeType: "application/json",
         maxOutputTokens: 2_000,
       },
-    });
+    };
+    result = await submitGeminiRequest(generationRequest, {
+      teamId,
+      operationType: "video_idea",
+      resourceType: "video",
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
   } catch (error) {
     await logFailedProviderAttempt(
       {

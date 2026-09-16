@@ -1,5 +1,6 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
+import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
 
 export interface HashtagResult {
   hashtags: string[];
@@ -71,7 +72,9 @@ Generate 10-20 total hashtags.`;
         max_tokens: 800,
         response_format: { type: "json_object" },
       }),
-      `Hashtag Generator: ${title.substring(0, 50)}`
+      `Hashtag Generator: ${title.substring(0, 50)}`,
+      undefined,
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 800 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -93,7 +96,7 @@ Generate 10-20 total hashtags.`;
       },
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("Hashtag generation error:", error);
     throw new Error("Failed to generate hashtags");
   }

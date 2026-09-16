@@ -2,7 +2,8 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { db } from "./db";
 import { batchSeoCache, jobBatches } from "../shared/schema";
 import { eq } from "drizzle-orm";
-import { throttledGeminiRequest } from "./gemini";
+import { throttledGeminiRequest, submitGeminiRequest } from "./gemini";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 import { GoogleGenAI } from "@google/genai";
 import { performRedditResearch, type RedditResearchResult } from "./reddit-research-service";
 import { consolidateRedditIntents, type RedditOutline } from "./reddit-intent-consolidation";
@@ -104,7 +105,10 @@ export interface BatchSeoContext {
  * @param batchId - The batch ID to get/generate cache for
  * @returns Cached SEO context that can be reused across all articles
  */
-export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext | null> {
+export async function getBatchSeoCache(
+  batchId: number,
+  invocationKey?: string,
+): Promise<BatchSeoContext | null> {
   console.log(`📦 [Batch ${batchId}] Checking for cached SEO context...`);
 
   // Check if cache exists
@@ -182,7 +186,7 @@ export async function getBatchSeoCache(batchId: number): Promise<BatchSeoContext
     businessName: batchData.businessName || "",
     competitorUrls: (batchData.competitorUrlsJson as string[]) || [],
     cachedRedditResearch, // Reuse if available
-  }, batchId, batchTeamId as number);
+  }, batchId, batchTeamId as number, invocationKey);
 
   if (!context) {
     console.error(`❌ [Batch ${batchId}] Failed to generate SEO context`);
@@ -250,7 +254,7 @@ async function generateBatchSeoContext(params: {
   businessName: string;
   competitorUrls: string[];
   cachedRedditResearch?: any;
-}, batchId: number, teamId: number): Promise<BatchSeoContext | null> {
+}, batchId: number, teamId: number, invocationKey?: string): Promise<BatchSeoContext | null> {
   const { coreTopic, geographicFocus, targetUrl, businessName, competitorUrls, cachedRedditResearch } = params;
   
   // STEP 1A: Enhanced Reddit Research (JSON API - faster, more reliable)
@@ -432,24 +436,41 @@ Return ONLY valid JSON in this exact structure:
   let providerResponseReceived = false;
   const providerStartedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey,
+    attemptKey: "seo-analysis",
+    provider: "gemini",
+    operationType: "seo_analysis",
+    model: GEMINI_FLASH_MODEL,
+  });
   try {
     const startedAt = Date.now();
-    const response = await throttledGeminiRequest(() =>
-      genAI.models.generateContent({
-        model: GEMINI_FLASH_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: prompt }],
-          },
-        ],
-        config: {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-          responseModalities: ["TEXT"],
+    const request = {
+      model: GEMINI_FLASH_MODEL,
+      contents: [
+        {
+          role: "user" as const,
+          parts: [{ text: prompt }],
         },
-      })
-    );
+      ],
+      config: {
+        temperature: 0.7,
+        maxOutputTokens: 2048,
+        responseModalities: ["TEXT"],
+      },
+    };
+    const response = await throttledGeminiRequest(() => {
+      return submitGeminiRequest(request, {
+        teamId,
+        batchId,
+        operationType: "seo_analysis",
+        resourceType: "batch",
+        resourceId: batchId,
+        attempt: 1,
+        invocationKey: providerAttemptIdentity.invocationKey,
+        attemptKey: providerAttemptIdentity.attemptKey,
+      }, () => genAI.models.generateContent(request));
+    });
     providerResponseReceived = true;
     await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
       batchId, providerRequestId: (response as any).responseId ?? (response as any).id ?? null, providerMetadata },

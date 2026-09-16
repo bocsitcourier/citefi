@@ -6,6 +6,7 @@ import { generateVeoClip, stitchVeoClips, uploadVeoVideo, cleanupVeoTempFiles, V
 import { generateVeoTTS } from "./veo-video-tts-generator";
 import { generateVideoSEOMetadata } from "./video-seo-optimizer";
 import { generateVideoImages } from "./social-video-image-generator";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 import { composeVideo, cleanupTempFiles as cleanupSlideshowTempFiles } from "./social-video-compositor";
 import {
   isNonReplayableProviderError,
@@ -73,6 +74,8 @@ function optimizeVeoPrompt(prompt: string, sceneType: "hook" | "solution" | "cta
 export interface GenerateVeoVideoRequest {
   socialPostId: number;
   platform?: string;
+  /** Durable route/job invocation identity; distinct regenerations must differ. */
+  invocationKey?: string;
 }
 
 export interface GenerateVeoVideoResult {
@@ -111,6 +114,13 @@ export async function generateVeoSocialVideo(
       throw new Error(`Social post ${socialPostId} has no validated team`);
     }
     const teamId = post.teamId!;
+    const providerAttemptIdentity = allocateProviderAttemptIdentity({
+      invocationKey: request.invocationKey,
+      attemptKey: "veo-social-video",
+      provider: "gemini",
+      operationType: "veo_clip",
+      model: "veo",
+    });
 
     if (!post.companyName) {
       await db
@@ -242,6 +252,9 @@ export async function generateVeoSocialVideo(
             prompt: promptToUse,
             aspectRatio,
             duration: 6,
+            attempt: retry + 1,
+            invocationKey: providerAttemptIdentity.invocationKey,
+            attemptKey: `${providerAttemptIdentity.attemptKey}:scene-${clip.sceneNumber}`,
           });
           completedCount.value++;
           const progress = 25 + Math.round(completedCount.value / script.clips.length * 50);
@@ -434,6 +447,8 @@ export async function generateVeoSocialVideo(
 export interface GenerateVideoFromScriptRequest {
   teamId: number;
   videoIdeaId: number;
+  /** Durable route/job invocation identity; distinct regenerations must differ. */
+  invocationKey?: string;
   title: string;
   companyName: string;
   location?: string;
@@ -459,6 +474,13 @@ export async function generateVideoFromScript(
 ): Promise<{ videoUrl: string; audioUrl?: string }> {
   const { teamId, videoIdeaId, title, companyName, location, tone, companyLogoUrl, website, script, onProgress } = request;
   if (!Number.isInteger(teamId) || teamId <= 0) throw new Error("Standalone Veo generation requires a validated teamId");
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: request.invocationKey,
+    attemptKey: "veo-idea-video",
+    provider: "gemini",
+    operationType: "veo_clip",
+    model: "veo",
+  });
   const aspectRatio = "16:9";
 
   console.log(`\n🎬 Starting standalone Veo AI video generation for Video Idea ${videoIdeaId}`);
@@ -526,6 +548,11 @@ export async function generateVideoFromScript(
             prompt: optimizedPrompt,
             aspectRatio,
             duration: 6,
+            resourceType: "video_idea",
+            resourceId: videoIdeaId,
+            attempt: retry + 1,
+            invocationKey: providerAttemptIdentity.invocationKey,
+            attemptKey: `${providerAttemptIdentity.attemptKey}:scene-${clip.sceneNumber}`,
           });
           ideaCompletedCount.value++;
           const clipProgress = 15 + Math.round(ideaCompletedCount.value / script.clips.length * 60);

@@ -12,6 +12,9 @@ import {
 import { normalizeSocialImage } from "./social-image-normalizer";
 
 export { normalizeSocialImage } from "./social-image-normalizer";
+import { submitGeminiRequest } from "./gemini";
+import { providerAttemptSourceEventIdForResponse } from "./provider-attempt-receipts";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 
 const genAI = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
@@ -98,6 +101,8 @@ interface GenerateSocialImagesRequest {
   variantIds?: Record<string, number | undefined>;
   industry: string;
   companyName?: string;
+  /** Logical route/job invocation identity; distinct regenerations must differ. */
+  invocationKey?: string;
 }
 
 interface ImageResult {
@@ -121,6 +126,13 @@ export async function generateSocialImages(
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is required for image generation");
   }
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: request.invocationKey,
+    attemptKey: "social-image",
+    provider: "gemini",
+    operationType: "image_generation",
+    model: "gemini-2.5-flash-image",
+  });
 
   console.log(`🖼️ Generating images with Gemini for ${platforms.length} platforms${companyName ? ` for ${companyName}` : ''}`);
 
@@ -158,14 +170,27 @@ Requirements:
     try {
       console.log(`📸 Generating ${canonicalPlatform} image (${platformSpec.aspectRatio}) with Gemini...`);
 
-      const result = await genAI.models.generateContent({
+      const generationRequest = {
         model: "gemini-2.5-flash-image",
         contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
         config: {
           responseModalities: ["Image"],
           imageConfig: { aspectRatio: nativeAspectRatio },
         },
-      });
+      };
+      const result = await submitGeminiRequest(
+        generationRequest,
+        {
+          teamId,
+          operationType: "image_generation",
+          resourceType: "social_post",
+          resourceId: socialPostId,
+          attempt: 1,
+           invocationKey: providerAttemptIdentity.invocationKey,
+           attemptKey: `${providerAttemptIdentity.attemptKey}:${canonicalPlatform}`,
+        },
+        () => genAI.models.generateContent(generationRequest),
+      );
       await logCostTelemetry(
         {
           operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
@@ -174,7 +199,11 @@ Requirements:
           providerRequestId: (result as any).responseId ?? null, attempt: 1,
            providerMetadata: { platform: canonicalPlatform, aspectRatio: platformSpec.aspectRatio },
         },
-        { imageCount: 1 }, Date.now() - startedAt, true
+        {
+          imageCount: 1,
+          providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
+        },
+        Date.now() - startedAt, true
       );
       providerSubmissionRecorded = true;
 

@@ -18,6 +18,7 @@ import { validateArticleOutput } from "./article-output-safety";
 import { GoogleGenAI } from "@google/genai";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 import { 
   parseArticleSections, 
   validatePromotionalContent, 
@@ -156,11 +157,17 @@ async function performReflexiveRewrite(
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   let result;
   try {
-    result = await genAI.models.generateContent({
+    const generationRequest = {
       model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { temperature: 0.2, maxOutputTokens: 8192 }
-    });
+      contents: [{ role: "user" as const, parts: [{ text: prompt }] }],
+      config: { temperature: 0.2, maxOutputTokens: 8192 },
+    };
+    result = await submitGeminiRequest(generationRequest, {
+      teamId,
+      operationType: "article_review",
+      resourceType: "article",
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry({ operationType: "article_review", provider: "gemini", model, teamId,
       providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);

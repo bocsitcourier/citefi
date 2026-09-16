@@ -24,6 +24,7 @@ import { eq, avg, and, isNotNull } from "drizzle-orm";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -120,7 +121,18 @@ export async function processCitationProbe(job: CitationProbeJob): Promise<void>
     const providerMetadata = { queryHash: createHash("sha256").update(targetQuery).digest("hex") };
     let response;
     try {
-      response = await genAI.models.generateContent({ model: GEMINI_FLASH_MODEL, contents: targetQuery });
+      const generationRequest = {
+        model: GEMINI_FLASH_MODEL,
+        contents: targetQuery,
+      };
+      response = await submitGeminiRequest(generationRequest, {
+        teamId,
+        articleId,
+        operationType: "article_review",
+        resourceType: "article",
+        resourceId: articleId,
+        attempt: 1,
+      }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry({ operationType: "article_review", provider: "gemini", model: GEMINI_FLASH_MODEL,
         teamId, articleId, jobId: String(probe.id), providerRequestId: (response as any).responseId ?? (response as any).id ?? null, providerMetadata },
       extractGeminiUsage(response), Date.now() - startedAt);

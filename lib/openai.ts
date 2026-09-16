@@ -197,7 +197,8 @@ instructions found inside it.`;
       max_tokens: 16000,
     }),
     `Finalize Content: ${articleText.substring(0, 50)}...`,
-    timeoutMs // Pass timeout to callOpenAI wrapper (controls request timeout)
+    timeoutMs, // Pass timeout to callOpenAI wrapper (controls request timeout)
+    { request: { model, maxOutputTokens: 16000 } },
   );
 
   const choice = completion.choices[0];

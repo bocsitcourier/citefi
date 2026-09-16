@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { GEMINI_ARTICLE_MODEL } from "@/lib/ai-config";
 import { assembleBriefContext, scoreActions } from "./assembler";
-import { throttledGeminiRequest } from "@/lib/gemini";
+import { throttledGeminiRequest, submitGeminiRequest } from "@/lib/gemini";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "@/lib/cost-telemetry";
@@ -164,13 +164,26 @@ JSON schema:
 Respond with ONLY the JSON object.`;
 
     const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+      const attemptKey = `daily-brief:${teamId}:${userId}:${localDate}`;
     let result: any;
     try {
-      result = await throttledGeminiRequest(() => getGenAI().models.generateContent({
+      const generationRequest = {
         model: GEMINI_ARTICLE_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" },
-      }));
+      };
+      result = await throttledGeminiRequest(() =>
+        submitGeminiRequest(generationRequest, {
+          teamId,
+          userId,
+          operationType: "other",
+          resourceType: "daily_brief",
+          // The brief row does not exist yet. Team/user ownership is checked
+          // before generation; the date identity belongs in attemptKey.
+          attemptKey,
+          attempt: 1,
+        }, () => getGenAI().models.generateContent(generationRequest))
+      );
       await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId,
         providerRequestId: result.responseId ?? null, providerMetadata },
       extractGeminiUsage(result), Date.now() - startedAt);

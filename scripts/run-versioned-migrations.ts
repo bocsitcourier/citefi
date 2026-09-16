@@ -28,6 +28,7 @@ const files = [
   "0032_reservation_reconciliation_hold.sql",
   "0033_video_idea_billing.sql",
   "0034_agency_report_period_unique.sql",
+  "0034_provider_attempt_receipts.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");

@@ -2,6 +2,7 @@ import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
+import { submitGeminiRequest } from "./gemini";
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -329,7 +330,7 @@ Return ONLY valid JSON in this exact format:
   try {
     const genAI = getGeminiClient();
     const _ideaStart = Date.now();
-    const response = await genAI.models.generateContent({
+    const generationRequest = {
       model: GEMINI_FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
@@ -337,7 +338,13 @@ Return ONLY valid JSON in this exact format:
         maxOutputTokens: 2000,
           responseMimeType: "application/json",
       },
-    });
+    };
+    const response = await submitGeminiRequest(generationRequest, {
+      teamId: input.teamId,
+      operationType: "video_idea",
+      resourceType: "video_idea",
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
 
     if (response?.usageMetadata) {
       const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");

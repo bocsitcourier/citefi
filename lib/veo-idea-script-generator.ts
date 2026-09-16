@@ -10,7 +10,7 @@ import {
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
-
+import { submitGeminiRequest } from "./gemini";
 const VEO_BLOCKED_PATTERNS = [
   /\b(google|facebook|meta|apple|microsoft|amazon|twitter|instagram|tiktok|youtube|netflix|disney|marvel|dc comics|star wars|pokemon|nike|adidas|coca-cola|pepsi|mcdonald'?s|burger king|starbucks|walmart|uber|lyft|airbnb|spotify|openai|chatgpt)\b/gi,
   /\b(nfl|nba|mlb|nhl|fifa|olympics|espn)\b/gi,
@@ -474,7 +474,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     const startedAt = Date.now();
     let response;
     try {
-     response = await genAI.models.generateContent({
+      const generationRequest = {
         model: GEMINI_FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
@@ -491,7 +491,13 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
             thinkingBudget: 0,
           },
         },
-      });
+      };
+      response = await submitGeminiRequest(generationRequest, {
+        teamId,
+        operationType: "video_idea",
+        resourceType: "video_idea",
+        attempt: 1,
+      }, () => genAI.models.generateContent(generationRequest));
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
       await logFailedProviderAttempt(

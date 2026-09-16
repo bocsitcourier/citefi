@@ -2,6 +2,7 @@ import { z } from "zod";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { telemetryAiAnalyses, telemetryAiRequests } from "@/shared/schema";
 import { isProviderAccountingError } from "@/lib/cost-telemetry";
+import { isProviderAttemptTerminalError } from "@/lib/provider-attempt-receipts";
 import { redactString, sanitizeMetadata } from "./core";
 
 const MAX_EVIDENCE_BYTES = 24_000;
@@ -163,6 +164,7 @@ async function defaultInvoker(args: Parameters<AiInvoker>[0]): Promise<unknown> 
       teamId: args.accountingTeamId,
       userId: args.actorUserId,
       resourceType: "incident",
+      request: { model, maxOutputTokens: args.maxTokens },
     },
   );
   const text = response.choices[0]?.message.content;
@@ -194,7 +196,7 @@ export async function generateIncidentAdvice(
     });
     return validateIncidentAdvice(output, input.evidenceIds);
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     return INSUFFICIENT_EVIDENCE_ADVICE;
   }
 }

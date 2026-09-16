@@ -8,6 +8,7 @@ import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated } from "@/lib/learning-integration";
 import { extractGeminiUsage, logCostTelemetry } from "@/lib/cost-telemetry";
+import { providerAttemptSourceEventIdForResponse } from "@/lib/provider-attempt-receipts";
 
 interface ImagePromptGenerationResult {
   imagePrompts: string[];
@@ -54,7 +55,7 @@ Return ONLY valid JSON in this format:
 }`;
 
   const startedAt = Date.now();
-  const result = await throttledGeminiRequest(() => genAI.models.generateContent({
+  const request = {
     model: GEMINI_FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
@@ -70,8 +71,24 @@ Return ONLY valid JSON in this format:
         },
         required: ["imagePrompts"]
       }
-    }
-  }));
+    },
+  };
+  const result = await throttledGeminiRequest(
+    () => genAI.models.generateContent(request),
+    {
+      request,
+      context: {
+        teamId: telemetry!.teamId,
+        batchId: telemetry!.batchId,
+        articleId: telemetry!.articleId,
+        operationType: "image_generation",
+        resourceType: "article",
+        resourceId: telemetry!.articleId,
+        attempt: 1,
+      },
+    },
+  );
+  const usage = extractGeminiUsage(result);
   await logCostTelemetry(
     {
       operationType: "image_generation", provider: "gemini", model: GEMINI_FLASH_MODEL,
@@ -79,7 +96,11 @@ Return ONLY valid JSON in this format:
       resourceType: "article", resourceId: telemetry?.articleId,
       providerRequestId: (result as any).responseId ?? null, attempt: 1,
     },
-    extractGeminiUsage(result), Date.now() - startedAt, true
+    {
+      ...usage,
+      providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
+    },
+    Date.now() - startedAt, true
   );
 
   let responseText = result.text || "";

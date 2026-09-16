@@ -14,6 +14,7 @@
 
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface GuardianAuditReport {
   passed: boolean;
@@ -115,12 +116,13 @@ Return ONLY this JSON (no markdown, no code fences):
     }), "Guardian tone audit", undefined, {
       operationType: "article_review",
       model: "gpt-4.1-mini",
+      request: { model: "gpt-4.1-mini", maxOutputTokens: 100 },
     });
 
     const raw = response.choices[0]?.message?.content || '{"passed":true,"reason":"tone check skipped"}';
     return JSON.parse(raw);
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     return { passed: true, reason: "tone check skipped (AI unavailable)" };
   }
 }

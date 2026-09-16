@@ -15,6 +15,7 @@ import { analyzeContentQuality } from "./deterministic-humanizer";
 import { factStore } from "./fact-store";
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import { validateArticleOutput } from "./article-output-safety";
 
 export type Dimension = "completeness" | "factuality" | "structure" | "humanness" | "engagement";
@@ -80,6 +81,7 @@ const NEGATIVE_CONSTRAINT_MAP: Record<string, string> = {
 
 export class ContentReviewService {
   private static instance: ContentReviewService;
+
   static getInstance() {
     if (!this.instance) this.instance = new ContentReviewService();
     return this.instance;
@@ -105,7 +107,7 @@ export class ContentReviewService {
         judgeScores = j.scores;
         defects.push(...j.defects);
       } catch (e) {
-        if (isProviderAccountingError(e)) throw e;
+        if (isProviderAccountingError(e) || isProviderAttemptTerminalError(e)) throw e;
         // A requested final judge is evidence, not advisory telemetry. Callers
         // that need a deterministic-only review pass use useJudge:false.
         throw new Error(
@@ -260,7 +262,9 @@ ${content.slice(0, 8000)}`;
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
       }),
-      "ContentReview judge"
+      "ContentReview judge",
+      undefined,
+      { request: { model: "gpt-4.1-mini" } },
     );
 
     const text = raw.choices[0]?.message?.content || "{}";

@@ -4,7 +4,7 @@ import { articleAssets, articles } from "@/shared/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { uploadMedia } from "./storage";
 import { logError } from "./error-logger";
-import { throttledGeminiRequest } from "./gemini";
+import { throttledGeminiRequest, submitGeminiRequest } from "./gemini";
 import {
   isNonReplayableProviderError,
   isProviderAccountingError,
@@ -16,6 +16,11 @@ import {
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
 import { getModel } from "./model-resolver";
+import {
+  providerAttemptSourceEventIdForResponse,
+  type ProviderAttemptReceiptDependencies,
+} from "./provider-attempt-receipts";
+import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for image generation");
@@ -166,6 +171,13 @@ export async function generateImagesForArticle(
   console.log(`🎨 Generating hero image for article ${articleId} (1 API call, hero only)...`);
 
   const MAX_RETRIES = 3;
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: generationRunId,
+    attemptKey: "hero",
+    provider: "gemini",
+    operationType: "image_generation",
+    model: getModel("geminiImage"),
+  });
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -174,15 +186,32 @@ export async function generateImagesForArticle(
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
-      const response = await throttledGeminiRequest(() =>
-        withTimeout(
-          genAI.models.generateContent({
-            model: getModel("geminiImage"),
-            contents: [{ role: "user", parts: [{ text: heroPrompt }] }],
-            config: { responseModalities: ["Image"] },
-          }),
-          120000
-        )
+      const model = getModel("geminiImage");
+      const generationRequest = {
+        model,
+        contents: [{ role: "user" as const, parts: [{ text: heroPrompt }] }],
+        config: { responseModalities: ["Image"] },
+      };
+      const response = await throttledGeminiRequest(
+        () =>
+          withTimeout(
+            genAI.models.generateContent(generationRequest),
+            120000,
+          ),
+        {
+          request: generationRequest,
+          context: {
+            teamId: accountingTeamId,
+            operationType: "image_generation",
+            articleId,
+            runId: generationRunId,
+            resourceType: "article",
+            resourceId: articleId,
+            attempt,
+             invocationKey: providerAttemptIdentity.invocationKey,
+             attemptKey: providerAttemptIdentity.attemptKey,
+          },
+        },
       );
 
       // Extract base64 image data
@@ -204,11 +233,14 @@ export async function generateImagesForArticle(
       // the attempt in the idempotency material so a retry is never collapsed.
       await logCostTelemetry(
         {
-          operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+           operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
           teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
           attempt, providerRequestId: (response as any).responseId ?? `${generationRunId ?? articleId}:hero:${attempt}`,
         },
-        { imageCount: 1 },
+        {
+          imageCount: 1,
+          providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(response),
+        },
         Date.now() - startedAt, true
       );
       paidProviderResultReceived = true;
@@ -265,7 +297,7 @@ export async function generateImagesForArticle(
       // attempt, but never record the local SVG fallback below as spend.
       await logFailedProviderAttempt(
         {
-          operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+           operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
           teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
           attempt, providerRequestId: `${generationRunId ?? articleId}:hero:${attempt}`,
         },
@@ -332,28 +364,66 @@ export async function generateImagesForArticle(
 
 export async function generateSingleImage(
   prompt: string,
-  telemetry: { teamId: number; articleId?: number; resourceType?: string; resourceId?: string | number },
+  telemetry: {
+    teamId: number;
+    articleId?: number;
+    resourceType?: string;
+    resourceId?: string | number;
+    /** Logical invocation/idempotency identity; never derive this from resource identity. */
+    invocationKey?: string;
+  },
   _deps: {
     generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
     logSuccess?: typeof logCostTelemetry;
     logFailure?: typeof logFailedProviderAttempt;
+    receipt?: ProviderAttemptReceiptDependencies;
   } = {}
 ): Promise<string | null> {
   const accountingTeamId = requireImageGenerationTeamId(telemetry.teamId, "Single image generation");
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: telemetry.invocationKey,
+    attemptKey: "single-image",
+    provider: "gemini",
+    operationType: "image_generation",
+    model: "gemini-2.5-flash-image",
+  });
   const startedAt = Date.now();
   try {
-    const response = await (_deps.generateContent ?? ((request) => genAI.models.generateContent(request)))({
+    const generationRequest = {
       model: "gemini-2.5-flash-image",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseModalities: ["Image"] },
-    });
+    };
+    const response = await submitGeminiRequest(
+      generationRequest,
+      {
+        teamId: accountingTeamId,
+        operationType: "image_generation",
+        articleId: telemetry.articleId,
+        resourceType: telemetry.resourceType,
+        resourceId: telemetry.resourceId,
+         attempt: 1,
+          invocationKey: providerAttemptIdentity.invocationKey,
+          attemptKey: providerAttemptIdentity.attemptKey,
+      },
+      () =>
+        (_deps.generateContent ??
+          ((request) => genAI.models.generateContent(request)))(
+          generationRequest,
+        ),
+      _deps.receipt,
+    );
 
     await (_deps.logSuccess ?? logCostTelemetry)(
       {
         operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
         ...telemetry, teamId: accountingTeamId, attempt: 1, providerRequestId: (response as any).responseId ?? null,
       },
-      { imageCount: 1 }, Date.now() - startedAt, true
+      {
+        imageCount: 1,
+        providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(response),
+      },
+      Date.now() - startedAt, true
     );
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
@@ -404,14 +474,26 @@ export async function generateAndStoreHeroImage(
   batchId: number,
   teamId: number,
   businessName?: string,
+  options: {
+    /** Logical route/job invocation identity; distinct regenerations must differ. */
+    invocationKey?: string;
+  } = {},
   _deps: {
     generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
     upload?: typeof uploadMedia;
     logSuccess?: typeof logCostTelemetry;
     sleep?: (milliseconds: number) => Promise<void>;
+    receipt?: ProviderAttemptReceiptDependencies;
   } = {}
 ): Promise<string> {
   const accountingTeamId = requireImageGenerationTeamId(teamId, "Stored hero image generation");
+  const providerAttemptIdentity = allocateProviderAttemptIdentity({
+    invocationKey: options.invocationKey,
+    attemptKey: "stored-hero",
+    provider: "gemini",
+    operationType: "image_generation",
+    model: "gemini-2.5-flash-image",
+  });
   console.log(`🖼️ Generating hero image with Gemini for article ${articleId}...`);
 
   const enhancedPrompt = businessName
@@ -432,12 +514,32 @@ export async function generateAndStoreHeroImage(
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
-      const response = await withTimeout(
-        (_deps.generateContent ?? ((request) => genAI.models.generateContent(request)))({
+      const generationRequest = {
           model: "gemini-2.5-flash-image",
           contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
           config: { responseModalities: ["Image"] },
-        }),
+      };
+      const response = await withTimeout(
+        submitGeminiRequest(
+          generationRequest,
+          {
+            teamId: accountingTeamId,
+            operationType: "image_generation",
+            articleId,
+            batchId,
+            resourceType: "article",
+            resourceId: articleId,
+            attempt,
+            invocationKey: providerAttemptIdentity.invocationKey,
+            attemptKey: providerAttemptIdentity.attemptKey,
+          },
+          () =>
+            (_deps.generateContent ??
+              ((request) => genAI.models.generateContent(request)))(
+              generationRequest,
+            ),
+          _deps.receipt,
+        ),
         60000
       );
       providerRequestId = (response as any).responseId ?? null;
@@ -461,7 +563,11 @@ export async function generateAndStoreHeroImage(
           teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
           providerRequestId: (response as any).responseId ?? `${articleId}:stored-hero:${attempt}`,
         },
-        { imageCount: 1 }, Date.now() - startedAt, true
+        {
+          imageCount: 1,
+          providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(response),
+        },
+        Date.now() - startedAt, true
       );
       paidProviderResultReceived = true;
 

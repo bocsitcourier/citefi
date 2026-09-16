@@ -19,6 +19,7 @@ import { validateContentWithFacts } from "./fact-validated-generators";
 import { cleanGeneratedText } from "./content-cleaner";
 import type { CompetitiveIntelContext } from "./competitive-intelligence-service";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
+import { submitGeminiRequest } from "./gemini";
 
 if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY is required for Gemini social post generation");
@@ -236,10 +237,18 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
   const _socialStart = Date.now();
   let result;
   try {
-    result = await genAI.models.generateContent({
-      model: getModel("geminiFlash"),
+    const model = getModel("geminiFlash");
+    const generationRequest = {
+      model,
       contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    });
+    };
+    result = await submitGeminiRequest(generationRequest, {
+      teamId: request.teamId,
+      operationType: "social_post",
+      resourceType: "social_post",
+      resourceId: request.socialPostId,
+      attempt: 1,
+    }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry(
       { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash"),
         teamId: request.teamId, resourceType: "social_post", resourceId: request.socialPostId,

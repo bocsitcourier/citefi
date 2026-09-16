@@ -1,6 +1,7 @@
 import { matchTopicToPages } from "./site-crawler";
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
 export interface AnchorMapping {
   phrase: string;
@@ -88,7 +89,8 @@ RULES:
         response_format: { type: "json_object" },
       }),
       `Contextual Anchor Generation: ${articleTopic.substring(0, 40)}`,
-      120000
+      120000,
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 3000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -114,7 +116,7 @@ RULES:
       usedSiteMap: true,
     };
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     console.error("❌ Contextual anchor generation error:", error);
     return { anchors: [], fallbackUrl: targetUrl, usedSiteMap: false };
   }
