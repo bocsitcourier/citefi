@@ -99,7 +99,9 @@ import {
 import {
   assertArticleFinalizationQuality,
   FinalizationQualityGateError,
+  type FinalizationGateDependencies,
 } from "./generation-finalization-gate";
+import { renderArticleMarkdown } from "./article-markdown";
 
 export { getArticleGenerationBilling } from "./pipeline-billing";
 
@@ -174,6 +176,7 @@ console.log("🔧 Initializing BullMQ workers...");
 export interface ArticleGenerationDependencies {
   generateGemini?: typeof generateArticleWithGemini;
   beforeProvider?: (stage: string) => Promise<void> | void;
+  finalizationGate?: FinalizationGateDependencies;
 }
 
 export const processArticleGenerationJob = async (
@@ -1240,8 +1243,9 @@ export const processArticleGenerationJob = async (
         if (disableGPTEnhancement) {
           console.log(`⚡ Skipping Stage 3 GPT-4 enhancement (manually disabled) - article ${articleId}`);
           
-          // Use raw Gemini content directly for blazing fast generation
-          const speedModeHtml = `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`;
+          // Render Gemini Markdown locally in speed mode. Provider output is
+          // untrusted; never interpolate it into HTML or permit raw tags.
+          const speedModeHtml = renderArticleMarkdown(geminiResult.rawContent);
           assertValidArticleOutput(speedModeHtml, {
             format: "html",
             minWords: wordCountMin || 800,
@@ -1259,7 +1263,7 @@ export const processArticleGenerationJob = async (
               minWords: wordCountMin || 800,
               maxWords: wordCountMax || 2000,
             },
-          });
+          }, dependencies.finalizationGate);
           const committed = await commitArticleRunStage({
             articleId,
             runId,
@@ -1669,7 +1673,7 @@ export const processArticleGenerationJob = async (
               minWords: wordCountMin || 800,
               maxWords: wordCountMax || 2000,
             },
-          });
+          }, dependencies.finalizationGate);
 
           // Mark article as COMPLETE and save normalized HTML
           await updateOwnedArticle(

@@ -1,0 +1,129 @@
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Failed to generate daily brief for user 71: Error: fixture job cancelled before provider admission
+#     at validateOwnership (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:282:9)
+#     at runWithProviderAttempt (/home/runner/workspace/lib/provider-attempt-receipts.ts:1285:9)
+#     at submitGeminiWithReceipt (/home/runner/workspace/lib/gemini-attempt-receipt.ts:249:10)
+#     at Module.submitGeminiRequest (/home/runner/workspace/lib/gemini.ts:310:10)
+#     at provider (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:155:14)
+#     at generateDailyBrief (/home/runner/workspace/lib/brief/generate-daily-brief.ts:293:22)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async TestContext.<anonymous> (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:288:3)
+#     at async Test.run (node:internal/test_runner/test:797:9) {
+#   code: 'PROVIDER_ADMISSION_CANCELLED'
+# }
+# Failed to generate daily brief for user 71: Error: Gemini returned invalid brief shape: [
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "action"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "why"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "ctaPath"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "overnightMovement"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "competitorWatch"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "teachingMoment"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "voicePrompt"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "motivation"
+#     ],
+#     "message": "Required"
+#   }
+# ]
+#     at generateDailyBrief (/home/runner/workspace/lib/brief/generate-daily-brief.ts:334:13)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async TestContext.<anonymous> (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:306:3)
+#     at async Test.run (node:internal/test_runner/test:797:9)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+# Subtest: actual daily-brief service settles mocked provider output and retrieves stored output
+ok 1 - actual daily-brief service settles mocked provider output and retrieves stored output
+  ---
+  duration_ms: 6.456302
+  ...
+# Subtest: post-provider accounting failure is terminal and replay does not resubmit
+ok 2 - post-provider accounting failure is terminal and replay does not resubmit
+  ---
+  duration_ms: 1.850492
+  ...
+# Subtest: pre-provider cancellation fails admission with zero receipt, usage, or provider call
+ok 3 - pre-provider cancellation fails admission with zero receipt, usage, or provider call
+  ---
+  duration_ms: 14.771831
+  ...
+# Subtest: malformed provider output is rejected after the paid response is accounted
+ok 4 - malformed provider output is rejected after the paid response is accounted
+  ---
+  duration_ms: 2.656741
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1212.667272

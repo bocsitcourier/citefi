@@ -4,7 +4,9 @@
  * replaced with a read-only query/update recorder, so no SQL is sent.
  *
  * Run:
- *   node --env-file=.env.local --experimental-loader ./tests/scope-0-alias-loader.mjs \
+ *   NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs \
+ *     --experimental-loader ./tests/scope-0-alias-loader.mjs \
  *     --experimental-test-module-mocks --import tsx/esm --test \
  *     tests/scope-0-campaign-confirm-service.test.ts
  */

@@ -1,0 +1,89 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-attempt-receipts.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:42:54Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: ownership is checked before receipt persistence or physical submission
+ok 1 - ownership is checked before receipt persistence or physical submission
+  ---
+  duration_ms: 2.275528
+  ...
+# Subtest: concurrent callers admit one physical provider submission
+ok 2 - concurrent callers admit one physical provider submission
+  ---
+  duration_ms: 2.247284
+  ...
+# Subtest: pre-call database outage and submission CAS failure fail closed without spool admission
+ok 3 - pre-call database outage and submission CAS failure fail closed without spool admission
+  ---
+  duration_ms: 1.307272
+  ...
+# Subtest: response-save outage falls back durably and retry cannot submit twice
+ok 4 - response-save outage falls back durably and retry cannot submit twice
+  ---
+  duration_ms: 2.046704
+  ...
+# Subtest: partial response usage is retained as evidence but never becomes zero ledger usage
+ok 5 - partial response usage is retained as evidence but never becomes zero ledger usage
+  ---
+  duration_ms: 2.620248
+  ...
+# Subtest: provider rejection receipt stores only fixed safe classification
+ok 6 - provider rejection receipt stores only fixed safe classification
+  ---
+  duration_ms: 0.720104
+  ...
+# [CostTelemetry] operational telemetry insert failed: Failed query: insert into "cost_telemetry" ("id", "team_id", "user_id", "batch_id", "article_id", "campaign_id", "job_id", "operation_type", "provider", "model", "input_tokens", "output_tokens", "total_tokens", "unit_type", "unit_count", "cost_microusd", "success", "latency_ms", "error_message", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, default)
+# params: 7,,,,,,article_generation,gemini,gemini-2.5-flash,0,0,0,tokens,0,0,0,1,path=article_generation:provider_failure errorType=Error errorCode=E_PROVIDER_PRIVATE_DETAIL errorSha256=1690848c4317793efe8f86a28adadb2c3807c83461de2ccbabbe6a389f7047bd errorLength=54
+# Subtest: failed provider telemetry is operational-only without captured exact usage
+ok 7 - failed provider telemetry is operational-only without captured exact usage
+  ---
+  duration_ms: 131.213222
+  ...
+# Subtest: ledger outage is terminal while receipt remains reconcilable without provider call
+ok 8 - ledger outage is terminal while receipt remains reconcilable without provider call
+  ---
+  duration_ms: 0.787416
+  ...
+# Subtest: committed-then-throw ledger write reconciles by sourceEventId without duplicate event
+ok 9 - committed-then-throw ledger write reconciles by sourceEventId without duplicate event
+  ---
+  duration_ms: 0.773864
+  ...
+# [CostTelemetry] operational telemetry insert failed: Failed query: insert into "cost_telemetry" ("id", "team_id", "user_id", "batch_id", "article_id", "campaign_id", "job_id", "operation_type", "provider", "model", "input_tokens", "output_tokens", "total_tokens", "unit_type", "unit_count", "cost_microusd", "success", "latency_ms", "error_message", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, default)
+# params: 7,,,,,post-call-context,article_generation,gemini,gemini-2.5-flash,3,2,5,tokens,5,6,1,1,
+# Subtest: post-call telemetry uses canonical receipt attribution rather than rebuilt context
+ok 10 - post-call telemetry uses canonical receipt attribution rather than rebuilt context
+  ---
+  duration_ms: 3.356491
+  ...
+# Subtest: already-accounted reconciliation still checks tenant ownership
+ok 11 - already-accounted reconciliation still checks tenant ownership
+  ---
+  duration_ms: 3.230505
+  ...
+# Subtest: source event identity is deterministic for one receipt request
+ok 12 - source event identity is deterministic for one receipt request
+  ---
+  duration_ms: 0.368
+  ...
+# Subtest: async operation identity survives polling and upgrades only to returned usage
+ok 13 - async operation identity survives polling and upgrades only to returned usage
+  ---
+  duration_ms: 0.830737
+  ...
+# Subtest: spool JSON parser rejects unbounded or malformed receipt fields
+ok 14 - spool JSON parser rejects unbounded or malformed receipt fields
+  ---
+  duration_ms: 0.404036
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2841.481665
+EXIT_CODE: 0

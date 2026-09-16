@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Queue } from "bullmq";
-import Redis from "ioredis";
-import { ISOLATED_TEST_REDIS_PORT } from "./helpers/isolated-redis";
+import { startIsolatedRedis } from "./helpers/isolated-redis";
 
 const {
   addPodcastGenerationJob,
@@ -12,14 +11,8 @@ const {
 } = await import("../lib/queue");
 
 void test("podcast helper uses a legal deterministic ID with a real isolated Queue.add", async () => {
-  const connection = new Redis({
-    host: "127.0.0.1",
-    port: ISOLATED_TEST_REDIS_PORT,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-    connectTimeout: 2_000,
-    retryStrategy: () => null,
-  });
+  const isolated = await startIsolatedRedis();
+  const connection = isolated.connection;
   const queueName = `test-podcast-add-${Date.now()}-${process.pid}`;
   const queue = new Queue(queueName, { connection });
   const creditRunId = "podcast:4242:request-key-with-extra:colons";
@@ -157,6 +150,6 @@ void test("podcast helper uses a legal deterministic ID with a real isolated Que
     await recovered.remove();
   } finally {
     await queue.close();
-    await connection.quit();
+    await isolated.stop();
   }
 });

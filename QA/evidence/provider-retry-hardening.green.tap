@@ -1,0 +1,75 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60000 requests/minute, max 50 concurrent
+# Subtest: direct provider SDK submissions have adjacent centralized or immutable accounting
+ok 1 - direct provider SDK submissions have adjacent centralized or immutable accounting
+  ---
+  duration_ms: 110.440257
+  ...
+# Subtest: provider boundaries never swallow immutable accounting failures
+ok 2 - provider boundaries never swallow immutable accounting failures
+  ---
+  duration_ms: 62.732006
+  ...
+# Subtest: provider catches preserve accounting errors before rewrap, fallback, or retry
+ok 3 - provider catches preserve accounting errors before rewrap, fallback, or retry
+  ---
+  duration_ms: 334.526687
+  ...
+# Subtest: named transitive provider callers preserve accounting failures at outer boundaries
+ok 4 - named transitive provider callers preserve accounting failures at outer boundaries
+  ---
+  duration_ms: 103.274373
+  ...
+# Subtest: OpenAI TTS helpers propagate accounting failures unchanged
+ok 5 - OpenAI TTS helpers propagate accounting failures unchanged
+  ---
+  duration_ms: 7.031975
+  ...
+# ❌ [article-generation:article-2235] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# ❌ [article-generation:article-2235-regeneration] GENERATION_ERROR (retry) — final attempt
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:757:11)
+# Subtest: accounting failures are explicit, retain cause, and hold billing without retry
+ok 6 - accounting failures are explicit, retain cause, and hold billing without retry
+  ---
+  duration_ms: 176.979903
+  ...
+# Subtest: optional provider fallbacks rethrow immutable accounting failures
+ok 7 - optional provider fallbacks rethrow immutable accounting failures
+  ---
+  duration_ms: 0.730239
+  ...
+# Subtest: settled-result accounting helper preserves the exact transitive error object
+ok 8 - settled-result accounting helper preserves the exact transitive error object
+  ---
+  duration_ms: 0.240175
+  ...
+# Subtest: ChatGPT review cannot convert accounting failure into a successful fallback
+ok 9 - ChatGPT review cannot convert accounting failure into a successful fallback
+  ---
+  duration_ms: 0.557567
+  ...
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:757:11)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:777:11)
+# ⚠️  Gemini rate limit, retrying in 1000ms (attempt 1/3)
+# ⚠️  Gemini rate limit, retrying in 2000ms (attempt 2/3)
+# ⚠️  Gemini rate limit, retrying in 4000ms (attempt 3/3)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:777:11)
+# ⚠️  Gemini network error, retrying in 1000ms (attempt 1/3)
+# ⚠️  Gemini network error, retrying in 2000ms (attempt 2/3)
+# ⚠️  Gemini network error, retrying in 4000ms (attempt 3/3)
+# Subtest: Gemini limiter stops typed accounting terminals before 429/network classification
+ok 10 - Gemini limiter stops typed accounting terminals before 429/network classification
+  ---
+  duration_ms: 45.677763
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3101.188412

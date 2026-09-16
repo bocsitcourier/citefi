@@ -1,10 +1,14 @@
 import { db } from "@/lib/db";
 import { dailyBriefs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type GenerateContentResponse } from "@google/genai";
 import { GEMINI_ARTICLE_MODEL } from "@/lib/ai-config";
-import { assembleBriefContext, scoreActions } from "./assembler";
+import { assembleBriefContext, scoreActions, type BriefContext } from "./assembler";
 import { throttledGeminiRequest, submitGeminiRequest } from "@/lib/gemini";
+import type {
+  GeminiAttemptReceiptContext,
+  GeminiGenerateRequest,
+} from "@/lib/gemini-attempt-receipt";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "@/lib/cost-telemetry";
@@ -80,33 +84,137 @@ export interface GeneratedBrief {
   };
 }
 
+interface ExistingDailyBrief {
+  status: string | null;
+  sectionsJson: unknown;
+  todayFocusType: string | null;
+}
+
+interface PersistedDailyBriefInput {
+  briefData: GeneratedBrief;
+  todayFocusType: string;
+  sourceMetricsJson: Record<string, unknown>;
+}
+
+interface DailyBriefTelemetryInput {
+  result: GenerateContentResponse;
+  teamId: number;
+  userId: number;
+  providerMetadata: { queryHash: string };
+  latencyMs: number;
+}
+
+interface DailyBriefFailedTelemetryInput extends DailyBriefTelemetryInput {
+  error: unknown;
+}
+
+/**
+ * Test and adapter seam for the production daily-brief flow.
+ *
+ * The default implementations below remain the worker/database/Gemini path.
+ * A caller may replace the persistence and provider boundary together so a
+ * deterministic fixture can exercise output validation and receipt accounting
+ * without contacting Gemini or using the application database.
+ */
+export interface DailyBriefGenerationDependencies {
+  findExistingBrief?: (
+    userId: number,
+    localDate: string,
+  ) => Promise<ExistingDailyBrief | null>;
+  markGenerating?: (
+    userId: number,
+    teamId: number,
+    localDate: string,
+  ) => Promise<void>;
+  persistGenerated?: (
+    userId: number,
+    localDate: string,
+    input: PersistedDailyBriefInput,
+  ) => Promise<void>;
+  markFailed?: (userId: number, localDate: string) => Promise<void>;
+  assembleContext?: (
+    userId: number,
+    teamId: number,
+    localDate: string,
+  ) => Promise<BriefContext>;
+  provider?: (
+    request: GeminiGenerateRequest,
+    context: GeminiAttemptReceiptContext,
+    call: () => Promise<GenerateContentResponse>,
+  ) => Promise<GenerateContentResponse>;
+  logCostTelemetry?: (input: DailyBriefTelemetryInput) => Promise<void>;
+  logFailedProviderAttempt?: (input: DailyBriefFailedTelemetryInput) => Promise<void>;
+}
+
 export async function generateDailyBrief(
   userId: number,
   teamId: number,
   localDate: string,
-  force: boolean = false
+  force: boolean = false,
+  dependencies: DailyBriefGenerationDependencies = {},
 ): Promise<GeneratedBrief | null> {
-  const existingBrief = await db.query.dailyBriefs.findFirst({
-    where: and(
-      eq(dailyBriefs.userId, userId),
-      eq(dailyBriefs.localDate, localDate)
-    )
+  const findExistingBrief = dependencies.findExistingBrief ?? (async () => {
+    return await db.query.dailyBriefs.findFirst({
+      where: and(
+        eq(dailyBriefs.userId, userId),
+        eq(dailyBriefs.localDate, localDate)
+      )
+    }) as ExistingDailyBrief | null;
   });
+  const markGenerating = dependencies.markGenerating ?? (async () => {
+    await db.insert(dailyBriefs)
+      .values({ userId, teamId, localDate, status: 'generating' })
+      .onConflictDoUpdate({
+        target: [dailyBriefs.userId, dailyBriefs.localDate],
+        set: { status: 'generating' }
+      });
+  });
+  const persistGenerated = dependencies.persistGenerated ?? (async (
+    _userId,
+    _localDate,
+    input,
+  ) => {
+    await db.update(dailyBriefs)
+      .set({
+        sectionsJson: input.briefData,
+        status: 'generated',
+        generatedAt: new Date(),
+        todayFocusType: input.todayFocusType,
+        sourceMetricsJson: input.sourceMetricsJson,
+      })
+      .where(and(
+        eq(dailyBriefs.userId, userId),
+        eq(dailyBriefs.localDate, localDate)
+      ));
+  });
+  const markFailed = dependencies.markFailed ?? (async () => {
+    await db.update(dailyBriefs)
+      .set({ status: 'failed' })
+      .where(and(
+        eq(dailyBriefs.userId, userId),
+        eq(dailyBriefs.localDate, localDate)
+      ));
+  });
+  const assembleContext = dependencies.assembleContext ?? assembleBriefContext;
+  const runProvider = dependencies.provider ?? ((
+    request,
+    context,
+    call,
+  ) => throttledGeminiRequest(
+    () => submitGeminiRequest(request, context, call),
+  ));
+
+  const existingBrief = await findExistingBrief(userId, localDate);
 
   if (existingBrief?.status === 'generated' && !force) {
     return existingBrief.sectionsJson as unknown as GeneratedBrief;
   }
 
   // Mark as generating (upsert)
-  await db.insert(dailyBriefs)
-    .values({ userId, teamId, localDate, status: 'generating' })
-    .onConflictDoUpdate({
-      target: [dailyBriefs.userId, dailyBriefs.localDate],
-      set: { status: 'generating' }
-    });
+  await markGenerating(userId, teamId, localDate);
 
   try {
-    const ctx = await assembleBriefContext(userId, teamId, localDate);
+    const ctx = await assembleContext(userId, teamId, localDate);
     const { scored, top } = scoreActions(ctx, existingBrief?.todayFocusType || undefined);
 
     if (!top) throw new Error("No marketing actions could be scored for this brief.");
@@ -172,25 +280,51 @@ Respond with ONLY the JSON object.`;
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" },
       };
-      result = await throttledGeminiRequest(() =>
-        submitGeminiRequest(generationRequest, {
-          teamId,
-          userId,
-          operationType: "other",
-          resourceType: "daily_brief",
-          // The brief row does not exist yet. Team/user ownership is checked
-          // before generation; the date identity belongs in attemptKey.
-          attemptKey,
-          attempt: 1,
-        }, () => getGenAI().models.generateContent(generationRequest))
+      const providerContext: GeminiAttemptReceiptContext = {
+        teamId,
+        userId,
+        operationType: "other",
+        resourceType: "daily_brief",
+        // The brief row does not exist yet. Team/user ownership is checked
+        // before generation; the date identity belongs in attemptKey.
+        attemptKey,
+        attempt: 1,
+      };
+      result = await runProvider(
+        generationRequest,
+        providerContext,
+        () => getGenAI().models.generateContent(generationRequest),
       );
-      await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId,
-        providerRequestId: result.responseId ?? null, providerMetadata },
-      extractGeminiUsage(result), Date.now() - startedAt);
+      const telemetryInput: DailyBriefTelemetryInput = {
+        result,
+        teamId,
+        userId,
+        providerMetadata,
+        latencyMs: Date.now() - startedAt,
+      };
+      if (dependencies.logCostTelemetry) {
+        await dependencies.logCostTelemetry(telemetryInput);
+      } else {
+        await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId,
+          providerRequestId: result.responseId ?? null, providerMetadata },
+        extractGeminiUsage(result), telemetryInput.latencyMs);
+      }
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
-      await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId, providerMetadata },
-        { totalTokens: 0 }, Date.now() - startedAt, error);
+      const telemetryInput: DailyBriefFailedTelemetryInput = {
+        result: result as GenerateContentResponse,
+        teamId,
+        userId,
+        providerMetadata,
+        latencyMs: Date.now() - startedAt,
+        error,
+      };
+      if (dependencies.logFailedProviderAttempt) {
+        await dependencies.logFailedProviderAttempt(telemetryInput);
+      } else {
+        await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId, providerMetadata },
+          { totalTokens: 0 }, telemetryInput.latencyMs, error);
+      }
       throw error;
     }
 
@@ -201,37 +335,25 @@ Respond with ONLY the JSON object.`;
     }
     const briefData = parsed.data as GeneratedBrief;
 
-    await db.update(dailyBriefs)
-      .set({
-        sectionsJson: briefData,
-        status: 'generated',
-        generatedAt: new Date(),
-        todayFocusType: top.type,
-        sourceMetricsJson: {
-          articlesPublishedThisMonth: ctx.articlesPublishedThisMonth,
-          articlesOnPage1: ctx.articlesOnPage1,
-          topPerformersCount: ctx.topPerformers.length,
-          learningPatternsCount: ctx.learningPatterns.length,
-          daysSinceLastArticle: ctx.daysSinceLastArticle,
-          hasCompetitorData: !!ctx.competitorInsights,
-          candidateScores: scored.map(s => ({ type: s.type, score: s.score, action: s.action }))
-        }
-      })
-      .where(and(
-        eq(dailyBriefs.userId, userId),
-        eq(dailyBriefs.localDate, localDate)
-      ));
+    await persistGenerated(userId, localDate, {
+      briefData,
+      todayFocusType: top.type,
+      sourceMetricsJson: {
+        articlesPublishedThisMonth: ctx.articlesPublishedThisMonth,
+        articlesOnPage1: ctx.articlesOnPage1,
+        topPerformersCount: ctx.topPerformers.length,
+        learningPatternsCount: ctx.learningPatterns.length,
+        daysSinceLastArticle: ctx.daysSinceLastArticle,
+        hasCompetitorData: !!ctx.competitorInsights,
+        candidateScores: scored.map(s => ({ type: s.type, score: s.score, action: s.action }))
+      },
+    });
 
     return briefData;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     console.error(`Failed to generate daily brief for user ${userId}:`, error);
-    await db.update(dailyBriefs)
-      .set({ status: 'failed' })
-      .where(and(
-        eq(dailyBriefs.userId, userId),
-        eq(dailyBriefs.localDate, localDate)
-      ));
+    await markFailed(userId, localDate);
     throw error;
   }
 }

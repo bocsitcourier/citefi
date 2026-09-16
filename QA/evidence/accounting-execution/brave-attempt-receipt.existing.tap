@@ -1,0 +1,40 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/brave-attempt-receipt.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:12Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: Brave queue redelivery reuses one physical call without an explicit stage key
+ok 1 - Brave queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 9.029037
+  ...
+# Subtest: Brave intentional invocation keys permit the same request twice
+ok 2 - Brave intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 1.474984
+  ...
+# Subtest: Brave receipt captures one request without query or credential metadata
+ok 3 - Brave receipt captures one request without query or credential metadata
+  ---
+  duration_ms: 2.346794
+  ...
+# Subtest: Brave response identity is retained for an unknown non-success response
+ok 4 - Brave response identity is retained for an unknown non-success response
+  ---
+  duration_ms: 0.79325
+  ...
+# Subtest: accounting failure is terminal and cannot replay the Brave request
+ok 5 - accounting failure is terminal and cannot replay the Brave request
+  ---
+  duration_ms: 1.146325
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 863.814866
+EXIT_CODE: 0

@@ -1,0 +1,58 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: direct provider SDK submissions have adjacent centralized or immutable accounting
+ok 1 - direct provider SDK submissions have adjacent centralized or immutable accounting
+  ---
+  duration_ms: 92.97726
+  ...
+# Subtest: provider boundaries never swallow immutable accounting failures
+ok 2 - provider boundaries never swallow immutable accounting failures
+  ---
+  duration_ms: 51.940221
+  ...
+# Subtest: provider catches preserve accounting errors before rewrap, fallback, or retry
+ok 3 - provider catches preserve accounting errors before rewrap, fallback, or retry
+  ---
+  duration_ms: 318.59443
+  ...
+# Subtest: named transitive provider callers preserve accounting failures at outer boundaries
+ok 4 - named transitive provider callers preserve accounting failures at outer boundaries
+  ---
+  duration_ms: 79.360004
+  ...
+# Subtest: OpenAI TTS helpers propagate accounting failures unchanged
+ok 5 - OpenAI TTS helpers propagate accounting failures unchanged
+  ---
+  duration_ms: 5.259399
+  ...
+# ❌ [article-generation:article-2235] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# ❌ [article-generation:article-2235-regeneration] GENERATION_ERROR (retry) — final attempt
+# Subtest: accounting failures are explicit, retain cause, and hold billing without retry
+ok 6 - accounting failures are explicit, retain cause, and hold billing without retry
+  ---
+  duration_ms: 147.3252
+  ...
+# Subtest: optional provider fallbacks rethrow immutable accounting failures
+ok 7 - optional provider fallbacks rethrow immutable accounting failures
+  ---
+  duration_ms: 0.454734
+  ...
+# Subtest: settled-result accounting helper preserves the exact transitive error object
+ok 8 - settled-result accounting helper preserves the exact transitive error object
+  ---
+  duration_ms: 0.207313
+  ...
+# Subtest: ChatGPT review cannot convert accounting failure into a successful fallback
+ok 9 - ChatGPT review cannot convert accounting failure into a successful fallback
+  ---
+  duration_ms: 0.474373
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2530.858686

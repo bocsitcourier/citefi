@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Queue } from "bullmq";
-import { ISOLATED_TEST_REDIS_PORT } from "../helpers/isolated-redis";
+import { startIsolatedRedis } from "../helpers/isolated-redis";
 
 test("video idea and social video enqueue ids are BullMQ-safe on localhost", { timeout: 15_000 }, async () => {
   // This contract test is deliberately isolated from the application Redis URL.
@@ -13,11 +13,8 @@ test("video idea and social video enqueue ids are BullMQ-safe on localhost", { t
     getVideoIdeaJobIdCandidatesForRunId,
   } = await import("../../lib/queue");
 
-  const connection = {
-    host: "127.0.0.1",
-    port: ISOLATED_TEST_REDIS_PORT,
-    maxRetriesPerRequest: null,
-  } as const;
+  const isolated = await startIsolatedRedis();
+  const connection = isolated.connection;
   const ideaQueue = new Queue(`video-idea-id-contract-${Date.now()}`, { connection });
   const socialQueue = new Queue(`social-video-id-contract-${Date.now()}`, { connection });
   const added: Array<{ queue: typeof ideaQueue; id: string }> = [];
@@ -80,5 +77,6 @@ test("video idea and social video enqueue ids are BullMQ-safe on localhost", { t
     }
     await ideaQueue.close();
     await socialQueue.close();
+    await isolated.stop();
   }
 });

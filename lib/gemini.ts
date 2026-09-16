@@ -56,6 +56,7 @@ const geminiRateLimiter = new Bottleneck({
 
 // Exponential backoff on rate-limit AND transient network errors
 geminiRateLimiter.on("failed", async (error, jobInfo) => {
+  if (isProviderAccountingError(error)) return undefined;
   const msg = error?.message || "";
   const isRateLimitError = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
   // Retry transient network failures immediately — these are "fetch failed",

@@ -5,7 +5,9 @@
  * serialization execute in-process.
  *
  * Run:
- *   node --env-file=.env.local --experimental-loader ./tests/scope-0-alias-loader.mjs \
+ *   NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs \
+ *     --experimental-loader ./tests/scope-0-alias-loader.mjs \
  *     --experimental-test-module-mocks --import tsx/esm --test \
  *     tests/scope-0-seo-routes.test.ts
  */
@@ -17,9 +19,6 @@ const moduleMock = (mock as any).module.bind(mock) as (
   specifier: string,
   options: { namedExports?: Record<string, unknown>; defaultExport?: unknown },
 ) => void;
-
-process.env.GEMINI_API_KEY ||= "scope0-gemini-fixture";
-process.env.OPENAI_API_KEY ||= "scope0-openai-fixture";
 
 type AuthMode = "allow" | "deny";
 let authMode: AuthMode = "allow";

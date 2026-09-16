@@ -33,6 +33,7 @@ import {
   activityLogs,
   usedApprovalTokens,
   revokedApprovalTokens,
+  totpSecrets,
 } from "../../shared/schema.js";
 import { hashPassword, generateAccessToken, hashToken } from "../../lib/auth.js";
 import { generateApprovalToken, verifyApprovalToken } from "../../lib/approval-token.js";
@@ -166,9 +167,18 @@ before(async () => {
       role: "admin",
       accountStatus: "active",
       fullName: "Bootstrap",
+      twoFactorEnabled: 1,
+      twoFactorMethod: "totp",
     })
     .returning({ id: users.id });
   if (!bootstrap) throw new Error("Failed to seed review bootstrap user");
+  await db.insert(totpSecrets).values({
+    userId: bootstrap.id,
+    secret: "encrypted",
+    secretCiphertext: "review-fixture-enrolled-secret",
+    secretKeyVersion: "v1",
+    backupCodes: [],
+  });
 
   const [teamRow] = await db
     .insert(teams)
@@ -252,6 +262,8 @@ before(async () => {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       isActive: 1,
       teamContextId: teamRow.id,
+      authAssurance: "mfa",
+      mfaVerifiedAt: new Date(),
     })
     .returning({ id: sessions.id });
   if (!adminSession) throw new Error("Failed to seed review admin session");
@@ -281,6 +293,7 @@ after(async () => {
     ];
 
     await db.delete(sessions).where(eq(sessions.id, seed.adminSessionId)).catch(() => {});
+    await db.delete(totpSecrets).where(eq(totpSecrets.userId, seed.adminId)).catch(() => {});
 
     await db
       .delete(activityLogs)

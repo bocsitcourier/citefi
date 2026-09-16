@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { sitePages, siteCrawlJobs } from "@/shared/schema";
 import { eq, and, ne } from "drizzle-orm";
-import { validateExternalUrl } from "./url-validation";
+import { safeFetchWithRedirects, validateExternalUrl } from "./url-validation";
 
 const MAX_FETCH_TIMEOUT = 15000;
 const MAX_CONTENT_LENGTH = 500000;
@@ -152,21 +152,17 @@ function extractTopics(title: string, headings: string[], text: string, metaDesc
 async function fetchPage(url: string): Promise<string | null> {
   try {
     validateExternalUrl(url);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), MAX_FETCH_TIMEOUT);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const response = await safeFetchWithRedirects(url, {
+      maxRedirects: 5,
+      timeoutMs: MAX_FETCH_TIMEOUT,
+      maxBytes: MAX_CONTENT_LENGTH,
       headers: {
         "User-Agent": "CitefiBot/1.0 (SEO Content Indexer)",
         "Accept": "text/html",
       },
-      redirect: "follow",
     });
 
-    clearTimeout(timeout);
-
-    if (!response.ok) return null;
+    if (!response || !response.ok) return null;
 
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("text/html")) return null;

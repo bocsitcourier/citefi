@@ -190,3 +190,31 @@ mtime_ms = 1789577306656
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/1c062156-42ec-4f25-8537-0a7cf113bc5c/1f4ed400-2a1a-483a-aa3c-1aea80a2d94e"
 storage_version_token = "1789577336568768"
 content_type = "text/html"
+
+[[outputs]]
+id = "pI38Z_s27b-oxFMO-sTxR"
+uri = "file://QA/evidence/final-execution-summary.md"
+type = "text"
+title = "CiteFi QA execution report"
+description = "Executed checks, confirmed fixes, retained evidence, and remaining certification limits."
+logical_id = "4779cd0d-747a-46fa-aeab-d28376d2251c"
+content_hash = "sha256:6190fddb2cf9723d6beb5a8a378e764e8c6f47552acbe10a68561e3b8266ecbe"
+size = 8813
+mtime_ms = 1789590418026
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/4779cd0d-747a-46fa-aeab-d28376d2251c/fb216501-dd0e-4268-a53a-12eaf1573b81"
+storage_version_token = "1789590474793543"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "ce7KsdcPL84-nw0JqPL6s"
+uri = "file://QA/CERTIFICATION_STATUS.md"
+type = "text"
+title = "CiteFi certification status"
+description = "Current status for the 40-feature inventory. Overall: NOT CERTIFIED; no paid/live or production-migration claims."
+logical_id = "cb41f9df-5c12-48c8-a42a-d768c72ac6a1"
+content_hash = "sha256:9cc237259ea412218ceeca0e0e7ee05f974f00edc01b1680816a2a5ed6bfcf3b"
+size = 26966
+mtime_ms = 1789590382646
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/cb41f9df-5c12-48c8-a42a-d768c72ac6a1/a57d9bb5-647c-4c42-8f7a-5d6b4a153424"
+storage_version_token = "1789590475496740"
+content_type = "text/markdown"

@@ -1,0 +1,96 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/media-provider-replay-safety.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:14Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# ❌ [mock-costly-image:media-job-image] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-costly-video:media-job-video] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-costly-audio:media-job-audio] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-ambiguous-media:image-1] PROVIDER_SUBMISSION_UNCERTAIN (fatal) — final attempt
+# ❌ [mock-accounting-failure:accounting-1] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# 🖼️ Generating hero image with Gemini for article 42...
+#   📸 Attempt 1/3...
+#   ✅ Image generated (0.00 KB) — uploading...
+# [model-resolver] getModel("geminiImage") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: paid-provider boundary failures classify fatal instead of consuming queue retries
+ok 1 - paid-provider boundary failures classify fatal instead of consuming queue retries
+  ---
+  duration_ms: 1.741844
+  ...
+# Subtest: mocked image, video, and audio providers each submit once after paid-result delivery loss
+ok 2 - mocked image, video, and audio providers each submit once after paid-result delivery loss
+  ---
+  duration_ms: 3.692003
+  ...
+# Subtest: mocked ambiguous submission is terminal before a second physical attempt
+ok 3 - mocked ambiguous submission is terminal before a second physical attempt
+  ---
+  duration_ms: 0.623448
+  ...
+# Subtest: accepted provider accounting failure marks hold and never auto-releases
+ok 4 - accepted provider accounting failure marks hold and never auto-releases
+  ---
+  duration_ms: 0.701372
+  ...
+# Subtest: non-durable Veo error retains its in-memory operation name for manual handling
+ok 5 - non-durable Veo error retains its in-memory operation name for manual handling
+  ---
+  duration_ms: 0.146381
+  ...
+# Subtest: direct production media boundary does not resubmit fake SDK after storage failure
+ok 6 - direct production media boundary does not resubmit fake SDK after storage failure
+  ---
+  duration_ms: 0.662831
+  ...
+# Subtest: direct production media boundary does not persist or resubmit after fake accounting failure
+ok 7 - direct production media boundary does not persist or resubmit after fake accounting failure
+  ---
+  duration_ms: 0.220038
+  ...
+# Subtest: actual generateSingleImage treats timeout and missing paid payload as terminal
+ok 8 - actual generateSingleImage treats timeout and missing paid payload as terminal
+  ---
+  duration_ms: 3.2446
+  ...
+# Subtest: actual stored-image production path submits once when fake storage fails
+ok 9 - actual stored-image production path submits once when fake storage fails
+  ---
+  duration_ms: 2.133354
+  ...
+# Subtest: intentional image regenerations get distinct invocations while redelivery dedupes
+ok 10 - intentional image regenerations get distinct invocations while redelivery dedupes
+  ---
+  duration_ms: 1.297056
+  ...
+# [OpenAI] ⚠️ request rejected (attempt 1/3, status=429). Retrying in 1597ms...
+# [OpenAI] ⚠️ request rejected (attempt 2/3, status=429). Retrying in 2105ms...
+# [OpenAI] ❌ request failed after 3 attempts (status=429)
+# Subtest: actual callOpenAI 429 policy has one owner and three physical calls, not twelve
+ok 11 - actual callOpenAI 429 policy has one owner and three physical calls, not twelve
+  ---
+  duration_ms: 13.514046
+  ...
+# Subtest: podcast post-debit marker failure remains settlement-only and cap transition is idempotent
+ok 12 - podcast post-debit marker failure remains settlement-only and cap transition is idempotent
+  ---
+  duration_ms: 0.591527
+  ...
+# Subtest: production provider modules retain bounded replay and operation evidence
+ok 13 - production provider modules retain bounded replay and operation evidence
+  ---
+  duration_ms: 0.924214
+  ...
+# [OpenAI Stats] Calls: 1, Retries: 2, Failures: 1, Queue: 0, Active: 0
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 65195.575789
+EXIT_CODE: 0

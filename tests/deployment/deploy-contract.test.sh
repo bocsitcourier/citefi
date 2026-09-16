@@ -170,7 +170,12 @@ assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0022_billing_integrity.s
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0023_auth_login_challenges.sql'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0024_pipeline_delivery_settlement.sql'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" '0025_credit_reservation_tenant_access.sql'
-assert_has "$ROOT/scripts/post-merge.sh" 'MIGRATION_START_VERSION=0022'
+assert_has "$ROOT/scripts/post-merge.sh" 'MIGRATION_START_VERSION=0020'
+assert_lacks "$ROOT/scripts/post-merge.sh" 'MIGRATION_START_VERSION=0022'
+assert_has "$ROOT/scripts/post-merge.sh" 'scripts/run-versioned-migrations.ts'
+assert_has "$HOST" 'PHASE=migrations'
+assert_has "$HOST" 'run_migrations'
+assert_has "$HOST" 'node --env-file=.env.local --import tsx/esm scripts/run-versioned-migrations.ts'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'telemetry_events_append_only'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'assignee_column_shape'
 assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'assignee_users_fk'
@@ -180,14 +185,22 @@ assert_has "$ROOT/scripts/run-versioned-migrations.ts" 'all_append_only_triggers
 assert_has "$HOST" 'api/health\?full=1'
 assert_has "$HOST" 'known-good release'
 assert_has "$HOST" 'no automatic database rollback'
+assert_has "$HOST" 'PHASE=health'
+assert_has "$HOST" 'PHASE=public_listener'
+assert_has "$HOST" 'health_check "\$web_before" "\$worker_before"'
+assert_has "$HOST" 'public_listener_check'
 
 build_line="$(grep -n 'npm run build' "$TRANSPORT" | head -1 | cut -d: -f1)"
 verify_line="$(grep -n 'test -s \.next/BUILD_ID' "$TRANSPORT" | head -1 | cut -d: -f1)"
 validation_line="$(grep -n 'bash -o pipefail -c "\$DO_VALIDATION_COMMAND"' "$TRANSPORT" | head -1 | cut -d: -f1)"
 migration_line="$(grep -n 'run_migrations$' "$HOST" | tail -1 | cut -d: -f1)"
 cutover_line="$(grep -n 'switch_current "\$CANDIDATE_RELEASE"' "$HOST" | tail -1 | cut -d: -f1)"
+health_line="$(grep -n 'health_check "\$web_before" "\$worker_before"' "$HOST" | tail -1 | cut -d: -f1)"
+public_listener_line="$(grep -n 'public_listener_check$' "$HOST" | tail -1 | cut -d: -f1)"
+success_line="$(grep -n 'write_status succeeded' "$HOST" | tail -1 | cut -d: -f1)"
 (( validation_line < build_line && build_line < verify_line ))
 (( migration_line < cutover_line ))
+(( cutover_line < health_line && health_line < public_listener_line && public_listener_line < success_line ))
 
 assert_has "$ROOT/.github/workflows/deploy.yml" 'needs: validate'
 assert_has "$ROOT/.github/workflows/deploy.yml" 'PRODUCTION_DEPLOY_CONFIRMATION'

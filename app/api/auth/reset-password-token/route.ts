@@ -8,7 +8,7 @@ import {
   loginChallenges,
   activityLogs,
 } from "@/shared/schema";
-import { hashToken, hashPassword } from "@/lib/auth";
+import { hashToken, hashPassword, validatePassword } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and, ne, gt, isNull, sql } from "drizzle-orm";
 
@@ -82,14 +82,26 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { token, newPassword } = body;
+    const { token, newPassword } = body ?? {};
 
-    if (!token || !newPassword) {
+    if (
+      typeof token !== "string" ||
+      typeof newPassword !== "string" ||
+      !token ||
+      !newPassword
+    ) {
       return NextResponse.json({ error: "Token and new password are required" }, { status: 400 });
     }
 
-    if (newPassword.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      return NextResponse.json(
+        {
+          error: "Password does not meet security requirements",
+          details: passwordValidation.errors,
+        },
+        { status: 400 },
+      );
     }
 
     const tokenHash = hashToken(token);

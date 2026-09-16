@@ -1,0 +1,39 @@
+TAP version 13
+# (node:13014) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:13014) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: SEO local research parses a stubbed Gemini response for the requested location
+ok 1 - SEO local research parses a stubbed Gemini response for the requested location
+  ---
+  duration_ms: 16.901299
+  ...
+# Subtest: SEO content structure parses a stubbed Gemini outline without a live call
+ok 2 - SEO content structure parses a stubbed Gemini outline without a live call
+  ---
+  duration_ms: 2.836886
+  ...
+# Subtest: SEO schema markup validates and builds all four supported PASS types
+ok 3 - SEO schema markup validates and builds all four supported PASS types
+  ---
+  duration_ms: 2.590036
+  ...
+# Subtest: SEO pillar-cluster planning parses a stubbed OpenAI strategy
+ok 4 - SEO pillar-cluster planning parses a stubbed OpenAI strategy
+  ---
+  duration_ms: 1.511793
+  ...
+# Subtest: SEO pillar-cluster planning rejects malformed and empty provider JSON
+ok 5 - SEO pillar-cluster planning rejects malformed and empty provider JSON
+  ---
+  duration_ms: 1.238555
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 637.936487

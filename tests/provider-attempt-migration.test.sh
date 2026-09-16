@@ -2,6 +2,17 @@
 # Isolated PostgreSQL fixture: never uses the application's DATABASE_URL.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+
+# The migration-hardening fixture can be run inside the owned QA cluster
+# started by QA/support/with-isolated-database.sh.  Keep this branch before
+# the disposable-cluster setup so it cannot accidentally discover or touch an
+# application database.
+if [[ "${QA_USE_OWNED_55481_FIXTURE:-0}" == "1" ]]; then
+  psql=(psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55481 -U qa_owner citefi_qa)
+  "${psql[@]}" -f "$root/tests/provider-attempt-migration-fixture.sql"
+  exit 0
+fi
+
 fixture="$(mktemp -d)"
 cleanup() {
   pg_ctl -D "$fixture/data" -m immediate stop >/dev/null 2>&1 || true

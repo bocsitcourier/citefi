@@ -5,17 +5,19 @@
  * when this real-Redis TypeScript suite is loaded through tsx, reporting:
  * "Unable to deserialize cloned data due to invalid or unsupported version."
  * Running these checks sequentially in one process avoids that upstream runner
- * defect while preserving all assertions and external Redis behavior.
+ * defect while preserving all assertions and isolated Redis behavior.
  *
  * Run:
- *   redis-server --daemonize yes --save '' --appendonly no
- *   npm run test:canary
+ *   NODE_ENV=test QA_TEST_ALLOWED_PORTS=16379 \
+ *     node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs --import tsx/esm \
+ *     tests/pipeline/canary-worker.test.ts
  */
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { UnrecoverableError, type Job } from "bullmq";
-import Redis from "ioredis";
+import { isolatedRedisUrl, startIsolatedRedis } from "../helpers/isolated-redis";
 import {
   CANARY_JOB_OPTIONS,
   CANARY_SCHEDULE_PATTERN,
@@ -38,11 +40,9 @@ import {
   runWithProviderAttempt,
 } from "../../lib/provider-attempt-receipts";
 
-const TEST_REDIS_URL = "redis://127.0.0.1:6379/14";
-const redis = new Redis(TEST_REDIS_URL, {
-  maxRetriesPerRequest: 0,
-  enableReadyCheck: false,
-});
+const TEST_REDIS_URL = isolatedRedisUrl(14);
+const isolated = await startIsolatedRedis(14);
+const redis = isolated.connection;
 
 let passed = 0;
 let failed = 0;
@@ -480,7 +480,7 @@ try {
   await main();
 } finally {
   await redis.flushdb().catch(() => {});
-  redis.disconnect();
+  await isolated.stop();
 }
 
 console.info(`\nCanary checks: ${passed} passed, ${failed} failed`);

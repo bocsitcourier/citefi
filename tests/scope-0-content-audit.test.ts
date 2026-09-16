@@ -5,7 +5,9 @@
  * request is possible.
  *
  * Run:
- *   node --env-file=.env.local --experimental-loader ./tests/scope-0-alias-loader.mjs \
+ *   NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs \
+ *     --experimental-loader ./tests/scope-0-alias-loader.mjs \
  *     --experimental-test-module-mocks --import tsx/esm --test \
  *     tests/scope-0-content-audit.test.ts
  */
@@ -90,8 +92,7 @@ moduleMock(costTelemetryUrl, {
   },
 });
 
-const openAiClientUrl = new URL("../lib/openai-client.ts", import.meta.url).href;
-moduleMock(openAiClientUrl, {
+const openAiClientMock = {
   namedExports: {
     openaiClient: {},
     callOpenAI: async (
@@ -122,7 +123,19 @@ moduleMock(openAiClientUrl, {
       return await (operation as (client: unknown) => Promise<unknown>)(fakeClient);
     },
   },
-});
+};
+moduleMock(new URL("../lib/openai-client", import.meta.url).href, openAiClientMock);
+
+// Content-audit tests replace the OpenAI and DB adapters above. Keep the
+// receipt core at its exact boundary as well: importing its production
+// persistence adapter would require getTxDb and could accidentally open a
+// database connection during a read-only route test.
+const receiptMock = {
+  namedExports: {
+    isProviderAttemptTerminalError: () => false,
+  },
+};
+moduleMock(new URL("../lib/provider-attempt-receipts", import.meta.url).href, receiptMock);
 
 function reset() {
   authState.mode = "allow";

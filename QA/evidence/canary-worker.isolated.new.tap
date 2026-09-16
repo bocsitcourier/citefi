@@ -1,0 +1,72 @@
+🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+✓ normal redis:// URL remains unchanged
+✓ rediss:// URL enables TLS
+✓ Replit ediss:// typo is normalized to rediss://
+✓ normalized TLS is included in every Redis client config
+✓ Redis URL defaults to localhost when unset
+✓ real canary accounting owner must be an explicit positive team id
+🐤 [canary] Starting daily model health check...
+✅ [canary] Daily model health check passed in 0ms
+✓ injected generators need no accounting owner or database
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": Real provider-backed canary stages require CanaryDeps.accountingTeamId or a positive integer CANARY_ACCOUNTING_TEAM_ID
+✓ provider-backed stage rejects missing owner before submission
+✓ canary source accounts both physical Gemini submission boundaries
+✓ worker registration threads owner and stable logical job identity
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": provider response is durable but immutable accounting failed; refusing replay
+❌ [canary:canary-paid-job] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": provider attempt provider-attempt:81dd3057132258c106da4fe9c056ef10cf0ec61f625112a41e65e2b5074e5ee7 already has a physical submission; reconcile instead of replaying
+❌ [canary:canary-paid-job] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+✓ canary accounting failure stays terminal and redelivery cannot resubmit
+✓ missing persisted result reads as never_run
+✓ pass results round-trip through Redis
+✓ fail results round-trip through Redis
+✓ persisted result has a seven-day TTL
+🐤 [canary] Starting daily model health check...
+✅ [canary] Daily model health check passed in 1ms
+✓ successful text and image checks persist pass
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": Model gemini-x is not found
+✓ text provider failure persists stage and rejects the job
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="image_generation" provider="gemini": Image response too small: 1023 bytes returned, expected >= 1024. Model may be deprecated or returning empty responses.
+✓ short image persists image_generation failure
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": 404 model deprecated
+✓ failure report includes stage, provider, and message
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": generation error
+[canary] notifyAdmins threw (non-fatal): Error: DB offline
+    at notifyAdmins (/home/runner/workspace/tests/pipeline/canary-worker.test.ts:343:41)
+    at runCanary (/home/runner/workspace/lib/canary-worker.ts:596:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async waitForActual (node:assert:533:5)
+    at async Function.rejects (node:assert:654:25)
+    at async <anonymous> (/home/runner/workspace/tests/pipeline/canary-worker.test.ts:341:5)
+    at async check (/home/runner/workspace/tests/pipeline/canary-worker.test.ts:52:5)
+    at async main (/home/runner/workspace/tests/pipeline/canary-worker.test.ts:340:3)
+    at async <anonymous> (/home/runner/workspace/tests/pipeline/canary-worker.test.ts:480:3)
+✓ notification failure cannot erase persisted failure
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+✓ persisted error text is capped at 500 characters
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": Canary text_generation timed out after 20ms
+✓ stalled generation aborts, persists timeout, and rejects
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": retry failure
+✓ BullMQ retry suppresses duplicate reports but persists failure
+✓ scheduler is daily at 06:00 UTC with one retry
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": 404 model gemini-deprecated is not found
+❌ [canary:canary-test] MODEL_NOT_FOUND (fatal)
+🐤 [canary] Starting daily model health check...
+❌ [canary] Daily model health check FAILED — stage="text_generation" provider="gemini": 404 model gemini-deprecated is not found
+❌ [canary:canary-test] MODEL_NOT_FOUND (fatal) — final attempt
+✓ fatal model errors use the canary retry budget and report once
+✓ never-run, failed, and stale canaries degrade health
+✓ fresh successful canary keeps health healthy
+
+Canary checks: 27 passed, 0 failed

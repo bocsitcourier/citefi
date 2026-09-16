@@ -43,3 +43,15 @@ compliance with the user's absolute spending ceiling.
 **How to apply:** Persist non-secret request metadata before submission and retain
 receipts independently of ledger insertion. Do not describe an assumed model
 limit as a confirmed bound for an unidentified call.
+
+When an integration test fails a newer output gate, distinguish fixture drift
+from a broken intermediate conversion before changing the fixture.
+
+**Why:** During an audit, invalid fixture content initially obscured a real
+format-conversion defect. Replacing it with valid input still failed the
+downstream contract; changing that input to the downstream format would have
+hidden the production failure.
+
+**How to apply:** Keep fixtures faithful to the upstream provider contract,
+then trace the actual transformation and persisted output. Preserve both input
+and final-output validation rather than weakening a gate to make tests pass.

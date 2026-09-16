@@ -1,0 +1,19 @@
+TAP version 13
+# 🎬 Video idea job queued: video-idea-run-de7fb786a24a3bc3fd1b09c3 for video 999999
+# 🎬 Video idea job queued: video-idea-85b03391e73eda1e9d9278a5 for video 999998
+# 🎬 Social video job queued: social-video-run-de7fb786a24a3bc3fd1b09c3 for social post 999999
+# 🎬 Social video job queued: social-video-9b279b0d3146d639efff621d for social post 999998
+# Subtest: video idea and social video enqueue ids are BullMQ-safe on localhost
+ok 1 - video idea and social video enqueue ids are BullMQ-safe on localhost
+  ---
+  duration_ms: 208.469332
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 883.321091

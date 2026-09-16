@@ -31,6 +31,11 @@ import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFai
 import { submitGeminiRequest } from "./gemini";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import { submitBraveSearchWithReceipt } from "./brave-attempt-receipt";
+import {
+  resolvePinnedPublicAddress,
+  safeFetchPageWithRedirects,
+} from "./url-validation";
+export { safeFetchPageWithRedirects } from "./url-validation";
 
 async function recordBrandGeminiAttempt(teamId: number, result: any, startedAt: number, success: boolean, error?: unknown, prompt?: string): Promise<void> {
   await logCostTelemetry(
@@ -42,10 +47,6 @@ async function recordBrandGeminiAttempt(teamId: number, result: any, startedAt: 
   );
 }
 import { GEMINI_FLASH_MODEL } from "./ai-config";
-import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
 import {
   criticalProfileIssues,
   parseSingleStructuredObject,
@@ -252,146 +253,6 @@ export async function getApplicableBrandPolicy(
 // Strips noise tags (noscript, template, svg, base64 URIs) before sending to
 // Gemini — prevents token waste and hallucination from injected content.
 // ============================================================================
-
-// ---------------------------------------------------------------------------
-// SSRF protection helpers
-// ---------------------------------------------------------------------------
-
-/** Returns true if the IPv4 string falls in a private/reserved range. */
-function isPrivateIpv4(ip: string): boolean {
-  const octets = ip.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  const [a, b, c, d] = octets as [number, number, number, number];
-  return (
-    a === 0 || a === 10 || a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 0 && c === 0) ||
-    (a === 192 && b === 0 && c === 2) ||
-    (a === 192 && b === 31 && c === 196) ||
-    (a === 192 && b === 52 && c === 193) ||
-    (a === 192 && b === 88 && c === 99) ||
-    (a === 192 && b === 168) ||
-    (a === 192 && b === 175 && c === 48) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    (a === 198 && b === 51 && c === 100) ||
-    (a === 203 && b === 0 && c === 113) ||
-    a >= 224 ||
-    (a === 255 && b === 255 && c === 255 && d === 255)
-  );
-}
-
-function isPrivateAddress(address: string): boolean {
-  if (isIP(address) === 4) return isPrivateIpv4(address);
-  if (isIP(address) !== 6) return true;
-  const normalized = address.toLowerCase();
-  // Public IPv6 unicast is 2000::/3. This excludes loopback, link-local,
-  // unique-local, multicast, IPv4-mapped and IPv4-compatible forms.
-  if (!/^[23][0-9a-f]{0,3}:/.test(normalized)) return true;
-  return /^2001:0*:/.test(normalized) ||
-    /^2001:db8:/.test(normalized) ||
-    /^2001:2:/.test(normalized) ||
-    /^2001:3:/.test(normalized) ||
-    /^2001:4:112:/.test(normalized) ||
-    /^2001:[12][0-9a-f]:/.test(normalized) ||
-    /^2002:/.test(normalized) ||
-    /^3ffe:/.test(normalized);
-}
-
-async function resolvePinnedPublicAddress(url: URL): Promise<{ address: string; family: 4 | 6 } | null> {
-  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".internal") || hostname.endsWith(".local")) return null;
-  const literalFamily = isIP(hostname);
-  if (literalFamily) return isPrivateAddress(hostname) ? null : { address: hostname, family: literalFamily as 4 | 6 };
-  try {
-    const addresses = await lookup(hostname, { all: true, verbatim: true });
-    if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) return null;
-    const selected = addresses[0]!;
-    return { address: selected.address, family: selected.family as 4 | 6 };
-  } catch {
-    return null;
-  }
-}
-
-async function pinnedRequest(url: URL): Promise<Response | null> {
-  const pinned = await resolvePinnedPublicAddress(url);
-  if (!pinned) return null;
-  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  return new Promise((resolve) => {
-    const req = request(url, {
-      headers: {
-        "User-Agent": "CitefiBot/1.0 (Brand Intelligence Analyzer)",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-      // Node may request all resolved addresses when auto-selecting a
-      // connection family. Return the shape requested by `options.all`; a
-      // scalar callback result is interpreted as an invalid address by newer
-      // Node versions and makes every public HTTPS fetch fail before TLS.
-      lookup: ((_hostname: string, options: { all?: boolean }, callback: (
-        error: Error | null,
-        address: string | Array<{ address: string; family: number }>,
-        family?: number,
-      ) => void) => {
-        if (options?.all) {
-          callback(null, [{ address: pinned.address, family: pinned.family }]);
-        } else {
-          callback(null, pinned.address, pinned.family);
-        }
-      }) as any,
-    }, (res) => {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      res.on("data", (chunk: Buffer) => {
-        size += chunk.length;
-        if (size > 2_000_000) req.destroy(new Error("Response exceeds safe fetch limit"));
-        else chunks.push(chunk);
-      });
-      res.on("end", () => resolve(new Response(Buffer.concat(chunks), {
-        status: res.statusCode ?? 500,
-        headers: Object.fromEntries(Object.entries(res.headers).flatMap(([key, value]) =>
-          value === undefined ? [] : [[key, Array.isArray(value) ? value.join(", ") : value]]
-        )),
-      })));
-    });
-    req.setTimeout(12_000, () => req.destroy(new Error("Safe fetch timed out")));
-    req.on("error", () => resolve(null));
-    req.end();
-  });
-}
-
-/**
- * Fetches a URL with manual redirect following, validating each hop against
- * the SSRF denylist so a public URL cannot redirect to an internal target.
- * Max 5 hops; aborts after 12 s per hop.
- */
-export async function safeFetchPageWithRedirects(
-  url: string,
-  maxRedirects = 5
-): Promise<Response | null> {
-  let current = url;
-  for (let hop = 0; hop <= maxRedirects; hop++) {
-    let parsed: URL;
-    try { parsed = new URL(current); } catch { return null; }
-    const res = await pinnedRequest(parsed);
-    if (!res) return null;
-
-    // Follow 3xx explicitly after validating the destination
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (!location) return null;
-      try {
-        current = new URL(location, current).href;
-      } catch {
-        return null;
-      }
-      continue; // will SSRF-check the new URL at the top of the loop
-    }
-    return res;
-  }
-  return null; // exceeded max redirect hops
-}
 
 async function safeFetchPage(url: string): Promise<string | null> {
   try {

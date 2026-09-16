@@ -1,0 +1,17 @@
+TAP version 13
+# 📦 Queued batch generation job: batch-280 for batch 280 (brand: Regression)
+# 📅 Daily brief job queued: daily-brief-049403a60db3202c84c7c77e for user 1 on 2099-01-02
+# Subtest: installed BullMQ accepts stable batch, article, and image IDs
+ok 1 - installed BullMQ accepts stable batch, article, and image IDs
+  ---
+  duration_ms: 172.702449
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 880.101137

@@ -566,3 +566,83 @@ test("spool JSON parser rejects unbounded or malformed receipt fields", () => {
     (error: any) => error?.code === "PROVIDER_ATTEMPT_NOT_DURABLE",
   );
 });
+
+test("accounted recovery atomically heals a stale primary and converges the spool", async () => {
+  const store = new receipts.MemoryProviderAttemptReceiptStore();
+  const spool = new receipts.MemoryProviderAttemptReceiptSpool();
+  let ledgerWrites = 0;
+  const deps: ReceiptDeps = {
+    store,
+    spool,
+    validateOwnership: async () => undefined,
+    recordUsage: async (input) => {
+      ledgerWrites++;
+      return { id: 901, sourceEventId: input.sourceEventId };
+    },
+  };
+
+  await receipts.runWithProviderAttempt(
+    options(deps, async ({ captureResponse }) => {
+      await captureResponse({
+        providerRequestId: "converged-provider-request",
+        metadata: { httpStatus: 200 },
+        usage: {
+          unitType: "tokens",
+          unitCount: 8,
+          inputUnits: 5,
+          outputUnits: 3,
+          known: true,
+        },
+      });
+      return "paid-result";
+    }),
+  );
+
+  const sourceEventId = [...store.rows.keys()][0];
+  assert.ok(sourceEventId);
+  const completeSpool = spool.rows.get(sourceEventId);
+  assert.equal(completeSpool?.status, "accounted");
+
+  // Recreate the observed production split: ledger/spool are complete while
+  // the primary row is an old accounting_failed checkpoint with no response.
+  const primary = store.rows.get(sourceEventId);
+  assert.ok(primary);
+  store.rows.set(sourceEventId, {
+    ...primary,
+    status: "accounting_failed",
+    providerRequestId: null,
+    responseUsage: null,
+    responseMetadata: null,
+    usageCapturedAt: null,
+    accountedAt: null,
+    failureCode: "PROVIDER_ATTEMPT_ACCOUNTING_FAILED",
+    failureMessage: "stale failure",
+  });
+
+  const recovered = await receipts.reconcileProviderAttempt(
+    { sourceEventId },
+    deps,
+  );
+  assert.equal(recovered.receipt.status, "accounted");
+  assert.equal(recovered.receipt.providerRequestId, "converged-provider-request");
+  assert.equal(store.rows.get(sourceEventId)?.status, "accounted");
+  assert.equal(store.rows.get(sourceEventId)?.responseUsage?.unitCount, 8);
+  assert.equal(store.rows.get(sourceEventId)?.failureCode, null);
+  assert.equal(spool.rows.get(sourceEventId)?.status, "accounted");
+  assert.equal(spool.rows.get(sourceEventId)?.responseUsage?.unitCount, 8);
+  assert.equal(ledgerWrites, 1, "accounted recovery must not replay the ledger");
+
+  // A copied private object cannot override the primary row's receipt
+  // identity, even when the caller's ownership seam is permissive.
+  const copied = spool.rows.get(sourceEventId);
+  assert.ok(copied);
+  spool.rows.set(sourceEventId, { ...copied, model: "cross-tenant-model" });
+  await assert.rejects(
+    receipts.reconcileProviderAttempt(
+      { sourceEventId },
+      { ...deps, recordUsage: deps.recordUsage },
+    ),
+    /identity mismatch|model does not match attempt context/,
+  );
+  assert.equal(ledgerWrites, 1);
+});

@@ -6,7 +6,7 @@ import * as path from "path";
 import ffmpegStatic from "ffmpeg-static";
 import ffprobePath from "@ffprobe-installer/ffprobe";
 import { GEMINI_FLASH_MODEL } from "./ai-config";
-import { validateExternalUrl } from "./url-validation";
+import { safeFetchWithRedirects, validateExternalUrl } from "./url-validation";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
 
@@ -159,11 +159,13 @@ function isDirectVideoUrl(url: string): boolean {
 
 async function downloadImageToFile(imageUrl: string, outputPath: string): Promise<boolean> {
   try {
-    const res = await fetch(imageUrl, {
+    const res = await safeFetchWithRedirects(imageUrl, {
+      maxRedirects: 5,
+      timeoutMs: 15_000,
+      maxBytes: 10 * 1024 * 1024,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)" },
-      redirect: "follow",
     });
-    if (!res.ok) return false;
+    if (!res || !res.ok) return false;
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("image")) return false;
     const buf = Buffer.from(await res.arrayBuffer());
@@ -218,11 +220,14 @@ async function getVimeoThumbnailFrames(videoId: string, outputDir: string): Prom
   await fs.mkdir(framesDir, { recursive: true });
 
   const oembedUrl = `https://vimeo.com/api/v2/video/${videoId}.json`;
-  const res = await fetch(oembedUrl, {
+  const res = await safeFetchWithRedirects(oembedUrl, {
+    maxRedirects: 5,
+    timeoutMs: 15_000,
+    maxBytes: 1 * 1024 * 1024,
     headers: { "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)" },
   });
 
-  if (!res.ok) throw new Error(`Vimeo API returned ${res.status} for video ${videoId}`);
+  if (!res || !res.ok) throw new Error(`Vimeo API returned ${res?.status ?? "no response"} for video ${videoId}`);
 
   const data = await res.json() as any[];
   const info = data[0];
@@ -248,15 +253,17 @@ async function downloadVideo(url: string, outputDir: string): Promise<string> {
 
   console.log(`📥 Downloading reference video from: ${url.slice(0, 80)}...`);
 
-  const response = await fetch(url, {
+  const response = await safeFetchWithRedirects(url, {
+    maxRedirects: 5,
+    timeoutMs: 120_000,
+    maxBytes: 100 * 1024 * 1024,
     headers: {
       "User-Agent": "Mozilla/5.0 (compatible; CitefiEngine/1.0)",
     },
-    redirect: "follow",
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to download video: HTTP ${response.status}`);
+  if (!response || !response.ok) {
+    throw new Error(`Failed to download video: HTTP ${response?.status ?? "no response"}`);
   }
 
   const contentType = response.headers.get("content-type") || "";

@@ -1,0 +1,826 @@
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: Brave queue redelivery reuses one physical call without an explicit stage key
+ok 1 - Brave queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 8.128078
+  ...
+# Subtest: Brave intentional invocation keys permit the same request twice
+ok 2 - Brave intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 1.972543
+  ...
+# Subtest: Brave receipt captures one request without query or credential metadata
+ok 3 - Brave receipt captures one request without query or credential metadata
+  ---
+  duration_ms: 2.766187
+  ...
+# Subtest: Brave response identity is retained for an unknown non-success response
+ok 4 - Brave response identity is retained for an unknown non-success response
+  ---
+  duration_ms: 1.33357
+  ...
+# Subtest: accounting failure is terminal and cannot replay the Brave request
+ok 5 - accounting failure is terminal and cannot replay the Brave request
+  ---
+  duration_ms: 1.372656
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: Gemini queue redelivery reuses one physical call without an explicit stage key
+ok 6 - Gemini queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 6.919439
+  ...
+# Subtest: Gemini intentional invocation keys permit the same request twice
+ok 7 - Gemini intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 0.84846
+  ...
+# Subtest: request envelope is safe and excludes prompt/customer content
+ok 8 - request envelope is safe and excludes prompt/customer content
+  ---
+  duration_ms: 1.216407
+  ...
+# Subtest: physical call is gated and raw provider usage is captured before return
+ok 9 - physical call is gated and raw provider usage is captured before return
+  ---
+  duration_ms: 0.92045
+  ...
+# Subtest: separate helper invocations with identical config are distinct attempts
+ok 10 - separate helper invocations with identical config are distinct attempts
+  ---
+  duration_ms: 0.803243
+  ...
+# Subtest: raw Gemini fields and response identity survive the accounting boundary
+ok 11 - raw Gemini fields and response identity survive the accounting boundary
+  ---
+  duration_ms: 0.66664
+  ...
+# Subtest: missing response usage remains unknown rather than becoming zero
+ok 12 - missing response usage remains unknown rather than becoming zero
+  ---
+  duration_ms: 0.238845
+  ...
+# Subtest: response capture failure does not replay the provider call
+ok 13 - response capture failure does not replay the provider call
+  ---
+  duration_ms: 0.928494
+  ...
+# Subtest: invalid ownership context is rejected before the provider call
+ok 14 - invalid ownership context is rejected before the provider call
+  ---
+  duration_ms: 0.36958
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60000 requests/minute, max 50 concurrent
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:27:7)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: Gemini limiter callback preserves the submitting invocation ALS
+ok 15 - Gemini limiter callback preserves the submitting invocation ALS
+  ---
+  duration_ms: 17.366959
+  ...
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: anonymous throttled calls get distinct child slots and redelivery reuses them
+ok 16 - anonymous throttled calls get distinct child slots and redelivery reuses them
+  ---
+  duration_ms: 21.358396
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# 🧠 [IntentEngine] 0/1 pages matched with intent-driven anchor text (no matches)
+# 🧠 [IntentEngine] 0/1 pages matched with intent-driven anchor text (no matches)
+# Subtest: intent hyperlink redelivery submits once and intentional regeneration submits independently
+ok 17 - intent hyperlink redelivery submits once and intentional regeneration submits independently
+  ---
+  duration_ms: 2011.443014
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: media receipt boundary captures usage before persistence
+ok 18 - media receipt boundary captures usage before persistence
+  ---
+  duration_ms: 4.331316
+  ...
+# Subtest: media receipt boundary refuses duplicate submission after delivery failure
+ok 19 - media receipt boundary refuses duplicate submission after delivery failure
+  ---
+  duration_ms: 1.925378
+  ...
+# Subtest: media receipt ownership rejection happens before physical submission
+ok 20 - media receipt ownership rejection happens before physical submission
+  ---
+  duration_ms: 0.441132
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# ❌ [mock-costly-image:media-job-image] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-costly-video:media-job-video] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-costly-audio:media-job-audio] PROVIDER_RESULT_NOT_DURABLE (fatal) — final attempt
+# ❌ [mock-ambiguous-media:image-1] PROVIDER_SUBMISSION_UNCERTAIN (fatal) — final attempt
+# ❌ [mock-accounting-failure:accounting-1] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# 🖼️ Generating hero image with Gemini for article 42...
+#   📸 Attempt 1/3...
+#   ✅ Image generated (0.00 KB) — uploading...
+# [model-resolver] getModel("geminiImage") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: paid-provider boundary failures classify fatal instead of consuming queue retries
+ok 21 - paid-provider boundary failures classify fatal instead of consuming queue retries
+  ---
+  duration_ms: 1.415211
+  ...
+# Subtest: mocked image, video, and audio providers each submit once after paid-result delivery loss
+ok 22 - mocked image, video, and audio providers each submit once after paid-result delivery loss
+  ---
+  duration_ms: 3.667292
+  ...
+# Subtest: mocked ambiguous submission is terminal before a second physical attempt
+ok 23 - mocked ambiguous submission is terminal before a second physical attempt
+  ---
+  duration_ms: 0.680749
+  ...
+# Subtest: accepted provider accounting failure marks hold and never auto-releases
+ok 24 - accepted provider accounting failure marks hold and never auto-releases
+  ---
+  duration_ms: 0.462464
+  ...
+# Subtest: non-durable Veo error retains its in-memory operation name for manual handling
+ok 25 - non-durable Veo error retains its in-memory operation name for manual handling
+  ---
+  duration_ms: 0.182129
+  ...
+# Subtest: direct production media boundary does not resubmit fake SDK after storage failure
+ok 26 - direct production media boundary does not resubmit fake SDK after storage failure
+  ---
+  duration_ms: 0.638629
+  ...
+# Subtest: direct production media boundary does not persist or resubmit after fake accounting failure
+ok 27 - direct production media boundary does not persist or resubmit after fake accounting failure
+  ---
+  duration_ms: 0.237643
+  ...
+# Subtest: actual generateSingleImage treats timeout and missing paid payload as terminal
+ok 28 - actual generateSingleImage treats timeout and missing paid payload as terminal
+  ---
+  duration_ms: 3.559508
+  ...
+# Subtest: actual stored-image production path submits once when fake storage fails
+ok 29 - actual stored-image production path submits once when fake storage fails
+  ---
+  duration_ms: 2.298174
+  ...
+# Subtest: intentional image regenerations get distinct invocations while redelivery dedupes
+ok 30 - intentional image regenerations get distinct invocations while redelivery dedupes
+  ---
+  duration_ms: 5.664043
+  ...
+# [OpenAI] ⚠️ request rejected (attempt 1/3, status=429). Retrying in 1769ms...
+# [OpenAI] ⚠️ request rejected (attempt 2/3, status=429). Retrying in 2036ms...
+# [OpenAI] ❌ request failed after 3 attempts (status=429)
+# Subtest: actual callOpenAI 429 policy has one owner and three physical calls, not twelve
+ok 31 - actual callOpenAI 429 policy has one owner and three physical calls, not twelve
+  ---
+  duration_ms: 18.097498
+  ...
+# Subtest: podcast post-debit marker failure remains settlement-only and cap transition is idempotent
+ok 32 - podcast post-debit marker failure remains settlement-only and cap transition is idempotent
+  ---
+  duration_ms: 1.038831
+  ...
+# Subtest: production provider modules retain bounded replay and operation evidence
+ok 33 - production provider modules retain bounded replay and operation evidence
+  ---
+  duration_ms: 1.207769
+  ...
+# [OpenAI Stats] Calls: 1, Retries: 2, Failures: 1, Queue: 0, Active: 0
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI queue redelivery reuses one physical call without a request key
+ok 34 - OpenAI queue redelivery reuses one physical call without a request key
+  ---
+  duration_ms: 62.747343
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI intentional invocation keys permit the same request twice
+ok 35 - OpenAI intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 99.659133
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI response usage and provider id are captured before immutable accounting
+ok 36 - OpenAI response usage and provider id are captured before immutable accounting
+  ---
+  duration_ms: 50.534278
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: missing OpenAI usage is explicit unknown and is never retried or ledgered
+ok 37 - missing OpenAI usage is explicit unknown and is never retried or ledgered
+  ---
+  duration_ms: 50.330629
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: TTS character usage is retained as an exact request billing unit
+ok 38 - TTS character usage is retained as an exact request billing unit
+  ---
+  duration_ms: 50.182339
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: receipt-ledger failure is terminal and never resubmits a paid OpenAI call
+ok 39 - receipt-ledger failure is terminal and never resubmits a paid OpenAI call
+  ---
+  duration_ms: 49.413512
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: SDK payload model and output limit are checked before physical fetch
+ok 40 - SDK payload model and output limit are checked before physical fetch
+  ---
+  duration_ms: 54.499845
+  ...
+# Subtest: TTS SDK input length is checked against exact character bound
+ok 41 - TTS SDK input length is checked against exact character bound
+  ---
+  duration_ms: 47.307673
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60000 requests/minute, max 50 concurrent
+# Subtest: direct provider SDK submissions have adjacent centralized or immutable accounting
+ok 42 - direct provider SDK submissions have adjacent centralized or immutable accounting
+  ---
+  duration_ms: 93.317826
+  ...
+# Subtest: provider boundaries never swallow immutable accounting failures
+ok 43 - provider boundaries never swallow immutable accounting failures
+  ---
+  duration_ms: 57.502933
+  ...
+# Subtest: provider catches preserve accounting errors before rewrap, fallback, or retry
+ok 44 - provider catches preserve accounting errors before rewrap, fallback, or retry
+  ---
+  duration_ms: 311.549987
+  ...
+# Subtest: named transitive provider callers preserve accounting failures at outer boundaries
+ok 45 - named transitive provider callers preserve accounting failures at outer boundaries
+  ---
+  duration_ms: 111.593285
+  ...
+# Subtest: OpenAI TTS helpers propagate accounting failures unchanged
+ok 46 - OpenAI TTS helpers propagate accounting failures unchanged
+  ---
+  duration_ms: 5.061225
+  ...
+# ❌ [article-generation:article-2235] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# ❌ [article-generation:article-2235-regeneration] GENERATION_ERROR (retry) — final attempt
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:757:11)
+# Subtest: accounting failures are explicit, retain cause, and hold billing without retry
+ok 47 - accounting failures are explicit, retain cause, and hold billing without retry
+  ---
+  duration_ms: 149.301609
+  ...
+# Subtest: optional provider fallbacks rethrow immutable accounting failures
+ok 48 - optional provider fallbacks rethrow immutable accounting failures
+  ---
+  duration_ms: 0.621517
+  ...
+# Subtest: settled-result accounting helper preserves the exact transitive error object
+ok 49 - settled-result accounting helper preserves the exact transitive error object
+  ---
+  duration_ms: 0.250552
+  ...
+# Subtest: ChatGPT review cannot convert accounting failure into a successful fallback
+ok 50 - ChatGPT review cannot convert accounting failure into a successful fallback
+  ---
+  duration_ms: 0.419077
+  ...
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:757:11)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:777:11)
+# ⚠️  Gemini rate limit, retrying in 1000ms (attempt 1/3)
+# ⚠️  Gemini rate limit, retrying in 2000ms (attempt 2/3)
+# ⚠️  Gemini rate limit, retrying in 4000ms (attempt 3/3)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/provider-accounting-boundary.test.ts:777:11)
+# ⚠️  Gemini network error, retrying in 1000ms (attempt 1/3)
+# ⚠️  Gemini network error, retrying in 2000ms (attempt 2/3)
+# ⚠️  Gemini network error, retrying in 4000ms (attempt 3/3)
+# Subtest: Gemini limiter stops typed accounting terminals before 429/network classification
+ok 51 - Gemini limiter stops typed accounting terminals before 429/network classification
+  ---
+  duration_ms: 39.235742
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: social provider retries structurally own provider callbacks and guard accounting before backoff
+ok 52 - social provider retries structurally own provider callbacks and guard accounting before backoff
+  ---
+  duration_ms: 71.292958
+  ...
+# Subtest: 100 concurrent redeliveries admit one paid submission and one ledger event
+ok 53 - 100 concurrent redeliveries admit one paid submission and one ledger event
+  ---
+  duration_ms: 19.158581
+  ...
+# Subtest: accounting failure after a paid response is reconciled without provider replay
+ok 54 - accounting failure after a paid response is reconciled without provider replay
+  ---
+  duration_ms: 1.314493
+  ...
+# Subtest: object spool readiness and shared-storage faults are surfaced without a false ready result
+ok 55 - object spool readiness and shared-storage faults are surfaced without a false ready result
+  ---
+  duration_ms: 6.476458
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: actual social retry executor makes one attempt for every accounting/receipt terminal error
+ok 56 - actual social retry executor makes one attempt for every accounting/receipt terminal error
+  ---
+  duration_ms: 121.837535
+  ...
+# Subtest: actual social terminal aggregation waits for siblings and skips images/release
+ok 57 - actual social terminal aggregation waits for siblings and skips images/release
+  ---
+  duration_ms: 56.153963
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: object spool writes and reads private receipt objects
+ok 58 - object spool writes and reads private receipt objects
+  ---
+  duration_ms: 5.227169
+  ...
+# Subtest: object spool treats missing objects as absent and surfaces parser failures
+ok 59 - object spool treats missing objects as absent and surfaces parser failures
+  ---
+  duration_ms: 4.945238
+  ...
+# Subtest: object spool readiness probes write, read, and delete without public URLs
+ok 60 - object spool readiness probes write, read, and delete without public URLs
+  ---
+  duration_ms: 0.889281
+  ...
+# Subtest: object spool rejects public and traversal prefixes or source ids
+ok 61 - object spool rejects public and traversal prefixes or source ids
+  ---
+  duration_ms: 0.342703
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: ownership is checked before receipt persistence or physical submission
+ok 62 - ownership is checked before receipt persistence or physical submission
+  ---
+  duration_ms: 3.832184
+  ...
+# Subtest: concurrent callers admit one physical provider submission
+ok 63 - concurrent callers admit one physical provider submission
+  ---
+  duration_ms: 2.10379
+  ...
+# Subtest: pre-call database outage and submission CAS failure fail closed without spool admission
+ok 64 - pre-call database outage and submission CAS failure fail closed without spool admission
+  ---
+  duration_ms: 1.463001
+  ...
+# Subtest: response-save outage falls back durably and retry cannot submit twice
+ok 65 - response-save outage falls back durably and retry cannot submit twice
+  ---
+  duration_ms: 1.822897
+  ...
+# Subtest: partial response usage is retained as evidence but never becomes zero ledger usage
+ok 66 - partial response usage is retained as evidence but never becomes zero ledger usage
+  ---
+  duration_ms: 1.633406
+  ...
+# Subtest: provider rejection receipt stores only fixed safe classification
+ok 67 - provider rejection receipt stores only fixed safe classification
+  ---
+  duration_ms: 0.748831
+  ...
+# [CostTelemetry] operational telemetry insert failed: Failed query: insert into "cost_telemetry" ("id", "team_id", "user_id", "batch_id", "article_id", "campaign_id", "job_id", "operation_type", "provider", "model", "input_tokens", "output_tokens", "total_tokens", "unit_type", "unit_count", "cost_microusd", "success", "latency_ms", "error_message", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, default)
+# params: 7,,,,,,article_generation,gemini,gemini-2.5-flash,0,0,0,tokens,0,0,0,1,path=article_generation:provider_failure errorType=Error errorCode=E_PROVIDER_PRIVATE_DETAIL errorSha256=1690848c4317793efe8f86a28adadb2c3807c83461de2ccbabbe6a389f7047bd errorLength=54
+# Subtest: failed provider telemetry is operational-only without captured exact usage
+ok 68 - failed provider telemetry is operational-only without captured exact usage
+  ---
+  duration_ms: 40.563995
+  ...
+# Subtest: ledger outage is terminal while receipt remains reconcilable without provider call
+ok 69 - ledger outage is terminal while receipt remains reconcilable without provider call
+  ---
+  duration_ms: 1.120813
+  ...
+# Subtest: committed-then-throw ledger write reconciles by sourceEventId without duplicate event
+ok 70 - committed-then-throw ledger write reconciles by sourceEventId without duplicate event
+  ---
+  duration_ms: 0.738986
+  ...
+# [CostTelemetry] operational telemetry insert failed: Failed query: insert into "cost_telemetry" ("id", "team_id", "user_id", "batch_id", "article_id", "campaign_id", "job_id", "operation_type", "provider", "model", "input_tokens", "output_tokens", "total_tokens", "unit_type", "unit_count", "cost_microusd", "success", "latency_ms", "error_message", "created_at") values (default, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, default)
+# params: 7,,,,,post-call-context,article_generation,gemini,gemini-2.5-flash,3,2,5,tokens,5,6,1,1,
+# Subtest: post-call telemetry uses canonical receipt attribution rather than rebuilt context
+ok 71 - post-call telemetry uses canonical receipt attribution rather than rebuilt context
+  ---
+  duration_ms: 4.854095
+  ...
+# Subtest: already-accounted reconciliation still checks tenant ownership
+ok 72 - already-accounted reconciliation still checks tenant ownership
+  ---
+  duration_ms: 1.023832
+  ...
+# Subtest: source event identity is deterministic for one receipt request
+ok 73 - source event identity is deterministic for one receipt request
+  ---
+  duration_ms: 0.280347
+  ...
+# Subtest: async operation identity survives polling and upgrades only to returned usage
+ok 74 - async operation identity survives polling and upgrades only to returned usage
+  ---
+  duration_ms: 0.816094
+  ...
+# Subtest: spool JSON parser rejects unbounded or malformed receipt fields
+ok 75 - spool JSON parser rejects unbounded or malformed receipt fields
+  ---
+  duration_ms: 0.285531
+  ...
+# Subtest: accounted recovery atomically heals a stale primary and converges the spool
+ok 76 - accounted recovery atomically heals a stale primary and converges the spool
+  ---
+  duration_ms: 0.861748
+  ...
+# Subtest: HTTP redelivery keeps logical identity while intentional regenerations differ
+ok 77 - HTTP redelivery keeps logical identity while intentional regenerations differ
+  ---
+  duration_ms: 43.60887
+  ...
+# Subtest: HTTP identity is owner/path scoped and retains no raw header or content
+ok 78 - HTTP identity is owner/path scoped and retains no raw header or content
+  ---
+  duration_ms: 1.236869
+  ...
+# Subtest: unkeyed HTTP helper inherits an ambient worker identity instead of randomizing
+ok 79 - unkeyed HTTP helper inherits an ambient worker identity instead of randomizing
+  ---
+  duration_ms: 0.674059
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# ❌ [article-generation:redelivered-job] GENERATION_ERROR (retry)
+# ❌ [article-generation:redelivered-job] PROVIDER_ACCOUNTING_FAILED (fatal) — final attempt
+# Subtest: allocation reserves one logical slot and retries vary only by attempt
+ok 80 - allocation reserves one logical slot and retries vary only by attempt
+  ---
+  duration_ms: 1.277896
+  ...
+# Subtest: nested allocated calls under one worker are distinct and replay is blocked
+ok 81 - nested allocated calls under one worker are distinct and replay is blocked
+  ---
+  duration_ms: 3.374613
+  ...
+# Subtest: worker redelivery keeps one provider receipt identity after a crash boundary
+ok 82 - worker redelivery keeps one provider receipt identity after a crash boundary
+  ---
+  duration_ms: 2.143905
+  ...
+# Subtest: distinct logical jobs on one resource receive distinct provider identities
+ok 83 - distinct logical jobs on one resource receive distinct provider identities
+  ---
+  duration_ms: 0.787306
+  ...
+# Subtest: PROVIDER_ATTEMPT_NOT_DURABLE preserves the terminal worker reconciliation policy
+ok 84 - PROVIDER_ATTEMPT_NOT_DURABLE preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.994412
+  ...
+# Subtest: PROVIDER_ATTEMPT_USAGE_UNAVAILABLE preserves the terminal worker reconciliation policy
+ok 85 - PROVIDER_ATTEMPT_USAGE_UNAVAILABLE preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.136207
+  ...
+# Subtest: PROVIDER_ATTEMPT_ACCOUNTING_FAILED preserves the terminal worker reconciliation policy
+ok 86 - PROVIDER_ATTEMPT_ACCOUNTING_FAILED preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.10062
+  ...
+# Subtest: PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN preserves the terminal worker reconciliation policy
+ok 87 - PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.084473
+  ...
+# Subtest: PROVIDER_ATTEMPT_ALREADY_SUBMITTED preserves the terminal worker reconciliation policy
+ok 88 - PROVIDER_ATTEMPT_ALREADY_SUBMITTED preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.083489
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: post-response attribution failures cannot enter a provider retry loop
+ok 89 - post-response attribution failures cannot enter a provider retry loop
+  ---
+  duration_ms: 632.03028
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: the receipt resource allow-list includes every current telemetry resource family
+ok 90 - the receipt resource allow-list includes every current telemetry resource family
+  ---
+  duration_ms: 1.12847
+  ...
+# Subtest: unknown resource types and untyped resource IDs fail closed before a query
+ok 91 - unknown resource types and untyped resource IDs fail closed before a query
+  ---
+  duration_ms: 0.692082
+  ...
+# Subtest: provided user IDs must be members of the accounting team
+ok 92 - provided user IDs must be members of the accounting team
+  ---
+  duration_ms: 0.920761
+  ...
+# Subtest: article resource IDs are checked against the resolved team
+ok 93 - article resource IDs are checked against the resolved team
+  ---
+  duration_ms: 0.428599
+  ...
+# Subtest: idempotent usage matches units and attribution but preserves the first occurredAt
+ok 94 - idempotent usage matches units and attribution but preserves the first occurredAt
+  ---
+  duration_ms: 0.416985
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: all production receipt resource contexts pass real ownership admission
+ok 95 - all production receipt resource contexts pass real ownership admission
+  ---
+  duration_ms: 1657.708593
+  ...
+# Subtest: production receipt keys cannot contain random or wall-clock identity material
+ok 96 - production receipt keys cannot contain random or wall-clock identity material
+  ---
+  duration_ms: 1009.284758
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: concurrent duplicate provider events insert exactly once
+not ok 97 - concurrent duplicate provider events insert exactly once
+  ---
+  duration_ms: 0.759743
+  location: '/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:15:402'
+  failureType: 'hookFailed'
+  error: 'QA_OFFLINE_NETWORK_BLOCKED'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    net.Socket.connect (file:///home/runner/workspace/QA/support/offline-guard.mjs:21:11)
+    Connection.connect (/home/runner/workspace/node_modules/pg/lib/connection.js:43:17)
+    Client._connect (/home/runner/workspace/node_modules/pg/lib/client.js:117:11)
+    /home/runner/workspace/node_modules/pg/lib/client.js:171:12
+    new Promise (<anonymous>)
+    Client.connect (/home/runner/workspace/node_modules/pg/lib/client.js:170:12)
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:33:15)
+    TestHook.runInAsyncScope (node:async_hooks:206:9)
+    TestHook.run (node:internal/test_runner/test:796:25)
+    TestHook.run (node:internal/test_runner/test:1041:18)
+  ...
+# Subtest: a source event cannot be rebound across tenants
+not ok 98 - a source event cannot be rebound across tenants
+  ---
+  duration_ms: 0.072021
+  location: '/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:15:960'
+  failureType: 'hookFailed'
+  error: 'QA_OFFLINE_NETWORK_BLOCKED'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    net.Socket.connect (file:///home/runner/workspace/QA/support/offline-guard.mjs:21:11)
+    Connection.connect (/home/runner/workspace/node_modules/pg/lib/connection.js:43:17)
+    Client._connect (/home/runner/workspace/node_modules/pg/lib/client.js:117:11)
+    /home/runner/workspace/node_modules/pg/lib/client.js:171:12
+    new Promise (<anonymous>)
+    Client.connect (/home/runner/workspace/node_modules/pg/lib/client.js:170:12)
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:33:15)
+    TestHook.runInAsyncScope (node:async_hooks:206:9)
+    TestHook.run (node:internal/test_runner/test:796:25)
+    TestHook.run (node:internal/test_runner/test:1041:18)
+  ...
+# Subtest: database trigger rejects mutation of a recorded event
+not ok 99 - database trigger rejects mutation of a recorded event
+  ---
+  duration_ms: 0.056201
+  location: '/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:15:1309'
+  failureType: 'hookFailed'
+  error: 'QA_OFFLINE_NETWORK_BLOCKED'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    net.Socket.connect (file:///home/runner/workspace/QA/support/offline-guard.mjs:21:11)
+    Connection.connect (/home/runner/workspace/node_modules/pg/lib/connection.js:43:17)
+    Client._connect (/home/runner/workspace/node_modules/pg/lib/client.js:117:11)
+    /home/runner/workspace/node_modules/pg/lib/client.js:171:12
+    new Promise (<anonymous>)
+    Client.connect (/home/runner/workspace/node_modules/pg/lib/client.js:170:12)
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:33:15)
+    TestHook.runInAsyncScope (node:async_hooks:206:9)
+    TestHook.run (node:internal/test_runner/test:796:25)
+    TestHook.run (node:internal/test_runner/test:1041:18)
+  ...
+# Subtest: bigint correction and invoice variance persist exactly above int4 range
+not ok 100 - bigint correction and invoice variance persist exactly above int4 range
+  ---
+  duration_ms: 0.047064
+  location: '/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:15:1687'
+  failureType: 'hookFailed'
+  error: 'QA_OFFLINE_NETWORK_BLOCKED'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    net.Socket.connect (file:///home/runner/workspace/QA/support/offline-guard.mjs:21:11)
+    Connection.connect (/home/runner/workspace/node_modules/pg/lib/connection.js:43:17)
+    Client._connect (/home/runner/workspace/node_modules/pg/lib/client.js:117:11)
+    /home/runner/workspace/node_modules/pg/lib/client.js:171:12
+    new Promise (<anonymous>)
+    Client.connect (/home/runner/workspace/node_modules/pg/lib/client.js:170:12)
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:33:15)
+    TestHook.runInAsyncScope (node:async_hooks:206:9)
+    TestHook.run (node:internal/test_runner/test:796:25)
+    TestHook.run (node:internal/test_runner/test:1041:18)
+  ...
+# Subtest: tenant RLS cannot read another workspace's provider cost event
+not ok 101 - tenant RLS cannot read another workspace's provider cost event
+  ---
+  duration_ms: 0.056828
+  location: '/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:15:3819'
+  failureType: 'hookFailed'
+  error: 'QA_OFFLINE_NETWORK_BLOCKED'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    net.Socket.connect (file:///home/runner/workspace/QA/support/offline-guard.mjs:21:11)
+    Connection.connect (/home/runner/workspace/node_modules/pg/lib/connection.js:43:17)
+    Client._connect (/home/runner/workspace/node_modules/pg/lib/client.js:117:11)
+    /home/runner/workspace/node_modules/pg/lib/client.js:171:12
+    new Promise (<anonymous>)
+    Client.connect (/home/runner/workspace/node_modules/pg/lib/client.js:170:12)
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-usage-ledger.integration.test.ts:33:15)
+    TestHook.runInAsyncScope (node:async_hooks:206:9)
+    TestHook.run (node:internal/test_runner/test:796:25)
+    TestHook.run (node:internal/test_runner/test:1041:18)
+  ...
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: run ceiling accounting fails closed on unknown rates and ledger outages
+ok 102 - run ceiling accounting fails closed on unknown rates and ledger outages
+  ---
+  duration_ms: 2.218052
+  ...
+# Subtest: provider request source IDs are retry-idempotent
+ok 103 - provider request source IDs are retry-idempotent
+  ---
+  duration_ms: 0.870402
+  ...
+# Subtest: corrections and refunds net signed costs
+ok 104 - corrections and refunds net signed costs
+  ---
+  duration_ms: 0.582003
+  ...
+# Subtest: adjustments retain the exact original rate snapshot
+ok 105 - adjustments retain the exact original rate snapshot
+  ---
+  duration_ms: 0.173971
+  ...
+# Subtest: locked historical rates calculate costs instead of trusting mutable caller estimates
+ok 106 - locked historical rates calculate costs instead of trusting mutable caller estimates
+  ---
+  duration_ms: 0.275131
+  ...
+# Subtest: reconciliation reports exact invoice variance
+ok 107 - reconciliation reports exact invoice variance
+  ---
+  duration_ms: 1.874208
+  ...
+# Subtest: migration enforces append-only tenant COGS scope
+ok 108 - migration enforces append-only tenant COGS scope
+  ---
+  duration_ms: 188.99102
+  ...
+# Subtest: provider monetary schema and migrations use numeric-mode bigint
+ok 109 - provider monetary schema and migrations use numeric-mode bigint
+  ---
+  duration_ms: 499.263635
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Failed to generate daily brief for user 71: Error: fixture job cancelled before provider admission
+#     at validateOwnership (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:282:9)
+#     at runWithProviderAttempt (/home/runner/workspace/lib/provider-attempt-receipts.ts:1350:9)
+#     at submitGeminiWithReceipt (/home/runner/workspace/lib/gemini-attempt-receipt.ts:249:10)
+#     at Module.submitGeminiRequest (/home/runner/workspace/lib/gemini.ts:310:10)
+#     at provider (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:155:14)
+#     at generateDailyBrief (/home/runner/workspace/lib/brief/generate-daily-brief.ts:293:22)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async TestContext.<anonymous> (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:288:3)
+#     at async Test.run (node:internal/test_runner/test:797:9) {
+#   code: 'PROVIDER_ADMISSION_CANCELLED'
+# }
+# Failed to generate daily brief for user 71: Error: Gemini returned invalid brief shape: [
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "action"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "why"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "string",
+#     "received": "undefined",
+#     "path": [
+#       "todayFocus",
+#       "ctaPath"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "overnightMovement"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "competitorWatch"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "teachingMoment"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "voicePrompt"
+#     ],
+#     "message": "Required"
+#   },
+#   {
+#     "code": "invalid_type",
+#     "expected": "object",
+#     "received": "undefined",
+#     "path": [
+#       "motivation"
+#     ],
+#     "message": "Required"
+#   }
+# ]
+#     at generateDailyBrief (/home/runner/workspace/lib/brief/generate-daily-brief.ts:334:13)
+#     at async waitForActual (node:assert:533:5)
+#     at async Function.rejects (node:assert:654:25)
+#     at async TestContext.<anonymous> (/home/runner/workspace/tests/qa/daily-brief-flow.test.ts:306:3)
+#     at async Test.run (node:internal/test_runner/test:797:9)
+#     at async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+# Subtest: actual daily-brief service settles mocked provider output and retrieves stored output
+ok 110 - actual daily-brief service settles mocked provider output and retrieves stored output
+  ---
+  duration_ms: 8.718274
+  ...
+# Subtest: post-provider accounting failure is terminal and replay does not resubmit
+ok 111 - post-provider accounting failure is terminal and replay does not resubmit
+  ---
+  duration_ms: 2.440045
+  ...
+# Subtest: pre-provider cancellation fails admission with zero receipt, usage, or provider call
+ok 112 - pre-provider cancellation fails admission with zero receipt, usage, or provider call
+  ---
+  duration_ms: 11.236186
+  ...
+# Subtest: malformed provider output is rejected after the paid response is accounted
+ok 113 - malformed provider output is rejected after the paid response is accounted
+  ---
+  duration_ms: 2.487188
+  ...
+1..113
+# tests 113
+# suites 0
+# pass 108
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 106804.05499

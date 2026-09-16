@@ -1,0 +1,25 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-usage-ledger-production-contract.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:06Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: all production receipt resource contexts pass real ownership admission
+ok 1 - all production receipt resource contexts pass real ownership admission
+  ---
+  duration_ms: 1443.190773
+  ...
+# Subtest: production receipt keys cannot contain random or wall-clock identity material
+ok 2 - production receipt keys cannot contain random or wall-clock identity material
+  ---
+  duration_ms: 852.660994
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3673.808971
+EXIT_CODE: 0

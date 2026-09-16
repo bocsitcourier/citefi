@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
-import { validateExternalUrl } from "@/lib/url-validation";
+import { safeFetchWithRedirects, validateExternalUrl } from "@/lib/url-validation";
 import sharp from "sharp";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -41,10 +41,15 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`📥 Fetching ${assetType} from URL:`, url);
-    const response = await fetch(url);
+    const response = await safeFetchWithRedirects(url, {
+      maxRedirects: 5,
+      timeoutMs: 30_000,
+      maxBytes: MAX_FILE_SIZE,
+      headers: { "User-Agent": "CitefiBot/1.0 (Media Importer)" },
+    });
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch media: ${response.statusText}`);
+    if (!response || !response.ok) {
+      throw new Error(`Failed to fetch media: ${response?.statusText ?? "network request rejected"}`);
     }
 
     const contentType = response.headers.get('content-type') || '';

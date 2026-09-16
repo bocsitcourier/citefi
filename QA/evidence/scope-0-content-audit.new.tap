@@ -1,0 +1,56 @@
+TAP version 13
+# (node:12994) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:12994) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# 📊 Starting comprehensive audit for article 41
+# 🔍 Starting GPT-4 Quality Audit for: "Fixture home energy audit"
+# ✅ Quality Audit Complete - Overall Score: 4/5
+#    Citation Potential: high
+# 🔗 Discovering internal link opportunities for article 41
+#    Found 1 internal link opportunities
+# ✅ Comprehensive audit complete for article 41
+# Subtest: real auditArticle returns all six criteria and same-team internal links read-only
+ok 1 - real auditArticle returns all six criteria and same-team internal links read-only
+  ---
+  duration_ms: 308.864629
+  ...
+# 📊 Content audit requested for article 41 by user 801
+# 📊 Starting comprehensive audit for article 41
+# 🔍 Starting GPT-4 Quality Audit for: "Fixture home energy audit"
+# ✅ Quality Audit Complete - Overall Score: 4/5
+#    Citation Potential: high
+# 🔗 Discovering internal link opportunities for article 41
+#    Found 1 internal link opportunities
+# ✅ Comprehensive audit complete for article 41
+# Subtest: real content-audit route returns exact authenticated serialized audit output
+ok 2 - real content-audit route returns exact authenticated serialized audit output
+  ---
+  duration_ms: 19.218326
+  ...
+# 📊 Starting comprehensive audit for article 41
+# Subtest: real auditArticle rejects wrong-team articles before any provider call
+ok 3 - real auditArticle rejects wrong-team articles before any provider call
+  ---
+  duration_ms: 1.968546
+  ...
+# 📊 Starting comprehensive audit for article 404
+# Subtest: real auditArticle rejects missing articles before any provider call
+ok 4 - real auditArticle rejects missing articles before any provider call
+  ---
+  duration_ms: 2.3221
+  ...
+# Subtest: real content-audit route returns 400 for missing articleId and 401 for denied auth
+ok 5 - real content-audit route returns 400 for missing articleId and 401 for denied auth
+  ---
+  duration_ms: 3.118913
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1030.149734

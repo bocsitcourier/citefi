@@ -31,17 +31,24 @@ function cookie(req: Request, name: string): string | null {
 
 function allowedOrigins(req: Request): Set<string> {
   const origins = new Set<string>();
+  // The request URL and explicitly configured application/preview origins are
+  // trusted authorities. Never derive an allowed origin from Host or forwarded
+  // headers: those values may still be attacker-controlled at the edge.
   const add = (value?: string | null) => {
     if (!value) return;
-    try { origins.add(new URL(value.includes("://") ? value : `https://${value}`).origin); } catch {}
+    try {
+      const normalized = value.trim();
+      const origin = new URL(normalized.includes("://") ? normalized : `https://${normalized}`);
+      if (origin.protocol === "http:" || origin.protocol === "https:") {
+        origins.add(origin.origin);
+      }
+    } catch {}
   };
   add(process.env.APP_URL);
   add(process.env.NEXT_PUBLIC_APP_URL);
   add(process.env.REPLIT_DEV_DOMAIN);
-  add(process.env.REPLIT_DOMAINS?.split(",")[0]);
+  for (const domain of process.env.REPLIT_DOMAINS?.split(",") || []) add(domain);
   add(req.url);
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  if (host) add(`${req.headers.get("x-forwarded-proto") || "https"}://${host}`);
   return origins;
 }
 

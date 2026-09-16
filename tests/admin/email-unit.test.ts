@@ -30,6 +30,7 @@ import {
   teamMembers,
   sessions,
   activityLogs,
+  totpSecrets,
 } from "../../shared/schema.js";
 import { hashPassword, generateAccessToken, hashToken } from "../../lib/auth.js";
 import { emailService } from "../../lib/email.js";
@@ -65,6 +66,9 @@ function makeRequest(
 interface UnitSeed {
   adminId: number;
   adminToken: string;
+  unenrolledAdminId: number;
+  unenrolledAdminToken: string;
+  unenrolledAdminSessionId: number;
   teamId: number;
   pendingId: number;
   activeId: number;
@@ -87,9 +91,18 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       role: "admin",
       accountStatus: "active",
       fullName: "Unit Admin",
+      twoFactorEnabled: 1,
+      twoFactorMethod: "totp",
     })
     .returning({ id: users.id, email: users.email });
   if (!adminRow) throw new Error("Failed to seed unit admin");
+  await db.insert(totpSecrets).values({
+    userId: adminRow.id,
+    secret: "encrypted",
+    secretCiphertext: "unit-fixture-enrolled-secret",
+    secretKeyVersion: "v1",
+    backupCodes: [],
+  });
 
   // Team
   const [teamRow] = await db
@@ -155,18 +168,59 @@ async function seedUnitUsers(): Promise<UnitSeed> {
       expiresAt,
       isActive: 1,
       teamContextId: teamRow.id,
+      authAssurance: "mfa",
+      mfaVerifiedAt: new Date(),
     })
     .returning({ id: sessions.id });
   if (!sessionRow) throw new Error("Failed to seed admin session");
 
+  // Keep a separate unenrolled administrator fixture so the production MFA
+  // enrollment gate has an explicit 403 assertion below. This user deliberately
+  // has no totpSecrets row and no MFA session assurance.
+  const [unenrolledAdminRow] = await db
+    .insert(users)
+    .values({
+      email: `${prefix}_unenrolled_admin@test.invalid`,
+      passwordHash,
+      role: "admin",
+      accountStatus: "active",
+      fullName: "Unit Unenrolled Admin",
+    })
+    .returning({ id: users.id, email: users.email });
+  if (!unenrolledAdminRow) throw new Error("Failed to seed unenrolled unit admin");
+  await db.insert(teamMembers).values({
+    teamId: teamRow.id,
+    userId: unenrolledAdminRow.id,
+    role: "admin",
+  });
+  const unenrolledAdminToken = generateAccessToken({
+    userId: unenrolledAdminRow.id,
+    email: unenrolledAdminRow.email,
+    role: "admin",
+  });
+  const [unenrolledAdminSession] = await db
+    .insert(sessions)
+    .values({
+      userId: unenrolledAdminRow.id,
+      tokenHash: hashToken(unenrolledAdminToken),
+      expiresAt,
+      isActive: 1,
+      teamContextId: teamRow.id,
+    })
+    .returning({ id: sessions.id });
+  if (!unenrolledAdminSession) throw new Error("Failed to seed unenrolled admin session");
+
   return {
     adminId: adminRow.id,
     adminToken: token,
+    unenrolledAdminId: unenrolledAdminRow.id,
+    unenrolledAdminToken,
+    unenrolledAdminSessionId: unenrolledAdminSession.id,
     teamId: teamRow.id,
     pendingId: pendingRow.id,
     activeId: activeRow.id,
     sessionId: sessionRow.id,
-    allUserIds: [adminRow.id, pendingRow.id, activeRow.id],
+    allUserIds: [adminRow.id, pendingRow.id, activeRow.id, unenrolledAdminRow.id],
     teamIdForCleanup: teamRow.id,
   };
 }
@@ -176,6 +230,9 @@ async function cleanupUnitUsers(seed: UnitSeed): Promise<void> {
     await db
       .delete(sessions)
       .where(inArray(sessions.userId, seed.allUserIds));
+    await db
+      .delete(totpSecrets)
+      .where(inArray(totpSecrets.userId, seed.allUserIds));
     await db
       .delete(activityLogs)
       .where(inArray(activityLogs.userId, seed.allUserIds as number[]));
@@ -207,6 +264,22 @@ after(async () => {
 // ── Email invocation tests ─────────────────────────────────────────────────────
 
 describe("Approve route — email invocation", () => {
+  test("unenrolled admin is denied with 403 before any email is sent", async (t) => {
+    const approvedSpy = t.mock.method(emailService, "sendAccountApprovedEmail", async () => {});
+
+    const req = makeRequest(
+      `/api/admin/users/${seed.pendingId}/approve`,
+      "POST",
+      {},
+      seed.unenrolledAdminToken
+    );
+    const res = await approvePost(req, { params: Promise.resolve({ id: String(seed.pendingId) }) });
+
+    assert.equal(res.status, 403, `Expected 403 for unenrolled admin, got ${res.status}`);
+    assert.deepEqual(await res.json(), { error: "Admin access required" });
+    assert.equal(approvedSpy.mock.callCount(), 0, "MFA denial must not send approval email");
+  });
+
   test("sendAccountApprovedEmail is called once with the approved user's email", async (t) => {
     const approvedSpy = t.mock.method(emailService, "sendAccountApprovedEmail", async () => {});
 

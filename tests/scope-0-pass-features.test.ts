@@ -7,7 +7,10 @@
  * queue, or database write is permitted by these tests.
  *
  * Run:
- *   node --env-file=.env.local --experimental-test-module-mocks \
+ *   NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs \
+ *     --experimental-loader ./tests/scope-0-alias-loader.mjs \
+ *     --experimental-test-module-mocks \
  *     --import tsx/esm --test tests/scope-0-pass-features.test.ts
  */
 import assert from "node:assert/strict";
@@ -89,8 +92,7 @@ moduleMock(costTelemetryUrl, {
   },
 });
 
-const openAiClientUrl = new URL("../lib/openai-client.ts", import.meta.url).href;
-moduleMock(openAiClientUrl, {
+const openAiClientMock = {
   namedExports: {
     openaiClient: {},
     callOpenAI: async (
@@ -121,7 +123,22 @@ moduleMock(openAiClientUrl, {
       return await (operation as (client: unknown) => Promise<unknown>)(fakeClient);
     },
   },
-});
+};
+moduleMock(new URL("../lib/openai-client", import.meta.url).href, openAiClientMock);
+
+// SEO intelligence owns provider submission through this adapter. Replace that
+// adapter, rather than loading the receipt core and its DB/Pool persistence
+// imports, while retaining the real SEO parsing and validation code.
+const geminiAdapterMock = {
+  namedExports: {
+    submitGeminiRequest: async (
+      _request: unknown,
+      _context: unknown,
+      submit: () => Promise<unknown>,
+    ) => await submit(),
+  },
+};
+moduleMock(new URL("../lib/gemini", import.meta.url).href, geminiAdapterMock);
 
 beforeEach(() => {
   geminiResponses.length = 0;

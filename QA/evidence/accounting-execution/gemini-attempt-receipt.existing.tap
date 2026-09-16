@@ -1,0 +1,60 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/gemini-attempt-receipt.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:11Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: Gemini queue redelivery reuses one physical call without an explicit stage key
+ok 1 - Gemini queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 5.375832
+  ...
+# Subtest: Gemini intentional invocation keys permit the same request twice
+ok 2 - Gemini intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 0.970762
+  ...
+# Subtest: request envelope is safe and excludes prompt/customer content
+ok 3 - request envelope is safe and excludes prompt/customer content
+  ---
+  duration_ms: 1.233921
+  ...
+# Subtest: physical call is gated and raw provider usage is captured before return
+ok 4 - physical call is gated and raw provider usage is captured before return
+  ---
+  duration_ms: 0.891045
+  ...
+# Subtest: separate helper invocations with identical config are distinct attempts
+ok 5 - separate helper invocations with identical config are distinct attempts
+  ---
+  duration_ms: 0.712711
+  ...
+# Subtest: raw Gemini fields and response identity survive the accounting boundary
+ok 6 - raw Gemini fields and response identity survive the accounting boundary
+  ---
+  duration_ms: 0.721365
+  ...
+# Subtest: missing response usage remains unknown rather than becoming zero
+ok 7 - missing response usage remains unknown rather than becoming zero
+  ---
+  duration_ms: 0.202604
+  ...
+# Subtest: response capture failure does not replay the provider call
+ok 8 - response capture failure does not replay the provider call
+  ---
+  duration_ms: 1.151299
+  ...
+# Subtest: invalid ownership context is rejected before the provider call
+ok 9 - invalid ownership context is rejected before the provider call
+  ---
+  duration_ms: 0.478367
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 969.879683
+EXIT_CODE: 0

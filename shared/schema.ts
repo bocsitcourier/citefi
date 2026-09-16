@@ -3045,6 +3045,16 @@ export const providerAttemptReceipts = pgTable("provider_attempt_receipts", {
   providerRequestIdx: index("provider_attempt_receipts_provider_request_idx").on(t.provider, t.providerRequestId),
   resourceIdx: index("provider_attempt_receipts_resource_idx").on(t.teamId, t.resourceType, t.resourceId),
   contentIdx: index("provider_attempt_receipts_content_idx").on(t.teamId, t.contentId),
+  attemptPositiveCheck: check("provider_attempt_receipts_attempt_check", sql`${t.attempt} > 0`),
+  statusCheck: check("provider_attempt_receipts_status_check", sql`${t.status} IN (
+    'prepared', 'submitted', 'usage_captured', 'accounted',
+    'provider_rejected', 'uncertain', 'reconciliation_required',
+    'accounting_failed'
+  )`),
+  usageStatusCheck: check(
+    "provider_attempt_receipts_usage_status_check",
+    sql`${t.status} NOT IN ('usage_captured', 'accounted') OR ${t.responseUsage} IS NOT NULL`,
+  ),
 })).enableRLS();
 
 export const insertProviderAttemptReceiptSchema = createInsertSchema(providerAttemptReceipts).omit({

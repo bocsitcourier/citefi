@@ -1,0 +1,62 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-accounting-regressions.test.ts
+SCOPE: newly added offline regression coverage; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:47:22Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: social provider retries have a lexical accounting terminal guard
+not ok 1 - social provider retries have a lexical accounting terminal guard
+  ---
+  duration_ms: 60.608385
+  location: '/home/runner/workspace/tests/provider-accounting-regressions.test.ts:1:1584'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   'lib/social-worker.ts:822: provider retry call has no lexical accounting guard',
+    +   'lib/social-worker.ts:885: provider retry call has no lexical accounting guard'
+    + ]
+    - []
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'lib/social-worker.ts:822: provider retry call has no lexical accounting guard'
+    1: 'lib/social-worker.ts:885: provider retry call has no lexical accounting guard'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (/home/runner/workspace/tests/provider-accounting-regressions.test.ts:70:10)
+    Test.runInAsyncScope (node:async_hooks:206:9)
+    Test.run (node:internal/test_runner/test:796:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:526:18)
+    node:internal/test_runner/harness:255:12
+    node:internal/process/task_queues:140:7
+    AsyncResource.runInAsyncScope (node:async_hooks:206:9)
+    AsyncResource.runMicrotask (node:internal/process/task_queues:137:8)
+  ...
+# Subtest: 100 concurrent redeliveries admit one paid submission and one ledger event
+ok 2 - 100 concurrent redeliveries admit one paid submission and one ledger event
+  ---
+  duration_ms: 19.986382
+  ...
+# Subtest: accounting failure after a paid response is reconciled without provider replay
+ok 3 - accounting failure after a paid response is reconciled without provider replay
+  ---
+  duration_ms: 1.989145
+  ...
+# Subtest: object spool readiness and shared-storage faults are surfaced without a false ready result
+ok 4 - object spool readiness and shared-storage faults are surfaced without a false ready result
+  ---
+  duration_ms: 5.996298
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 3
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1761.062362
+EXIT_CODE: 1

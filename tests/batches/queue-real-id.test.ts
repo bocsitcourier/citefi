@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Queue } from "bullmq";
-import Redis from "ioredis";
-import { ISOLATED_TEST_REDIS_PORT } from "../helpers/isolated-redis";
+import { startIsolatedRedis } from "../helpers/isolated-redis";
 import {
   articleGenerationJobId,
   articleQueueJobId,
@@ -18,13 +17,8 @@ import {
 
 void test("installed BullMQ accepts stable batch, article, and image IDs", async () => {
   // Never consume an application/provider URL in an isolated destructive test.
-  const redis = new Redis({
-    host: "127.0.0.1",
-    port: ISOLATED_TEST_REDIS_PORT,
-    maxRetriesPerRequest: null,
-    connectTimeout: 2_000,
-    retryStrategy: () => null,
-  });
+  const isolated = await startIsolatedRedis();
+  const redis = isolated.connection;
   const queue = new Queue(`batch-id-regression-${Date.now()}`, { connection: redis });
   try {
     const batchId = await enqueueBatchGenerationJob(queue, {
@@ -94,6 +88,6 @@ void test("installed BullMQ accepts stable batch, article, and image IDs", async
   } finally {
     await queue.obliterate({ force: true });
     await queue.close();
-    await redis.quit();
+    await isolated.stop();
   }
 });

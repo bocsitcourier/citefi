@@ -138,11 +138,18 @@ test("UTM and report ownership defaults are explicit", () => {
   assert.equal(PRODUCT_POLICY_DEFAULTS.reports.automaticDelivery, false);
 });
 
-test("public metadata does not claim the deferred one-URL campaign workflow", () => {
+test("public metadata describes the current agency/local-business campaign engine", () => {
   const layoutSource = readFileSync(
     new URL("../../app/layout.tsx", import.meta.url),
     "utf8"
   );
   assert.doesNotMatch(layoutSource, /Create complete local marketing campaigns from one business URL/i);
-  assert.match(layoutSource, /Local SEO Content Platform for Agencies/i);
+  assert.match(
+    layoutSource,
+    /local marketing campaign engine for agencies and local businesses/i,
+  );
+  assert.match(
+    layoutSource,
+    /grounded in business context, reviewable work, and clearly separated external action/i,
+  );
 });

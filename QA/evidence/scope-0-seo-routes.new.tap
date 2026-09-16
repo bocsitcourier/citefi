@@ -1,0 +1,84 @@
+TAP version 13
+# (node:13034) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:13034) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: local research route runs authenticated success through its service boundary
+ok 1 - local research route runs authenticated success through its service boundary
+  ---
+  duration_ms: 20.515415
+  ...
+# Subtest: local research route returns 400 for required input before downstream service
+ok 2 - local research route returns 400 for required input before downstream service
+  ---
+  duration_ms: 2.556816
+  ...
+# Subtest: local research route returns auth denial without downstream service
+ok 3 - local research route returns auth denial without downstream service
+  ---
+  duration_ms: 1.489185
+  ...
+# Subtest: schema markup route runs authenticated success through its service boundary
+ok 4 - schema markup route runs authenticated success through its service boundary
+  ---
+  duration_ms: 7.055473
+  ...
+# Subtest: schema markup route returns 400 for required input before downstream service
+ok 5 - schema markup route returns 400 for required input before downstream service
+  ---
+  duration_ms: 1.990514
+  ...
+# Subtest: schema markup route returns auth denial without downstream service
+ok 6 - schema markup route returns auth denial without downstream service
+  ---
+  duration_ms: 1.379721
+  ...
+# Subtest: content structure route runs authenticated success through its service boundary
+ok 7 - content structure route runs authenticated success through its service boundary
+  ---
+  duration_ms: 5.459632
+  ...
+# Subtest: content structure route returns 400 for required input before downstream service
+ok 8 - content structure route returns 400 for required input before downstream service
+  ---
+  duration_ms: 1.953581
+  ...
+# Subtest: content structure route returns auth denial without downstream service
+ok 9 - content structure route returns auth denial without downstream service
+  ---
+  duration_ms: 2.040144
+  ...
+# Subtest: pillar cluster route runs authenticated success through its service boundary
+ok 10 - pillar cluster route runs authenticated success through its service boundary
+  ---
+  duration_ms: 5.152239
+  ...
+# Subtest: pillar cluster route returns 400 for required input before downstream service
+ok 11 - pillar cluster route returns 400 for required input before downstream service
+  ---
+  duration_ms: 1.499252
+  ...
+# Subtest: pillar cluster route returns auth denial without downstream service
+ok 12 - pillar cluster route returns auth denial without downstream service
+  ---
+  duration_ms: 1.102027
+  ...
+# Subtest: schema markup route rejects an unsupported type before validation or generation
+ok 13 - schema markup route rejects an unsupported type before validation or generation
+  ---
+  duration_ms: 2.677172
+  ...
+# Subtest: schema markup route maps SchemaMarkupValidationError to 400 before generation
+ok 14 - schema markup route maps SchemaMarkupValidationError to 400 before generation
+  ---
+  duration_ms: 2.635482
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 548.589693

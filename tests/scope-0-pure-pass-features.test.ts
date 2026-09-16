@@ -5,7 +5,10 @@
  * directly.
  *
  * Run:
- *   node --env-file=.env.local --import tsx/esm --test \
+ *   NODE_ENV=test node --import ./QA/support/qa-fixtures.mjs \
+ *     --import ./QA/support/offline-guard.mjs \
+ *     --experimental-loader ./tests/scope-0-alias-loader.mjs \
+ *     --import tsx/esm --test \
  *     tests/scope-0-pure-pass-features.test.ts
  */
 import assert from "node:assert/strict";

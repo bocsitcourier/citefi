@@ -12,6 +12,12 @@ const {
 } = await import(
   "../lib/cost-telemetry"
 );
+const { ProviderAttemptAccountingError } = await import(
+  "../lib/provider-attempt-receipts"
+);
+process.env.GEMINI_API_KEY ??= "offline-test-key";
+process.env.GEMINI_RATE_LIMIT = "60000";
+const { closeGeminiRateLimiter, throttledGeminiRequest } = await import("../lib/gemini");
 
 function productionSources(root: string): string[] {
   return readdirSync(root).flatMap((name) => {
@@ -58,6 +64,298 @@ function catchPreservesAccounting(
     ts.isThrowStatement(first.thenStatement) &&
     first.thenStatement.expression?.getText(sourceFile) === errorName
   );
+}
+
+function retryWithBackoffCallbackOwner(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+): ts.CallExpression | undefined {
+  let node: ts.Node | undefined = call;
+  while (node && node !== sourceFile) {
+    const parent: ts.Node | undefined = node.parent;
+    if (
+      parent &&
+      ts.isCallExpression(parent) &&
+      parent.expression.getText(sourceFile) === "retryWithBackoff" &&
+      parent.arguments[0] === node &&
+      (ts.isArrowFunction(node) || ts.isFunctionExpression(node))
+    ) {
+      return parent;
+    }
+    node = parent;
+  }
+  return undefined;
+}
+
+function containsNamedCall(
+  node: ts.Node,
+  name: string,
+  sourceFile: ts.SourceFile,
+): boolean {
+  let found = false;
+  const visit = (child: ts.Node): void => {
+    if (
+      ts.isCallExpression(child) &&
+      child.expression.getText(sourceFile) === name
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function isInsideNode(node: ts.Node, ancestor: ts.Node): boolean {
+  let current: ts.Node | undefined = node;
+  while (current) {
+    if (current === ancestor) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function retryWithBackoffDeclaration(
+  retryCall: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+): ts.VariableDeclaration | undefined {
+  let declaration: ts.VariableDeclaration | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(sourceFile) === "retryWithBackoff"
+    ) {
+      declaration = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!declaration || !declaration.initializer || !ts.isArrowFunction(declaration.initializer)) {
+    return undefined;
+  }
+
+  let owner: ts.Node | undefined = declaration;
+  while (owner && owner !== sourceFile) {
+    if (ts.isArrowFunction(owner) || ts.isFunctionDeclaration(owner) || ts.isFunctionExpression(owner)) {
+      break;
+    }
+    owner = owner.parent;
+  }
+  return owner && isInsideNode(retryCall, owner) ? declaration : undefined;
+}
+
+function retryWithBackoffGuardsAccountingBeforeBackoff(
+  declaration: ts.VariableDeclaration,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (!declaration.initializer || !ts.isArrowFunction(declaration.initializer)) return false;
+  const callbackName = declaration.initializer.parameters[0]?.name.getText(sourceFile);
+  if (!callbackName || !declaration.initializer.body) return false;
+
+  let guarded = false;
+  const visit = (node: ts.Node): void => {
+    if (guarded || !ts.isTryStatement(node) || !node.catchClause) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    if (!containsNamedCall(node.tryBlock, callbackName, sourceFile)) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    const guardIndex = node.catchClause.block.statements.findIndex((statement) => {
+      return (
+        ts.isIfStatement(statement) &&
+        statement === node.catchClause!.block.statements[0] &&
+        catchPreservesAccounting(node.catchClause!, sourceFile)
+      );
+    });
+    const backoffIndex = node.catchClause.block.statements.findIndex((statement) =>
+      containsNamedCall(statement, "setTimeout", sourceFile),
+    );
+    if (guardIndex >= 0 && backoffIndex >= 0 && guardIndex < backoffIndex) {
+      guarded = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.initializer.body);
+  return guarded;
+}
+
+function socialRetryBoundaryViolations(path: string): string[] {
+  const source = readFileSync(path, "utf8");
+  const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const expected = ["generateSocialPostWithGemini", "enhanceSocialPostWithGPT"];
+  const found = new Set<string>();
+  const violations: string[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      expected.includes(node.expression.getText(sourceFile))
+    ) {
+      const helperName = node.expression.getText(sourceFile);
+      found.add(helperName);
+      const retryCall = retryWithBackoffCallbackOwner(node, sourceFile);
+      const declaration = retryCall
+        ? retryWithBackoffDeclaration(retryCall, sourceFile)
+        : undefined;
+      if (
+        !retryCall ||
+        !declaration ||
+        !retryWithBackoffGuardsAccountingBeforeBackoff(declaration, sourceFile)
+      ) {
+        const line =
+          sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        violations.push(
+          `${path}:${line}: ${helperName} callback is not structurally owned by retryWithBackoff with accounting guard before backoff`,
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  for (const helperName of expected) {
+    if (!found.has(helperName)) {
+      violations.push(`${path}: named provider helper ${helperName} not found`);
+    }
+  }
+  return violations;
+}
+
+function dailyBriefDefaultProviderViolations(): string[] {
+  const path = "lib/brief/generate-daily-brief.ts";
+  const source = readFileSync(path, "utf8");
+  const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const violations: string[] = [];
+  let runProviderDeclaration: ts.VariableDeclaration | undefined;
+  const runProviderCalls: ts.CallExpression[] = [];
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(sourceFile) === "runProvider"
+    ) {
+      runProviderDeclaration = node;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(sourceFile) === "runProvider"
+    ) {
+      runProviderCalls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  const initializer = runProviderDeclaration?.initializer;
+  if (
+    !initializer ||
+    !ts.isBinaryExpression(initializer) ||
+    initializer.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken
+  ) {
+    violations.push(`${path}: runProvider is not the default ?? dependency closure`);
+  } else {
+    const throttledCalls: ts.CallExpression[] = [];
+    const findThrottledCall = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        node.expression.getText(sourceFile) === "throttledGeminiRequest"
+      ) {
+        throttledCalls.push(node);
+      }
+      ts.forEachChild(node, findThrottledCall);
+    };
+    findThrottledCall(initializer.right);
+    if (throttledCalls.length !== 1) {
+      violations.push(
+        `${path}: default runProvider closure must call throttledGeminiRequest exactly once`,
+      );
+    } else {
+      const throttledCall = throttledCalls[0]!;
+      const callback = throttledCall.arguments[0];
+      if (
+        !callback ||
+        (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) ||
+        !containsNamedCall(callback, "submitGeminiRequest", sourceFile)
+      ) {
+        violations.push(
+          `${path}: default runProvider closure must submit through the receipt-aware provider boundary`,
+        );
+      }
+    }
+  }
+
+  if (runProviderCalls.length !== 1) {
+    violations.push(`${path}: expected one production runProvider call`);
+  } else {
+    const catchClause = enclosingProviderCatch(runProviderCalls[0]!, sourceFile);
+    if (!catchClause || !catchPreservesAccounting(catchClause, sourceFile)) {
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(runProviderCalls[0]!.getStart(sourceFile)).line + 1;
+      violations.push(
+        `${path}:${line}: runProvider catch does not preserve accounting failures before failed-attempt logging`,
+      );
+    }
+  }
+  return violations;
+}
+
+function geminiLimiterAccountingGuardViolations(): string[] {
+  const path = "lib/gemini.ts";
+  const source = readFileSync(path, "utf8");
+  const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const violations: string[] = [];
+  let failedHandlers = 0;
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.expression.getText(sourceFile) === "geminiRateLimiter" &&
+      node.expression.name.getText(sourceFile) === "on" &&
+      node.arguments[0]?.getText(sourceFile) === `"failed"`
+    ) {
+      failedHandlers++;
+      const callback = node.arguments[1];
+      const body =
+        callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))
+          ? callback.body
+          : undefined;
+      const first = body && ts.isBlock(body) ? body.statements[0] : undefined;
+      const errorName =
+        callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))
+          ? callback.parameters[0]?.name.getText(sourceFile)
+          : undefined;
+      const guard =
+        errorName && first && ts.isIfStatement(first)
+          ? first.expression.getText(sourceFile).replace(/\s/g, "")
+          : "";
+      const thenStatement = first && ts.isIfStatement(first) ? first.thenStatement : undefined;
+      const stopsAccounting =
+        thenStatement !== undefined &&
+        ts.isReturnStatement(thenStatement) &&
+        thenStatement.expression?.getText(sourceFile) === "undefined";
+      if (
+        !errorName ||
+        guard !== `isProviderAccountingError(${errorName})` ||
+        !stopsAccounting
+      ) {
+        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        violations.push(
+          `${path}:${line}: Bottleneck failed handler must stop accounting errors before message/code classification`,
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (failedHandlers !== 1) {
+    violations.push(`${path}: expected exactly one geminiRateLimiter failed handler`);
+  }
+  return violations;
 }
 
 function providerCatchViolations(path: string): string[] {
@@ -237,14 +535,30 @@ void test("provider catches preserve accounting errors before rewrap, fallback, 
 void test("named transitive provider callers preserve accounting failures at outer boundaries", () => {
   const violations: string[] = [];
   for (const [path, helperNames] of Object.entries(TRANSITIVE_PROVIDER_BOUNDARIES)) {
+    if (path === "lib/social-worker.ts") {
+      violations.push(...socialRetryBoundaryViolations(path));
+    }
+    if (path === "lib/brief/generate-daily-brief.ts") {
+      violations.push(...dailyBriefDefaultProviderViolations());
+    }
+    const outerBoundaryHelperNames =
+      path === "lib/social-worker.ts"
+        ? helperNames.filter(
+            (helperName) =>
+              helperName !== "generateSocialPostWithGemini" &&
+              helperName !== "enhanceSocialPostWithGPT",
+          )
+        : path === "lib/brief/generate-daily-brief.ts"
+          ? helperNames.filter((helperName) => helperName !== "throttledGeminiRequest")
+        : helperNames;
     const source = readFileSync(path, "utf8");
     const sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
-    const found = new Map(helperNames.map((name) => [name, 0]));
+    const found = new Map(outerBoundaryHelperNames.map((name) => [name, 0]));
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression.getText(sourceFile);
-        const helperName = helperNames.find(
+        const helperName = outerBoundaryHelperNames.find(
           (name) => callee === name || callee.endsWith(`.${name}`)
         );
         if (helperName) {
@@ -267,6 +581,7 @@ void test("named transitive provider callers preserve accounting failures at out
       if (count === 0) violations.push(`${path}: named provider helper ${helperName} not found`);
     }
   }
+  violations.push(...geminiLimiterAccountingGuardViolations());
   assert.deepEqual(violations, []);
 });
 
@@ -414,4 +729,69 @@ void test("ChatGPT review cannot convert accounting failure into a successful fa
     fallbackIndex > guardIndex,
     "accounting guard must run before optional fallback values are constructed"
   );
+});
+
+void test("Gemini limiter stops typed accounting terminals before 429/network classification", async () => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalRandom = Math.random;
+  const retryDelays: number[] = [];
+  Math.random = () => 0;
+  globalThis.setTimeout = ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    retryDelays.push(delay ?? 0);
+    return originalSetTimeout(callback, 0, ...args);
+  }) as typeof setTimeout;
+  try {
+    for (const terminalError of [
+      new ProviderAccountingError(
+        "429 network fetch failed after provider response",
+        new Error("immutable ledger unavailable"),
+      ),
+      new ProviderAttemptAccountingError(
+        "429 network fetch failed after provider response",
+        new Error("immutable ledger unavailable"),
+      ),
+    ]) {
+      let terminalCalls = 0;
+      await assert.rejects(
+        () =>
+          throttledGeminiRequest(async () => {
+            terminalCalls++;
+            throw terminalError;
+          }),
+        (error) => error === terminalError,
+      );
+      assert.equal(
+        terminalCalls,
+        1,
+        "typed receipt/accounting terminals must stop before message/code retry classification",
+      );
+    }
+
+    for (const ordinaryError of [
+      Object.assign(new Error("HTTP 429 rate limit"), { code: 429 }),
+      Object.assign(new Error("transient provider network failure"), { code: "ECONNRESET" }),
+    ]) {
+      let ordinaryCalls = 0;
+      await assert.rejects(
+        () =>
+          throttledGeminiRequest(async () => {
+            ordinaryCalls++;
+            throw ordinaryError;
+          }),
+        (error) => error === ordinaryError,
+      );
+      assert.equal(ordinaryCalls, 4, "ordinary 429/network failures retain three bounded retries");
+    }
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    Math.random = originalRandom;
+  }
+  assert.ok(retryDelays.includes(1000));
+  assert.ok(retryDelays.includes(2000));
+  assert.ok(retryDelays.includes(4000));
+  assert.ok(retryDelays.every((delay) => delay <= 10_000));
+});
+
+test.after(async () => {
+  await closeGeminiRateLimiter();
 });

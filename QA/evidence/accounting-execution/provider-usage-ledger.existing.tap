@@ -1,0 +1,55 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-usage-ledger.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:04Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: run ceiling accounting fails closed on unknown rates and ledger outages
+ok 1 - run ceiling accounting fails closed on unknown rates and ledger outages
+  ---
+  duration_ms: 1.338252
+  ...
+# Subtest: provider request source IDs are retry-idempotent
+ok 2 - provider request source IDs are retry-idempotent
+  ---
+  duration_ms: 0.514254
+  ...
+# Subtest: corrections and refunds net signed costs
+ok 3 - corrections and refunds net signed costs
+  ---
+  duration_ms: 0.230882
+  ...
+# Subtest: adjustments retain the exact original rate snapshot
+ok 4 - adjustments retain the exact original rate snapshot
+  ---
+  duration_ms: 0.132969
+  ...
+# Subtest: locked historical rates calculate costs instead of trusting mutable caller estimates
+ok 5 - locked historical rates calculate costs instead of trusting mutable caller estimates
+  ---
+  duration_ms: 0.177035
+  ...
+# Subtest: reconciliation reports exact invoice variance
+ok 6 - reconciliation reports exact invoice variance
+  ---
+  duration_ms: 1.238362
+  ...
+# Subtest: migration enforces append-only tenant COGS scope
+ok 7 - migration enforces append-only tenant COGS scope
+  ---
+  duration_ms: 0.389838
+  ...
+# Subtest: provider monetary schema and migrations use numeric-mode bigint
+ok 8 - provider monetary schema and migrations use numeric-mode bigint
+  ---
+  duration_ms: 5.509665
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 674.399846
+EXIT_CODE: 0

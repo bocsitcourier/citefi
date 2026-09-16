@@ -143,13 +143,15 @@ void describe("batch submission idempotency", () => {
 });
 
 void test("an unconfirmed Redis write is classified as ambiguous, never rejected", async () => {
-  let reads = 0;
+  const lookupIds: string[] = [];
+  let addCalls = 0;
   const queue = {
     add: async () => {
+      addCalls++;
       throw new Error("connection reset after write");
     },
-    getJob: async () => {
-      reads += 1;
+    getJob: async (jobId: string) => {
+      lookupIds.push(jobId);
       return undefined;
     },
   };
@@ -166,7 +168,38 @@ void test("an unconfirmed Redis write is classified as ambiguous, never rejected
       error instanceof AmbiguousBatchEnqueueError &&
       error.jobId === "batch-28",
   );
-  assert.equal(reads, 4);
+  assert.equal(addCalls, 1);
+  assert.deepEqual(lookupIds, [
+    "batch:28",
+    "batch-28",
+    "batch-28",
+    "batch-28",
+    "batch-28",
+  ]);
+});
+
+void test("a found legacy batch job is reused before attempting a new enqueue", async () => {
+  let addCalls = 0;
+  const queue = {
+    add: async () => {
+      addCalls++;
+      throw new Error("legacy lookup should have returned first");
+    },
+    getJob: async (jobId: string) =>
+      jobId === "batch:28" ? { id: "batch:28" } : undefined,
+  };
+
+  const result = await enqueueBatchGenerationJob(queue as never, {
+    batchId: 28,
+    userId: 1,
+    teamId: 1,
+    selectedTitles: ["Title"],
+    targetUrl: "https://example.test",
+    businessName: "Example",
+  });
+
+  assert.equal(result, "batch:28");
+  assert.equal(addCalls, 0);
 });
 
 void describe("batch enqueue compensation", () => {

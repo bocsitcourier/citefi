@@ -1,0 +1,83 @@
+TAP version 13
+# Subtest: independent URL validation and pinned transport
+    # Subtest: normalizes and rejects mapped, compatible, private, and reserved address classes
+    ok 1 - normalizes and rejects mapped, compatible, private, and reserved address classes
+      ---
+      duration_ms: 14.995638
+      ...
+    # Subtest: requires every DNS answer to be public and requests all addresses
+    ok 2 - requires every DNS answer to be public and requests all addresses
+      ---
+      duration_ms: 1.645104
+      ...
+    # Subtest: permits a public host and pins the all-address lookup before transport
+    ok 3 - permits a public host and pins the all-address lookup before transport
+      ---
+      duration_ms: 41.258677
+      ...
+    # Subtest: blocks a private DNS answer before opening transport
+    ok 4 - blocks a private DNS answer before opening transport
+      ---
+      duration_ms: 0.439315
+      ...
+    # Subtest: blocks a private redirect before a second transport connection
+    ok 5 - blocks a private redirect before a second transport connection
+      ---
+      duration_ms: 0.979508
+      ...
+    # Subtest: repins and rejects a DNS-rebound redirect before a second connection
+    ok 6 - repins and rejects a DNS-rebound redirect before a second connection
+      ---
+      duration_ms: 0.724276
+      ...
+    # Subtest: rejects HTTPS-to-HTTP downgrade before resolving or connecting the next hop
+    ok 7 - rejects HTTPS-to-HTTP downgrade before resolving or connecting the next hop
+      ---
+      duration_ms: 0.741152
+      ...
+    # Subtest: follows a public redirect only after repinning its destination
+    ok 8 - follows a public redirect only after repinning its destination
+      ---
+      duration_ms: 1.104092
+      ...
+    # Subtest: enforces response byte limits before returning a response
+    ok 9 - enforces response byte limits before returning a response
+      ---
+      duration_ms: 2.347141
+      ...
+    # Subtest: rejects a declared content length above the bound before reading the body
+    ok 10 - rejects a declared content length above the bound before reading the body
+      ---
+      duration_ms: 0.733705
+      ...
+    # Subtest: enforces per-hop timeout before returning a response
+    ok 11 - enforces per-hop timeout before returning a response
+      ---
+      duration_ms: 0.446042
+      ...
+    # Subtest: reproduces an unbounded DNS wait outside the transport timeout
+    ok 12 - reproduces an unbounded DNS wait outside the transport timeout
+      ---
+      duration_ms: 27.453423
+      ...
+    # Subtest: all three URL-fetching sinks use the bounded pinned helper
+    ok 13 - all three URL-fetching sinks use the bounded pinned helper
+      ---
+      duration_ms: 1.540244
+      ...
+    1..13
+ok 1 - independent URL validation and pinned transport
+  ---
+  duration_ms: 98.837256
+  type: 'suite'
+  ...
+1..1
+# tests 13
+# suites 1
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 506.115915
+EXIT_CODE=0

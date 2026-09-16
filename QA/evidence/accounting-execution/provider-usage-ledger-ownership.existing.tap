@@ -1,0 +1,40 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-usage-ledger-ownership.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:05Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: the receipt resource allow-list includes every current telemetry resource family
+ok 1 - the receipt resource allow-list includes every current telemetry resource family
+  ---
+  duration_ms: 1.066455
+  ...
+# Subtest: unknown resource types and untyped resource IDs fail closed before a query
+ok 2 - unknown resource types and untyped resource IDs fail closed before a query
+  ---
+  duration_ms: 0.688378
+  ...
+# Subtest: provided user IDs must be members of the accounting team
+ok 3 - provided user IDs must be members of the accounting team
+  ---
+  duration_ms: 0.830844
+  ...
+# Subtest: article resource IDs are checked against the resolved team
+ok 4 - article resource IDs are checked against the resolved team
+  ---
+  duration_ms: 0.212709
+  ...
+# Subtest: idempotent usage matches units and attribution but preserves the first occurredAt
+ok 5 - idempotent usage matches units and attribution but preserves the first occurredAt
+  ---
+  duration_ms: 0.51428
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 633.932121
+EXIT_CODE: 0

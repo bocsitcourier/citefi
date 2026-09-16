@@ -1,0 +1,17 @@
+TAP version 13
+# 🎙️ Podcast generation job queued: podcast-a77778037a1db712360b40e8e66e6632cbec3cd75b1952ef5404952632f99b01 for article 4242
+# 🎙️ Podcast generation job queued: podcast-d8c5d63327704fbd115d406d6cc1cf359acbef2b3cd810b4efd89d4356047b05 for article 4242
+# Subtest: podcast helper uses a legal deterministic ID with a real isolated Queue.add
+ok 1 - podcast helper uses a legal deterministic ID with a real isolated Queue.add
+  ---
+  duration_ms: 155.945533
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 631.294488

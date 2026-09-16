@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "pg";
 import { eq } from "drizzle-orm";
-import { closeDb, db } from "../lib/db";
+import { closeDb, db, systemDb } from "../lib/db";
 import {
   approveAgencyClientReport,
   approveAgencyReportConfig,
@@ -72,6 +72,41 @@ function assertNoPrivateSnapshotKeys(value: unknown): void {
     assert.doesNotMatch(key, privateKey);
     assertNoPrivateSnapshotKeys(child);
   }
+}
+
+function nativeSqlError(error: unknown): { code: string; message: string } {
+  let current: unknown = error;
+  const seen = new Set<object>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    if (typeof candidate.code === "string" && typeof candidate.message === "string") {
+      if (candidate.code === "P0001") {
+        return { code: candidate.code, message: candidate.message };
+      }
+    }
+    current = candidate.cause;
+  }
+  throw new Error("Expected Drizzle error to retain native PostgreSQL SQLSTATE P0001");
+}
+
+async function assertImmutableRejected<T>(
+  operation: () => Promise<T>,
+  readRow: () => Promise<unknown>,
+  message: RegExp,
+): Promise<void> {
+  const before = await readRow();
+  await assert.rejects(operation, (error: unknown) => {
+    const native = nativeSqlError(error);
+    assert.equal(native.code, "P0001");
+    assert.match(native.message, message);
+    return true;
+  });
+  assert.deepEqual(await readRow(), before, "rejected immutable write must leave the row unchanged");
 }
 
 before(async () => {
@@ -453,22 +488,35 @@ test("Task 154 agency reports enforce accounting, immutability, RLS, and deliver
   });
 
   await t.test("snapshot fields and delivery history are database-enforced immutable", async () => {
-    await assert.rejects(
-      agencyContext(() => db.update(agencyClientReports)
+    await assertImmutableRejected(
+      () => agencyContext(() => db.update(agencyClientReports)
         .set({ clientSafeSnapshot: { changed: true } })
         .where(eq(agencyClientReports.id, reportId))),
-      /snapshots are immutable/
+      () => agencyContext(() => db.select().from(agencyClientReports)
+        .where(eq(agencyClientReports.id, reportId))
+        .limit(1)),
+      /agency report snapshots are immutable/,
     );
-    await assert.rejects(
-      agencyContext(() => db.update(agencyReportFinancialSnapshots)
+    // The tenant role intentionally has no UPDATE/DELETE grant on these
+    // append-only tables. Use the explicit system handle to reach the
+    // database trigger and assert its native immutable error; tenant
+    // visibility/authorization remains covered by the assertions below.
+    await assertImmutableRejected(
+      () => systemDb.update(agencyReportFinancialSnapshots)
         .set({ rebillingSnapshot: { changed: true } })
-        .where(eq(agencyReportFinancialSnapshots.reportId, reportId))),
-      /financial snapshots are immutable|permission denied/
+        .where(eq(agencyReportFinancialSnapshots.reportId, reportId)),
+      () => systemDb.select().from(agencyReportFinancialSnapshots)
+        .where(eq(agencyReportFinancialSnapshots.reportId, reportId))
+        .limit(1),
+      /agency report financial snapshots are immutable/,
     );
-    await assert.rejects(
-      agencyContext(() => db.delete(agencyReportFinancialSnapshots)
-        .where(eq(agencyReportFinancialSnapshots.reportId, reportId))),
-      /financial snapshots are immutable|permission denied/
+    await assertImmutableRejected(
+      () => systemDb.delete(agencyReportFinancialSnapshots)
+        .where(eq(agencyReportFinancialSnapshots.reportId, reportId)),
+      () => systemDb.select().from(agencyReportFinancialSnapshots)
+        .where(eq(agencyReportFinancialSnapshots.reportId, reportId))
+        .limit(1),
+      /agency report financial snapshots are immutable/,
     );
     const recorded = await agencyContext(() => recordAgencyReportDelivery({
       reportId,
@@ -478,16 +526,22 @@ test("Task 154 agency reports enforce accounting, immutability, RLS, and deliver
       idempotencyKey: `${providerPrefix}:portal`,
     }));
     auditDeliveryId = recorded.delivery.id;
-    await assert.rejects(
-      agencyContext(() => db.update(agencyReportDeliveries)
+    await assertImmutableRejected(
+      () => systemDb.update(agencyReportDeliveries)
         .set({ status: "sent" })
-        .where(eq(agencyReportDeliveries.id, auditDeliveryId))),
-      /append-only|permission denied/
+        .where(eq(agencyReportDeliveries.id, auditDeliveryId)),
+      () => systemDb.select().from(agencyReportDeliveries)
+        .where(eq(agencyReportDeliveries.id, auditDeliveryId))
+        .limit(1),
+      /agency report deliveries are append-only/,
     );
-    await assert.rejects(
-      agencyContext(() => db.delete(agencyReportDeliveries)
-        .where(eq(agencyReportDeliveries.id, auditDeliveryId))),
-      /append-only|permission denied/
+    await assertImmutableRejected(
+      () => systemDb.delete(agencyReportDeliveries)
+        .where(eq(agencyReportDeliveries.id, auditDeliveryId)),
+      () => systemDb.select().from(agencyReportDeliveries)
+        .where(eq(agencyReportDeliveries.id, auditDeliveryId))
+        .limit(1),
+      /agency report deliveries are append-only/,
     );
   });
 

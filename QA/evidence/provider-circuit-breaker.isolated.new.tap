@@ -1,0 +1,42 @@
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# ✅ Redis connected (redis://127.0.0.1:16379/15)
+# 🚨 [provider-circuit] gemini opened after 5 failures; paused article-generation, social-post-generation, image-generation, social-video-generation, video-idea-generation, intelligence-research, article-podcast, daily-brief, citation-probe
+# Subtest: opens at five failures in two minutes and pauses every Gemini queue
+ok 1 - opens at five failures in two minutes and pauses every Gemini queue
+  ---
+  duration_ms: 34.7092
+  ...
+# 🚨 [provider-circuit] gemini opened after 5 failures; paused article-generation, social-post-generation, image-generation, social-video-generation, video-idea-generation, intelligence-research, article-podcast, daily-brief, citation-probe
+# ✅ [provider-circuit] gemini recovered; resumed article-generation, social-post-generation, image-generation, social-video-generation, video-idea-generation, intelligence-research, article-podcast, daily-brief, citation-probe
+# Subtest: successful probe closes the circuit, clears failures, and resumes queues
+ok 2 - successful probe closes the circuit, clears failures, and resumes queues
+  ---
+  duration_ms: 9.267798
+  ...
+# 🚨 [provider-circuit] gemini opened after 5 failures; paused article-generation, social-post-generation, image-generation, social-video-generation, video-idea-generation, intelligence-research, article-podcast, daily-brief, citation-probe
+# 🚨 [provider-circuit] openai opened after 5 failures; paused article-generation, social-post-generation, image-generation, article-reformat, social-video-generation, article-podcast
+# ✅ [provider-circuit] gemini recovered; resumed article-generation, social-post-generation, image-generation, social-video-generation, video-idea-generation, intelligence-research, article-podcast, daily-brief, citation-probe
+# ⚠️ [provider-circuit] openai probe still failing: still unavailable
+# Subtest: shared queues stay paused until both provider circuits recover
+ok 3 - shared queues stay paused until both provider circuits recover
+  ---
+  duration_ms: 7.209678
+  ...
+# 🚨 [provider-circuit] openai opened after 5 failures; paused article-generation, social-post-generation, image-generation, article-reformat, social-video-generation, article-podcast
+# ✅ [provider-circuit] openai recovered; resumed article-generation, social-post-generation, image-generation, article-reformat, social-video-generation, article-podcast
+# Subtest: provider recovery never overrides a platform spend pause
+ok 4 - provider recovery never overrides a platform spend pause
+  ---
+  duration_ms: 6.549979
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 899.736568

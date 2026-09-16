@@ -26,9 +26,9 @@ loss.
 prompt marker, and resolve drift with data-preserving migrations that rename or
 attach existing unique constraints instead of truncating rows.
 
-Security controls that Drizzle can represent, such as enabling RLS, must also be
-declared in the source schema. Database-only policies, grants, triggers, forced
-RLS, and validation checks remain in idempotent post-push migrations.
+Security controls that Drizzle can represent, such as enabling RLS and check
+constraints, must also be declared in the source schema. Database-only policies,
+grants, triggers, and forced RLS remain in idempotent post-push migrations.
 
 **Why:** A declarative push can otherwise disable a control installed by a
 previously applied migration, while the checksum runner skips that migration as
@@ -40,6 +40,17 @@ both ENABLE and FORCE for every intended policy table: PostgreSQL can retain
 policies and FORCE while ENABLE is false, and those policies then provide no
 row filtering. Include a real cross-tenant query with an ordinary isolated actor;
 catalog or scanner success alone is not authorization evidence.
+
+`CREATE TABLE IF NOT EXISTS` does not install missing constraints on an
+already-existing table.
+
+**Why:** A source-built QA database followed by successful migration execution
+still lacked an intended receipt-evidence constraint. This concealed one
+recovery failure while exposing a different inconsistent terminal state.
+
+**How to apply:** Test both declarative-first and migration-first schema paths.
+Verify critical constraints in the catalog and with rejected writes; use a new
+additive migration to repair existing tables rather than editing old migrations.
 
 Represent SQL UNIQUE constraints as ORM unique constraints, not same-named
 standalone unique indexes; preserve predicates on partial indexes.

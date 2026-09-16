@@ -1,0 +1,45 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/provider-receipt-error-policy.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:01Z
+TAP version 13
+# Subtest: PROVIDER_ATTEMPT_NOT_DURABLE preserves the terminal worker reconciliation policy
+ok 1 - PROVIDER_ATTEMPT_NOT_DURABLE preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 1.166484
+  ...
+# Subtest: PROVIDER_ATTEMPT_USAGE_UNAVAILABLE preserves the terminal worker reconciliation policy
+ok 2 - PROVIDER_ATTEMPT_USAGE_UNAVAILABLE preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.198101
+  ...
+# Subtest: PROVIDER_ATTEMPT_ACCOUNTING_FAILED preserves the terminal worker reconciliation policy
+ok 3 - PROVIDER_ATTEMPT_ACCOUNTING_FAILED preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.157754
+  ...
+# Subtest: PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN preserves the terminal worker reconciliation policy
+ok 4 - PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.125052
+  ...
+# Subtest: PROVIDER_ATTEMPT_ALREADY_SUBMITTED preserves the terminal worker reconciliation policy
+ok 5 - PROVIDER_ATTEMPT_ALREADY_SUBMITTED preserves the terminal worker reconciliation policy
+  ---
+  duration_ms: 0.111805
+  ...
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: post-response attribution failures cannot enter a provider retry loop
+ok 6 - post-response attribution failures cannot enter a provider retry loop
+  ---
+  duration_ms: 672.274975
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1012.158633
+EXIT_CODE: 0

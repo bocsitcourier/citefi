@@ -1,0 +1,23 @@
+TAP version 13
+# Subtest: canonical queue ids and enqueue validation reject unsafe custom ids
+ok 1 - canonical queue ids and enqueue validation reject unsafe custom ids
+  ---
+  duration_ms: 1.976667
+  ...
+# 📤 Publishing job queued: publishing-1158e7e12c5e7362318e5e3c2e1f2f1ab49578ab1d1691e9818a7c3f6b30b528 for db job 501 (team 7)
+# 🧠 Intelligence research job queued: intelligence-campaign-5344c4110f483793dc352c388e67776724c36b4bea3ffda6cab7c75b9c65aceb for team 7 (Contract Fixture)
+# 🎭 Social post job queued: social-post-ed552583ca10c0669d653abdf3bc41babb7857c725f36645947ae68d9a24e8a5 for social post 503
+# Subtest: real isolated Redis queue preserves canonical ids, bulk ids, dedupe, and billing data
+ok 2 - real isolated Redis queue preserves canonical ids, bulk ids, dedupe, and billing data
+  ---
+  duration_ms: 172.256218
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 748.867546

@@ -29,6 +29,7 @@ const files = [
   "0033_video_idea_billing.sql",
   "0034_agency_report_period_unique.sql",
   "0034_provider_attempt_receipts.sql",
+  "0035_provider_attempt_receipt_state_hardening.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");
@@ -196,6 +197,17 @@ async function main() {
           WHERE attrelid=to_regclass('public.articles')
             AND attname='podcast_billing_settled_at' AND NOT attisdropped
         ) AS podcast_settlement,
+         to_regclass('public.provider_attempt_receipts') IS NOT NULL AS provider_attempt_receipts,
+         (
+           SELECT count(*) FROM pg_constraint
+           WHERE conrelid=to_regclass('public.provider_attempt_receipts')
+             AND conname IN (
+               'provider_attempt_receipts_attempt_check',
+               'provider_attempt_receipts_status_check',
+               'provider_attempt_receipts_usage_status_check'
+             )
+             AND contype='c' AND convalidated
+         ) = 3 AS provider_attempt_receipt_state_constraints,
         (
           SELECT count(*) FROM pg_policy
           WHERE polrelid=to_regclass('public.credit_reservations')

@@ -1,0 +1,31 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/gemini-throttled-invocation.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:44:23Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60000 requests/minute, max 50 concurrent
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:27:7)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: Gemini limiter callback preserves the submitting invocation ALS
+ok 1 - Gemini limiter callback preserves the submitting invocation ALS
+  ---
+  duration_ms: 48.982293
+  ...
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: anonymous throttled calls get distinct child slots and redelivery reuses them
+ok 2 - anonymous throttled calls get distinct child slots and redelivery reuses them
+  ---
+  duration_ms: 29.662897
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6652.761737
+EXIT_CODE: 0

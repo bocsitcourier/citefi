@@ -1,0 +1,23 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: actual social retry executor makes one attempt for every accounting/receipt terminal error
+ok 1 - actual social retry executor makes one attempt for every accounting/receipt terminal error
+  ---
+  duration_ms: 136.684612
+  ...
+# Subtest: actual social terminal aggregation waits for siblings and skips images/release
+ok 2 - actual social terminal aggregation waits for siblings and skips images/release
+  ---
+  duration_ms: 113.857618
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4802.834819

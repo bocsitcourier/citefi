@@ -32,6 +32,7 @@ import {
   articles,
   creditBalances,
   creditLedger,
+  errorLogs,
   jobEvents,
   jobBatches,
   teamMembers,
@@ -48,6 +49,22 @@ type LocalTestOptions = {
   timeout?: number;
   todo?: boolean | string;
 };
+
+const FIXTURE_WORD_COUNT_MIN = 120;
+const FIXTURE_WORD_COUNT_MAX = 160;
+const FIXTURE_ARTICLE_WORD_COUNT = 154;
+const FIXTURE_TARGET_URL = "https://example.test";
+const STRUCTURALLY_VALID_FIXTURE_ARTICLE = `# Durable restart recovery
+
+A durable article fixture exercises restart recovery with a real Markdown heading, readable paragraphs, and a canonical [project guide](${FIXTURE_TARGET_URL}). Recovered before the first stage, Durable test article content remains available while the content stays inside the requested range so quality validation measures the same artifact that later stages checkpoint.
+
+## Recovery checkpoints
+
+Workers claim one run, preserve its checkpoint, and resume after a delivery interruption. A stable run identifier prevents duplicate provider work while the queue can safely redeliver the same job. Each stage records its durable result before the next stage proceeds, allowing retries to inspect committed state instead of guessing.
+
+## Idempotent completion
+
+Once the article reaches completion, the worker settles billing exactly once and keeps the final content unchanged. A later delivery may verify the checkpoint, but it must not call the provider again. This deterministic fixture therefore covers crash recovery, restart fencing, idempotent completion, and a valid destination URL.`;
 
 function test(name: string, body: TestBody): ReturnType<typeof nodeTest>;
 function test(name: string, options: LocalTestOptions, body: TestBody): ReturnType<typeof nodeTest>;
@@ -124,10 +141,14 @@ async function seedArticle(suffix: string) {
     userId: user.id,
     teamId: team.id,
     coreTopic: marker,
-    targetUrl: "https://example.test",
+    targetUrl: FIXTURE_TARGET_URL,
     businessName: "Crash Boundary Test",
     status: "RUNNING",
     numArticlesRequested: 1,
+    generationParams: {
+      wordCountMin: FIXTURE_WORD_COUNT_MIN,
+      wordCountMax: FIXTURE_WORD_COUNT_MAX,
+    },
   }).returning();
   assert.ok(batch);
   const [article] = await db.insert(articles).values({
@@ -147,6 +168,8 @@ async function cleanupSeed(seed: Awaited<ReturnType<typeof seedArticle>>) {
   await db.delete(articleAssets).where(eq(articleAssets.articleId, seed.article.id));
   await db.delete(jobEvents).where(eq(jobEvents.articleId, seed.article.id));
   await db.delete(jobEvents).where(eq(jobEvents.batchId, seed.batch.id));
+  await db.delete(errorLogs).where(eq(errorLogs.articleId, seed.article.id));
+  await db.delete(errorLogs).where(eq(errorLogs.batchId, seed.batch.id));
   await db.delete(articleRuns).where(eq(articleRuns.articleId, seed.article.id));
   await db.delete(articles).where(eq(articles.id, seed.article.id));
   await db.delete(jobBatches).where(eq(jobBatches.id, seed.batch.id));
@@ -409,6 +432,8 @@ test("a pre-stage claim crash is retried and completed under the same run ID", {
     runId,
     title: seed.article.chosenTitle,
     targetUrl: seed.batch.targetUrl,
+    wordCountMin: FIXTURE_WORD_COUNT_MIN,
+    wordCountMax: FIXTURE_WORD_COUNT_MAX,
     businessName: seed.batch.businessName ?? undefined,
     teamId: seed.team.id,
   };
@@ -528,7 +553,7 @@ test("a pre-stage claim crash is retried and completed under the same run ID", {
             async generateGemini() {
               providerCalls += 1;
               return {
-                rawContent: "Recovered before the first stage.",
+                rawContent: STRUCTURALLY_VALID_FIXTURE_ARTICLE,
                 seoTitle: "Pre-stage Recovery",
                 metaDescription: "A same-run pre-stage recovery test.",
                 slug: `pre-stage-recovery-${runId}`,
@@ -536,8 +561,11 @@ test("a pre-stage claim crash is retried and completed under the same run ID", {
                 hashtags: ["#Recovery"],
                 faq: [],
                 imagePrompts: [],
-                wordCount: 5,
+                wordCount: FIXTURE_ARTICLE_WORD_COUNT,
               } as any;
+            },
+            finalizationGate: {
+              reviewContent: async () => ({ passed: true, defects: [] }),
             },
           });
           recoveredResolve();
@@ -622,6 +650,8 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
     runId,
     title: seed.article.chosenTitle,
     targetUrl: seed.batch.targetUrl,
+    wordCountMin: FIXTURE_WORD_COUNT_MIN,
+    wordCountMax: FIXTURE_WORD_COUNT_MAX,
     businessName: seed.batch.businessName ?? undefined,
     teamId: seed.team.id,
   };
@@ -666,7 +696,7 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
   const fakeGemini = async () => {
     providerCalls += 1;
     return {
-      rawContent: "Durable test article content.",
+      rawContent: STRUCTURALLY_VALID_FIXTURE_ARTICLE,
       seoTitle: "Durable Test Article",
       metaDescription: "A restart-safe article generation test.",
       slug: `durable-test-${runId}`,
@@ -674,7 +704,7 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
       hashtags: ["#RestartSafety"],
       faq: [{ question: "Is this durable?", answer: "Yes." }],
       imagePrompts: [],
-      wordCount: 4,
+      wordCount: FIXTURE_ARTICLE_WORD_COUNT,
     } as any;
   };
 
@@ -763,6 +793,9 @@ test("stalled BullMQ redelivery waits for lease expiry and fences the real artic
           if (job.token) recoveredDeliveryTokens.push(job.token);
           await processArticleGenerationJob(job, {
             generateGemini: fakeGemini,
+            finalizationGate: {
+              reviewContent: async () => ({ passed: true, defects: [] }),
+            },
           });
           recoveredResolve();
         } catch (error) {

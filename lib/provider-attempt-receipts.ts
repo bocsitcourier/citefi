@@ -15,6 +15,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { and, eq } from "drizzle-orm";
 
 import { getTxDb } from "./db";
+import { getDatabaseExecutionContext } from "./tenant-context";
 import {
   providerAttemptReceipts,
   type ProviderAttemptReceipt as SchemaProviderAttemptReceipt,
@@ -503,6 +504,17 @@ export interface ProviderAttemptReceiptStore {
     capture: ProviderResponseCapture,
     capturedAt: Date,
   ): Promise<void>;
+  /**
+   * Atomically persist the complete response evidence and terminal accounting
+   * state.  This is deliberately one store operation: a receipt must never
+   * become `accounted` while its response fields are still absent.
+   */
+  finalizeAccounted(
+    sourceEventId: string,
+    capture: ProviderResponseCapture,
+    capturedAt: Date,
+    accountedAt: Date,
+  ): Promise<ProviderAttemptReceiptRecord>;
   markStatus(
     sourceEventId: string,
     status: ProviderAttemptStatus,
@@ -581,6 +593,33 @@ const databaseStore: ProviderAttemptReceiptStore = {
     }).where(eq(providerAttemptReceipts.sourceEventId, sourceEventId))
       .returning({ sourceEventId: providerAttemptReceipts.sourceEventId });
     if (!updated) throw new ProviderAttemptNotDurableError("Receipt response update affected no owned receipt");
+  },
+
+  async finalizeAccounted(sourceEventId, capture, capturedAt, accountedAt) {
+    const txDb = getTxDb();
+    const [updated] = await txDb.update(providerAttemptReceipts).set({
+      providerRequestId: capture.providerRequestId ?? null,
+      responseUsage: capture.usage,
+      responseMetadata: capture.metadata ?? null,
+      usageCapturedAt: capturedAt,
+      status: "accounted",
+      accountedAt,
+      // A prior accounting outage is no longer true once this one atomic
+      // update has completed.  Clear both fields in the same write so a
+      // stale failure cannot mask a converged receipt.
+      failureCode: null,
+      failureMessage: null,
+      updatedAt: accountedAt,
+    }).where(eq(
+      providerAttemptReceipts.sourceEventId,
+      sourceEventId,
+    )).returning();
+    if (!updated) {
+      throw new ProviderAttemptNotDurableError(
+        "Receipt accounting finalization affected no owned receipt",
+      );
+    }
+    return rowToReceipt(updated);
   },
 
   async markStatus(sourceEventId, status, failure) {
@@ -1077,7 +1116,19 @@ export function currentProviderAttempt(): ProviderAttemptHandle | null {
 export async function markCurrentProviderAttemptAccounted(): Promise<void> {
   const runtime = attemptStorage.getStore();
   if (!runtime) return;
-  await markRuntimeStatus(runtime, "accounted");
+  // Terminal accounting is only legal after the immutable ledger has been
+  // reconciled.  In particular, do not let a caller turn a response-less
+  // checkpoint into an optimistic `accounted` row.
+  const result = await reconcileProviderAttempt(
+    { sourceEventId: runtime.receipt.sourceEventId },
+    {
+      store: runtime.store,
+      spool: runtime.spool,
+      recordUsage: runtime.recordUsage,
+      validateOwnership: runtime.validateOwnership,
+    },
+  );
+  Object.assign(runtime.receipt, result.receipt);
 }
 
 export async function markCurrentProviderAttemptAccountingFailed(): Promise<void> {
@@ -1093,7 +1144,7 @@ export async function markCurrentProviderAttemptAccountingFailed(): Promise<void
 export async function reconcileCurrentProviderAttempt(): Promise<void> {
   const runtime = attemptStorage.getStore();
   if (!runtime) return;
-  await reconcileProviderAttempt(
+  const result = await reconcileProviderAttempt(
     { sourceEventId: runtime.receipt.sourceEventId },
     {
       store: runtime.store,
@@ -1102,7 +1153,10 @@ export async function reconcileCurrentProviderAttempt(): Promise<void> {
       validateOwnership: runtime.validateOwnership,
     },
   );
-  await markRuntimeStatus(runtime, "accounted");
+  // Keep the active response handle in sync with the converged durable state.
+  // A separate markStatus call here would reintroduce the original split
+  // write (terminal status first, response fields later).
+  Object.assign(runtime.receipt, result.receipt);
 }
 
 /** Alias used by provider adapters that intercept an SDK response. */
@@ -1122,12 +1176,23 @@ async function markRuntimeStatus(
   status: ProviderAttemptStatus,
   failure?: { code?: string; message?: string },
 ): Promise<void> {
+  if (status === "accounted") {
+    const { capture, capturedAt } = responseCaptureFromReceipt(runtime.receipt);
+    const converged = await finalizeReceiptAccounted(
+      runtime.receipt,
+      runtime.store,
+      runtime.spool,
+      capture,
+      capturedAt,
+    );
+    Object.assign(runtime.receipt, converged);
+    return;
+  }
   runtime.receipt.status = status;
   if (failure) {
     runtime.receipt.failureCode = failure.code ?? null;
     runtime.receipt.failureMessage = failure.message?.slice(0, MAX_FAILURE_MESSAGE) ?? null;
   }
-  if (status === "accounted") runtime.receipt.accountedAt = new Date();
   try {
     await runtime.store.markStatus(runtime.receipt.sourceEventId, status, failure);
   } catch (error) {
@@ -1390,7 +1455,7 @@ export async function runWithProviderAttempt<TResponse>(
       // Reconcile immediately from the persisted response usage.  This is
       // idempotent on sourceEventId and does not call the provider.
       try {
-        await reconcileProviderAttempt(
+        const reconciled = await reconcileProviderAttempt(
           { sourceEventId: runtime.receipt.sourceEventId },
           {
             store,
@@ -1399,6 +1464,7 @@ export async function runWithProviderAttempt<TResponse>(
             validateOwnership,
           },
         );
+        Object.assign(runtime.receipt, reconciled.receipt);
       } catch (error) {
         await markRuntimeStatus(runtime, "accounting_failed", {
           code: "PROVIDER_ATTEMPT_ACCOUNTING_FAILED",
@@ -1473,6 +1539,184 @@ async function safeFindSpool(
   return record == null ? null : spoolRecordFromUnknown(record, sourceEventId);
 }
 
+const RECEIPT_IDENTITY_FIELDS: Array<keyof ProviderAttemptReceiptRecord> = [
+  "sourceEventId",
+  "teamId",
+  "provider",
+  "model",
+  "operationType",
+  "attempt",
+];
+
+/**
+ * A spool is independent durability, not an authority over tenant identity.
+ * Never merge its response into a primary row until the immutable identity
+ * fields agree.  This is also important when an object key is copied between
+ * private tenant prefixes during an operator incident.
+ */
+function assertReceiptIdentity(
+  primary: ProviderAttemptReceiptRecord,
+  spooled: ReceiptSpoolRecord,
+): void {
+  for (const field of RECEIPT_IDENTITY_FIELDS) {
+    if (primary[field] !== spooled[field]) {
+      throw new ProviderAttemptNotDurableError(
+        `provider attempt receipt identity mismatch for ${String(field)}`,
+      );
+    }
+  }
+  if (
+    primary.providerRequestId != null &&
+    spooled.providerRequestId != null &&
+    primary.providerRequestId !== spooled.providerRequestId
+  ) {
+    throw new ProviderAttemptNotDurableError(
+      "provider attempt receipt provider request identity mismatch",
+    );
+  }
+  if (
+    primary.responseUsage != null &&
+    spooled.responseUsage != null &&
+    primary.responseUsage.known === true &&
+    spooled.responseUsage.known === true &&
+    !stableUsageEqual(primary.responseUsage, spooled.responseUsage)
+  ) {
+    throw new ProviderAttemptNotDurableError(
+      "provider attempt receipt response usage evidence conflict",
+    );
+  }
+}
+
+function mergeReceiptEvidence(
+  primary: ProviderAttemptReceiptRecord | null,
+  spooled: ReceiptSpoolRecord | null,
+): ProviderAttemptReceiptRecord | null {
+  if (primary && spooled) {
+    assertReceiptIdentity(primary, spooled);
+    const merged = { ...primary };
+    // The spool may contain the response checkpoint that was lost by the
+    // primary store.  Identity was checked above; only evidence fields are
+    // allowed to cross that boundary.
+    if (merged.responseUsage == null && spooled.responseUsage != null) {
+      merged.providerRequestId = spooled.providerRequestId;
+      merged.responseUsage = spooled.responseUsage;
+      merged.responseMetadata = spooled.responseMetadata;
+      merged.usageCapturedAt = spooled.usageCapturedAt;
+      merged.status = spooled.status;
+      merged.failureCode = spooled.failureCode;
+      merged.failureMessage = spooled.failureMessage;
+      merged.accountedAt = spooled.accountedAt;
+    } else if (spooled.status === "accounted" && spooled.responseUsage != null) {
+      // Both sides have evidence.  Prefer the primary identity and the
+      // complete terminal checkpoint, while preserving any primary request
+      // metadata used for attribution.
+      merged.providerRequestId ??= spooled.providerRequestId;
+      merged.responseMetadata ??= spooled.responseMetadata;
+      merged.usageCapturedAt ??= spooled.usageCapturedAt;
+      if (merged.status !== "accounted") {
+        merged.status = "accounted";
+        merged.accountedAt = spooled.accountedAt;
+      }
+    }
+    return merged;
+  }
+  return primary ?? spooled;
+}
+
+function responseCaptureFromReceipt(
+  receipt: ProviderAttemptReceiptRecord,
+): { capture: ProviderResponseCapture; capturedAt: Date } {
+  if (!receipt.responseUsage || receipt.responseUsage.known !== true) {
+    throw new ProviderAttemptUsageUnavailableError(
+      "reconciliation requires known provider-returned usage; no zero event was fabricated",
+    );
+  }
+  if (receipt.responseUsage.unitCount == null) {
+    throw new ProviderAttemptUsageUnavailableError(
+      "reconciliation requires a provider-reported aggregate usage count",
+    );
+  }
+  // Database rows predate strict JSON validation.  Run the same normalizer
+  // used at capture time before allowing old evidence to become terminal.
+  const capture = normalizeResponseCapture({
+    usage: receipt.responseUsage,
+    providerRequestId: receipt.providerRequestId,
+    metadata: receipt.responseMetadata,
+  });
+  if (capture.usage.known !== true || capture.usage.unitCount == null) {
+    throw new ProviderAttemptUsageUnavailableError(
+      "reconciliation requires normalized provider-returned usage",
+    );
+  }
+  return {
+    capture,
+    capturedAt: receipt.usageCapturedAt ?? receipt.submittedAt ?? receipt.preparedAt,
+  };
+}
+
+async function finalizeReceiptAccounted(
+  receipt: ProviderAttemptReceiptRecord,
+  store: ProviderAttemptReceiptStore,
+  spool: ProviderAttemptReceiptSpool,
+  capture: ProviderResponseCapture,
+  capturedAt: Date,
+): Promise<ProviderAttemptReceiptRecord> {
+  const accountedAt = new Date();
+  const updated: ProviderAttemptReceiptRecord = {
+    ...receipt,
+    providerRequestId: capture.providerRequestId ?? null,
+    responseUsage: capture.usage,
+    responseMetadata: capture.metadata ?? null,
+    usageCapturedAt: capturedAt,
+    status: "accounted",
+    accountedAt,
+    failureCode: null,
+    failureMessage: null,
+  };
+
+  let databaseFinalized = false;
+  let converged = updated;
+  try {
+    // This is the only terminal database write.  It intentionally carries the
+    // entire response checkpoint so status and evidence cannot split again.
+    converged = await store.finalizeAccounted(
+      receipt.sourceEventId,
+      capture,
+      capturedAt,
+      accountedAt,
+    );
+    databaseFinalized = true;
+  } catch (error) {
+    // The immutable ledger has already been admitted (or this was an
+    // accounted fast path).  A complete spool is therefore safe and prevents
+    // a provider replay while the primary store is repaired.
+    try {
+      await spool.write(toSpoolRecord(updated));
+    } catch (spoolError) {
+      throw new ProviderAttemptNotDurableError(
+        "provider attempt accounting finalization could not be persisted",
+        spoolError,
+      );
+    }
+    return updated;
+  }
+
+  try {
+    // Always converge the independent copy, including when it was stale or
+    // absent.  If the primary is already complete, it remains the authority
+    // when the fallback transport is temporarily unavailable.
+    await spool.write(toSpoolRecord(converged));
+  } catch (error) {
+    if (!databaseFinalized) {
+      throw new ProviderAttemptNotDurableError(
+        "provider attempt receipt spool convergence failed",
+        error,
+      );
+    }
+  }
+  return converged;
+}
+
 export interface ReconcileProviderAttemptInput {
   sourceEventId: string;
 }
@@ -1508,15 +1752,17 @@ export async function reconcileProviderAttempt(
   spooledReceipt = rawSpooledReceipt == null
     ? null
     : spoolRecordFromUnknown(rawSpooledReceipt, sourceEventId);
-  // A stale prepared/submitted database row must not hide a newer response
-  // checkpoint written to the fallback spool.
-  const receipt = spooledReceipt && (
-    !primaryReceipt ||
-    primaryReceipt.responseUsage == null ||
-    spooledReceipt.responseUsage != null ||
-    spooledReceipt.status === "accounted"
-  ) ? spooledReceipt : primaryReceipt;
+  const receipt = mergeReceiptEvidence(primaryReceipt, spooledReceipt);
   if (!receipt) throw new ProviderAttemptNotDurableError("provider attempt receipt was not found");
+  const executionContext = getDatabaseExecutionContext();
+  if (
+    executionContext?.scope === "tenant" &&
+    executionContext.teamId !== receipt.teamId
+  ) {
+    throw new Error(
+      "Provider attempt receipt teamId does not match validated tenant",
+    );
+  }
   const validateOwnership = deps.validateOwnership ?? (async (context: ProviderAttemptContext) => {
     await validateProviderUsageOwnership({
       teamId: context.teamId,
@@ -1547,20 +1793,26 @@ export async function reconcileProviderAttempt(
     attempt: receipt.attempt,
     attemptKey: receipt.sourceEventId,
   });
+  const { capture, capturedAt } = responseCaptureFromReceipt(receipt);
+
+  // An accounted spool is a no-ledger-replay fast path.  Its identity was
+  // checked against the primary row above and ownership was checked before
+  // this branch.  Finalization still heals a stale/missing primary row and
+  // rewrites the spool with the complete canonical evidence.
   if (receipt.status === "accounted") {
-    return { receipt, ledger: null };
+    return {
+      receipt: await finalizeReceiptAccounted(
+        receipt,
+        store,
+        spool,
+        capture,
+        capturedAt,
+      ),
+      ledger: null,
+    };
   }
-  if (!receipt.responseUsage || receipt.responseUsage.known !== true) {
-    throw new ProviderAttemptUsageUnavailableError(
-      "reconciliation requires known provider-returned usage; no zero event was fabricated",
-    );
-  }
-  const usage = receipt.responseUsage;
-  if (usage.unitCount == null) {
-    throw new ProviderAttemptUsageUnavailableError(
-      "reconciliation requires a provider-reported aggregate usage count",
-    );
-  }
+
+  const usage = capture.usage;
   const recordUsage = deps.recordUsage ?? (recordProviderUsage as (input: ProviderUsageInput) => Promise<unknown>);
   const ledger = await recordUsage({
     sourceEventId: receipt.sourceEventId,
@@ -1577,24 +1829,27 @@ export async function reconcileProviderAttempt(
     unitType: usage.unitType,
     inputUnits: usage.inputUnits ?? null,
     outputUnits: usage.outputUnits ?? null,
-    unitCount: usage.unitCount,
+    unitCount: usage.unitCount as number,
     // The immutable ledger resolves its locked rate card; this value is never
     // used as an estimate of unknown usage.
     costMicrousd: 0,
-    occurredAt: receipt.usageCapturedAt ?? receipt.submittedAt ?? receipt.preparedAt,
-    providerRequestId: receipt.providerRequestId ?? null,
-    providerMetadata: receipt.responseMetadata
-      ? { ...receipt.responseMetadata }
+    occurredAt: capturedAt,
+    providerRequestId: capture.providerRequestId ?? null,
+    providerMetadata: capture.metadata
+      ? { ...capture.metadata }
       : null,
     attempt: receipt.attempt,
   });
-  const updated = { ...receipt, status: "accounted" as const, accountedAt: new Date() };
-  try {
-    await store.markStatus(receipt.sourceEventId, "accounted");
-  } catch {
-    await spool.write(toSpoolRecord(updated));
-  }
-  return { receipt: updated, ledger };
+  return {
+    receipt: await finalizeReceiptAccounted(
+      receipt,
+      store,
+      spool,
+      capture,
+      capturedAt,
+    ),
+    ledger,
+  };
 }
 
 /**
@@ -1703,6 +1958,29 @@ export class MemoryProviderAttemptReceiptStore implements ProviderAttemptReceipt
     row.responseMetadata = capture.metadata ?? null;
     row.status = "usage_captured";
     row.usageCapturedAt = capturedAt;
+  }
+
+  async finalizeAccounted(
+    sourceEventId: string,
+    capture: ProviderResponseCapture,
+    capturedAt: Date,
+    accountedAt: Date,
+  ): Promise<ProviderAttemptReceiptRecord> {
+    if (this.failStatus) throw new Error("receipt status outage");
+    const row = this.rows.get(sourceEventId);
+    if (!row) throw new Error("receipt missing");
+    // Keep this as one synchronous mutation to model the database store's
+    // single UPDATE contract.  No intermediate accounted-without-evidence
+    // state is observable by another in-memory caller.
+    row.providerRequestId = capture.providerRequestId ?? null;
+    row.responseUsage = capture.usage;
+    row.responseMetadata = capture.metadata ?? null;
+    row.usageCapturedAt = capturedAt;
+    row.status = "accounted";
+    row.accountedAt = accountedAt;
+    row.failureCode = null;
+    row.failureMessage = null;
+    return row;
   }
 
   async markStatus(sourceEventId: string, status: ProviderAttemptStatus, failure?: { code?: string; message?: string }): Promise<void> {

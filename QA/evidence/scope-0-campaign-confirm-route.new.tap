@@ -1,0 +1,39 @@
+TAP version 13
+# (node:12954) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:12954) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: confirm-brand route threads team/public id, confirms before detail, and flattens frozen response
+ok 1 - confirm-brand route threads team/public id, confirms before detail, and flattens frozen response
+  ---
+  duration_ms: 24.405493
+  ...
+# Subtest: confirm-brand route returns 409 and does not load detail when research is incomplete
+ok 2 - confirm-brand route returns 409 and does not load detail when research is incomplete
+  ---
+  duration_ms: 2.689254
+  ...
+# Subtest: confirm-brand route returns 404 for an absent campaign and never confirms
+ok 3 - confirm-brand route returns 404 for an absent campaign and never confirms
+  ---
+  duration_ms: 2.50539
+  ...
+# Subtest: confirm-brand route returns auth denial without campaign service calls
+ok 4 - confirm-brand route returns auth denial without campaign service calls
+  ---
+  duration_ms: 2.255982
+  ...
+# Subtest: confirm-brand route rejects an invalid public UUID before campaign lookup
+ok 5 - confirm-brand route rejects an invalid public UUID before campaign lookup
+  ---
+  duration_ms: 3.024699
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 608.792357

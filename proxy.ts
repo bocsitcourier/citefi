@@ -32,6 +32,28 @@ const PUBLIC_CAPABILITY_PATHS = [
   "/api/admin/users/review",
 ];
 
+function addConfiguredOrigin(origins: Set<string>, value?: string | null): void {
+  if (!value) return;
+  try {
+    const normalized = value.trim();
+    const origin = new URL(normalized.includes("://") ? normalized : `https://${normalized}`);
+    if (origin.protocol === "http:" || origin.protocol === "https:") {
+      origins.add(origin.origin);
+    }
+  } catch {}
+}
+
+function configuredOrigins(): Set<string> {
+  const origins = new Set<string>();
+  addConfiguredOrigin(origins, process.env.APP_URL);
+  addConfiguredOrigin(origins, process.env.NEXT_PUBLIC_APP_URL);
+  addConfiguredOrigin(origins, process.env.REPLIT_DEV_DOMAIN);
+  for (const domain of process.env.REPLIT_DOMAINS?.split(",") || []) {
+    addConfiguredOrigin(origins, domain);
+  }
+  return origins;
+}
+
 // ── Edge-compatible HS256 JWT verification ──────────────────────────────────
 // Cannot use `jsonwebtoken` (Node.js-only) here. Web Crypto API is supported
 // on the Edge runtime and performs the same HMAC-SHA256 signature check.
@@ -126,13 +148,10 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/") && UNSAFE_METHODS.has(request.method) &&
       cookieAuth && !bearer?.match(/^Bearer\s+\S+/i) && !isCapability) {
     const origin = request.headers.get("origin");
-    const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-    const expectedOrigins = new Set([request.nextUrl.origin]);
-    if (host) expectedOrigins.add(`${request.headers.get("x-forwarded-proto") || request.nextUrl.protocol.replace(":", "")}://${host}`);
-    for (const configured of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL, process.env.REPLIT_DEV_DOMAIN]) {
-      if (!configured) continue;
-      try { expectedOrigins.add(new URL(configured.includes("://") ? configured : `https://${configured}`).origin); } catch {}
-    }
+    // Trust only the request URL authority and explicit application/preview
+    // configuration. Host and forwarded authority headers are not allowlist
+    // inputs because they may be attacker-controlled at the edge.
+    const expectedOrigins = new Set([request.nextUrl.origin, ...configuredOrigins()]);
     const csrf = request.cookies.get(CSRF_COOKIE_NAME)?.value;
     const submitted = request.headers.get("x-csrf-token");
     let valid = !!origin && expectedOrigins.has(origin) && !!csrf && csrf === submitted;

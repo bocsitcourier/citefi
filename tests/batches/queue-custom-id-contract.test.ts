@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Queue } from "bullmq";
-import Redis from "ioredis";
-import { ISOLATED_TEST_REDIS_PORT } from "../helpers/isolated-redis";
+import { startIsolatedRedis } from "../helpers/isolated-redis";
 
 import {
   InvalidQueueCustomIdError,
@@ -48,14 +47,8 @@ void test("canonical queue ids and enqueue validation reject unsafe custom ids",
 });
 
 void test("real isolated Redis queue preserves canonical ids, bulk ids, dedupe, and billing data", async () => {
-  const connection = new Redis({
-    host: "127.0.0.1",
-    port: ISOLATED_TEST_REDIS_PORT,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-    connectTimeout: 2_000,
-    retryStrategy: () => null,
-  });
+  const isolated = await startIsolatedRedis();
+  const connection = isolated.connection;
   const queue = new Queue(`queue-custom-id-contract-${Date.now()}-${process.pid}`, {
     connection,
   });
@@ -148,6 +141,6 @@ void test("real isolated Redis queue preserves canonical ids, bulk ids, dedupe, 
       await queue.getJob(id).then((job) => job?.remove());
     }
     await queue.close();
-    await connection.quit();
+    await isolated.stop();
   }
 });

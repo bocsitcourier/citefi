@@ -1,0 +1,26 @@
+TAP version 13
+# (node:13054) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 10 conns, semaphore 15)
+# Subtest: campaign brand confirmation helpers normalize matching URLs and statuses
+ok 1 - campaign brand confirmation helpers normalize matching URLs and statuses
+  ---
+  duration_ms: 439.942205
+  ...
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: standalone Brand Intelligence validation keeps source claims and manual overrides grounded
+ok 2 - standalone Brand Intelligence validation keeps source claims and manual overrides grounded
+  ---
+  duration_ms: 940.187875
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1838.125539

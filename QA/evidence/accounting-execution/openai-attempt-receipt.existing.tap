@@ -1,0 +1,66 @@
+COMMAND: NODE_ENV=test node --import ./QA/support/offline-guard.mjs --import tsx/esm --test tests/openai-attempt-receipt.test.ts
+SCOPE: existing offline candidate; no env-file, no application DB/Redis
+START_UTC: 2026-09-16T18:43:10Z
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI queue redelivery reuses one physical call without a request key
+ok 1 - OpenAI queue redelivery reuses one physical call without a request key
+  ---
+  duration_ms: 61.307499
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI intentional invocation keys permit the same request twice
+ok 2 - OpenAI intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 99.53774
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: OpenAI response usage and provider id are captured before immutable accounting
+ok 3 - OpenAI response usage and provider id are captured before immutable accounting
+  ---
+  duration_ms: 49.515658
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: missing OpenAI usage is explicit unknown and is never retried or ledgered
+ok 4 - missing OpenAI usage is explicit unknown and is never retried or ledgered
+  ---
+  duration_ms: 50.296303
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: TTS character usage is retained as an exact request billing unit
+ok 5 - TTS character usage is retained as an exact request billing unit
+  ---
+  duration_ms: 50.004125
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=article_review.
+# Subtest: receipt-ledger failure is terminal and never resubmits a paid OpenAI call
+ok 6 - receipt-ledger failure is terminal and never resubmits a paid OpenAI call
+  ---
+  duration_ms: 49.843727
+  ...
+# ⚠️ [SEAM3] OpenAI call in web process (WORKER_PROCESS not set); operation=podcast_tts.
+# Subtest: SDK payload model and output limit are checked before physical fetch
+ok 7 - SDK payload model and output limit are checked before physical fetch
+  ---
+  duration_ms: 57.480352
+  ...
+# Subtest: TTS SDK input length is checked against exact character bound
+ok 8 - TTS SDK input length is checked against exact character bound
+  ---
+  duration_ms: 43.581102
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1425.372146
+EXIT_CODE: 0

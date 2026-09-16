@@ -1,0 +1,33 @@
+TAP version 13
+# Subtest: client CSRF fetch contract
+    # Subtest: does not allow raw local unsafe fetch calls in browser sources
+    ok 1 - does not allow raw local unsafe fetch calls in browser sources
+      ---
+      duration_ms: 50.109144
+      ...
+    # Subtest: shared browser wrapper supplies signed double-submit proof
+    ok 2 - shared browser wrapper supplies signed double-submit proof
+      ---
+      duration_ms: 0.563885
+      ...
+    # Subtest: multipart bodies retain the browser-selected boundary
+    ok 3 - multipart bodies retain the browser-selected boundary
+      ---
+      duration_ms: 261.983924
+      ...
+    1..3
+ok 1 - client CSRF fetch contract
+  ---
+  duration_ms: 313.939707
+  type: 'suite'
+  ...
+1..1
+# tests 3
+# suites 1
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 633.144202
+EXIT_CODE=0

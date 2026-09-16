@@ -1,0 +1,73 @@
+TAP version 13
+# Subtest: cookie authentication CSRF
+    # Subtest: rejects a cross-origin cookie mutation
+    ok 1 - rejects a cross-origin cookie mutation
+      ---
+      duration_ms: 3.636693
+      ...
+    # Subtest: does not trust an attacker-controlled forwarded host for origin allowlisting
+    ok 2 - does not trust an attacker-controlled forwarded host for origin allowlisting
+      ---
+      duration_ms: 0.53811
+      ...
+    # Subtest: accepts same-origin signed double-submit proof
+    ok 3 - accepts same-origin signed double-submit proof
+      ---
+      duration_ms: 0.691348
+      ...
+    # Subtest: a bearer-shaped header cannot bypass cookie CSRF proof
+    ok 4 - a bearer-shaped header cannot bypass cookie CSRF proof
+      ---
+      duration_ms: 0.36196
+      ...
+    # Subtest: rejects unsigned or mismatched tokens
+    ok 5 - rejects unsigned or mismatched tokens
+      ---
+      duration_ms: 0.456073
+      ...
+    # Subtest: accepts a configured Replit preview origin without trusting forwarded authority
+    ok 6 - accepts a configured Replit preview origin without trusting forwarded authority
+      ---
+      duration_ms: 1.05136
+      ...
+    # Subtest: proxy rejects a spoofed origin paired with a forwarded host
+    ok 7 - proxy rejects a spoofed origin paired with a forwarded host
+      ---
+      duration_ms: 4.351082
+      ...
+    # Subtest: proxy accepts a configured Replit preview origin
+    ok 8 - proxy accepts a configured Replit preview origin
+      ---
+      duration_ms: 11.762407
+      ...
+    # Subtest: proxy leaves bearer-authenticated API mutations to the route authorization layer
+    ok 9 - proxy leaves bearer-authenticated API mutations to the route authorization layer
+      ---
+      duration_ms: 1.038638
+      ...
+    # Subtest: proxy preserves the explicit reset capability path without cookie CSRF
+    ok 10 - proxy preserves the explicit reset capability path without cookie CSRF
+      ---
+      duration_ms: 1.191788
+      ...
+    1..10
+ok 1 - cookie authentication CSRF
+  ---
+  duration_ms: 27.031176
+  type: 'suite'
+  ...
+# Subtest: password reset links enforce the shared password policy
+ok 2 - password reset links enforce the shared password policy
+  ---
+  duration_ms: 1.192944
+  ...
+1..2
+# tests 11
+# suites 1
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 582.12414
+EXIT_CODE=0
