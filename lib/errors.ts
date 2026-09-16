@@ -31,6 +31,7 @@ export type ErrorCode =
   | "PROVIDER_SUBMISSION_UNCERTAIN" // request may have reached a paid provider
   | "PROVIDER_RESULT_NOT_DURABLE" // paid result exists but downstream persistence failed
   | "MODEL_OUTPUT_INVALID"    // provider output violates the requested response contract
+  | "QUALITY_GATE_FAILED"     // final deterministic/reviewer/policy gate rejected output
   // Retryable — transient
   | "RATE_LIMITED"           // 429 — honor Retry-After
   | "PROVIDER_ERROR"         // 5xx from provider
@@ -57,6 +58,7 @@ export const FATAL_CODES = new Set<ErrorCode>([
   "PROVIDER_SUBMISSION_UNCERTAIN",
   "PROVIDER_RESULT_NOT_DURABLE",
   "MODEL_OUTPUT_INVALID",
+  "QUALITY_GATE_FAILED",
 ]);
 
 export class PipelineError extends Error {
@@ -121,7 +123,8 @@ export function classifyError(
     explicitCode === "PROVIDER_ACCOUNTING_FAILED" ||
     explicitCode === "PROVIDER_SUBMISSION_UNCERTAIN" ||
     explicitCode === "PROVIDER_RESULT_NOT_DURABLE" ||
-    explicitCode === "MODEL_OUTPUT_INVALID"
+    explicitCode === "MODEL_OUTPUT_INVALID" ||
+    explicitCode === "QUALITY_GATE_FAILED"
   ) {
     return new PipelineError(msg, explicitCode, "fatal", stage, prov, err);
   }

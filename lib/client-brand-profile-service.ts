@@ -166,6 +166,84 @@ export interface ClientBrandProfileJson {
   generatedAt: string;
 }
 
+export interface ApplicableBrandPolicy {
+  /**
+   * False is a deliberate legacy compatibility case: non-campaign content has
+   * no completed policy profile. It is not a failed campaign-policy lookup.
+   */
+  applicable: boolean;
+  source: "campaign_snapshot" | "team_profile" | "legacy";
+  policy?: BrandPolicyPack;
+}
+
+function hasUsableBrandPolicyPack(value: unknown): value is BrandPolicyPack {
+  if (!value || typeof value !== "object") return false;
+  const pack = value as Partial<BrandPolicyPack>;
+  const toneLexicon = pack.toneLexicon;
+  return Array.isArray(pack.approvedClaims) &&
+    Array.isArray(pack.prohibitedClaims) &&
+    Array.isArray(pack.prohibitedPhrases) &&
+    Array.isArray(pack.requiredDisclaimers) &&
+    Array.isArray(pack.localeConstraints) &&
+    Boolean(toneLexicon) &&
+    Array.isArray(toneLexicon?.approved) &&
+    Array.isArray(toneLexicon?.offBrand) &&
+    (
+      pack.approvedClaims.length > 0 ||
+      pack.prohibitedClaims.length > 0 ||
+      pack.prohibitedPhrases.length > 0 ||
+      pack.requiredDisclaimers.length > 0 ||
+      (toneLexicon?.approved.length ?? 0) > 0 ||
+      (toneLexicon?.offBrand.length ?? 0) > 0
+    );
+}
+
+/**
+ * Resolve the policy that must be executed at a delivery boundary. Campaign
+ * content is always bound to its immutable snapshot. Legacy non-campaign
+ * content remains supported until its team has a completed usable profile.
+ */
+export async function getApplicableBrandPolicy(
+  teamId: number,
+  campaignId: number | null = null,
+): Promise<ApplicableBrandPolicy> {
+  if (campaignId != null) {
+    const [campaign] = await db
+      .select({ snapshot: campaigns.brandProfileSnapshot })
+      .from(campaigns)
+      .where(and(eq(campaigns.id, campaignId), eq(campaigns.teamId, teamId)))
+      .limit(1);
+    if (!campaign?.snapshot) {
+      throw new Error(`BRAND_POLICY_MISSING: campaign ${campaignId} has no immutable brand snapshot`);
+    }
+    const profile = mergeProfileWithOverrides(
+      campaign.snapshot as ClientBrandProfileJson,
+      null,
+    );
+    if (!hasUsableBrandPolicyPack(profile?.brandPolicyPack)) {
+      throw new Error(`BRAND_POLICY_MISSING: campaign ${campaignId} snapshot has no usable brand policy`);
+    }
+    return { applicable: true, source: "campaign_snapshot", policy: profile.brandPolicyPack };
+  }
+
+  const [row] = await db
+    .select()
+    .from(clientBrandProfiles)
+    .where(eq(clientBrandProfiles.teamId, teamId))
+    .limit(1);
+  if (!row || row.status !== "complete" || !row.profileJson) {
+    return { applicable: false, source: "legacy" };
+  }
+  const profile = mergeProfileWithOverrides(
+    row.profileJson as ClientBrandProfileJson,
+    row.manualOverridesJson as Partial<ClientBrandProfileJson> | null,
+  );
+  if (!hasUsableBrandPolicyPack(profile?.brandPolicyPack)) {
+    return { applicable: false, source: "legacy" };
+  }
+  return { applicable: true, source: "team_profile", policy: profile.brandPolicyPack };
+}
+
 // ============================================================================
 // HTML UTILITIES
 // Strips noise tags (noscript, template, svg, base64 URIs) before sending to

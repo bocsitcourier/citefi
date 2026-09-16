@@ -5,11 +5,10 @@ import { eq, and } from "drizzle-orm";
 import { PassThrough } from "stream";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { createZipArchive } from "@/lib/zip-archive";
+import { assertValidArticleOutput } from "@/lib/article-output-safety";
 
 const EXPORTABLE_ARTICLE_STATUSES = new Set([
   "COMPLETE",
-  "GPT4_ENHANCED",
-  "CHATGPT_REVIEWED",
 ]);
 
 export async function GET(
@@ -62,7 +61,7 @@ export async function GET(
 
     const notReady = batchArticles.filter(
       (article) =>
-        article.finalHtmlContent &&
+        !article.finalHtmlContent ||
         !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
     );
     if (notReady.length > 0) {
@@ -73,6 +72,16 @@ export async function GET(
         },
         { status: 409 },
       );
+    }
+    for (const article of batchArticles) {
+      try {
+        assertValidArticleOutput(article.finalHtmlContent, { format: "html" });
+      } catch {
+        return NextResponse.json(
+          { error: `Article ${article.id} is not exportable: invalid article output` },
+          { status: 409 },
+        );
+      }
     }
     const archive = createZipArchive({ zlib: { level: 9 } });
     const passThrough = new PassThrough();

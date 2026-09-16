@@ -11,8 +11,6 @@ import { createZipArchive } from "@/lib/zip-archive";
 
 const EXPORTABLE_ARTICLE_STATUSES = new Set([
   "COMPLETE",
-  "GPT4_ENHANCED",
-  "CHATGPT_REVIEWED",
 ]);
 
 const UUID_RE =
@@ -62,7 +60,7 @@ export async function GET(
 
     const notReady = campaignArticles.filter(
       (article) =>
-        article.finalHtmlContent &&
+        !article.finalHtmlContent ||
         !EXPORTABLE_ARTICLE_STATUSES.has(article.articleStatus),
     );
     if (notReady.length > 0) {

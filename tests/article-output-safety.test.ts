@@ -79,6 +79,32 @@ test("enforces an explicit word-count ceiling without padding", () => {
   assert.match(result.reasons.join("; "), /too long.*maximum 20/i);
 });
 
+test("rejects the retained 844-word quality fixture at its requested 500-800 range", () => {
+  // The retained live-run evidence records 844 words against a 500-800
+  // request. Keep this exact count deterministic without reusing customer text.
+  const retained844WordFixture = Array.from(
+    // The visible H2 contributes three words, bringing the rendered total to 844.
+    { length: 841 },
+    (_, index) => `auditword${index + 1}`,
+  ).join(" ") + ".";
+  const result = validateArticleOutput(
+    `<article><h2>Energy audit checklist</h2><p>${retained844WordFixture}</p></article>`,
+    { format: "html", minWords: 500, maxWords: 800 },
+  );
+  assert.equal(result.wordCount, 844);
+  assert.equal(result.valid, false);
+  assert.match(result.reasons.join("; "), /844 words; maximum 800/i);
+});
+
+test("rejects malformed and unsafe article link destinations", () => {
+  const result = validateArticleOutput(
+    `<article><h2>Checklist</h2><p>Read <a href="javascript:alert(1)">this guide</a>.</p></article>`,
+    { format: "html", minWords: 1 },
+  );
+  assert.equal(result.valid, false);
+  assert.match(result.reasons.join("; "), /invalid URL link/i);
+});
+
 test("repairs model-inserted whitespace in canonical target URLs", () => {
   const repaired = normalizeArticleTargetUrls(
     "[Energy checklist](https://www. Energy. Gov/energysaver)",

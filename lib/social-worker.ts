@@ -37,13 +37,17 @@ import { isProviderAccountingError } from "./cost-telemetry";
 import { objectStorageClient } from "./storage";
 import { normalizeSocialImage } from "./social-image-normalizer";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
+import {
+  assertSocialFinalizationQuality,
+} from "./generation-finalization-gate";
 
 function isNonRetryableSocialOutputError(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "MODEL_OUTPUT_INVALID"
+    ((error as { code?: unknown }).code === "MODEL_OUTPUT_INVALID" ||
+      (error as { code?: unknown }).code === "QUALITY_GATE_FAILED")
   );
 }
 
@@ -604,6 +608,20 @@ export async function processSocialPostGeneration(job: Job<SocialPostJobData>) {
         }
         gptResult.caption = finalCaption.caption;
         gptResult.hashtags = finalCaption.hashtags;
+
+        const finalSocialOutput = await assertSocialFinalizationQuality({
+          teamId,
+          campaignId: postDetails?.campaignId ?? null,
+          socialPostId,
+          platform,
+          caption: gptResult.caption,
+          hashtags: gptResult.hashtags,
+          hyperlinks: gptResult.hyperlinks || [],
+          sourceText: prompt,
+          keyword: topic || undefined,
+        });
+        gptResult.caption = finalSocialOutput.caption;
+        gptResult.hashtags = finalSocialOutput.hashtags;
 
         console.log(`✅ GPT-4 enhanced ${platform} post with ${gptResult.hashtags.length} hashtags`);
 

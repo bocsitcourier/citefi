@@ -256,8 +256,8 @@ export async function runGenerationOrchestrator(
       `mode=${mode} requireJudge=${requireJudge} patterns=${input.patternsUsed.length}`
   );
 
-  // Fetch brand policy context. Article policy is required; other content types
-  // may still use the historical optional-context behavior.
+  // Fetch brand policy context. Campaign work requires its immutable policy;
+  // legacy non-campaign work may legitimately have no profile.
   let brandContext: string | undefined;
   let brandContextFetchFailed = false;
   try {
@@ -275,6 +275,7 @@ export async function runGenerationOrchestrator(
   );
   if (
     normalizedType === ContentType.ARTICLE &&
+    input.campaignId != null &&
     (!brandContext || brandContextFetchFailed)
   ) {
     throw new Error(

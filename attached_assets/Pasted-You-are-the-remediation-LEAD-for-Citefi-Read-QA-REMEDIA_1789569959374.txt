@@ -1,0 +1,66 @@
+You are the remediation LEAD for Citefi. Read /QA_REMEDIATION_STATE.md before anything.
+If it does not exist, create it listing all root causes (RC-1..RC-7) and all 27 addressable
+features with status OPEN.
+
+CURRENT STATE (carry forward, do not re-do):
+- 7 passing features are regression-locked: 39/39 tests pass. Do not break these. Re-run them
+  after every wave and stop immediately if any fail.
+- RC-1 queue-ID fix: 5/5 isolated tests pass, but status is FIXED_UNVERIFIED, NOT done.
+  Isolated tests do not prove the feature works. It closes only when Daily Brief and Idea
+  Video run end to end.
+
+EXECUTE IN THIS EXACT ORDER. Do not skip ahead. Do not parallelize across waves.
+
+WAVE 0 — FREE WORK ONLY (no paid provider calls):
+1. Answer and record in the state file: does the job queue now use Redis, or is Redis only a
+   test harness? The documented architecture is pg-boss on Postgres with no Redis. If a real
+   Redis dependency was introduced, flag it as BLOCKED_HUMAN — it is an infrastructure change,
+   not a bug fix.
+2. Provider-cost reconciliation (RC-7). Close the two unreconciled ledger events (the original
+   article call and the first audio-verification call). Ensure EVERY provider call path writes
+   a complete provider_usage_events row: provider, model, operation, units, cost, status.
+   Failed jobs must still log incurred cost even when the credit reservation is released.
+   Add a test asserting no provider call can complete without a ledger row.
+3. STOP. Report reconciliation results and request the verification spend cap before any paid call.
+
+WAVE 1 — CHEAPEST VERIFICATION FIRST (requires approved cap):
+4. Run Daily Brief end to end, live. It is text-only and near-free, and it PROVES OR DISPROVES
+   the RC-1 queue fix. If the brief generates, RC-1 is validated for video too.
+5. Only if Daily Brief passes: run Idea Video end to end. Confirm a real Veo submission and a
+   playable MP4 with byte size and ffprobe-measured duration. If Daily Brief fails, do NOT
+   attempt video — diagnose the queue contract first.
+
+WAVE 2 — ROOT-CAUSE CLUSTERS (fix by cause, not by feature):
+6. RC-3 blocking quality gates: word count, prompt/debug residue scan, URL validity, claim
+   verifiability, brand-policy check. These must block persistence, not warn. One automatic
+   regeneration on failure, then hard-fail with reason. Never persist a failing artifact.
+7. RC-2 platform specs: one source of truth for character limits and aspect ratios. Validate
+   BEFORE persistence. Auto-trim text once, re-render images once, then fail. Implement
+   article-hero image reuse.
+8. RC-4 measured media metadata: enforce target duration on the script before TTS, measure true
+   duration with ffprobe after render, store the measured value, and delete any code that
+   estimates duration for display.
+9. RC-5 export integrity and concurrency: hash exactly the bytes written in deterministic order;
+   reproduce the concurrent-report failure and fix the schema/constraint.
+
+WAVE 3 — COVERAGE:
+10. Rerun the 3 blocked features end to end (their defects were fixed but never verified).
+11. Run the 12 never-run features. Expect new failures; they have never executed.
+12. Do NOT attempt the 6 unsupported features. They are missing product scope, not bugs.
+    Any attempt to "fix" them is hallucination.
+
+RULES THAT OVERRIDE EVERYTHING:
+- A feature reaches VERIFIED_PASS only with: a real provider run, a persisted artifact with
+  size/duration/dimensions, persistence across refresh and re-login, spec compliance numbers,
+  a provider_usage_events row with model and cost, and a committed regression test.
+- "TypeScript compiles" and "isolated tests pass" are NOT a pass. The previous audit proved
+  repairs can pass type checks while real generation still fails.
+- The agent that fixes something never grades it. Verification runs as a separate pass.
+- Never delete, skip, weaken, or disable a test to achieve a pass. Never lower a threshold to
+  make output conform — if a threshold seems wrong, record it as a human decision.
+- If blocked by a missing credential, an unclear requirement, or the spend cap, write a
+  BLOCKED_HUMAN entry with the precise question and STOP. Do not invent a workaround, do not
+  stub the feature, do not proceed on unverified results.
+- After each step: update /QA_REMEDIATION_STATE.md, append to the handoff log, and paste the
+  actual command output that proves your claim.
+- Report honestly. If you are uncertain whether something passed, it did not pass.

@@ -95,6 +95,10 @@ import {
   normalizeArticleTargetUrls,
   validateArticleOutput,
 } from "./article-output-safety";
+import {
+  assertArticleFinalizationQuality,
+  FinalizationQualityGateError,
+} from "./generation-finalization-gate";
 
 export { getArticleGenerationBilling } from "./pipeline-billing";
 
@@ -362,7 +366,7 @@ export const processArticleGenerationJob = async (
             // If so, there is nothing to do — return early to avoid double-generation.
             const [runArticle] = await db.select({ articleStatus: articles.articleStatus })
               .from(articles).where(eq(articles.id, articleId)).limit(1);
-            const terminalStatuses = ['COMPLETE', 'GPT4_ENHANCED', 'CHATGPT_REVIEWED'];
+            const terminalStatuses = ['COMPLETE'];
             if (runArticle && terminalStatuses.includes(runArticle.articleStatus || '')) {
               console.log(`⏭️ SKIPPING: Article ${articleId} run ${runId.slice(0,8)} already completed and article is ${runArticle.articleStatus} — no regeneration needed`);
               await db
@@ -1237,7 +1241,24 @@ export const processArticleGenerationJob = async (
           
           // Use raw Gemini content directly for blazing fast generation
           const speedModeHtml = `<article>${geminiResult.rawContent.replace(/\n/g, '<br>')}</article>`;
-          assertValidArticleOutput(speedModeHtml, { format: "html" });
+          assertValidArticleOutput(speedModeHtml, {
+            format: "html",
+            minWords: wordCountMin || 800,
+            maxWords: wordCountMax || 2000,
+          });
+          await assertArticleFinalizationQuality({
+            teamId: currentArticle.teamId,
+            campaignId: currentArticle.campaignId ?? null,
+            articleId,
+            content: speedModeHtml,
+            targetWords: Math.round(((wordCountMin ?? 800) + (wordCountMax ?? 2000)) / 2),
+            keyword: geminiResult.keywords?.[0],
+            outputOptions: {
+              format: "html",
+              minWords: wordCountMin || 800,
+              maxWords: wordCountMax || 2000,
+            },
+          });
           const committed = await commitArticleRunStage({
             articleId,
             runId,
@@ -1315,7 +1336,11 @@ export const processArticleGenerationJob = async (
             gptResult.finalHtml,
             targetUrl,
           );
-          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
+          assertValidArticleOutput(finalHtmlWithLinks, {
+            format: "html",
+            minWords: wordCountMin || 800,
+            maxWords: wordCountMax || 2000,
+          });
 
           if (resumeGpt4Checkpoint) {
             console.log(`♻️ Reusing checkpointed hyperlink output for article ${articleId}`);
@@ -1557,11 +1582,18 @@ export const processArticleGenerationJob = async (
                 console.log(`🔧 Surgical fix applied for article ${articleId}: ${fix.appliedFixes.join(", ")}`);
               }
             } else {
-              // Final attempt failed — still save but log Guardian score
-              console.warn(`⚠️ Article ${articleId} did not fully pass Guardian after ${GUARDIAN_MAX_ATTEMPTS} attempts (score: ${audit.score}). Saving best effort.`);
+              // The GPT-4 checkpoint remains available for review, but a
+              // Guardian-rejected artifact must never cross COMPLETE.
+              console.warn(`🚫 Article ${articleId} failed Guardian after ${GUARDIAN_MAX_ATTEMPTS} attempts (score: ${audit.score}).`);
               if (allFailures.length > 0 && articleTeamId) {
                 learningService.recordGuardianFailures(articleTeamId, "article", allFailures).catch(() => {});
               }
+              throw new FinalizationQualityGateError(
+                allFailures.length > 0
+                  ? allFailures
+                  : ["Guardian quality reviewer did not approve output"],
+                "article",
+              );
             }
           }
           finalHtmlWithLinks = guardianHtml;
@@ -1569,7 +1601,11 @@ export const processArticleGenerationJob = async (
             finalHtmlWithLinks,
             targetUrl,
           );
-          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
+          assertValidArticleOutput(finalHtmlWithLinks, {
+            format: "html",
+            minWords: wordCountMin || 800,
+            maxWords: wordCountMax || 2000,
+          });
 
           // ================================================================
           // INFORMATION-GAIN EDITORIAL GATE — score BEFORE disclosure injection
@@ -1611,7 +1647,28 @@ export const processArticleGenerationJob = async (
             reviewModel: getModel("gptReview"),
             generatedAt: new Date(),
           });
-          assertValidArticleOutput(finalHtmlWithLinks, { format: "html" });
+          assertValidArticleOutput(finalHtmlWithLinks, {
+            format: "html",
+            minWords: wordCountMin || 800,
+            maxWords: wordCountMax || 2000,
+          });
+
+          // This is the last text boundary before COMPLETE. It composes the
+          // existing structural, evidence-backed claim reviewer, and immutable
+          // brand-policy reviewer. It never repairs or re-enters a provider.
+          await assertArticleFinalizationQuality({
+            teamId: currentArticle.teamId,
+            campaignId: currentArticle.campaignId ?? null,
+            articleId,
+            content: finalHtmlWithLinks,
+            targetWords: Math.round(((wordCountMin ?? 800) + (wordCountMax ?? 2000)) / 2),
+            keyword: geminiResult.keywords?.[0],
+            outputOptions: {
+              format: "html",
+              minWords: wordCountMin || 800,
+              maxWords: wordCountMax || 2000,
+            },
+          });
 
           // Mark article as COMPLETE and save normalized HTML
           await updateOwnedArticle(

@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated, getPromptEnhancement } from "@/lib/learning-integration";
+import { enforceSocialCaptionWithHashtags, isValidSocialUrl } from "@/lib/social-validation";
+import { assertSocialFinalizationQuality } from "@/lib/generation-finalization-gate";
 
 const CHAR_LIMITS = {
   x: 280,
@@ -145,6 +147,34 @@ export async function POST(
       console.warn(`[Social Regenerate] Orchestrator failed, continuing:`, (orchErr as Error).message);
     }
 
+    const compliance = enforceSocialCaptionWithHashtags(
+      finalCaption,
+      gptResult.hashtags || [],
+      platform,
+      prompt,
+    );
+    if (!compliance.valid) {
+      throw new Error(`QUALITY_GATE_FAILED: ${compliance.issues.join("; ")}`);
+    }
+    const invalidHyperlink = (gptResult.hyperlinks || []).some(
+      (hyperlink) => !isValidSocialUrl(hyperlink.url),
+    );
+    if (invalidHyperlink) throw new Error("QUALITY_GATE_FAILED: social output contains an invalid hyperlink destination");
+    finalCaption = compliance.caption;
+    gptResult.hashtags = compliance.hashtags;
+    const finalSocialOutput = await assertSocialFinalizationQuality({
+      teamId: post.teamId,
+      campaignId: post.campaignId ?? null,
+      socialPostId: post.id,
+      platform,
+      caption: finalCaption,
+      hashtags: gptResult.hashtags,
+      hyperlinks: gptResult.hyperlinks || [],
+      sourceText: prompt,
+      keyword: post.topic ?? undefined,
+    });
+    finalCaption = finalSocialOutput.caption;
+    gptResult.hashtags = finalSocialOutput.hashtags;
     const hashtagsString = gptResult.hashtags.map(h => h.tag).join(" ");
 
     await db

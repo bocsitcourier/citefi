@@ -94,11 +94,19 @@
   </section>
 
   <section class="callout hold">
+    <strong>Current gate: BLOCKED_HUMAN — Wave 0 step 1.</strong>
+    The architecture review found actual runtime Redis/BullMQ, introduced before RC-1; the pg-boss/Postgres
+    architecture description is stale. A human must either authorize/retain Redis/BullMQ with the corrected
+    architecture/deployment contract or separately scope a pg-boss/Postgres migration. No queue conversion or
+    rollback is authorized. Stop before Wave 0 step 2 reconciliation and all later waves.
+  </section>
+
+  <section class="callout hold">
     <strong>Boundary.</strong>
-    No paid/provider calls, no automatic retries, no code generation for later waves, and no later remediation scope
-    are approved. The shared cap remains $50; $0.517071 is a recorded snapshot across 99 events, with 2 unresolved
-    missing calls in addition to those recorded events. The $6 reserve remains unconfirmed. Retest requires current
-    cap reconciliation, not merely an increased cap.
+    Zero new paid/provider calls are recorded in this handoff. No automatic retries, no code generation for later
+    waves, and no later remediation scope are approved. The shared cap remains $50; $0.517071 is a recorded snapshot
+    across 99 events, with 2 unresolved missing calls in addition to those recorded events. The $6 reserve remains
+    unconfirmed. Retest requires current cap reconciliation, not merely an increased cap.
   </section>
 
   <h2>Runtime and ownership evidence</h2>
@@ -108,19 +116,21 @@
     <tr><td>Provider/billing</td><td>No paid test and no provider call. No new email, publishing, database write, dependency, or customer-data operation.</td></tr>
     <tr><td>Redis</td><td>Isolated Redis process <code>16379</code> stopped. RC-1 acceptance evidence is test-only; live Daily Brief/Idea Video remain unrerun.</td></tr>
     <tr><td>RC-1</td><td><code>FIXED_UNVERIFIED</code>; owner <code>remediation-queue-worker</code>. Source fix reviewed by architect129 and independentverifier138; 5/5 full Redis acceptance tests, 0 skips. Previous failures retained.</td></tr>
-    <tr><td>RC-7</td><td><code>IN_PROGRESS</code>; isolated task 179 owns receipt changes. Keep the 99 recorded events plus 2 unresolved missing calls; do not fabricate rows or call historical spend verified.</td></tr>
+    <tr><td>Queue architecture</td><td><code>BLOCKED_HUMAN</code>. Runtime is Redis/BullMQ; pg-boss/Postgres is a stale claim. Retain/authorize the existing architecture with corrected contract or separately scope migration. No conversion or rollback.</td></tr>
+    <tr><td>RC-3</td><td><code>IN_PROGRESS</code>; interrupted worker reported source/test changes and 12 passed tests, but independent review was cancelled/not approved. Source is not approved or verified.</td></tr>
+    <tr><td>RC-7</td><td><code>IN_PROGRESS</code>; task 179's <code>IMPLEMENTED</code> notification does not prove landed, merged, or reconciled changes. Keep the 99 recorded events plus 2 unresolved missing calls; do not fabricate rows or duplicate work.</td></tr>
     <tr><td>Later waves</td><td>No later remediation scope approved. No automatic retries or code generation for later waves.</td></tr>
   </table>
 
   <h2>Current remediation status counts</h2>
   <table>
     <tr><th>Population</th><th>OPEN</th><th>IN_PROGRESS</th><th>FIXED_UNVERIFIED</th><th>VERIFIED_PASS</th><th>BLOCKED_HUMAN</th><th>Total</th></tr>
-    <tr><td>Root causes RC1–RC7</td><td>5</td><td>1</td><td>1</td><td>0</td><td>0</td><td>7</td></tr>
+    <tr><td>Root causes RC1–RC7</td><td>4</td><td>2</td><td>1</td><td>0</td><td>0</td><td>7</td></tr>
     <tr><td>27 addressable features</td><td>27</td><td>0</td><td>0</td><td>0</td><td>0</td><td>27</td></tr>
     <tr><td>7 retained historical PASS baseline rows</td><td>0</td><td>0</td><td>7</td><td>0</td><td>0</td><td>7</td></tr>
-    <tr><th>Core status-bearing total</th><th>32</th><th>1</th><th>8</th><th>0</th><th>0</th><th>41</th></tr>
-    <tr><td>Separate decision gates</td><td>0</td><td>0</td><td>0</td><td>0</td><td>7</td><td>7</td></tr>
-    <tr><th>All status-bearing entries</th><th>32</th><th>1</th><th>8</th><th>0</th><th>7</th><th>48</th></tr>
+    <tr><th>Core status-bearing total</th><th>31</th><th>2</th><th>8</th><th>0</th><th>0</th><th>41</th></tr>
+    <tr><td>Separate decision gates</td><td>0</td><td>0</td><td>0</td><td>0</td><td>8</td><td>8</td></tr>
+    <tr><th>All status-bearing entries</th><th>31</th><th>2</th><th>8</th><th>0</th><th>8</th><th>49</th></tr>
   </table>
   <p><code>OUT_OF_SCOPE</code> appears only as a classification for six unsupported inventory rows, never as a remediation status. Historical grades remain separate from current statuses.</p>
 
@@ -135,7 +145,7 @@
         <tr><td>Unit guardrail approval</td><td><span class="approved">APPROVED</span> as a separate field; not a feature grade.</td></tr>
         <tr><td>Baseline current statuses</td><td>All seven baseline-work rows are <code>FIXED_UNVERIFIED</code>; actual historic <code>PASS</code> grades are retained separately.</td></tr>
         <tr><td>Feature VERIFIED_PASS</td><td><strong>None.</strong> No new live grade was created.</td></tr>
-        <tr><td>Next scope</td><td>RC-1 source-only was authorized and is now <code>FIXED_UNVERIFIED</code>; no later remediation scope is approved.</td></tr>
+        <tr><td>Next scope</td><td>RC-1 remains <code>FIXED_UNVERIFIED</code>; the current Wave 0 architecture gate is <code>BLOCKED_HUMAN</code>. Stop before reconciliation and all later waves; no later remediation scope is approved.</td></tr>
       </table>
     </div>
   </details>
@@ -697,6 +707,9 @@ T2.R8 | C | Verifier hands back code and cannot exceed reconciled cap.</textarea
       <ul>
         <li><strong>Historical evidence is immutable:</strong> prior Daily Brief and Idea Video failures, failed diagnostics, finalized exports, and queue identities remain retained. No old evidence was rewritten.</li>
         <li><strong>Ledger:</strong> say “99 recorded events plus 2 unresolved missing calls,” not “2 of 99.” The $6 reserve is unconfirmed; cap reconciliation is ongoing.</li>
+        <li><strong>Infrastructure gate:</strong> actual runtime Redis/BullMQ predates RC-1; pg-boss/Postgres is a stale claim. Human authorization of the corrected Redis/BullMQ contract or a separately scoped pg-boss migration is required before Wave 0 step 2. No conversion or rollback.</li>
+        <li><strong>RC-3 review:</strong> the interrupted worker reported source/test changes and 12 passed tests, but independent review was cancelled/not approved. RC-3 is <code>IN_PROGRESS</code>, not source-approved or verified.</li>
+        <li><strong>Task 179:</strong> the <code>IMPLEMENTED</code> notification does not prove landed, merged, or reconciled changes. Preserve ownership and do not duplicate work. This handoff records zero new paid calls.</li>
         <li><strong>Security:</strong> exact provider payload logging is rejected. Use hashes, IDs, schema errors, and redacted metadata only.</li>
         <li><strong>Source references:</strong> BullMQ official docs and GitHub are cited as plain-text references in the RC-1 evidence section. Keep the installed library; no dependency upgrade or package addition.</li>
         <li><strong>Status rule:</strong> remediation statuses are only OPEN, IN_PROGRESS, FIXED_UNVERIFIED, VERIFIED_PASS, and BLOCKED_HUMAN. OUT_OF_SCOPE is classification only. This review introduces no new VERIFIED_PASS.</li>

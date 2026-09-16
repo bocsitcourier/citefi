@@ -23,6 +23,50 @@ export interface ArticleOutputValidationOptions {
   maxWords?: number;
 }
 
+const ARTICLE_URL_RE = /(?:https?:\/\/|mailto:)[^\s<>"'`()\[\]]+/gi;
+const URL_TRAILING_PUNCTUATION_RE = /[.,!?;:]+$/;
+
+function cleanUrlCandidate(value: string): string {
+  return value.replace(URL_TRAILING_PUNCTUATION_RE, "");
+}
+
+/**
+ * Return malformed article destinations without treating ordinary prose as a
+ * link. This deliberately checks destinations, not factual assertions.
+ */
+export function findInvalidArticleUrls(content: string): string[] {
+  const candidates = [
+    ...(content.match(ARTICLE_URL_RE) ?? []),
+    ...[...content.matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+      .map((match) => match[1] ?? match[2] ?? match[3] ?? ""),
+    ...[...content.matchAll(/\[[^\]]+\]\(([^)\s]+)\)/g)]
+      .map((match) => match[1] ?? ""),
+  ];
+
+  return [...new Set(candidates.map(cleanUrlCandidate).filter((candidate) => {
+    if (!candidate) return true;
+    // Same-site relative and fragment links are valid HTML destinations. They
+    // are never accepted for a scheme-relative URL, which otherwise inherits
+    // an uncontrolled protocol/host.
+    if (/^(?:\/(?!\/)|\.{1,2}\/|#)/.test(candidate)) {
+      return /\s/.test(candidate);
+    }
+    try {
+      const parsed = new URL(candidate);
+      if (/\s/.test(candidate)) return true;
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return !parsed.hostname;
+      }
+      if (parsed.protocol === "mailto:") {
+        return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/i.test(parsed.pathname);
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  }))];
+}
+
 // These are deliberately specific.  A technical article may legitimately
 // mention prompts or JSON-LD, but it should not narrate a model's inspection
 // of its prompt, tags, or reasoning.
@@ -136,6 +180,10 @@ export function validateArticleOutput(
     reasons.push(`article body is too long (${wordCount} words; maximum ${options.maxWords})`);
   }
   if (containsDebugMarker(raw, text)) reasons.push("debug/reasoning text detected");
+  const invalidUrls = findInvalidArticleUrls(raw);
+  if (invalidUrls.length > 0) {
+    reasons.push(`article contains invalid URL link(s): ${invalidUrls.join(", ")}`);
+  }
   if (text && !/[.!?]["')\]]?\s*$/.test(text)) {
     reasons.push("article body does not end with terminal punctuation");
   }

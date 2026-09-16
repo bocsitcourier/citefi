@@ -51,7 +51,7 @@ export const DEFECT = {
 } as const;
 
 interface Defect { code: string; dim: Dimension; severity: string; evidence: string }
-interface ReviewResult {
+export interface ReviewResult {
   contentId: number;
   contentType: string;
   dimensionScores: Record<Dimension, number>;
@@ -106,7 +106,11 @@ export class ContentReviewService {
         defects.push(...j.defects);
       } catch (e) {
         if (isProviderAccountingError(e)) throw e;
-        console.warn("⚠️ Judge failed, using deterministic only:", e);
+        // A requested final judge is evidence, not advisory telemetry. Callers
+        // that need a deterministic-only review pass use useJudge:false.
+        throw new Error(
+          `CONTENT_REVIEW_JUDGE_FAILED: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     }
 
