@@ -1,0 +1,3 @@
+Replace this text with the task you want the architect to review.
+
+When finished, send "saved" in the chat. The agent will read this file and send your task to the architect before making implementation changes.
