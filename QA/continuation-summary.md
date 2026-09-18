@@ -2,6 +2,11 @@
 
 **Current certification decision: NOT CERTIFIED.**
 
+**Latest user decision:** Maximum testing spend **USD 30**; permission to
+resume paid QA with the two historical calls unreconciled **declined**.
+New paid QA remains paused. `QA/LIVE_TEST_AUTHORIZATION.md` supersedes the
+earlier no-numeric-limit statements below, without changing historical evidence.
+
 This continuation records only the current controlled QA evidence. It does not
 rewrite the source inventory, historical results, or retained red artifacts. The
 exact 40 source names and source order remain unchanged. All 34 supported rows

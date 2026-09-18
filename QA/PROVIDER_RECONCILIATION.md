@@ -1,5 +1,10 @@
 # Historical Provider Reconciliation
 
+**Latest authorization:** The user supplied a **USD 30** testing ceiling but
+declined new paid QA while the historical calls remain unreconciled. Paid QA
+therefore remains paused. See `QA/LIVE_TEST_AUTHORIZATION.md`; it supersedes
+earlier statements that no numeric limit had been supplied, not the evidence gaps.
+
 **Status: BLOCKED / UNRECONCILED (known Phase 2 limit).**  
 **Rule: unknown cost is neither reconciled nor zero.**
 

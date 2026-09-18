@@ -2,6 +2,11 @@
 
 **Overall status: NOT CERTIFIED.**
 
+**Latest authorization:** A **USD 30** testing ceiling has been supplied, but
+the user declined proceeding with the two historical calls unreconciled.
+The paid gate remains closed; see `QA/LIVE_TEST_AUTHORIZATION.md`. Earlier
+no-numeric-limit statements are historical, not the current authorization state.
+
 This is a Phase 1 documentation handoff. It is not a feature pass, a provider
 invoice, a receipt reconciliation, or a claim that a test has run. Every
 supported inventory row is currently **UNVERIFIED** or **BLOCKED**. The six
