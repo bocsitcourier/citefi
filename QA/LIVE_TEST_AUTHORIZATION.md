@@ -18,6 +18,12 @@ unreconciled.
 
 ## Evidence still required
 
+**User-confirmed availability:** The user reported that the requested historical
+records are unavailable and supplied no files. No new reconciliation evidence
+was received. Both attempts remain `UNKNOWN / UNRECONCILED`, and the paid gate
+remains closed under the user's existing decision. Do not repeat the request
+for the same unavailable records unless a new source becomes available.
+
 See `QA/PROVIDER_RECONCILIATION.md` for the field-by-field gaps.
 
 1. Original article-generation attempt: the retained snapshot reports

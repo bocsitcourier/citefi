@@ -5,6 +5,11 @@ declined new paid QA while the historical calls remain unreconciled. Paid QA
 therefore remains paused. See `QA/LIVE_TEST_AUTHORIZATION.md`; it supersedes
 earlier statements that no numeric limit had been supplied, not the evidence gaps.
 
+**Latest evidence availability:** The user confirmed that the requested
+historical records are unavailable; no files were supplied. Neither call can
+be reconciled from this response. Preserve both unknown outcomes and costs;
+new paid testing remains paused.
+
 **Status: BLOCKED / UNRECONCILED (known Phase 2 limit).**  
 **Rule: unknown cost is neither reconciled nor zero.**
 
