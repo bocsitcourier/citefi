@@ -1,0 +1,14 @@
+{
+  "decision": "PENDING",
+  "caseId": "live-article-minimal-thinking-2000",
+  "wordCountMin": 700,
+  "wordCountMax": 2000,
+  "configurationSha256": "7d61450578c4d95546cf2eafbd764575adab126699e34f71097070d510a653fe",
+  "baselineSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5",
+  "maximumEstimateUsd": 0.3662976,
+  "reservedUsd": 2,
+  "physicalCallsMaximum": 2,
+  "reviewEvidence": null,
+  "blocker": "The pre-spend architect review request was refused by this environment; no approval was issued. This pending record does not authorize a paid run.",
+  "newPaidCalls": 0
+}

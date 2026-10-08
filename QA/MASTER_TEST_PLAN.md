@@ -263,3 +263,26 @@ journey-scheduler failures plus development Redis refusal require remediation
 and explicit authorization before a worker-enabled runtime retest. A paid cap
 alone is not the only remaining gate, and full-scope completion remains
 pending.
+
+## Latest live QA continuation — E-043 through E-046
+
+The architect-assisted article QA phase proceeded under the existing $30 total
+ceiling; earlier no-new-paid-call statements are superseded for this phase.
+The two historical calls remain `UNKNOWN / UNRECONCILED`, and the overall
+certification gate remains **NOT CERTIFIED**.
+
+| Evidence | Current result | Plan interpretation |
+|---|---|---|
+| E-043 | Four genuine Gemini 3.5 Flash article calls returned HTTP 200 and were durably receipted/settled; all four end-to-end cases failed. | New live evidence, not a feature pass. Per-case token usage and failure observations are in `QA/evidence/live-current/live-qa-summary.md`. Retrieval endpoint 200 and other-tenant 404 in every case do not establish output quality or publication. No usable published `COMPLETE` artifact; final-judge physical calls 0. |
+| E-044 | Production FAQ-rendering regression is 3/3; latest Gemini thinking-token cost-accounting regression is 16/16 (`thinking-accounting-final.tap`), superseding the retained 12/12 TAP; whole-project typecheck passed. | Valid native prompt+total counts are authoritative (output = total − prompt); otherwise require a complete valid split and fail closed to `UNKNOWN` for inconsistent/missing pricing splits. Image units are independent. The four live article failures remain failures. Original exports unchanged; no historical/app-DB rebilling. |
+| E-045 | Initial image preflight's `2,520` vs official `2520` formatting-only mismatch was fixed by normalizing section whitespace and optional commas; bounded preflight now passes at $0.1592 maximum estimate and $0.16 reserve. | Preflight only: no paid image call or image E2E pass. Filesystem storage and targeted Gemini 3.1 model differ from cloud storage and the application Gemini 2.5 default. No live audio/video calls. |
+| E-046 | `application-login.jpg` passed static screenshot review. | Static appearance only; anonymous API 401 is expected. Not authenticated-login or generation certification. |
+
+The latest settled budget ledger records $0.474870 new conservative usage
+estimate (not an invoice), $0.517071 known prior valuation, a separate $6
+historical coverage HOLD (not spend), and $23.008059 availability under the $30
+ceiling. Use `budget-ledger.json` for current totals; per-case outcome totals
+are pre-settlement snapshots. Paid QA stopped after four failures as agreed
+with the architect, not due to payment failure. Do not schedule another paid
+attempt without new bounded preflight/authorization and prior analysis of
+thinking-token/output limits and the requested word range.

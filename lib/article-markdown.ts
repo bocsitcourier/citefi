@@ -421,5 +421,41 @@ export function renderArticleMarkdown(markdown: string): string {
   return `<article>${renderMarkdownBlocks(markdown)}</article>`;
 }
 
+/**
+ * Include provider-supplied FAQ metadata in the visible article when the
+ * article body does not already have an FAQ section. Answers remain Markdown
+ * and are passed through the normal safe renderer; no HTML is interpolated.
+ */
+export function appendFaqToArticleMarkdown(
+  markdown: string,
+  faq: Array<{ question: string; answer: string }> | null | undefined,
+): string {
+  if (
+    /^\s{0,3}#{1,6}\s+.*\b(?:faqs?|frequently asked questions)\b/im.test(markdown) ||
+    !Array.isArray(faq)
+  ) {
+    return markdown;
+  }
+
+  const validFaq = faq
+    .filter((item) =>
+      typeof item?.question === "string" &&
+      item.question.trim().length > 0 &&
+      typeof item?.answer === "string" &&
+      item.answer.trim().length > 0
+    )
+    .map(({ question, answer }) => ({
+      question: question.replace(/\s+/g, " ").trim(),
+      answer: answer.trim(),
+    }));
+
+  if (validFaq.length === 0) return markdown;
+
+  const entries = validFaq
+    .map(({ question, answer }) => `### ${question}\n\n${answer}`)
+    .join("\n\n");
+  return `${markdown.trimEnd()}\n\n## Frequently Asked Questions\n\n${entries}`;
+}
+
 /** Backwards-friendly descriptive alias for callers outside the worker. */
 export const markdownToSafeHtml = renderArticleMarkdown;

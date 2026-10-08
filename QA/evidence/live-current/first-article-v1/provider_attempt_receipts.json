@@ -1,0 +1,71 @@
+[
+  {
+    "id": "1",
+    "source_event_id": "provider-attempt:b22539161df594d150a43ca592389257a53a170a78fa4766f32c787e319bbec8",
+    "team_id": 1,
+    "user_id": null,
+    "campaign_id": null,
+    "content_id": 1,
+    "resource_type": "article",
+    "resource_id": "1",
+    "run_id": null,
+    "job_id": null,
+    "operation_type": "article_generation",
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "attempt": 1,
+    "request_metadata": {
+      "seed": null,
+      "topK": null,
+      "topP": null,
+      "model": "gemini-3.5-flash",
+      "imageSize": null,
+      "maxImages": null,
+      "timeoutMs": null,
+      "requestKey": null,
+      "maxRequests": null,
+      "temperature": null,
+      "maxCharacters": null,
+      "adapterVersion": "google-genai@1.27.0",
+      "candidateCount": null,
+      "maxInputTokens": null,
+      "thinkingBudget": null,
+      "maxOutputTokens": 8192,
+      "imageAspectRatio": null,
+      "responseMimeType": "application/json",
+      "maxDurationSeconds": null,
+      "responseModalities": null
+    },
+    "provider_request_id": "pvLHat6gEbrM_PUP7-DFkAE",
+    "response_usage": {
+      "raw": {
+        "totalTokenCount": 14851,
+        "promptTokenCount": 6674,
+        "thoughtsTokenCount": 6369,
+        "candidatesTokenCount": 1808
+      },
+      "known": true,
+      "unitType": "tokens",
+      "unitCount": 14851,
+      "inputUnits": 6674,
+      "outputUnits": 1808
+    },
+    "response_metadata": {
+      "latencyMs": null,
+      "httpStatus": null,
+      "actualModel": "gemini-3.5-flash",
+      "operationId": null,
+      "finishReason": null,
+      "providerRequestId": "pvLHat6gEbrM_PUP7-DFkAE"
+    },
+    "status": "accounted",
+    "failure_code": null,
+    "failure_message": null,
+    "prepared_at": "2026-10-08T19:44:38.006Z",
+    "submitted_at": "2026-10-08T19:44:38.030Z",
+    "usage_captured_at": "2026-10-08T19:45:08.090Z",
+    "accounted_at": "2026-10-08T19:45:08.171Z",
+    "created_at": "2026-10-08T19:44:38.010Z",
+    "updated_at": "2026-10-08T19:45:08.171Z"
+  }
+]

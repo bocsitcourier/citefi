@@ -8,13 +8,14 @@ import { syncBuiltinESMExports } from "node:module";
 export const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 export const ROOT = resolve("QA/evidence/live-current");
 export const PLAN = Object.freeze({
-  version: 1, ceilingUsd: 30, articleSubcapUsd: 2,
+  version: 2, ceilingUsd: 30, articleSubcapUsd: 2,
   mode: "standard-text-only-no-tools-no-cache-no-priority",
   syntheticBoundary: "Owned synthetic tenants, research/SEO cache; genuine provider text, Guardian and final judge",
   skipped: ["optional enhancement", "optional critic", "image generation", "publication", "email"],
   calls: [
     { role: "article", provider: "gemini", model: "gemini-3.5-flash",
-      maxInputBytes: 120000, inputOverheadTokens: 8192, maxOutputTokens: 8192,
+      maxInputBytes: 120000, inputOverheadTokens: 8192, maxOutputTokens: 16384,
+      thinkingConfig: { thinkingLevel: "MINIMAL" },
       inputUsdPerMillion: 1.5, outputUsdPerMillion: 9, maxPhysicalCalls: 1,
       source: "google-pricing-source.md", url: "https://ai.google.dev/gemini-api/docs/pricing" },
     { role: "judge", provider: "openai", model: "gpt-4.1-mini",
@@ -87,12 +88,29 @@ export function preflight() {
       call.maxOutputTokens * call.outputUsdPerMillion) / 1e6, 0);
   if (!(maximumUsd > 0 && maximumUsd <= PLAN.articleSubcapUsd)) throw new Error("Article subcap exceeded");
   const report = { ...PLAN, sources, maximumUsd, budgetBaseline, totalBudget,
+    configurationSha256: sha256(JSON.stringify(PLAN)),
+    thinkingControlSource: {
+      file: "thinking-controls-source.md",
+      sha256: sha256(readFileSync(join(ROOT, "thinking-controls-source.md"), "utf8")),
+      url: "https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5",
+      limitation: "MINIMAL is supported effort control, not a guarantee of zero thinking tokens",
+    },
     inputBound: "Serialized UTF-8 bytes plus 8192 protocol/schema tokens; text-only inputs",
     outputBound: "Gemini total output cap includes thinking; OpenAI completion cap 2048",
     historicalCalls: "UNKNOWN / UNRECONCILED; known prior valuation and conservative historical HOLD both reduce the total USD30 availability",
     createdAt: new Date().toISOString() };
   durableJson(join(ROOT, "preflight.json"), report);
   return report;
+}
+
+export function requireArchitectApproval(runId, report, approval) {
+  if (!runId || !/^[a-z0-9-]{1,80}$/.test(runId)) throw new Error("Unique explicit case ID required");
+  if (approval?.decision !== "APPROVED" || approval.caseId !== runId ||
+      approval.configurationSha256 !== report.configurationSha256 ||
+      approval.baselineSha256 !== report.budgetBaseline.sourceSha256 ||
+      typeof approval.reviewEvidence !== "string" || !approval.reviewEvidence) {
+    throw new Error("Architect approval for this exact case/configuration required before spending");
+  }
 }
 
 // One shared lock/ledger across every run and helper. A crash leaves the lock
@@ -134,6 +152,7 @@ export function reserveRun(runId, report) {
     const attempt = { role: call.role, provider: call.provider, model: call.model,
       requestSha256: hash, inputBytes: bytes, maxInputTokens: bytes + call.inputOverheadTokens,
       maxOutputTokens: call.maxOutputTokens, physicalCount: 1, state: "pending",
+      ...(call.thinkingConfig ? { thinkingConfig: call.thinkingConfig } : {}),
       inputUsdPerMillion: call.inputUsdPerMillion, outputUsdPerMillion: call.outputUsdPerMillion,
       maximumUsd: ((bytes + call.inputOverheadTokens) * call.inputUsdPerMillion +
         call.maxOutputTokens * call.outputUsdPerMillion) / 1e6,
@@ -188,6 +207,7 @@ export function reserveRun(runId, report) {
         persist();
         durableJson(join(directory, "budget-settlement.json"), {
           runId, state: entry.state, newRunUsageEstimateUsd: entry.actualUsd,
+          remainingReservedUsd: 0,
           totalBudget: ledger.totalBudget, budgetBaseline,
         });
         unlinkSync(lockPath);
@@ -213,7 +233,7 @@ export function validateRequest(url, init) {
   if (call.provider === "gemini") {
     if (Object.keys(body).some((key) => !["contents", "generationConfig"].includes(key)) ||
         Object.keys(body.generationConfig ?? {}).some((key) =>
-          !["maxOutputTokens", "responseMimeType", "responseSchema", "responseJsonSchema"].includes(key))) {
+          !["maxOutputTokens", "thinkingConfig", "responseMimeType", "responseSchema", "responseJsonSchema"].includes(key))) {
       throw new Error("Unapproved Gemini request fields");
     }
     const parts = body.contents?.flatMap((content) => content.parts ?? []);
@@ -221,6 +241,11 @@ export function validateRequest(url, init) {
       throw new Error("Only text Gemini input is authorized");
     }
     if (body.generationConfig?.maxOutputTokens !== call.maxOutputTokens) throw new Error("Gemini output cap mismatch");
+    const thinking = body.generationConfig?.thinkingConfig;
+    if (!thinking || Object.keys(thinking).length !== 1 ||
+        thinking.thinkingLevel !== call.thinkingConfig.thinkingLevel) {
+      throw new Error("Gemini thinking configuration mismatch");
+    }
   } else {
     if (Object.keys(body).some((key) =>
       !["model", "messages", "temperature", "max_tokens", "response_format"].includes(key))) {

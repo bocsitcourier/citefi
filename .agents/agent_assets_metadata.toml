@@ -166,7 +166,7 @@ content_type = "text/markdown"
 [[outputs]]
 id = "1hnpVAonQ_k_CxFn5MKAX"
 uri = "file://reports/live-generation/dashboard.html"
-type = "text"
+type = "html"
 title = "Generation audit — blocked, not certified"
 description = "40-feature evidence matrix with real outputs, failures, fixes, unexecuted cases, and shared-budget accounting. Paid reruns remain paused because one verification call has no recoverable cost bound."
 logical_id = "19c7380c-e0a1-4c11-a99b-60c0b18dc4fb"
@@ -180,7 +180,7 @@ content_type = "text/html"
 [[outputs]]
 id = "ToaalDsP7RA02v1N7uX1f"
 uri = "file://reports/qa-remediation/review-and-results.html"
-type = "text"
+type = "html"
 title = "Remediation fixes and verification results"
 description = "Updated architect-reviewed fixes, per-scope tests, successful real database concurrency test, and remaining live-verification/accounting blockers. No paid generation performed."
 logical_id = "1c062156-42ec-4f25-8537-0a7cf113bc5c"
@@ -217,4 +217,18 @@ size = 26966
 mtime_ms = 1789590382646
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/cb41f9df-5c12-48c8-a42a-d768c72ac6a1/a57d9bb5-647c-4c42-8f7a-5d6b4a153424"
 storage_version_token = "1789590475496740"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "rdKdw1klanyXt8wullTdZ"
+uri = "file://QA/evidence/live-current/live-qa-summary.md"
+type = "text"
+title = "Architect-assisted live QA results — not certified"
+description = "Four real article attempts, retained usage receipts, two tested production fixes, and the remaining image/audio/video scope."
+logical_id = "c32eb681-a106-4e6b-8d58-23b20d3311a3"
+content_hash = "sha256:7af1d2226f82f954509899c32fc11a7ec97e4e8e7a625c61866491bff47e5040"
+size = 6027
+mtime_ms = 1791490317943
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/c32eb681-a106-4e6b-8d58-23b20d3311a3/e9519d0c-1f1a-4496-9034-ad090696499d"
+storage_version_token = "1791490354777743"
 content_type = "text/markdown"

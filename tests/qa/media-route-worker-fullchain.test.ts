@@ -1,18 +1,20 @@
 /**
- * Route -> Redis queue -> exported worker acceptance for rows 9, 10, 15, 16
- * and 17.
+ * Production media-route/worker acceptance for rows 9, 10, 15, 16 and 17.
  *
- * This file owns its PostgreSQL and Redis processes. Provider calls are
- * low-level fixture transports passed through the optional seams; route
- * authorization, credit reservation/debit, queue enqueue, worker persistence,
- * object storage, and receipt/accounting checkpoints remain production code.
+ * This file owns its PostgreSQL and Redis processes. Offline provider calls
+ * use low-level fixtures. Row 10 optionally runs one bounded Gemini image
+ * request through the production route with LIVE_QA_IMAGE=1; it still uses an
+ * owned durable-filesystem storage adapter and reports that boundary honestly.
  *
  * Run with:
  *   node --import tsx/esm --test tests/qa/media-route-worker-fullchain.test.ts
+ *   node scripts/qa-live-image.mjs preflight
+ *   node scripts/qa-live-image.mjs run <unique-run-id>
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -20,15 +22,29 @@ import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { Readable } from "node:stream";
 import test from "node:test";
 import { NextRequest } from "next/server";
 import ffmpegPath from "ffmpeg-static";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Pool } from "pg";
+import {
+  installGeminiImageNetworkGuard,
+  preflight as preflightLiveImage,
+  reserveImageRun,
+} from "../../QA/support/live-media-budget.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
+const LIVE_IMAGE_QA = process.env.LIVE_QA_IMAGE === "1";
+if (LIVE_IMAGE_QA && !process.env.GEMINI_API_KEY) {
+  throw new Error("LIVE_QA_IMAGE requires a runtime-injected GEMINI_API_KEY; .env.local is never loaded");
+}
+if (LIVE_IMAGE_QA && process.env.GEMINI_API_KEY === "fixture-no-network") {
+  throw new Error("LIVE_QA_IMAGE refuses the offline fixture provider key");
+}
+if (LIVE_IMAGE_QA && !/^[a-z0-9-]{1,80}$/.test(process.env.LIVE_QA_IMAGE_RUN_ID ?? "")) {
+  throw new Error("LIVE_QA_IMAGE requires a unique LIVE_QA_IMAGE_RUN_ID for shared-ledger reservation");
+}
 const PG_PORT = 55488;
 const REDIS_PORT = 16388;
 const DATABASE_URL = `postgresql://qa_media_acceptance@127.0.0.1:${PG_PORT}/postgres`;
@@ -41,40 +57,60 @@ type StoredObject = {
 };
 
 class FixtureObjectStore {
-  readonly objects = new Map<string, StoredObject>();
+  readonly metadata = new Map<string, Omit<StoredObject, "body">>();
+
+  constructor(private readonly root: string) {}
+
+  private objectPath(key: string): string {
+    const normalized = key.replace(/^\/+/, "");
+    const path = join(this.root, normalized);
+    if (!path.startsWith(`${this.root}/`) || normalized.split("/").includes("..")) {
+      throw new Error("Fixture object storage path escaped its durable root");
+    }
+    return path;
+  }
 
   bucket() {
     return {
       file: (key: string) => {
         const normalized = key.replace(/^\/+/, "");
+        const path = this.objectPath(normalized);
         return {
           save: async (
             body: Buffer,
             options?: { contentType?: string; metadata?: Record<string, string> },
           ) => {
-            this.objects.set(normalized, {
-              body: Buffer.from(body),
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, body);
+            this.metadata.set(normalized, {
               contentType: options?.contentType ?? "application/octet-stream",
               metadata: options?.metadata ?? {},
             });
           },
           download: async () => {
-            const object = this.objects.get(normalized);
-            if (!object) throw Object.assign(new Error("NoSuchKey"), { code: 404 });
-            return [Buffer.from(object.body)];
+            try {
+              return [await readFile(path)];
+            } catch {
+              throw Object.assign(new Error("NoSuchKey"), { code: 404 });
+            }
           },
           getMetadata: async () => {
-            const object = this.objects.get(normalized);
+            const object = this.metadata.get(normalized);
+            let body: Buffer;
+            try {
+              body = await readFile(path);
+            } catch {
+              throw Object.assign(new Error("NoSuchKey"), { code: 404 });
+            }
             if (!object) throw Object.assign(new Error("NoSuchKey"), { code: 404 });
             return [{
               contentType: object.contentType,
-              size: object.body.length,
-              md5Hash: createHash("md5").update(object.body).digest("hex"),
+              size: body.length,
+              md5Hash: createHash("md5").update(body).digest("hex"),
             }];
           },
           createReadStream: () => {
-            const object = this.objects.get(normalized);
-            return Readable.from(object?.body ?? []);
+            return createReadStream(path);
           },
         };
       },
@@ -280,7 +316,10 @@ async function assertCanonicalSecurityBootstrap(): Promise<void> {
   }
 }
 
-function installOwnedNetworkGuard(): () => void {
+function installOwnedNetworkGuard(liveBudgetRun?: () => ReturnType<typeof reserveImageRun> | undefined): () => void {
+  if (LIVE_IMAGE_QA) {
+    return installGeminiImageNetworkGuard(liveBudgetRun);
+  }
   const originalSocketConnect = (Socket.prototype as any).connect;
   const originalFetch = globalThis.fetch;
   const isLoopback = (host: unknown): boolean => {
@@ -354,7 +393,10 @@ async function startOwnedInfrastructure(): Promise<{
     DO_SPACES_ENDPOINT: "http://127.0.0.1:1",
     DO_SPACES_BUCKET: "fixture-bucket",
     DEFAULT_OBJECT_STORAGE_BUCKET_ID: "fixture-bucket",
-    GEMINI_API_KEY: "fixture-no-network",
+    GEMINI_API_KEY: LIVE_IMAGE_QA ? process.env.GEMINI_API_KEY : "fixture-no-network",
+    GEMINI_IMAGE_MODEL: LIVE_IMAGE_QA
+      ? "gemini-3.1-flash-image"
+      : process.env.GEMINI_IMAGE_MODEL,
     OPENAI_API_KEY: "fixture-no-network",
   };
   await runCommand("initdb", [
@@ -424,6 +466,8 @@ async function stopOwnedInfrastructure(fixture: Awaited<ReturnType<typeof startO
 const owned = await startOwnedInfrastructure();
 let receiptSpoolRoot: string | undefined;
 let restoreNetworkGuard: (() => void) | undefined;
+let liveImageBudgetRun: ReturnType<typeof reserveImageRun> | undefined;
+let publicObjectsServer: Server | undefined;
 let closeImageTransport: (() => void) | undefined;
 let closeProductionQueues: (() => Promise<void>) | undefined;
 let closeProductionDb: (() => Promise<void>) | undefined;
@@ -434,6 +478,13 @@ test.after(async () => {
   // timers and can keep node:test alive past its timeout.
   await closeProductionQueues?.();
   await closeProductionDb?.();
+  if (publicObjectsServer?.listening) {
+    publicObjectsServer.close();
+    await once(publicObjectsServer, "close").catch(() => undefined);
+  }
+  if (liveImageBudgetRun && !liveImageBudgetRun.hasSubmitted()) {
+    liveImageBudgetRun.abortBeforeSubmission();
+  }
   await stopOwnedInfrastructure(owned);
   // Keep the external-network guard active through all production-client and
   // owned-infrastructure teardown.
@@ -451,7 +502,7 @@ for (const [key, value] of Object.entries(owned.environment)) {
 }
 receiptSpoolRoot = await mkdtemp(join(tmpdir(), "media-route-receipts-"));
 process.env.PROVIDER_ATTEMPT_RECEIPT_SPOOL_DIR = receiptSpoolRoot;
-restoreNetworkGuard = installOwnedNetworkGuard();
+restoreNetworkGuard = installOwnedNetworkGuard(() => liveImageBudgetRun);
 
 const { db, systemDb, closeDb } = await import("../../lib/db");
 closeProductionDb = closeDb;
@@ -471,8 +522,65 @@ const { createProviderAttemptObjectSpool } = await import("../../lib/provider-at
 const { closeQueues } = await import("../../lib/queue");
 closeProductionQueues = closeQueues;
 const storage = await import("../../lib/storage");
-const fixtureStorage = new FixtureObjectStore();
+const fixtureStorage = new FixtureObjectStore(join(owned.root, "durable-media-objects"));
 (storage.objectStorageClient as any).bucket = () => fixtureStorage.bucket();
+
+async function startPublicObjectsHttpServer(): Promise<{ server: Server; origin: string }> {
+  const { GET } = await import("../../app/api/public-objects/[...path]/route");
+  const server = createServer(async (incoming, outgoing) => {
+    try {
+      const origin = `http://${incoming.headers.host ?? "127.0.0.1"}`;
+      const requestHeaders = new Headers();
+      for (const [name, value] of Object.entries(incoming.headers)) {
+        if (value !== undefined) requestHeaders.set(name, Array.isArray(value) ? value.join(", ") : value);
+      }
+      const request = new NextRequest(`${origin}${incoming.url ?? "/"}`, {
+        method: incoming.method ?? "GET",
+        headers: requestHeaders,
+      });
+      const pathValue = new URL(request.url).pathname.replace(/^\/api\/public-objects\//, "");
+      const response = await GET(request, {
+        params: Promise.resolve({ path: pathValue.split("/").map(decodeURIComponent) }),
+      });
+      outgoing.statusCode = response.status;
+      response.headers.forEach((value, name) => outgoing.setHeader(name, value));
+      outgoing.end(Buffer.from(await response.arrayBuffer()));
+    } catch {
+      outgoing.statusCode = 500;
+      outgoing.end("Owned public-object retrieval failed");
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Owned public-object server did not bind TCP");
+  return { server, origin: `http://127.0.0.1:${address.port}` };
+}
+
+async function installOwnedGemini31ImageRate(runId: string): Promise<void> {
+  if (!LIVE_IMAGE_QA) return;
+  const effectiveFrom = new Date("2026-01-01T00:00:00.000Z");
+  const evidenceUrl =
+    "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image";
+  const [version] = await systemDb.insert(schema.providerRateVersions).values({
+    version: `live-image-qa-${createHash("sha256").update(runId).digest("hex").slice(0, 32)}`,
+    evidenceUrl,
+    sourceNote:
+      "Official standard Gemini 3.1 Flash Image prices: $0.50/M input tokens and $60/M image output tokens; test-only synthetic DB rate. Live harness caps input at 16,000 tokens and one image at 2,520 output tokens.",
+    effectiveFrom,
+  }).returning({ id: schema.providerRateVersions.id });
+  if (!version) throw new Error("Could not seed the owned test database image COGS rate version");
+  await systemDb.insert(schema.providerRates).values({
+    rateVersionId: version.id,
+    provider: "gemini",
+    model: "gemini-3.1-flash-image",
+    unitType: "tokens",
+    inputMicrousdPerMillion: 500_000,
+    outputMicrousdPerMillion: 60_000_000,
+    effectiveFrom,
+    evidenceUrl,
+  });
+}
 
 function filesystemReceiptSpool() {
   return createProviderAttemptObjectSpool({
@@ -631,8 +739,16 @@ await systemDb.insert(schema.videoIdeas).values([
 
 let imageProviderSubmitCount = 0;
 closeImageTransport = setSingleImageProviderTransportForTests({
-  generateContent: async () => {
+  generateContent: async (request) => {
     imageProviderSubmitCount += 1;
+    if (LIVE_IMAGE_QA) {
+      if (request.model !== "gemini-3.1-flash-image") {
+        throw new Error(`Live image fixture refuses non-approved model ${request.model}`);
+      }
+      const { GoogleGenAI } = await import("@google/genai");
+      const nativeClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      return nativeClient.models.generateContent(request);
+    }
     return {
       responseId: "fixture-image-route",
       usageMetadata: {
@@ -858,39 +974,155 @@ test("row 9: owned authenticated repair route persists production DB output", as
 test("row 10: authenticated identity route runs provider transport, persists bytes, and settles billing", async () => {
   const { POST } = await import("../../app/api/media/assets/[identity]/regenerate/route");
   const identity = Buffer.from(`article_asset:${asset!.id}`, "utf8").toString("base64url");
-  const response = await POST(
-    new NextRequest(`http://127.0.0.1/api/media/assets/${identity}`, {
-      method: "POST", headers: authHeaders,
-      body: JSON.stringify({ prompt: "fixture identity image" }),
-    }),
-    { params: Promise.resolve({ identity }) },
-  );
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.equal(body.success, true);
-  assert.match(body.asset.storageUrl, /^\/api\/public-objects\//);
-  const [reservation] = await systemDb.select().from(schema.creditReservations)
-    .where(eq(schema.creditReservations.teamId, teamId))
-    .orderBy(desc(schema.creditReservations.id)).limit(1);
-  assert.equal(reservation?.status, "DEBITED");
-  const [ledger] = await systemDb.select().from(schema.creditLedger)
-    .where(eq(schema.creditLedger.teamId, teamId))
-    .orderBy(desc(schema.creditLedger.id)).limit(1);
-  assert.equal(ledger?.eventType, "debit");
-  const [receipt] = await systemDb.select().from(schema.providerAttemptReceipts)
-    .where(eq(schema.providerAttemptReceipts.teamId, teamId))
-    .orderBy(desc(schema.providerAttemptReceipts.id)).limit(1);
-  assert.equal(receipt?.status, "accounted");
-  const providerCallsAfterOwnedRequest = imageProviderSubmitCount;
-  const wrongTenantResponse = await POST(
-    new NextRequest(`http://127.0.0.1/api/media/assets/${identity}`, {
-      method: "POST", headers: wrongTenantHeaders,
-      body: JSON.stringify({ prompt: "wrong tenant must not generate" }),
-    }),
-    { params: Promise.resolve({ identity }) },
-  );
-  assert.ok([403, 404].includes(wrongTenantResponse.status));
-  assert.equal(imageProviderSubmitCount, providerCallsAfterOwnedRequest);
+  if (LIVE_IMAGE_QA) {
+    await installOwnedGemini31ImageRate(process.env.LIVE_QA_IMAGE_RUN_ID!);
+  }
+  const budgetRun = LIVE_IMAGE_QA
+    ? reserveImageRun(process.env.LIVE_QA_IMAGE_RUN_ID!, preflightLiveImage())
+    : undefined;
+  liveImageBudgetRun = budgetRun;
+  let livePass = false;
+  const imageEvidence: Record<string, unknown> = {
+    executionBoundary: LIVE_IMAGE_QA
+      ? "Production direct image regeneration route with runtime-selected Gemini 3.1 Flash Image; not the default 2.5 model certification"
+      : "Offline fixture transport",
+  };
+  try {
+    const response = await POST(
+      new NextRequest(`http://127.0.0.1/api/media/assets/${identity}`, {
+        method: "POST", headers: authHeaders,
+        body: JSON.stringify({
+          prompt: LIVE_IMAGE_QA
+            ? "Create a polished editorial photograph of a coastal community solar installation at golden hour, documentary realism, crisp natural detail, no text."
+            : "fixture identity image",
+        }),
+      }),
+      { params: Promise.resolve({ identity }) },
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.success, true);
+    assert.match(body.asset.storageUrl, /^\/api\/public-objects\//);
+
+    if (LIVE_IMAGE_QA) {
+      assert.equal(imageProviderSubmitCount, 1, "the authorized live run made exactly one SDK submission");
+      const { server, origin } = await startPublicObjectsHttpServer();
+      publicObjectsServer = server;
+      const retrieved = await fetch(`${origin}${body.asset.storageUrl}`, {
+        headers: { authorization: `Bearer ${token}` },
+        redirect: "error",
+      });
+      assert.equal(retrieved.status, 200);
+      assert.match(retrieved.headers.get("content-type") ?? "", /^image\/png\b/i);
+      const receivedBytes = Buffer.from(await retrieved.arrayBuffer());
+      assert.ok(receivedBytes.length > 5_000, "native generated PNG must not be a 1px/stub payload");
+      assert.equal(receivedBytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+      const { default: sharp } = await import("sharp");
+      const decoded = await sharp(receivedBytes, { failOn: "error" }).metadata();
+      assert.ok((decoded.width ?? 0) >= 512 && (decoded.height ?? 0) >= 512);
+      const sha256 = createHash("sha256").update(receivedBytes).digest("hex");
+      const objectPath = body.asset.storageUrl
+        .replace(/^\/api\/public-objects\//, "")
+        .split("/")
+        .map(decodeURIComponent);
+      const persistedBytes = await readFile(join(owned.root, "durable-media-objects", ...objectPath));
+      assert.equal(createHash("sha256").update(persistedBytes).digest("hex"), sha256);
+      assert.deepEqual(persistedBytes, receivedBytes, "HTTP retrieval returns the durable filesystem object bytes");
+      imageEvidence.asset = {
+        storageUrl: body.asset.storageUrl,
+        storageBoundary: "durable filesystem QA adapter; not cloud object-storage certification",
+        bytes: receivedBytes.length,
+        sha256,
+        png: { width: decoded.width, height: decoded.height, format: decoded.format },
+        httpStatus: retrieved.status,
+        contentType: retrieved.headers.get("content-type"),
+      };
+
+      const denied = await fetch(`${origin}${body.asset.storageUrl}`, {
+        headers: { authorization: `Bearer ${wrongTenantToken}` },
+        redirect: "error",
+      });
+      assert.equal(denied.status, 401, "public-object HTTP retrieval denies a different synthetic tenant");
+
+      const productionReceipts = await systemDb.select({
+        id: schema.providerAttemptReceipts.id,
+        model: schema.providerAttemptReceipts.model,
+        providerRequestId: schema.providerAttemptReceipts.providerRequestId,
+        responseUsage: schema.providerAttemptReceipts.responseUsage,
+        responseMetadata: schema.providerAttemptReceipts.responseMetadata,
+        status: schema.providerAttemptReceipts.status,
+        accountedAt: schema.providerAttemptReceipts.accountedAt,
+      }).from(schema.providerAttemptReceipts).where(and(
+        eq(schema.providerAttemptReceipts.teamId, teamId),
+        eq(schema.providerAttemptReceipts.model, "gemini-3.1-flash-image"),
+      )).orderBy(desc(schema.providerAttemptReceipts.id));
+      const accountedReceipt = productionReceipts.find((receipt) => receipt.status === "accounted");
+      assert.ok(accountedReceipt, "production provider-attempt receipt is accounted");
+      const providerUsage = await systemDb.select({
+        sourceEventId: schema.providerUsageLedger.sourceEventId,
+        providerRequestId: schema.providerUsageLedger.providerRequestId,
+        operationType: schema.providerUsageLedger.operationType,
+        model: schema.providerUsageLedger.model,
+        unitType: schema.providerUsageLedger.unitType,
+        inputUnits: schema.providerUsageLedger.inputUnits,
+        outputUnits: schema.providerUsageLedger.outputUnits,
+        unitCount: schema.providerUsageLedger.unitCount,
+        costMicrousd: schema.providerUsageLedger.costMicrousd,
+        rateSnapshot: schema.providerUsageLedger.rateSnapshot,
+      }).from(schema.providerUsageLedger).where(and(
+        eq(schema.providerUsageLedger.teamId, teamId),
+        eq(schema.providerUsageLedger.model, "gemini-3.1-flash-image"),
+      )).orderBy(desc(schema.providerUsageLedger.id));
+      assert.ok(providerUsage.length > 0, "production provider-usage ledger contains the image event");
+      const cogsEvent = providerUsage.find(
+        (event) => event.providerRequestId === accountedReceipt.providerRequestId,
+      );
+      assert.ok(cogsEvent, "provider COGS event correlates to the provider attempt receipt");
+      assert.ok(cogsEvent.costMicrousd > 0, "locked official token rates value this image event");
+      assert.notEqual((cogsEvent.rateSnapshot as any)?.version, "unpriced");
+      imageEvidence.accounting = {
+        productionProviderAttemptReceipt: accountedReceipt,
+        productionProviderUsageLedgerCogsEvent: cogsEvent,
+        liveBudgetPricingReceiptFile: "image-receipt.json",
+        liveBudgetProviderRequestId: accountedReceipt.providerRequestId,
+      };
+      budgetRun!.writeEvidence("image-production-accounting.json", imageEvidence);
+    }
+
+    const [reservation] = await systemDb.select().from(schema.creditReservations)
+      .where(eq(schema.creditReservations.teamId, teamId))
+      .orderBy(desc(schema.creditReservations.id)).limit(1);
+    assert.equal(reservation?.status, "DEBITED");
+    const [ledger] = await systemDb.select().from(schema.creditLedger)
+      .where(eq(schema.creditLedger.teamId, teamId))
+      .orderBy(desc(schema.creditLedger.id)).limit(1);
+    assert.equal(ledger?.eventType, "debit");
+    const [receipt] = await systemDb.select().from(schema.providerAttemptReceipts)
+      .where(eq(schema.providerAttemptReceipts.teamId, teamId))
+      .orderBy(desc(schema.providerAttemptReceipts.id)).limit(1);
+    assert.equal(receipt?.status, "accounted");
+    const providerCallsAfterOwnedRequest = imageProviderSubmitCount;
+    assert.equal(providerCallsAfterOwnedRequest, LIVE_IMAGE_QA ? 1 : providerCallsAfterOwnedRequest);
+    const wrongTenantResponse = await POST(
+      new NextRequest(`http://127.0.0.1/api/media/assets/${identity}`, {
+        method: "POST", headers: wrongTenantHeaders,
+        body: JSON.stringify({ prompt: "wrong tenant must not generate" }),
+      }),
+      { params: Promise.resolve({ identity }) },
+    );
+    assert.ok([403, 404].includes(wrongTenantResponse.status));
+    assert.equal(imageProviderSubmitCount, providerCallsAfterOwnedRequest);
+    livePass = true;
+  } finally {
+    if (budgetRun) {
+      if (budgetRun.hasSubmitted()) {
+        budgetRun.finish({ endToEndPass: livePass, evidence: imageEvidence });
+      } else {
+        budgetRun.abortBeforeSubmission();
+      }
+      liveImageBudgetRun = undefined;
+    }
+  }
 });
 
 async function enqueueAndRunIdea(idea: number, routePath: string) {

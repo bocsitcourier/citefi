@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "ceilingUsd": 30,
   "articleSubcapUsd": 2,
   "mode": "standard-text-only-no-tools-no-cache-no-priority",
@@ -18,7 +18,10 @@
       "model": "gemini-3.5-flash",
       "maxInputBytes": 120000,
       "inputOverheadTokens": 8192,
-      "maxOutputTokens": 8192,
+      "maxOutputTokens": 16384,
+      "thinkingConfig": {
+        "thinkingLevel": "MINIMAL"
+      },
       "inputUsdPerMillion": 1.5,
       "outputUsdPerMillion": 9,
       "maxPhysicalCalls": 1,
@@ -53,9 +56,39 @@
       "verification": "Parent verified official standard pricing; no cache/tool/priority rates used"
     }
   ],
-  "maximumUsd": 0.2925696,
+  "maximumUsd": 0.3662976,
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceFile": "QA/evidence/live-current/budget-baseline.json",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  },
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.47487,
+    "availableUsd": 23.008059
+  },
+  "configurationSha256": "7d61450578c4d95546cf2eafbd764575adab126699e34f71097070d510a653fe",
+  "thinkingControlSource": {
+    "file": "thinking-controls-source.md",
+    "sha256": "84699b3538da130b797f056ab91c55d2594351ba374583773e0cc134d8441d41",
+    "url": "https://ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5",
+    "limitation": "MINIMAL is supported effort control, not a guarantee of zero thinking tokens"
+  },
   "inputBound": "Serialized UTF-8 bytes plus 8192 protocol/schema tokens; text-only inputs",
   "outputBound": "Gemini total output cap includes thinking; OpenAI completion cap 2048",
-  "historicalCalls": "UNKNOWN / UNRECONCILED; not represented as zero; $30 ledger bounds new authorized work only",
-  "createdAt": "2026-09-21T18:15:23.513Z"
+  "historicalCalls": "UNKNOWN / UNRECONCILED; known prior valuation and conservative historical HOLD both reduce the total USD30 availability",
+  "createdAt": "2026-10-08T20:18:25.162Z"
 }

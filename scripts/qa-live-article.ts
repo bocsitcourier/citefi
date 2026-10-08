@@ -4,13 +4,16 @@
  */
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { mkdirSync, openSync, writeFileSync, fsyncSync, closeSync } from "node:fs";
+import { mkdirSync, openSync, writeFileSync, fsyncSync, closeSync, readFileSync } from "node:fs";
 import {
   PLAN, ROOT, preflight, reserveRun, installNetworkGuard, durableJson, validateRequest, sha256,
+  requireArchitectApproval,
 } from "../QA/support/live-article-budget.mjs";
+import { articleGenerationLimits } from "../lib/article-request-limits";
+import { verifyLiveAccounting } from "../QA/support/live-article-accounting.mjs";
 import type { ArticleChainFixture, ArticleChainWorkers } from "../QA/support/article-chain-fixture";
 
-function smoke() {
+async function smoke() {
   const request = {
     method: "POST",
     body: JSON.stringify({ model: "gpt-4.1-mini", max_tokens: 2048,
@@ -19,10 +22,42 @@ function smoke() {
   assert.equal(validateRequest(new URL("https://api.openai.com/v1/chat/completions"), request).call.role, "judge");
   const geminiRequest = { method: "POST", body: JSON.stringify({
     contents: [{ role: "user", parts: [{ text: "offline validation only" }] }],
-    generationConfig: { maxOutputTokens: 8192, responseMimeType: "application/json" },
+    generationConfig: { maxOutputTokens: 16384, thinkingConfig: { thinkingLevel: "MINIMAL" }, responseMimeType: "application/json" },
   }) };
   const geminiUrl = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent");
   assert.equal(validateRequest(geminiUrl, geminiRequest).call.role, "article");
+  for (const thinkingConfig of [undefined, {}, { thinkingLevel: "LOW" },
+    { thinkingBudget: 0 }, { thinkingLevel: "MINIMAL", thinkingBudget: 0 },
+    { thinkingLevel: "MINIMAL", includeThoughts: true }]) {
+    const body = JSON.parse(geminiRequest.body);
+    body.generationConfig.thinkingConfig = thinkingConfig;
+    assert.throws(() => validateRequest(geminiUrl, { method: "POST", body: JSON.stringify(body) }));
+  }
+  // Exercise the installed SDK serializer, with fetch replaced before client
+  // construction. No credentials, fixtures, databases, or paid traffic.
+  const nativeFetch = globalThis.fetch;
+  let serializedCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    assert.equal(validateRequest(url, init).call.role, "article");
+    serializedCalls++;
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "{}" }] }, finishReason: "STOP" }] }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const { extractGeminiRequestLimits } = await import("../lib/gemini-attempt-receipt");
+    const config = { ...articleGenerationLimits("gemini-3.5-flash", {
+      maxOutputTokens: PLAN.calls[0]!.maxOutputTokens, thinkingLevel: "MINIMAL",
+    }), responseMimeType: "application/json" };
+    assert.equal(extractGeminiRequestLimits(config).thinkingLevel, "MINIMAL");
+    await new GoogleGenAI({ apiKey: "offline-not-a-credential" }).models.generateContent({
+      model: PLAN.calls[0]!.model,
+      contents: [{ role: "user", parts: [{ text: "offline validation only" }] }],
+      config,
+    });
+    assert.equal(serializedCalls, 1);
+  } finally { globalThis.fetch = nativeFetch; }
   assert.throws(() => validateRequest(geminiUrl, {
     ...geminiRequest, body: JSON.stringify({
       ...JSON.parse(geminiRequest.body), generationConfig: { maxOutputTokens: 65536 },
@@ -37,7 +72,7 @@ function smoke() {
   ] as const) {
     assert.throws(() => validateRequest(new URL(url), { method: "POST", body: JSON.stringify(body) }));
   }
-  console.log("OFFLINE GUARD SMOKE PASS: no services, databases, SDKs, or network calls started");
+  console.log("OFFLINE SERIALIZED SDK + GUARD SMOKE PASS: mocked fetch only; no services, database queries, or paid network calls");
 }
 
 async function seedRealRates(fixture: ArticleChainFixture) {
@@ -90,8 +125,22 @@ async function runLive() {
   if (!process.env.GEMINI_API_KEY || !process.env.OPENAI_API_KEY) {
     throw new Error("Both provider credentials must already be injected; no dotenv fallback");
   }
+  const wordCountMax = Number(process.env.QA_LIVE_WORD_MAX ?? 1400);
+  if (![1400, 2000].includes(wordCountMax)) {
+    throw new Error("Live QA word maximum must be explicitly 1400 or 2000");
+  }
   const report = preflight();
-  const budget = reserveRun(process.env.QA_LIVE_RUN_ID ?? "first-article-v1", report);
+  const caseId = process.env.QA_LIVE_RUN_ID;
+  const approvalPath = process.env.QA_LIVE_ARCHITECT_APPROVAL;
+  const approval = approvalPath ? JSON.parse(readFileSync(approvalPath, "utf8")) : null;
+  requireArchitectApproval(caseId, report, approval);
+  assert.equal(approval.wordCountMax, wordCountMax, "Approved requested profile must match");
+  const budget = reserveRun(caseId!, report);
+  durableJson(join(budget.directory, "architect-approval.json"), approval);
+  durableJson(join(budget.directory, "requested-profile.json"), {
+    wordCountMin: 700, wordCountMax,
+    purpose: "Explicit requested word range; production validation remains unchanged",
+  });
   installNetworkGuard(budget);
   let fixture: ArticleChainFixture | undefined;
   let workers: ArticleChainWorkers | undefined;
@@ -103,6 +152,7 @@ async function runLive() {
     fixture = await startArticleChainFixture({
       authorization: "bounded-live-article", model: PLAN.calls[0]!.model,
       maxOutputTokens: PLAN.calls[0]!.maxOutputTokens,
+      thinkingLevel: "MINIMAL",
       receiptDirectory: join(budget.directory, "production-receipt-spool"),
     });
     stage = "official-rate-seed";
@@ -118,11 +168,11 @@ async function runLive() {
     const submitted = await fetch(`${fixture.baseUrl}/api/jobs/batch-submit`, {
       method: "POST",
       headers: { authorization: `Bearer ${fixture.token}`, "content-type": "application/json",
-        "x-idempotency-key": "live-first-article-v1", "x-skip-intelligence-gate": "1" },
+        "x-idempotency-key": caseId!, "x-skip-intelligence-gate": "1" },
       body: JSON.stringify({
         batchId: fixture.batchId, selectedTitles: ["San Francisco Home-Care Planning"],
         targetUrl: "https://example.com/services", tone: "professional",
-        wordCountMin: 700, wordCountMax: 1400, geographicFocus: "San Francisco",
+        wordCountMin: 700, wordCountMax, geographicFocus: "San Francisco",
         audience: "local families", businessName: "QA Article Chain",
         customInstructions: "This is a synthetic QA brief, not verified research. Do not invent facts or statistics. Include at least three useful links to the supplied target URL and an explicit Frequently Asked Questions section with at least three questions. Preserve Markdown headings and paragraphs.",
       }),
@@ -183,14 +233,43 @@ async function runLive() {
         tables[table] = await fixture.query(`SELECT * FROM ${table}`);
         durableJson(join(budget.directory, `${table}.json`), tables[table]);
       }
+      const expectedCreditRunId = `batch:${fixture.batchId}:${caseId}`;
+      tables.credit_reservations = await fixture.query(
+        "SELECT * FROM credit_reservations WHERE team_id=$1 AND run_id=$2",
+        [fixture.teamId, expectedCreditRunId],
+      );
+      durableJson(join(budget.directory, "credit_reservations.json"), tables.credit_reservations);
+      tables.job_batches = await fixture.query(
+        "SELECT * FROM job_batches WHERE id=$1 AND team_id=$2",
+        [fixture.batchId, fixture.teamId],
+      );
+      durableJson(join(budget.directory, "job_batches.json"), tables.job_batches);
       if (outcome.endToEndPass) {
         const receipts = tables.provider_attempt_receipts!;
-        outcome.accountingVerified =
+        const [currentReservation] = tables.credit_reservations!;
+        const [currentBatch] = tables.job_batches!;
+        const runDebits = tables.credit_ledger!.filter((row) =>
+          row.team_id === fixture!.teamId &&
+          row.run_id === expectedCreditRunId &&
+          row.event_type === "debit",
+        );
+        outcome.reasoningInclusiveCogsVerified = verifyLiveAccounting(tables, PLAN.calls, fixture.teamId);
+        outcome.accountingVerified = outcome.reasoningInclusiveCogsVerified &&
           PLAN.calls.every((planned) => receipts.some((receipt) =>
             receipt.provider === planned.provider && receipt.model === planned.model &&
             receipt.provider_request_id && receipt.status === "accounted")) &&
           tables.provider_usage_ledger!.length === PLAN.calls.length &&
-          tables.credit_ledger!.filter((row) => row.event_type === "debit").length === 1;
+          tables.credit_ledger!.filter((row) => row.event_type === "debit").length === 1 &&
+          currentReservation?.team_id === fixture.teamId &&
+          currentReservation.run_id === expectedCreditRunId &&
+          Number(currentReservation.remaining_amount) === 0 &&
+          currentReservation.status === "DEBITED" &&
+          currentBatch?.id === fixture.batchId &&
+          currentBatch.team_id === fixture.teamId &&
+          currentBatch.status === "COMPLETE" &&
+          runDebits.length === 1 &&
+          runDebits[0]?.team_id === fixture.teamId &&
+          Math.abs(Number(runDebits[0]?.amount)) === Number(currentReservation.original_amount);
         if (!outcome.accountingVerified) {
           outcome.endToEndPass = false;
           outcome.failureStage = "durable-accounting-verification";
@@ -214,7 +293,7 @@ async function runLive() {
 }
 
 const mode = process.argv[2];
-if (mode === "--smoke") smoke();
+if (mode === "--smoke") smoke().catch((error) => { console.error(error); process.exitCode = 1; });
 else if (mode === "--preflight") {
   const report = preflight();
   console.log(JSON.stringify({ evidence: ROOT, maximumUsd: report.maximumUsd, subcapUsd: 2, physicalCallsMaximum: 2 }));

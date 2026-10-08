@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { articleGenerationLimits, type ArticleRequestLimits } from "./article-request-limits";
 import { AsyncResource } from "node:async_hooks";
 import {
   normalizeArticleTargetUrls,
@@ -1059,7 +1060,7 @@ export async function generateArticleContent(
   serpFeatureTarget?: string, // SERP feature optimization: Featured Snippet | PAA | List | Q&A
   shadowRunPlan?: ArticleShadowRunPlan, // Pre-flight failure pattern awareness
   generateContentTransport?: GeminiGenerateContentTransport,
-  requestLimits?: { maxOutputTokens: number },
+  requestLimits?: ArticleRequestLimits,
 ): Promise<ArticleGenerationResult> {
   if (requestLimits && (!Number.isInteger(requestLimits.maxOutputTokens) ||
       requestLimits.maxOutputTokens < 1 || requestLimits.maxOutputTokens > 65536)) {
@@ -1581,6 +1582,7 @@ QUALITY CHECKLIST (Self-Audit Before Returning Article)
 
 **TECHNICAL REQUIREMENTS:**
 ✓ Word count within ${wordCountMin}-${wordCountMax} range
+✓ The total rendered body INCLUDING FAQs must stay within this range. Budget roughly 15% for FAQs; if supplied separately in the faq array, leave room for their assembly. Do not duplicate FAQs.
 ✓ ${businessName} appears as example/reference only (NOT main subject)
 ✓ Current year (${currentYear}) referenced
 ✓ All claims supported by evidence
@@ -1742,6 +1744,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
   // Use resolver-validated model for article generation
   const { getModel: gm } = await import("./model-resolver");
   const model = gm("geminiArticle");
+  const generationLimits = articleGenerationLimits(model, requestLimits);
   
   const articleRequest = {
     model,
@@ -1752,9 +1755,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       },
     ],
     config: {
-      // Set explicit ceiling so Gemini never truncates a long article.
-      // gemini-2.5-flash supports up to 65536 output tokens.
-      maxOutputTokens: requestLimits?.maxOutputTokens ?? 65536,
+      ...generationLimits,
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -2072,7 +2073,7 @@ export async function generateArticleWithGemini(
   shadowRunPlan?: ArticleShadowRunPlan,
   articleId?: number,
   generateContentTransport?: GeminiGenerateContentTransport,
-  requestLimits?: { maxOutputTokens: number },
+  requestLimits?: ArticleRequestLimits,
 ): Promise<AdvancedArticleResult> {
   if (!Number.isInteger(articleId) || (articleId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated articleId");

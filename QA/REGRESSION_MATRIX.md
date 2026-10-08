@@ -194,3 +194,25 @@ evidence. E-042 leaves the known published Neon/HTTP, journey-scheduler, and
 development Redis runtime gap. Explicit authorization is required before a
 worker-enabled runtime retest after remediation; the owned Next UI screenshot
 does not establish operational certification or full-scope completion.
+
+## Latest live QA continuation — E-043 through E-045
+
+These appended results supersede earlier statements that no new paid calls had
+occurred for the current authorized phase. They do not promote any supported
+feature to `VERIFIED`; overall certification remains **NOT CERTIFIED**.
+
+| Evidence/control | Latest result | Regression matrix interpretation |
+|---|---|---|
+| E-043 article live path | Four genuine Gemini 3.5 Flash calls, all HTTP 200 and durably receipted/settled; four end-to-end failures. | Live negative result. Authenticated retrieval endpoint returned 200 and other-tenant request 404 each time, but no usable published `COMPLETE` result; final-judge physical calls 0. |
+| E-044 speed-mode FAQ | Production FAQ rendering fix regression 3/3. | Focused control passes; live article outcomes remain failed. |
+| E-044 Gemini usage accounting | Latest thinking-token/COGS fix regression 16/16 in `thinking-accounting-final.tap`, superseding retained 12/12; typecheck passed. | Valid native prompt+total are authoritative (output = total − prompt); otherwise require a complete valid split and fail closed to `UNKNOWN` for inconsistent/missing pricing splits. Image units independent. Raw exports unchanged; no historical/application DB rebilling. |
+| E-045 image boundary | Initial preflight's `2,520` vs official `2520` formatting-only mismatch fixed by section-whitespace and optional-comma normalization; bounded rerun passed at $0.1592 maximum estimate with $0.16 reserve. | No image provider call, no image E2E pass; filesystem rather than cloud storage, targeted Gemini 3.1 versus application Gemini 2.5 default. No live audio/video calls. |
+| E-046 login screenshot | `application-login.jpg` passed static screenshot review. | Static only; anonymous API 401 is expected. Not authenticated-login or generation certification. |
+
+Latest ledger: $0.474870 conservative usage estimate for the four live article
+calls (not an invoice), $0.517071 known prior valuation, separate $6 historical
+coverage HOLD (not spend), and $23.008059 remaining availability under the
+existing $30 ceiling. The two historical calls remain
+`UNKNOWN / UNRECONCILED`. Paid QA stopped after the four failures as agreed
+with the architect; this was not a payment/billing failure. Per-case result
+details are in `QA/evidence/live-current/live-qa-summary.md`.

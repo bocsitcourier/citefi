@@ -17,6 +17,7 @@ import {
   isProviderAttemptTerminalError,
   ProviderAttemptUsageUnavailableError,
 } from "./provider-attempt-receipts";
+import { normalizeGeminiTokenUsage } from "./gemini-attempt-receipt";
 
 // ----------------------------------------------------------------------------
 // PRICING MAP — cost per million tokens (or per unit) in USD
@@ -645,6 +646,18 @@ async function writeCostTelemetry(
     ? (usage as TokenUsage).providerAttemptSourceEventId
     : undefined;
   const correlatedSourceEventId = activeAttempt?.receipt.sourceEventId ?? usageSourceEventId;
+  if (
+    ctx.provider === "gemini" &&
+    !options.skipLedger &&
+    !activeAttempt &&
+    "known" in usage &&
+    usage.known === false &&
+    ("inputTokens" in usage || "outputTokens" in usage || "totalTokens" in usage)
+  ) {
+    throw new ProviderAttemptUsageUnavailableError(
+      "Gemini response usage is partial or inconsistent; immutable ledger insertion is blocked",
+    );
+  }
   if (!options.skipLedger) try {
     if (activeAttempt) {
       // Reconcile the receipt's canonical persisted usage. Never rebuild a
@@ -772,17 +785,23 @@ export function extractGeminiUsage(result: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
     totalTokenCount?: number;
+    thoughtsTokenCount?: number;
   };
 }): TokenUsage {
-  const meta = result.usageMetadata ?? {};
+  const meta = result.usageMetadata as Record<string, unknown> | undefined;
+  const validCount = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      ? value
+      : undefined;
+  const normalized = normalizeGeminiTokenUsage(meta);
+  const inputTokens = normalized.inputUnits ?? validCount(meta?.promptTokenCount);
+  const outputTokens = normalized.outputUnits;
+  const totalTokens = validCount(meta?.totalTokenCount) ?? normalized.unitCount;
   return {
-    inputTokens: meta.promptTokenCount ?? 0,
-    outputTokens: meta.candidatesTokenCount ?? 0,
-    totalTokens: meta.totalTokenCount ?? 0,
-    known:
-      meta.promptTokenCount != null ||
-      meta.candidatesTokenCount != null ||
-      meta.totalTokenCount != null,
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+    totalTokens: totalTokens ?? 0,
+    known: normalized.known,
     providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(result),
   };
 }

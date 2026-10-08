@@ -10,6 +10,7 @@ import {
   isProviderAccountingError,
   logFailedProviderAttempt,
   logCostTelemetry,
+  extractGeminiUsage,
   ProviderResultNotDurableError,
   ProviderSubmissionUncertainError,
 } from "./cost-telemetry";
@@ -401,17 +402,18 @@ export async function generateSingleImage(
   } = {}
 ): Promise<string | null> {
   const accountingTeamId = requireImageGenerationTeamId(telemetry.teamId, "Single image generation");
+  const model = getModel("geminiImage");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: telemetry.invocationKey,
     attemptKey: "single-image",
     provider: "gemini",
     operationType: "image_generation",
-    model: "gemini-2.5-flash-image",
+    model,
   });
   const startedAt = Date.now();
   try {
     const generationRequest = {
-      model: "gemini-2.5-flash-image",
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseModalities: ["Image"] },
     };
@@ -438,13 +440,15 @@ export async function generateSingleImage(
 
     await (_deps.logSuccess ?? logCostTelemetry)(
       {
-        operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+        operationType: "image_generation", provider: "gemini", model,
         ...telemetry, teamId: accountingTeamId, attempt: 1, providerRequestId: (response as any).responseId ?? null,
       },
-      {
-        imageCount: 1,
-        providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(response),
-      },
+      model === "gemini-3.1-flash-image"
+        ? extractGeminiUsage(response)
+        : {
+            imageCount: 1,
+            providerAttemptSourceEventId: providerAttemptSourceEventIdForResponse(response),
+          },
       Date.now() - startedAt, true
     );
     if (response.candidates?.[0]?.content?.parts) {
@@ -464,7 +468,7 @@ export async function generateSingleImage(
     if (isNonReplayableProviderError(error)) throw error;
     await (_deps.logFailure ?? logFailedProviderAttempt)(
       {
-        operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+        operationType: "image_generation", provider: "gemini", model,
         ...telemetry, teamId: accountingTeamId, attempt: 1,
       },
       { imageCount: 0 }, Date.now() - startedAt, error

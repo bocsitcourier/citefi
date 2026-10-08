@@ -1,0 +1,16 @@
+[
+  {
+    "id": "1",
+    "team_id": 1,
+    "run_id": "batch:1:live-first-article-v1",
+    "operation_type": "article",
+    "original_amount": 10,
+    "remaining_amount": 0,
+    "status": "RELEASED",
+    "request_key": null,
+    "reconciliation_required_at": null,
+    "reconciliation_reason": null,
+    "created_at": "2026-10-08T19:53:35.903Z",
+    "updated_at": "2026-10-08T19:54:36.220Z"
+  }
+]

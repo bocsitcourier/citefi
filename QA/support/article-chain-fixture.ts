@@ -562,6 +562,7 @@ export interface ArticleChainLiveOptions {
   authorization: "bounded-live-article";
   model: string;
   maxOutputTokens: number;
+  thinkingLevel?: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
   receiptDirectory: string;
 }
 
@@ -810,7 +811,7 @@ export async function startArticleChainFixture(live?: ArticleChainLiveOptions): 
         // The transport is the final optional argument on the production
         // generator. Keep every preceding positional argument untouched.
         args[17] = transport;
-        if (live) args[18] = { maxOutputTokens: live.maxOutputTokens };
+        if (live) args[18] = { maxOutputTokens: live.maxOutputTokens, thinkingLevel: live.thinkingLevel };
         const generate = (await import("../../lib/gemini")).generateArticleWithGemini as any;
         return generate(...args);
       };

@@ -111,3 +111,46 @@ development Redis runtime gap; the owned Next UI screenshot is not operational
 certification. Full-scope completion remains pending explicit runtime
 authorization/remediation, with no false completion inferred from health 200,
 typecheck, or paid-cap planning.
+
+## Latest live QA continuation — E-043 through E-046
+
+This is the latest current view and supersedes earlier no-paid-call/paused-gate
+wording for the architect-authorized phase under the existing $30 total ceiling.
+It does not alter the unresolved historical incidents, historical evidence, or
+overall **NOT CERTIFIED** status.
+
+| Evidence | Current result | Boundary |
+|---|---|---|
+| E-043 | Four genuine Gemini 3.5 Flash article submissions returned HTTP 200 and were durably receipted/settled; all four end-to-end cases failed. Conservative usage estimate totals $0.474870. | Case details in `QA/evidence/live-current/live-qa-summary.md`. Authenticated retrieval endpoint 200 and other-tenant 404 across all four. No usable published `COMPLETE` result; final-judge physical calls 0. |
+| E-044 | Production FAQ rendering regression 3/3; latest native Gemini thinking-token cost-accounting regression 16/16, superseding retained 12/12; whole-project typecheck passed. | Valid native prompt+total are authoritative (output = total−prompt); otherwise a complete valid split is required and inconsistent/missing pricing splits fail closed to `UNKNOWN`. Image units independent. No conversion of failed live outcomes into passes; raw exports unchanged and no historical/app-DB rebilling. |
+| E-045 | Initial image preflight's `2,520` vs official `2520` formatting-only mismatch was fixed through section-whitespace and optional-comma normalization; bounded preflight now passes at $0.1592 max estimate / $0.16 reserve. | No paid image submission or image E2E pass; filesystem storage, targeted Gemini 3.1 image model rather than app default Gemini 2.5. No live audio/video calls. |
+| E-046 | `application-login.jpg` passed static screenshot review. | Static visual only; anonymous API 401 is expected. Not authenticated-login or generation certification. |
+
+The latest settled `budget-ledger.json` is the current cost source: ceiling
+$30.000000, known prior valuation $0.517071, separate $6 historical coverage
+HOLD (not actual spend), new estimated usage $0.474870, and availability
+$23.008059. These are conservative usage valuations, not an invoice.
+Per-case outcome budget fields are pre-settlement snapshots. Historical calls
+remain `UNKNOWN / UNRECONCILED`.
+
+The production FAQ fix assembles structured metadata into the speed-mode body
+before Guardian. The cost fix accounts for native thinking tokens: one original
+case ledger showed 22,287 micro-USD charged versus 157,323 micro-USD under
+correct accounting. The current accounting regression is
+`thinking-accounting-final.tap` (16/16); the older
+`thinking-accounting-regression.tap` (12/12) remains historical and is not
+aggregated. `speedmode-faq-regression.tap` remains 3/3. Whole-project typecheck
+evidence is `final-typecheck.txt`.
+
+No additional image call occurred. The initial image preflight failure was only
+the formatted official-cost string `2,520` versus `2520`; whitespace and
+optional-comma normalization corrected it. The bounded rerun passed preflight
+only. `application-login.jpg` is a static visual screenshot; the anonymous API
+401 is expected and does not certify login or generation.
+
+Paid QA stopped after four failed article cases as agreed with the architect;
+this was not a provider payment/billing failure. No further paid call is claimed
+in this phase. Before another live attempt, review model thinking/output
+limits and requested word-range behavior, with new bounded preflight and
+authorization. Official pricing captures and full per-case report are under
+`QA/evidence/live-current/`.

@@ -1,0 +1,44 @@
+{
+  "profile": "text-only; no images generated; professional tone uses genuine deterministic Guardian",
+  "report": {
+    "passed": false,
+    "score": 64,
+    "missingElements": [
+      "MISSING_HYPERLINKS: Found 0 <a> tag(s), need at least 3. Add internal or contextual links.",
+      "MISSING_FAQ: No FAQ section found. Add an <h3>Frequently Asked Questions</h3> section with 2+ Q&A pairs."
+    ],
+    "formattingIssues": [],
+    "suggestions": [],
+    "breakdown": {
+      "images": {
+        "count": 0,
+        "required": 0,
+        "passed": true
+      },
+      "hyperlinks": {
+        "count": 0,
+        "required": 3,
+        "passed": false
+      },
+      "faq": {
+        "present": false,
+        "questionCount": 0,
+        "required": 2,
+        "passed": false
+      },
+      "wordCount": {
+        "count": 1236,
+        "required": 600,
+        "passed": true
+      },
+      "rawMarkdown": {
+        "clean": true,
+        "issues": []
+      },
+      "tone": {
+        "passed": true,
+        "reason": "skipped"
+      }
+    }
+  }
+}

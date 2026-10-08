@@ -1,0 +1,5 @@
+{
+  "wordCountMin": 700,
+  "wordCountMax": 2000,
+  "purpose": "Explicit requested word range; production validation remains unchanged"
+}

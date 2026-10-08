@@ -1,0 +1,2 @@
+🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+OFFLINE SERIALIZED SDK + GUARD SMOKE PASS: mocked fetch only; no services, database queries, or paid network calls

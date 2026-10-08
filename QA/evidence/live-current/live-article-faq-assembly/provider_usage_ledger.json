@@ -1,0 +1,44 @@
+[
+  {
+    "id": "1",
+    "source_event_id": "provider-attempt:e6fea5189143df7bc6fe8eec914976c9edfa86c95fddb2abebb6c4078e20488b",
+    "team_id": 1,
+    "agency_team_id": null,
+    "event_type": "usage",
+    "original_event_id": null,
+    "campaign_id": null,
+    "run_id": null,
+    "job_id": null,
+    "content_id": 1,
+    "resource_type": "article",
+    "resource_id": "1",
+    "operation_type": "article_generation",
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "unit_type": "tokens",
+    "input_units": 6674,
+    "output_units": 2552,
+    "unit_count": 18943,
+    "cost_microusd": "32979",
+    "rate_version_id": 3,
+    "provider_rate_id": 36,
+    "rate_snapshot": {
+      "version": "live-article-official-v1",
+      "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "microusdPerUnit": null,
+      "inputMicrousdPerMillion": 1500000,
+      "outputMicrousdPerMillion": 9000000
+    },
+    "provider_request_id": "wvTHarq4EqbO_uMPqonB8Ak",
+    "provider_metadata": {
+      "latencyMs": null,
+      "httpStatus": null,
+      "actualModel": "gemini-3.5-flash",
+      "operationId": null,
+      "finishReason": null,
+      "providerRequestId": "wvTHarq4EqbO_uMPqonB8Ak"
+    },
+    "occurred_at": "2026-10-08T19:54:20.707Z",
+    "recorded_at": "2026-10-08T19:54:20.736Z"
+  }
+]

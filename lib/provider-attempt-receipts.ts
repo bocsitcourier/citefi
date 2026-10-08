@@ -99,6 +99,7 @@ export interface SafeProviderRequest {
   imageAspectRatio?: string | null;
   imageSize?: string | null;
   thinkingBudget?: number | null;
+  thinkingLevel?: string | null;
   maxDurationSeconds?: number | null;
   maxImages?: number | null;
   maxRequests?: number | null;
@@ -333,6 +334,7 @@ function normalizeRequest(request: SafeProviderRequest, context: ProviderAttempt
     imageAspectRatio: boundedOptionalString(request.imageAspectRatio, "imageAspectRatio"),
     imageSize: boundedOptionalString(request.imageSize, "imageSize"),
     thinkingBudget: boundedNonNegativeInteger(request.thinkingBudget, "thinkingBudget"),
+    thinkingLevel: boundedOptionalString(request.thinkingLevel, "thinkingLevel"),
     maxDurationSeconds: boundedNonNegativeInteger(request.maxDurationSeconds, "maxDurationSeconds"),
     maxImages: boundedNonNegativeInteger(request.maxImages, "maxImages"),
     maxRequests: boundedNonNegativeInteger(request.maxRequests, "maxRequests"),
@@ -689,6 +691,7 @@ const SAFE_REQUEST_METADATA_KEYS = new Set([
   "responseMimeType",
   "responseModalities",
   "thinkingBudget",
+  "thinkingLevel",
   "imageAspectRatio",
   "imageSize",
   "maxDurationSeconds",

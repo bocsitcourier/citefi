@@ -77,3 +77,33 @@ The seven QA master documents were updated as append-only current views:
 `CERTIFICATION_STATUS.md`, `BUG_REGISTRY.md`, `PROVIDER_RECONCILIATION.md`,
 `MASTER_TEST_PLAN.md`, `AI_COST_AUDIT.md`, `REGRESSION_MATRIX.md`, and
 `RECEIPT_AUDIT.md`. Earlier source counts and red evidence remain preserved.
+
+## Latest live QA continuation: E-043 through E-046
+
+The architect-assisted article QA was authorized under the **existing $30 total
+ceiling**. This latest section supersedes earlier statements above that the
+historical-reconciliation gate still prevented new paid calls or that no new
+paid provider call occurred. The two historical calls remain
+`UNKNOWN / UNRECONCILED`; the $6 hold remains coverage treatment, not spend.
+Overall certification remains **NOT CERTIFIED**.
+
+| ID | Current result | Evidence and limitation |
+|---|---|---|
+| E-043 | Four genuine Gemini 3.5 Flash article requests returned HTTP 200 and were durably receipted/settled. All four end-to-end cases failed. Conservative usage estimate: $0.474870. | `QA/evidence/live-current/live-qa-summary.md`, case directories, and final `budget-ledger.json`. Authenticated retrieval endpoint 200 and other-tenant 404 each; no usable published `COMPLETE` result and zero final-judge physical calls. Estimate is not an invoice. |
+| E-044 | Fixed speed-mode omission of structured FAQ metadata from rendered body; FAQ regression 3/3. Latest Gemini COGS accounting regression is 16/16, superseding retained 12/12; whole-project TypeScript passed. | `speedmode-faq-regression.tap`, `thinking-accounting-final.tap`, and `final-typecheck.txt`. Valid native prompt+total counts are authoritative (output = total−prompt); otherwise require a complete valid split and fail closed to `UNKNOWN` for inconsistent/missing pricing splits. Image units are independent. Do not aggregate TAP counts. Original exports unchanged; no historical/application-DB rebilling. |
+| E-045 | Initial image preflight mismatch (`2,520` vs official `2520`) was formatting-only and corrected by section-whitespace/optional-comma normalization; bounded preflight now passes at $0.1592 maximum estimate and $0.16 reserve. | Preflight only: no paid image call or image E2E pass. Filesystem storage, not cloud, and targeted Gemini 3.1 image model, not app default Gemini 2.5. No live audio/video calls. |
+| E-046 | `application-login.jpg` passed static screenshot review. | Static visual observation only; anonymous API 401 is expected. Not authenticated-login or generation certification. |
+
+The latest settled `budget-ledger.json` records the $30 ceiling, $0.517071
+known prior valuation, separate $6 historical HOLD (not actual spend), the
+$0.474870 new usage estimate, and $23.008059 availability. Per-case
+`outcome.json.totalBudget` is a pre-settlement snapshot; do not use it for the
+latest available balance. The official provider-pricing captures are in
+`QA/evidence/live-current/`.
+
+Paid QA stopped after these four failed cases as agreed with the architect;
+this was not a provider payment/billing failure. Before any next live article
+attempt, review thinking-token/output limits and requested word-count bounds,
+then obtain a new bounded preflight/authorization. No further paid calls are
+claimed in this phase. Audio/video remain untested live. Detailed result,
+limitations, and next steps: `QA/evidence/live-current/live-qa-summary.md`.

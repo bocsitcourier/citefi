@@ -1,0 +1,41 @@
+[
+  {
+    "id": 1,
+    "public_id": "7e6479e5-bc0a-43e7-82a0-53ac98326624",
+    "user_id": 1,
+    "team_id": 1,
+    "campaign_id": null,
+    "locale_id": 1,
+    "core_topic": "QA home-care guide",
+    "target_url": "https://example.com/services",
+    "status": "FAILED",
+    "num_articles_requested": 1,
+    "title_pool_json": [],
+    "generation_params": {
+      "tone": "professional",
+      "audience": "local families",
+      "submission": {
+        "jobId": "batch-1",
+        "state": "ACCEPTED",
+        "creditRunId": "batch:1:live-first-article-v1",
+        "idempotencyKey": "live-first-article-v1"
+      },
+      "wordCountMax": 1400,
+      "wordCountMin": 700,
+      "geographicFocus": "San Francisco"
+    },
+    "business_name": "QA Article Chain",
+    "business_address": null,
+    "business_phone": null,
+    "company_logo_url": null,
+    "competitor_urls_json": null,
+    "semantic_cluster_id": null,
+    "serp_feature_target": null,
+    "auto_publish_enabled": 0,
+    "auto_publish_connection_ids": null,
+    "persona_id": null,
+    "deleted_at": null,
+    "created_at": "2026-10-08T19:53:30.470Z",
+    "completed_at": "2026-10-08T19:54:36.206Z"
+  }
+]

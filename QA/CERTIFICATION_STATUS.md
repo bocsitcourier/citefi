@@ -373,3 +373,30 @@ remaining gate, and full-scope completion remains pending.
 only the named controlled-evidence current columns and boundaries. Historical
 source counts, red logs, and the overall **NOT CERTIFIED** decision remain
 unchanged.
+
+## Latest live QA continuation — E-043 through E-046
+
+The architect-assisted continuation used the existing $30 total ceiling. It
+supersedes earlier statements that no new paid calls occurred or that the
+historical reconciliation gate prevented this authorized phase; it does not
+change either historical call's `UNKNOWN / UNRECONCILED` status or create a new
+spend ceiling. Overall certification remains **NOT CERTIFIED**.
+
+| Evidence ID | Current result | Boundary |
+|---|---|---|
+| E-043 | Four genuine Gemini 3.5 Flash article requests returned HTTP 200 and were durably receipted/settled; estimates total $0.474870. All four end-to-end cases failed. Exact-case outcomes and token/cost observations are in `QA/evidence/live-current/live-qa-summary.md` and the case artifacts. | Retrieval endpoint 200 and other authenticated tenant 404 in each case; these are not content acceptance. No usable published `COMPLETE` result; final-judge physical calls 0. Latest ledger availability is $23.008059 after the known $0.517071 valuation and separate $6 historical coverage HOLD (not spend). |
+| E-044 | Structured FAQ rendering production fix regression is 3/3; latest Gemini thinking-token accounting regression is 16/16 (`thinking-accounting-final.tap`), superseding the retained earlier 12/12 run; whole-project typecheck passed. | Latest accounting logic treats valid native prompt/total counts as authoritative, derives output as total minus prompt, otherwise requires a complete valid split and fails closed to `UNKNOWN` for inconsistent/missing pricing splits; image units remain independently accounted. Neither regression changes the four failed live cases. Original exports were not rewritten and no historical/application-database rebilling was performed. |
+| E-045 | Image preflight's formatting-only mismatch (`2,520` vs official `2520`) was corrected with section-whitespace and optional-comma normalization; bounded preflight now passes at $0.1592 maximum estimate with $0.16 reserve. | No paid image call or image E2E pass; filesystem storage, and targeted Gemini 3.1 image model differs from application Gemini 2.5 default. No live audio/video calls. |
+| E-046 | `application-login.jpg` passed static screenshot review. | Static login-page appearance only; anonymous API 401 is expected. Not authenticated-login, generation, or certification evidence. |
+
+Use the final settled `budget-ledger.json` for current totals; individual
+`outcome.json.totalBudget` values are pre-settlement snapshots. The $0.474870 is
+a conservative usage estimate, not an invoice. The user/architect stopped paid
+QA after these four failed cases; this was not a billing/payment failure. Do
+not infer more authorization or a pass from typecheck, regression TAPs, HTTP
+200, or tenant-denial behavior. Full evidence and next-step bounds:
+`QA/evidence/live-current/live-qa-summary.md`.
+
+E-044's previous 12/12 TAP remains retained history, not an aggregate to add to
+the current 16/16. The full-project typecheck result is retained in
+`QA/evidence/live-current/final-typecheck.txt`.

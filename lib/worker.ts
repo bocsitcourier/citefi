@@ -103,7 +103,7 @@ import {
   FinalizationQualityGateError,
   type FinalizationGateDependencies,
 } from "./generation-finalization-gate";
-import { renderArticleMarkdown } from "./article-markdown";
+import { appendFaqToArticleMarkdown, renderArticleMarkdown } from "./article-markdown";
 
 export { getArticleGenerationBilling } from "./pipeline-billing";
 
@@ -1285,7 +1285,11 @@ export const processArticleGenerationJob = async (
           
           // Render Gemini Markdown locally in speed mode. Provider output is
           // untrusted; never interpolate it into HTML or permit raw tags.
-          const speedModeHtml = renderArticleMarkdown(geminiResult.rawContent);
+          const speedModeMarkdown = appendFaqToArticleMarkdown(
+            geminiResult.rawContent,
+            geminiResult.faq,
+          );
+          const speedModeHtml = renderArticleMarkdown(speedModeMarkdown);
           assertValidArticleOutput(speedModeHtml, {
             format: "html",
             minWords: wordCountMin || 800,
