@@ -1,5 +1,20 @@
 # AI Cost and Usage Audit
 
+## Selected speech/video preparation — no new paid authorization
+
+Current authoritative selected pricing: TTS-1 $15/M input characters,
+Gemini 3.5 Flash $1.50/M input and $9/M output including thinking, Veo 3.1 Fast
+720p $0.10/s. The prepared exact-code-bound plan reserves at most $0.65 for one
+podcast and $6.30 for one video, **$6.95 combined**, from the retained ledger;
+$22.939297 remains available and no new actual spend occurred.
+Offline fixture receipts/COGS/debits and fully decoded retrieved output passed,
+but simulated billing is not actual paid acceptance. The owner approved
+preparation only; paid execution remains blocked. Deprecated selected TTS-1 is
+not production-default speech certification; filesystem storage is not cloud
+certification. Source records and current hashes are in
+`evidence/live-current/selected-media-pricing.md` and
+`evidence/live-current/selected-media-preflight.json`.
+
 ## Latest media reservation — supersedes older no-image-call statements
 
 One physical Gemini 3.1 image request returned HTTP200 but failed the QA

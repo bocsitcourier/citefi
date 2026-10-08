@@ -8,6 +8,8 @@ import {
 import { executePaidMediaBoundary } from "./media-provider-boundary";
 import { redactProviderError } from "./provider-diagnostics";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { TTS_MODEL } from "./ai-config";
+import { mergeMp3Buffers } from "./merge-mp3-segments";
 
 export interface TTSOptions {
   voice: 'nova' | 'onyx' | 'alloy' | 'echo' | 'fable' | 'shimmer';
@@ -25,7 +27,7 @@ export async function generateSpeech(
       mediaKind: "audio",
       submit: () => callOpenAI(
         (client) => client.audio.speech.create({
-          model: "gpt-4o-mini-tts",
+          model: TTS_MODEL,
           voice: voice,
           input: text,
           speed: speed,
@@ -34,7 +36,7 @@ export async function generateSpeech(
         undefined,
         {
           operationType: telemetryCtx?.operationType ?? "podcast_tts",
-          model: "gpt-4o-mini-tts",
+          model: TTS_MODEL,
           teamId: telemetryCtx?.teamId,
           userId: telemetryCtx?.userId,
           articleId: telemetryCtx?.articleId,
@@ -42,7 +44,7 @@ export async function generateSpeech(
           resourceType: telemetryCtx?.articleId != null ? "article" : undefined,
           resourceId: telemetryCtx?.articleId,
           usage: { characters: text.length },
-          request: { model: "gpt-4o-mini-tts" },
+          request: { model: TTS_MODEL },
         }
       ),
       persist: async (mp3Response) => {
@@ -75,17 +77,25 @@ export async function mergeAudioSegments(
   }
 
   const audioBuffers: Buffer[] = [];
+  const completedSpeech = new Map<string, Buffer>();
+  let paidSegments = 0;
   
   for (const segment of segments) {
     const voice = segment.voice === 'female' ? 'nova' : 'onyx';
     try {
-      const buffer = await generateSpeech(segment.text, { voice }, telemetryCtx);
+      const key = `${voice}\0${segment.text}`;
+      let buffer = completedSpeech.get(key);
+      if (!buffer) {
+        buffer = await generateSpeech(segment.text, { voice }, telemetryCtx);
+        completedSpeech.set(key, buffer);
+        paidSegments++;
+      }
       audioBuffers.push(buffer);
     } catch (error) {
       if (isNonReplayableProviderError(error)) throw error;
-      if (audioBuffers.length > 0) {
+      if (paidSegments > 0) {
         throw new ProviderResultNotDurableError(
-          `${audioBuffers.length} paid podcast TTS segment(s) completed before a later segment failed; refusing automatic replay`,
+          `${paidSegments} paid podcast TTS segment(s) completed before a later segment failed; refusing automatic replay`,
           null,
           error
         );
@@ -96,10 +106,15 @@ export async function mergeAudioSegments(
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   
-  const totalLength = audioBuffers.reduce((sum, buf) => sum + buf.length, 0);
-  const mergedBuffer = Buffer.concat(audioBuffers, totalLength);
-  
-  return mergedBuffer;
+  try {
+    return await mergeMp3Buffers(audioBuffers);
+  } catch (error) {
+    throw new ProviderResultNotDurableError(
+      "Paid podcast audio could not be merged into a playable MP3; refusing automatic replay",
+      null,
+      error,
+    );
+  }
 }
 
 export function estimateAudioDuration(textLength: number): number {

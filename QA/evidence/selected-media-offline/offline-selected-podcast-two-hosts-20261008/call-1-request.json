@@ -1,0 +1,12 @@
+{
+  "number": 1,
+  "kind": "script",
+  "sourceEventId": "provider-attempt:a9c59507a11285dfcebd78afa9a7449f7186a9663b4061bc6d2d33491701b192",
+  "requestSha256": "d24a7591ea381de24da742a190836bceb18805e18ed9b54250dc81abf231a7d4",
+  "state": "pending",
+  "model": "gemini-3.5-flash",
+  "submittedAt": "2026-10-08T22:15:12.044Z",
+  "requestUnits": null,
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1
+}

@@ -1,0 +1,12 @@
+{
+  "number": 2,
+  "kind": "tts",
+  "sourceEventId": "provider-attempt:cd6d0219730e2ed4685f0ac7d4d77c784eee5f2a69f379b90384c341b53cb21b",
+  "requestSha256": "83b98dfa70d213b4ae8444517793301a5ea383d67a03eecd4da255f50b8e4277",
+  "state": "pending",
+  "model": "tts-1",
+  "submittedAt": "2026-10-08T22:15:12.201Z",
+  "requestUnits": 704,
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1
+}

@@ -1,0 +1,4 @@
+{
+  "reason": "Offline selected QA requires a fixture transport",
+  "noRetry": true
+}

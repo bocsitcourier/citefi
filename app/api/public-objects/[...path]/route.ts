@@ -8,6 +8,7 @@ import {
   publishingJobs,
   socialPostAssets,
   socialPosts,
+  videoIdeas,
 } from "@/shared/schema";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -34,7 +35,7 @@ export async function GET(
     }
 
     const requestedUrl = `/api/public-objects/${filePath}`;
-    const [articleAsset, socialAsset] = await Promise.all([
+    const [articleAsset, socialAsset, ideaVideo] = await Promise.all([
       systemDb.select({
         teamId: articles.teamId,
         articleId: articles.id,
@@ -49,8 +50,20 @@ export async function GET(
         .innerJoin(socialPosts, eq(socialPosts.id, socialPostAssets.socialPostId))
         .where(eq(socialPostAssets.storageUrl, requestedUrl))
         .limit(1),
+      systemDb.selectDistinct({
+        teamId: videoIdeas.teamId,
+      }).from(videoIdeas)
+        .where(eq(videoIdeas.videoUrl, requestedUrl))
+        .limit(2),
     ]);
-    const owner = articleAsset[0] ?? socialAsset[0];
+    const ownerTeamIds = [articleAsset[0]?.teamId, socialAsset[0]?.teamId, ...ideaVideo.map(row => row.teamId)]
+      .filter(id => id != null);
+    if (new Set(ownerTeamIds).size > 1) {
+      // A URL recorded against conflicting tenant owners is never a grant.
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+    const videoOwner = ideaVideo[0] ? { teamId: ideaVideo[0].teamId, videoIdea: true } : undefined;
+    const owner = articleAsset[0] ?? socialAsset[0] ?? videoOwner;
     if (!owner?.teamId) {
       // Generic uploads and untracked storage keys are never anonymously
       // enumerable, even if somebody guesses the object name.
@@ -58,7 +71,7 @@ export async function GET(
     }
 
     let publiclyPublished = false;
-    if (!filePath.startsWith("private/")) {
+    if (!filePath.startsWith("private/") && !("videoIdea" in owner)) {
       const published = "articleId" in owner
         ? await systemDb.select({ id: publishingJobs.id }).from(publishingJobs)
             .where(and(

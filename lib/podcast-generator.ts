@@ -204,6 +204,10 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
           parts: [{ text: prompt }],
         },
       ],
+      config: {
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+      },
     };
     const result = await throttledGeminiRequest(
       () => genAI.models.generateContent(generationRequest),

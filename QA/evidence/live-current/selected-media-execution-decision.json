@@ -1,0 +1,28 @@
+{
+  "approved": true,
+  "decisionType": "conditional_execution_only",
+  "decisionDate": "2026-10-08",
+  "decisionSource": "Independent architect execution decision",
+  "manifestSha256": "ee5871d2968ccada3b97cf1dc8285012d417cd3387408a429eec789e9f5dde2e",
+  "maximumCombinedUsd": 6.95,
+  "stages": ["podcast", "video"],
+  "stageOrder": ["podcast", "video"],
+  "stageReservesUsd": {"podcast": 0.65, "video": 6.30},
+  "newImageCallsAuthorized": false,
+  "ownerPaidPermissionRequiredSeparately": true,
+  "ownerPaidPermissionPresent": false,
+  "overallStatus": "NOT CERTIFIED",
+  "constraints": [
+    "One paid run per stage per exact manifest; podcast before video",
+    "Video requires settled successful podcast acceptance and durable pre-cleanup export",
+    "Current same-UTC-day authoritative pricing and matching implementation/source hashes",
+    "Recheck approvals and exact manifest before every live paid POST",
+    "Any failure, ambiguous spend or incomplete export stops subsequent paid stages",
+    "Retain applicable holds, native responses and operation IDs",
+    "Owned loopback PostgreSQL/Redis and durable filesystem adapter only",
+    "Export all receipts, usage/rates, credit rows, native artifacts and delivered bytes before cleanup",
+    "No retries, fallback, hidden auxiliary paid calls, new image calls, customer DB, publishing or schedulers",
+    "Selected deprecated TTS-1 only; no production-default speech certification",
+    "No cloud-storage certification, article certification or failed-image certification"
+  ]
+}

@@ -38,3 +38,14 @@ so character telemetry cannot prove either actual cost or a hard output bound.
 **How to apply:** Establish a defensible enforced cost ceiling and billable-unit
 receipt strategy before any paid TTS submission, including each segment and any
 verification calls.
+
+The owner selected a **TTS-1 preparation-only QA path**, with no production
+default replacement and no default-model certification.
+
+**Why:** Character-priced selected-model QA can be bounded without pretending
+to prove the token-priced default TTS path. The owner approved preparing this
+alternative, not paying for it; official documentation labels TTS-1 deprecated.
+
+**How to apply:** Preserve the production default. Require fresh official
+pricing, an independently approved bounded execution manifest and separate
+owner paid permission; stop on rejection without model fallback.

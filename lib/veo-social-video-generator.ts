@@ -511,6 +511,8 @@ export async function generateVideoFromScript(
     const audio = await (deps.generateTTS ?? generateVeoTTS)({
       teamId,
       socialPostId: videoIdeaId, // Use videoIdeaId for temp file naming
+      resourceType: "video_idea",
+      resourceId: videoIdeaId,
       clips: script.clips.map(clip => ({
         sceneNumber: clip.sceneNumber,
         targetDuration: clip.targetDuration,

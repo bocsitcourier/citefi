@@ -102,6 +102,8 @@ export interface VeoTTSResult {
 
 interface GenerateVeoTTSRequest {
   teamId: number;
+  resourceType?: "social_post" | "video_idea";
+  resourceId?: number;
   socialPostId: number;
   clips: VeoClipPrompt[];
   tone: string;
@@ -150,8 +152,8 @@ export async function generateVeoTTS(
         operationType: "video_tts",
         model: TTS_MODEL,
         teamId,
-        resourceType: "social_post",
-        resourceId: socialPostId,
+        resourceType: request.resourceType ?? "social_post",
+        resourceId: request.resourceId ?? socialPostId,
         usage: { characters: ttsNarration.length },
         request: { model: TTS_MODEL },
       }

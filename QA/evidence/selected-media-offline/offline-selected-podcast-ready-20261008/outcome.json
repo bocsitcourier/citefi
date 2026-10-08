@@ -1,0 +1,19 @@
+{
+  "endToEndPass": false,
+  "evidence": {
+    "offline": true,
+    "modelClaims": "selected tts-1 (deprecated), NOT default gpt-4o-mini-tts; durable filesystem adapter, NOT cloud certification",
+    "omittedPaidAuxiliaries": [
+      "expansion",
+      "critic",
+      "Drive",
+      "learning"
+    ],
+    "storageBoundary": "durable owned filesystem, not cloud",
+    "customerDatabaseAccessed": false,
+    "tenantGenerationDenial": 404
+  },
+  "offline": true,
+  "certification": "NOT CERTIFIED",
+  "applicationRebilling": false
+}

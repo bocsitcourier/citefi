@@ -32,10 +32,26 @@ import {
   preflight as preflightLiveImage,
   reserveImageRun,
 } from "../../QA/support/live-media-budget.mjs";
+import { installSelectedMediaNetworkGuard } from "../../QA/support/selected-media-network.mjs";
+import { registerSelectedMediaAcceptance } from "./selected-media-acceptance";
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
 const LIVE_IMAGE_QA = process.env.LIVE_QA_IMAGE === "1";
+const SELECTED_MEDIA_QA = process.env.SELECTED_MEDIA_QA;
+const SELECTED_MEDIA_OFFLINE = process.env.SELECTED_MEDIA_OFFLINE === "1";
+const SELECTED_MEDIA_RUN_ID = process.env.SELECTED_MEDIA_RUN_ID;
+if (SELECTED_MEDIA_QA && !["podcast", "video"].includes(SELECTED_MEDIA_QA)) {
+  throw new Error("Unknown selected media stage");
+}
+if (SELECTED_MEDIA_QA && LIVE_IMAGE_QA) throw new Error("Image and selected AV QA must run separately");
+if (SELECTED_MEDIA_QA && !/^[a-z0-9-]{1,80}$/.test(SELECTED_MEDIA_RUN_ID ?? "")) {
+  throw new Error("Selected media requires a unique run ID");
+}
+if (SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE) {
+  const { assertPaidMediaPermission } = await import("../../QA/support/selected-media-plan.mjs");
+  assertPaidMediaPermission(SELECTED_MEDIA_QA);
+}
 if (LIVE_IMAGE_QA && !process.env.GEMINI_API_KEY) {
   throw new Error("LIVE_QA_IMAGE requires a runtime-injected GEMINI_API_KEY; .env.local is never loaded");
 }
@@ -317,6 +333,17 @@ async function assertCanonicalSecurityBootstrap(): Promise<void> {
 }
 
 function installOwnedNetworkGuard(liveBudgetRun?: () => ReturnType<typeof reserveImageRun> | undefined): () => void {
+  if (SELECTED_MEDIA_QA) {
+    return installSelectedMediaNetworkGuard(
+      () => selectedMediaRun,
+      () => selectedReceiptGetter?.(),
+      { fixtureFetch: SELECTED_MEDIA_OFFLINE
+        ? (input: any, init: any) => {
+          if (!selectedFixtureFetch) throw new Error("Selected fixture transport not initialized");
+          return selectedFixtureFetch(input, init);
+        } : undefined },
+    );
+  }
   if (LIVE_IMAGE_QA) {
     return installGeminiImageNetworkGuard(liveBudgetRun);
   }
@@ -393,11 +420,18 @@ async function startOwnedInfrastructure(): Promise<{
     DO_SPACES_ENDPOINT: "http://127.0.0.1:1",
     DO_SPACES_BUCKET: "fixture-bucket",
     DEFAULT_OBJECT_STORAGE_BUCKET_ID: "fixture-bucket",
-    GEMINI_API_KEY: LIVE_IMAGE_QA ? process.env.GEMINI_API_KEY : "fixture-no-network",
+    GEMINI_API_KEY: LIVE_IMAGE_QA || (SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE)
+      ? process.env.GEMINI_API_KEY : "fixture-no-network",
     GEMINI_IMAGE_MODEL: LIVE_IMAGE_QA
       ? "gemini-3.1-flash-image"
       : process.env.GEMINI_IMAGE_MODEL,
-    OPENAI_API_KEY: "fixture-no-network",
+    OPENAI_API_KEY: SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE
+      ? process.env.OPENAI_API_KEY : "fixture-no-network",
+    ...(SELECTED_MEDIA_QA ? {
+      TTS_MODEL: "tts-1", TTS_VOICE: "onyx",
+      GEMINI_FLASH_MODEL: "gemini-3.5-flash",
+      VEO_VIDEO_MODEL: "veo-3.1-fast-generate-preview",
+    } : {}),
   };
   await runCommand("initdb", [
     "-D", pgData, "-A", "trust", "-U", "qa_media_acceptance",
@@ -489,10 +523,17 @@ let closeImageTransport: (() => void) | undefined;
 let closeProductionQueues: (() => Promise<void>) | undefined;
 let closeProductionDb: (() => Promise<void>) | undefined;
 let exportLiveEvidence: (() => Promise<void>) | undefined;
+let selectedMediaRun: any;
+let selectedReceiptGetter: (() => any) | undefined;
+let selectedFixtureFetch: ((input: any, init: any) => Promise<Response>) | undefined;
 test.after(async () => {
   // If export fails, preserve owned storage/DB and the receipt spool for
   // recovery. Never delete the only evidence of a paid provider submission.
   await exportLiveEvidence?.();
+  if (SELECTED_MEDIA_QA) {
+    const { closeOpenAIClient } = await import("../../lib/openai-client");
+    await closeOpenAIClient();
+  }
   closeImageTransport?.();
   // BullMQ owns the process Redis client. Close queues and that client while
   // owned Redis is still alive; stopping Redis first leaves ioredis retry
@@ -528,9 +569,11 @@ restoreNetworkGuard = installOwnedNetworkGuard(() => liveImageBudgetRun);
 const { db, systemDb, closeDb } = await import("../../lib/db");
 closeProductionDb = closeDb;
 const schema = await import("../../shared/schema");
-if (LIVE_IMAGE_QA) {
+if (LIVE_IMAGE_QA || SELECTED_MEDIA_QA) {
   exportLiveEvidence = async () => {
-    const directory = join(ROOT, "QA/evidence/live-current", process.env.LIVE_QA_IMAGE_RUN_ID!);
+    const directory = SELECTED_MEDIA_QA
+      ? selectedMediaRun?.directory ?? join(owned.root, "selected-media-aborted-export")
+      : join(ROOT, "QA/evidence/live-current", process.env.LIVE_QA_IMAGE_RUN_ID!);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const evidence: Record<string, unknown> = {
       databaseBoundary: "owned disposable loopback PostgreSQL; no customer DB",
@@ -539,6 +582,7 @@ if (LIVE_IMAGE_QA) {
     for (const name of [
       "providerAttemptReceipts", "providerUsageLedger", "creditReservations",
       "creditLedger", "providerRateVersions", "providerRates", "articleAssets",
+      "articles", "videoIdeas",
     ] as const) {
       const table = schema[name];
       // The entire DB is owned synthetic QA. Never export sessions/tokens.
@@ -557,6 +601,11 @@ if (LIVE_IMAGE_QA) {
       cleanupPermitted: true,
     }, null, 2), { mode: 0o600 });
     await syncEvidenceTree(directory);
+    if (SELECTED_MEDIA_QA && SELECTED_MEDIA_OFFLINE) {
+      const retained = join(ROOT, "QA/evidence/selected-media-offline", SELECTED_MEDIA_RUN_ID!);
+      await cp(directory, retained, { recursive: true, force: false, errorOnExist: true });
+      await syncEvidenceTree(retained);
+    }
   };
 }
 const { generateAccessToken, hashToken } = await import("../../lib/auth");
@@ -1321,4 +1370,14 @@ test("row 17: podcast route -> Redis job -> exported worker stores measured MP3 
     .where(eq(schema.creditReservations.teamId, teamId))
     .orderBy(desc(schema.creditReservations.id)).limit(1);
   assert.equal(reservation?.status, "DEBITED");
+});
+
+registerSelectedMediaAcceptance({
+  owned, schema, systemDb, userId, teamId, articleId, ideaId, likeIdeaId, wrongTeamId,
+  token, wrongTenantToken, authHeaders, wrongTenantHeaders, fixtureAudioBytes,
+  runWithAuthenticatedTeamContext, videoIdeaDependencies, startPublicObjectsHttpServer,
+  setRun: (run: any) => { selectedMediaRun = run; },
+  setReceiptGetter: (getter: () => any) => { selectedReceiptGetter = getter; },
+  setFixtureFetch: (fetcher: any) => { selectedFixtureFetch = fetcher; },
+  setPublicServer: (server: Server) => { publicObjectsServer = server; },
 });

@@ -1,0 +1,13 @@
+{
+  "runId": "offline-selected-video-20261008",
+  "actualUsd": 3.029535,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 3.573167,
+    "availableUsd": 19.909762
+  }
+}

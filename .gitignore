@@ -33,3 +33,7 @@ DO_SSH_PUBLIC_KEY.txt
 
 # Redis runtime snapshot — never commit
 dump.rdb
+
+# Retain offline simulated media on disk; commit receipts/hashes, not fixtures.
+QA/evidence/selected-media-offline/**/*.mp3
+QA/evidence/selected-media-offline/**/*.mp4

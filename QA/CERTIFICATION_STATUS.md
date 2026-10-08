@@ -2,6 +2,19 @@
 
 **Overall status: NOT CERTIFIED.**
 
+**Selected podcast/video preparation:** Owned, simulated-provider runs passed
+authenticated route/queue/worker processing, native receipt correlation,
+credit debit and locked-rate COGS, tenant and anonymous retrieval denial, full
+FFmpeg decode and non-silent playback. The two-host podcast measures 60.081633s;
+the ten-clip stitched video measures 55.5s. These are **offline fixtures, not
+real-provider acceptance**. No new paid calls were made. A separately reviewed
+execution scope proposes one selected TTS-1 podcast ($0.65 reserve) then one
+720p Veo 3.1 Fast video ($6.30), maximum **$6.95** under the existing USD30 ledger.
+New owner paid permission is still missing. See `SELECTED_MEDIA_EXECUTION.md`.
+TTS-1 is deprecated; production speech defaults and cloud-storage claims remain
+unchanged. Article truncation and the failed real image accounting/retrieval
+case remain unresolved and are not certified.
+
 **Latest media execution:** One separately approved physical image request
 returned native JPEG bytes but failed the application route/accounting gate.
 Offline full decode passed; application retrieval, tenant checks and settlement

@@ -1,0 +1,20 @@
+{
+  "number": 10,
+  "kind": "clip",
+  "sourceEventId": "provider-attempt:68e5c135581f37a462cb63bb5558ab3b77079027e9deed008715b210b374eaba",
+  "requestSha256": "315e255eaa9d9e915035d24c4add99ae1f0f563413d5915483fe07b05029e238",
+  "state": "receipted",
+  "model": "veo-3.1-fast-generate-preview",
+  "submittedAt": "2026-10-08T22:40:49.782Z",
+  "requestUnits": 6,
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "providerRequestId": "models/veo-3.1-fast-generate-preview/operations/offline-14",
+  "videoSeconds": 6,
+  "operationName": "models/veo-3.1-fast-generate-preview/operations/offline-14",
+  "polls": 1,
+  "billingBasis": "native completion of requested duration; decoded duration checked separately",
+  "costMicrousd": 600000,
+  "actualUsd": 0.6,
+  "receivedAt": "2026-10-08T22:40:49.945Z"
+}

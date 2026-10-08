@@ -1,0 +1,13 @@
+{
+  "runId": "offline-selected-podcast-two-hosts-20261008",
+  "actualUsd": 0.03651,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.580142,
+    "availableUsd": 22.902787
+  }
+}

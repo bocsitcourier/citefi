@@ -1,0 +1,8 @@
+{
+  "operationName": "models/veo-3.1-fast-generate-preview/operations/offline-4",
+  "sourceEventId": "provider-attempt:b66587c01c1e2071b1d14f6ceed8bd83b964876aed3c3c2acc4f1a297608b7d7",
+  "nativeSha256": "2e8f9241ce65f09482e3e4acb9e96479350e2897598ca3682e153eb0eb998bc3",
+  "acknowledgedAt": "2026-10-08T21:53:29.378Z",
+  "pollsMaximum": 30,
+  "elapsedMsMaximum": 300000
+}

@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
+import { attachVideoNarration } from "./attach-video-narration";
 import { getModel } from "./model-resolver";
 import { sanitizeVeoPrompt } from "@/types/video-schema";
 import {
@@ -64,6 +65,11 @@ interface GenerateVeoClipRequest {
   prompt: string;
   aspectRatio?: "16:9" | "9:16";
   duration?: 4 | 6 | 8;
+  /** Explicit resolution for callers that require a bounded pricing tier. */
+  resolution?: "720p" | "1080p";
+  /** Optional bounded poll policy; omitted callers retain the existing policy. */
+  maxPolls?: number;
+  pollIntervalMs?: number;
   /**
    * Standalone idea videos use the same clip adapter but have a different
    * durable owner than social posts.  Keep this explicit so the receipt
@@ -149,6 +155,14 @@ export async function generateVeoClip(
   if (!Number.isSafeInteger(attempt) || attempt <= 0) {
     throw new Error("Veo generation attempt must be a positive integer");
   }
+  if (request.maxPolls != null &&
+      (!Number.isSafeInteger(request.maxPolls) || request.maxPolls < 1 || request.maxPolls > 360)) {
+    throw new Error("Veo maxPolls must be an integer between 1 and 360");
+  }
+  if (request.pollIntervalMs != null &&
+      (!Number.isSafeInteger(request.pollIntervalMs) || request.pollIntervalMs < 0 || request.pollIntervalMs > 10000)) {
+    throw new Error("Veo pollIntervalMs must be an integer between 0 and 10000");
+  }
   const model = getModel("veoVideo");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: request.invocationKey ?? jobId ?? runId,
@@ -217,6 +231,7 @@ export async function generateVeoClip(
             aspectRatio: aspectRatio,
             durationSeconds: duration,
             numberOfVideos: 1,
+            ...(request.resolution ? { resolution: request.resolution } : {}),
           },
         });
         providerSubmitted = true;
@@ -236,11 +251,11 @@ export async function generateVeoClip(
         let pollCount = 0;
         // Veo clips (5-8s each) typically complete in 10-30 min.
         // Allow up to 360 polls × 10s = 60 min to handle slow generations.
-        const maxPolls = 360;
+        const maxPolls = request.maxPolls ?? 360;
 
         // Poll using operation object (SDK expects { operation: operationObject })
         while (!currentOperation.done && pollCount < maxPolls) {
-          await new Promise((resolve) => setTimeout(resolve, 10000));
+          await new Promise((resolve) => setTimeout(resolve, request.pollIntervalMs ?? 10000));
           pollCount++;
 
           // Guard against undefined operation name
@@ -592,10 +607,9 @@ export async function stitchVeoClips(
     console.log(`  🎵 Adding voiceover audio...`);
     const withAudioPath = path.join(tempDir, "with-audio.mp4");
     
-    // Use -shortest to end video when the shorter stream (video) ends
-    // This prevents video from freezing on last frame if audio is longer
-    const audioCmd = `${ffmpegPath} -y -i "${stitchedPath}" -i "${audioPath}" -map 0:v -map 1:a -c:v copy -c:a aac -shortest -movflags +faststart "${withAudioPath}"`;
-    execSync(audioCmd, { stdio: "pipe" });
+    // Preserve all scenes and narration: fit longer speech locally or pad
+    // shorter speech, instead of silently cutting the shorter-stream boundary.
+    await attachVideoNarration(ffmpegPath, stitchedPath, audioPath, withAudioPath);
     finalPath = withAudioPath;
   }
 

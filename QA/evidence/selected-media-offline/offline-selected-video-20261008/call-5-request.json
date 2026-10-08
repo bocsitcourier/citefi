@@ -1,0 +1,12 @@
+{
+  "number": 5,
+  "kind": "clip",
+  "sourceEventId": "provider-attempt:4cadbac42bf2204a92c918aedaae758ca2ccd6fa464f4e4ee8bbd2061443da20",
+  "requestSha256": "315e255eaa9d9e915035d24c4add99ae1f0f563413d5915483fe07b05029e238",
+  "state": "pending",
+  "model": "veo-3.1-fast-generate-preview",
+  "submittedAt": "2026-10-08T21:53:29.382Z",
+  "requestUnits": 6,
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1
+}

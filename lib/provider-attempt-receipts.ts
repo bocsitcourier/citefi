@@ -989,8 +989,10 @@ const fileSpool: ProviderAttemptReceiptSpool = {
     }
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700);
-    const probe = join(directory, `.provider-attempt-receipt-probe-${process.pid}`);
-    await writeFile(probe, "ready", { encoding: "utf8", mode: 0o600 });
+    // Concurrent clip attempts share a process, but must not unlink each
+    // other's readiness probe between write/chmod/unlink.
+    const probe = join(directory, `.provider-attempt-receipt-probe-${process.pid}-${randomUUID()}`);
+    await writeFile(probe, "ready", { encoding: "utf8", mode: 0o600, flag: "wx" });
     await chmod(probe, 0o600);
     await unlink(probe);
   },

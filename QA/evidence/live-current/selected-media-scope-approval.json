@@ -1,0 +1,10 @@
+{
+  "approvedDate": "2026-10-08",
+  "ownerChoice": "Prepare selected-model TTS-1 QA",
+  "scope": "preparation_only",
+  "selectedTtsModel": "tts-1",
+  "productionDefaultUnchanged": true,
+  "defaultTtsModelCertified": false,
+  "newPaidCallsAuthorized": false,
+  "imageRetryAuthorized": false
+}
