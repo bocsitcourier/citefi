@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch a host key only to compare it with an independently supplied pin.
-# Nothing is trusted or written until at least one key matches the pin.
+# Nothing is trusted or written until an ED25519 key matches the pin.
 set -euo pipefail
 
 : "${DO_HOST:?DO_HOST env var is missing}"
@@ -18,11 +18,15 @@ SSH_KEYGEN_BIN="${SSH_KEYGEN_BIN:-ssh-keygen}"
 tmp="$(mktemp)"
 verified="$(mktemp)"
 trap 'rm -f "$tmp" "$verified"' EXIT
-"$SSH_KEYSCAN_BIN" -p "$DO_PORT" -H "$DO_HOST" >"$tmp" 2>/dev/null
+if ! "$SSH_KEYSCAN_BIN" -T 10 -t ed25519 -p "$DO_PORT" -H "$DO_HOST" >"$tmp" 2>/dev/null; then
+  echo "ERROR: SSH ED25519 host-key scan failed; refusing connection." >&2
+  exit 1
+fi
 [[ -s "$tmp" ]] || { echo "ERROR: no SSH host keys were returned." >&2; exit 1; }
 
 matched=false
 while IFS= read -r line; do
+  [[ "$(awk '{print $2}' <<<"$line")" == ssh-ed25519 ]] || continue
   fingerprint="$(printf '%s\n' "$line" | "$SSH_KEYGEN_BIN" -lf - -E sha256 2>/dev/null | awk '{print $2}')" || true
   if [[ "$fingerprint" == "$DO_SSH_HOST_FINGERPRINT" ]]; then
     matched=true

@@ -1,0 +1,36 @@
+name: Deployment safety
+
+on:
+  # Required checks must report on unrelated PRs too. Workflow-level path or
+  # branch filters leave the required check pending instead of passing.
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-safety:
+    name: Offline deployment safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Install only the parser in a disposable directory, not the application.
+      # No repository lifecycle scripts, environment files or credentials.
+      - name: Install YAML parser without lifecycle scripts
+        run: |
+          mkdir -p "$RUNNER_TEMP/deployment-contract"
+          cd "$RUNNER_TEMP/deployment-contract"
+          : > user.npmrc
+          : > global.npmrc
+          npm install --ignore-scripts --no-audit --no-fund --package-lock=false --userconfig="$PWD/user.npmrc" --globalconfig="$PWD/global.npmrc" --registry=https://registry.npmjs.org js-yaml@4.3.2
+      # Includes condition combinations, mutation regressions and real verifier
+      # commands with stubbed keyscan/keygen. Never invoke the live deploy job.
+      - name: Check workflow gates and stubbed host pins
+        run: |
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP" NODE_PATH="$RUNNER_TEMP/deployment-contract/node_modules" node tests/deployment/workflow-gates.test.cjs

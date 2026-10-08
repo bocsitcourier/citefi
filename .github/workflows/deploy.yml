@@ -2,14 +2,54 @@ name: Deploy to DigitalOcean
 
 on:
   workflow_dispatch:
+    inputs:
+      ssh_verify_only:
+        description: Verify the pinned host key only (no deployment or migrations)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy
   cancel-in-progress: false
 
 jobs:
+  verify-ssh:
+    name: Verify pinned SSH host key
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fail-closed host verification
+        run: bash tests/deployment/ssh-host-key.test.sh
+      - name: Verify production ED25519 pin
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          KNOWN_HOSTS_FILE: ${{ runner.temp }}/ssh-pin/known_hosts
+        run: |
+          scripts/verify-ssh-host-key.sh
+          echo "Production ED25519 host pin verified." >> "$GITHUB_STEP_SUMMARY"
+      - name: Confirm a mismatched production pin is rejected
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          KNOWN_HOSTS_FILE: ${{ runner.temp }}/ssh-pin/rejected
+        run: |
+          if scripts/verify-ssh-host-key.sh 2>"$RUNNER_TEMP/ssh-pin/rejection.log"; then
+            echo "ERROR: mismatched pin was accepted." >&2
+            exit 1
+          fi
+          grep -q 'SSH host fingerprint mismatch' "$RUNNER_TEMP/ssh-pin/rejection.log"
+          test ! -e "$KNOWN_HOSTS_FILE"
+          echo "Mismatched host pin rejected before SSH/SCP." >> "$GITHUB_STEP_SUMMARY"
+
   validate:
     name: Validate release
+    needs: verify-ssh
+    if: ${{ !inputs.ssh_verify_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -26,7 +66,8 @@ jobs:
 
   deploy:
     name: SSH deploy to droplet
-    needs: validate
+    needs: [verify-ssh, validate]
+    if: ${{ !inputs.ssh_verify_only && needs.verify-ssh.result == 'success' && needs.validate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
