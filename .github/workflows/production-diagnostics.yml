@@ -1,0 +1,28 @@
+name: Read-only production diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test diagnostic output filtering and pinned host verification
+        run: |
+          python3 tests/deployment/production-diagnostics.test.py
+          bash tests/deployment/ssh-host-key.test.sh
+      - name: Inspect production without deployment or service changes
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: bash scripts/production-diagnostics.sh
