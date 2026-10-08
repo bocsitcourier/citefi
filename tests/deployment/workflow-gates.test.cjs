@@ -95,7 +95,9 @@ function assertCiContract(w) {
             name: 'Install YAML parser without lifecycle scripts',
             run: 'mkdir -p "$RUNNER_TEMP/deployment-contract"\n'
               + 'cd "$RUNNER_TEMP/deployment-contract"\n'
-              + 'npm install --ignore-scripts --no-audit --no-fund --package-lock=false --userconfig=/dev/null --globalconfig=/dev/null --registry=https://registry.npmjs.org js-yaml@4.3.2\n',
+              + ': > user.npmrc\n'
+              + ': > global.npmrc\n'
+              + 'npm install --ignore-scripts --no-audit --no-fund --package-lock=false --userconfig="$PWD/user.npmrc" --globalconfig="$PWD/global.npmrc" --registry=https://registry.npmjs.org js-yaml@4.3.2\n',
           },
           {
             name: 'Check workflow gates and stubbed host pins',

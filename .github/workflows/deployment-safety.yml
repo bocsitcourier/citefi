@@ -26,7 +26,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/deployment-contract"
           cd "$RUNNER_TEMP/deployment-contract"
-          npm install --ignore-scripts --no-audit --no-fund --package-lock=false --userconfig=/dev/null --globalconfig=/dev/null --registry=https://registry.npmjs.org js-yaml@4.3.2
+          : > user.npmrc
+          : > global.npmrc
+          npm install --ignore-scripts --no-audit --no-fund --package-lock=false --userconfig="$PWD/user.npmrc" --globalconfig="$PWD/global.npmrc" --registry=https://registry.npmjs.org js-yaml@4.3.2
       # Includes condition combinations, mutation regressions and real verifier
       # commands with stubbed keyscan/keygen. Never invoke the live deploy job.
       - name: Check workflow gates and stubbed host pins
