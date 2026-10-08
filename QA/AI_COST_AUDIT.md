@@ -3,11 +3,12 @@
 ## Latest media reservation — supersedes older no-image-call statements
 
 One physical Gemini 3.1 image request returned HTTP200 but failed the QA
-accounting guard/application route. The retained shared ledger holds $0.16,
-with $22.848059 available under the existing USD30 ceiling. No paid retry,
+accounting guard/application route. The owner authorized offline reconciliation
+at a $0.068762 native-usage estimate, releasing the $0.16 hold/lock and leaving
+$22.939297 available under the existing USD30 ceiling. No paid retry,
 podcast, video or auxiliary call occurred. Native usage supports a reasoned
-$0.068762 estimate, not settled COGS or an invoice. Do not release the lock
-without explicit human reconciliation. See
+$0.068762 estimate, not application COGS or an invoice. Original application
+receipt and failed outcome remain unchanged. See
 `evidence/live-current/media-paused-summary.md` for actual evidence and limits.
 
 **Current disposition: IN PROGRESS / COST GATE BLOCKED; full system remains

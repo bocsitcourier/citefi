@@ -1,5 +1,24 @@
 # Media execution paused — NOT CERTIFIED
 
+## Superseding owner-approved offline reconciliation
+
+The owner subsequently selected **Authorize offline reconciliation**.
+On 2026-10-08 the shared budget was reconciled at the retained native-usage
+estimate **$0.068762**. The pending $0.16 budget reservation and lock were
+released only after durable pre-change ledger and reconciliation exports.
+Current availability is **$22.939297** under the unchanged USD30 ceiling.
+No provider, database, or application rebilling call occurred.
+
+Evidence: `live-media-image-20261008/owner-approved-reconciliation.json`,
+`owner-reconciliation-approval.json`, and
+`ledger-before-offline-reconciliation.json`. Reconciliation tests pass 4/4.
+The original ambiguous image receipt, failed route outcome, physical-call
+count and failed application accounting are unchanged. This does not authorize
+another image call or any paid podcast/video work. **NOT CERTIFIED.**
+
+The held-lock statements below describe the preceding paused checkpoint,
+not the current shared-budget state.
+
 ## Actual execution
 
 One physical `gemini-3.1-flash-image` submission occurred on 2026-10-08,

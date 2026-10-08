@@ -17,6 +17,18 @@ decision before new paid work. Obtain explicit owner reconciliation/authorizatio
 and a reviewed per-stage spending manifest. Distinguish native receipt valuation,
 application settlement, actual retrieval/playback, and cloud certification.
 
+Explicit owner-approved offline reconciliation may update the shared budget
+from retained native usage and official rates, but must preserve the original
+failed application outcome and receipts. It grants no permission for a new
+physical provider submission or application rebilling.
+
+**Why:** The owner approved evidence-only budget reconciliation separately
+from paid execution; treating it as renewed paid permission would exceed scope.
+
+**How to apply:** Retain a pre-change ledger and approval evidence, serialize
+the budget update, release only the matching hold after durable settlement, and
+keep any later paid run behind its own reviewed bounds and execution decision.
+
 Do not assume a finite TTS character limit is a dollar ceiling for a model priced
 by text-input and audio-output tokens.
 

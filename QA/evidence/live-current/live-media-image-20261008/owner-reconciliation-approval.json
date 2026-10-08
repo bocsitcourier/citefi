@@ -1,0 +1,10 @@
+{
+  "runId": "live-media-image-20261008",
+  "decision": "authorize_offline_reconciliation",
+  "source": "Owner selected Authorize offline reconciliation in the reconciliation form",
+  "approvedDate": "2026-10-08",
+  "basis": "Retained native response and official rates, preserving the failed application result",
+  "newPaidCallsAuthorized": false,
+  "applicationRebillingAuthorized": false,
+  "certificationAuthorized": false
+}

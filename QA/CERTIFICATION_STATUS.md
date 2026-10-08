@@ -5,8 +5,10 @@
 **Latest media execution:** One separately approved physical image request
 returned native JPEG bytes but failed the application route/accounting gate.
 Offline full decode passed; application retrieval, tenant checks and settlement
-did not. The shared $0.16 reservation/lock remains held, and podcast/video paid
-execution is blocked. See `evidence/live-current/media-paused-summary.md`.
+did not. The owner subsequently authorized offline budget reconciliation at
+$0.068762; the $0.16 hold/lock was released, with $22.939297 available under
+USD30. Original application failure is unchanged. Podcast/video paid execution
+is still blocked. See `evidence/live-current/media-paused-summary.md`.
 Earlier statements below that no image call occurred are historical.
 
 **Superseding authorization:** Architect-assisted end-to-end generation QA is
