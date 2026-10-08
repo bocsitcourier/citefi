@@ -1,0 +1,71 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: Gemini queue redelivery reuses one physical call without an explicit stage key
+ok 1 - Gemini queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 3.807686
+  ...
+# Subtest: Gemini intentional invocation keys permit the same request twice
+ok 2 - Gemini intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 0.702334
+  ...
+# Subtest: request envelope is safe and excludes prompt/customer content
+ok 3 - request envelope is safe and excludes prompt/customer content
+  ---
+  duration_ms: 0.983217
+  ...
+# Subtest: physical call is gated and raw provider usage is captured before return
+ok 4 - physical call is gated and raw provider usage is captured before return
+  ---
+  duration_ms: 0.797075
+  ...
+# Subtest: Gemini receipt bills thinking once while retaining native aggregate usage
+ok 5 - Gemini receipt bills thinking once while retaining native aggregate usage
+  ---
+  duration_ms: 0.685325
+  ...
+# Subtest: Gemini thinking normalization handles missing and invalid counts safely
+ok 6 - Gemini thinking normalization handles missing and invalid counts safely
+  ---
+  duration_ms: 0.16585
+  ...
+# Subtest: Gemini image requests retain image unit semantics with thinking usage
+ok 7 - Gemini image requests retain image unit semantics with thinking usage
+  ---
+  duration_ms: 0.528392
+  ...
+# Subtest: separate helper invocations with identical config are distinct attempts
+ok 8 - separate helper invocations with identical config are distinct attempts
+  ---
+  duration_ms: 0.975012
+  ...
+# Subtest: raw Gemini fields and response identity survive the accounting boundary
+ok 9 - raw Gemini fields and response identity survive the accounting boundary
+  ---
+  duration_ms: 0.641874
+  ...
+# Subtest: missing response usage remains unknown rather than becoming zero
+ok 10 - missing response usage remains unknown rather than becoming zero
+  ---
+  duration_ms: 0.171706
+  ...
+# Subtest: response capture failure does not replay the provider call
+ok 11 - response capture failure does not replay the provider call
+  ---
+  duration_ms: 0.980605
+  ...
+# Subtest: invalid ownership context is rejected before the provider call
+ok 12 - invalid ownership context is rejected before the provider call
+  ---
+  duration_ms: 0.234979
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4971.957968

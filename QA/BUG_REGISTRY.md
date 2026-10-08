@@ -230,3 +230,22 @@ E-042 requires a known runtime gap to be addressed before any full-scope
 completion claim: Neon/HTTP, journey-scheduler, and development Redis behavior
 must be remediated or explicitly bounded, then a worker-enabled runtime retest
 must be authorized. A paid cap alone is not the only remaining gate.
+
+## Latest live QA continuation — E-043 through E-046
+
+The following current observations supplement prior entries without rewriting
+historical reports or red artifacts:
+
+| Evidence | Actual observation / correction | Current disposition |
+|---|---|---|
+| E-043 | Four genuine Gemini 3.5 Flash article calls returned HTTP 200 and were receipted/settled, but all four end-to-end cases failed. Details and case-specific failure reasons are in `QA/evidence/live-current/live-qa-summary.md`. | **LIVE FAILURES / NOT CERTIFIED** — retrieval endpoint 200 and other-tenant 404 do not establish article quality, completion, or publication. No usable published `COMPLETE` result; final-judge physical calls were zero. |
+| E-044 — speed-mode FAQ | Production speed mode omitted structured FAQ metadata from the rendered article body. FAQ assembly now precedes Guardian and preserves existing FAQ content. | **FIX REGRESSION 3/3** — `QA/evidence/live-current/speedmode-faq-regression.tap`. This fix did not make the live generation cases pass. |
+| E-044 — Gemini cost accounting | Native Gemini thinking tokens were omitted from COGS. Receipt and cost telemetry accounting were corrected; valid native prompt+total counts are authoritative (output = total − prompt), otherwise a complete valid split is required and inconsistent/missing pricing splits fail closed as `UNKNOWN`. Image-unit accounting remains independent. One original case ledger showed 22,287 micro-USD charged versus 157,323 micro-USD under corrected accounting. | **LATEST ACCOUNTING REGRESSION 16/16** — `thinking-accounting-final.tap` supersedes prior 12/12 `thinking-accounting-regression.tap` for current status; do not aggregate. Whole-project typecheck passed (`final-typecheck.txt`). Raw original exports remain unchanged; no historical or application-database rebilling was performed. |
+| E-045 — image QA boundary | Initial bounded preflight exposed a formatting-only comparison (`2,520` vs official `2520`); section-whitespace and optional-comma normalization fixed it. Rerun preflight passed ($0.1592 maximum estimate; $0.16 reserve); no image submission occurred. | **PREFLIGHT ONLY** — no image E2E pass. Filesystem storage is not cloud storage; targeted Gemini 3.1 image model is not the application's Gemini 2.5 default. No live audio/video calls. |
+| E-046 — main login screenshot | `application-login.jpg` passed static screenshot review. | **STATIC VISUAL OBSERVATION ONLY** — anonymous API 401 is expected; not authenticated-login or generation certification. |
+
+The four live calls' conservative usage estimate was $0.474870, not an
+invoice; latest `budget-ledger.json` reports $23.008059 availability under the
+existing $30 ceiling after known prior valuation and separate historical HOLD.
+Paid QA stopped after the four failures as agreed with the architect; that was
+not a payment/billing failure. Overall certification remains **NOT CERTIFIED**.

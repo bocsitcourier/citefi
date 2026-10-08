@@ -14,7 +14,7 @@ export const PLAN = Object.freeze({
   skipped: ["optional enhancement", "optional critic", "image generation", "publication", "email"],
   calls: [
     { role: "article", provider: "gemini", model: "gemini-3.5-flash",
-      maxInputBytes: 120000, inputOverheadTokens: 8192, maxOutputTokens: 8192,
+      maxInputBytes: 120000, inputOverheadTokens: 8192, maxOutputTokens: 16384,
       inputUsdPerMillion: 1.5, outputUsdPerMillion: 9, maxPhysicalCalls: 1,
       source: "google-pricing-source.md", url: "https://ai.google.dev/gemini-api/docs/pricing" },
     { role: "judge", provider: "openai", model: "gpt-4.1-mini",

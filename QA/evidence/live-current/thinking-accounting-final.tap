@@ -1,0 +1,98 @@
+TAP version 13
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# Subtest: Gemini queue redelivery reuses one physical call without an explicit stage key
+ok 1 - Gemini queue redelivery reuses one physical call without an explicit stage key
+  ---
+  duration_ms: 5.182707
+  ...
+# Subtest: Gemini intentional invocation keys permit the same request twice
+ok 2 - Gemini intentional invocation keys permit the same request twice
+  ---
+  duration_ms: 1.009289
+  ...
+# Subtest: request envelope is safe and excludes prompt/customer content
+ok 3 - request envelope is safe and excludes prompt/customer content
+  ---
+  duration_ms: 1.317746
+  ...
+# Subtest: physical call is gated and raw provider usage is captured before return
+ok 4 - physical call is gated and raw provider usage is captured before return
+  ---
+  duration_ms: 0.84646
+  ...
+# Subtest: Gemini receipt bills thinking once while retaining native aggregate usage
+ok 5 - Gemini receipt bills thinking once while retaining native aggregate usage
+  ---
+  duration_ms: 0.89068
+  ...
+# Subtest: Gemini thinking normalization handles missing and invalid counts safely
+ok 6 - Gemini thinking normalization handles missing and invalid counts safely
+  ---
+  duration_ms: 0.400128
+  ...
+# Subtest: Gemini receipt boundary fails closed on missing or inconsistent aggregate splits
+ok 7 - Gemini receipt boundary fails closed on missing or inconsistent aggregate splits
+  ---
+  duration_ms: 2.032862
+  ...
+# Subtest: Gemini aggregate remains authoritative with missing or invalid thinking
+ok 8 - Gemini aggregate remains authoritative with missing or invalid thinking
+  ---
+  duration_ms: 1.062677
+  ...
+# Subtest: Gemini image requests retain image unit semantics with thinking usage
+ok 9 - Gemini image requests retain image unit semantics with thinking usage
+  ---
+  duration_ms: 1.521584
+  ...
+# Subtest: separate helper invocations with identical config are distinct attempts
+ok 10 - separate helper invocations with identical config are distinct attempts
+  ---
+  duration_ms: 1.465546
+  ...
+# Subtest: raw Gemini fields and response identity survive the accounting boundary
+ok 11 - raw Gemini fields and response identity survive the accounting boundary
+  ---
+  duration_ms: 0.870637
+  ...
+# Subtest: missing response usage remains unknown rather than becoming zero
+ok 12 - missing response usage remains unknown rather than becoming zero
+  ---
+  duration_ms: 0.2645
+  ...
+# Subtest: response capture failure does not replay the provider call
+ok 13 - response capture failure does not replay the provider call
+  ---
+  duration_ms: 0.794125
+  ...
+# Subtest: invalid ownership context is rejected before the provider call
+ok 14 - invalid ownership context is rejected before the provider call
+  ---
+  duration_ms: 0.349123
+  ...
+# 🔌 DB: tenant-aware pooled pg → Neon cloud (max 10 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60000 requests/minute, max 50 concurrent
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at <anonymous> (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:27:7)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: Gemini limiter callback preserves the submitting invocation ALS
+ok 15 - Gemini limiter callback preserves the submitting invocation ALS
+  ---
+  duration_ms: 20.607161
+  ...
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# ⚠️ [SEAM3] Gemini model call in web process (WORKER_PROCESS not set). This request should go through the BullMQ job queue. Route: at invoke (/home/runner/workspace/tests/gemini-throttled-invocation.test.ts:49:5)
+# Subtest: anonymous throttled calls get distinct child slots and redelivery reuses them
+ok 16 - anonymous throttled calls get distinct child slots and redelivery reuses them
+  ---
+  duration_ms: 20.132096
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8336.036608

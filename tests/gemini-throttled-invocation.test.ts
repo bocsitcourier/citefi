@@ -54,7 +54,12 @@ test("anonymous throttled calls get distinct child slots and redelivery reuses t
           physicalCalls++;
           return {
             responseId: `gemini-throttled-${physicalCalls}`,
-            usageMetadata: { totalTokenCount: 1 },
+            usageMetadata: {
+              promptTokenCount: 0,
+              candidatesTokenCount: 1,
+              thoughtsTokenCount: 0,
+              totalTokenCount: 1,
+            },
           } as never;
         },
         deps,

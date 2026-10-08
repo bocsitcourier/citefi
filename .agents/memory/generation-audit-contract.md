@@ -67,3 +67,26 @@ accepted. Passing examples therefore did not establish structural safety.
 validate the rendered result. A valid pre-enhancement article can be retained
 with an explicit warning when an optional enhancement breaks its structure;
 invalid provider input must still fail validation.
+
+Do not assume increasing a total output-token cap provides more space for
+structured JSON when the model also spends that allowance on reasoning.
+
+**Why:** Live QA consumed nearly the entire allowance on reasoning at two
+different caps, leaving truncated JSON. Raising the cap alone did not produce
+a usable response.
+
+**How to apply:** Verify the selected model's supported reasoning controls,
+record them alongside the total-output bound, and test serialized requests
+offline before another paid attempt. Retain truncated responses and usage as
+failed evidence rather than replaying a physically submitted attempt.
+
+An accounted receipt and a correct native total do not by themselves prove
+that the cost calculation includes every billed category.
+
+**Why:** Live receipts retained reasoning usage, but cost classification priced
+only visible output; receipt completeness concealed an understated cost.
+
+**How to apply:** Compare billed-category quantities and locked-rate cost
+calculations against native usage during live acceptance, including reasoning
+and modality-specific output. Preserve original underpriced evidence when
+fixing future accounting; do not silently rewrite historical costs.

@@ -51,7 +51,12 @@ test("Gemini queue redelivery reuses one physical call without an explicit stage
         calls++;
         return {
           responseId: "gemini-redelivery-123",
-          usageMetadata: { totalTokenCount: 1 },
+          usageMetadata: {
+            promptTokenCount: 0,
+            candidatesTokenCount: 1,
+            thoughtsTokenCount: 0,
+            totalTokenCount: 1,
+          },
         } as never;
       },
       fixture._deps,
@@ -79,7 +84,12 @@ test("Gemini intentional invocation keys permit the same request twice", async (
           calls++;
           return {
             responseId: `gemini-intentional-${calls}`,
-            usageMetadata: { totalTokenCount: 1 },
+            usageMetadata: {
+              promptTokenCount: 0,
+              candidatesTokenCount: 1,
+              thoughtsTokenCount: 0,
+              totalTokenCount: 1,
+            },
           } as never;
         },
         fixture._deps,
@@ -162,7 +172,203 @@ test("physical call is gated and raw provider usage is captured before return", 
   assert.equal(fixture.ledger.length, 1);
   const ledgerInput = fixture.ledger[0] as Record<string, unknown>;
   assert.equal(ledgerInput.inputUnits, 12);
+  // Gemini's aggregate total includes thoughts, so candidate tokens are not
+  // charged a second time when the aggregate already accounts for them.
   assert.equal(ledgerInput.outputUnits, 9);
+});
+
+test("Gemini receipt bills thinking once while retaining native aggregate usage", async () => {
+  const fixture = deps();
+  const response = {
+    responseId: "thinking-response",
+    usageMetadata: {
+      promptTokenCount: 6_674,
+      candidatesTokenCount: 1_364,
+      thoughtsTokenCount: 15_004,
+      totalTokenCount: 23_042,
+    },
+  } as never;
+  await submitGeminiWithReceipt(
+    { model: "gemini-3.5-flash", contents: "safe test input" },
+    { teamId: 7, operationType: "article_generation" },
+    async () => response,
+    fixture._deps,
+  );
+  const receipt = [...fixture.store.rows.values()][0]!;
+  const ledgerInput = fixture.ledger[0] as Record<string, unknown>;
+  assert.equal(receipt.responseUsage?.unitCount, 23_042);
+  assert.deepEqual(receipt.responseUsage?.raw, {
+    promptTokenCount: 6_674,
+    candidatesTokenCount: 1_364,
+    thoughtsTokenCount: 15_004,
+    totalTokenCount: 23_042,
+  });
+  assert.equal(ledgerInput.inputUnits, 6_674);
+  assert.equal(ledgerInput.outputUnits, 16_368);
+  assert.equal(extractGeminiUsage(response).outputTokens, 16_368);
+});
+
+test("Gemini thinking normalization handles missing and invalid counts safely", async () => {
+  assert.equal(
+    extractGeminiUsage({
+      usageMetadata: {
+        promptTokenCount: 3,
+        candidatesTokenCount: 5,
+        totalTokenCount: 8,
+      },
+    }).outputTokens,
+    5,
+  );
+  assert.equal(
+    extractGeminiUsage({
+      usageMetadata: {
+        promptTokenCount: 3,
+        candidatesTokenCount: 5,
+        thoughtsTokenCount: -3,
+        totalTokenCount: 8,
+      },
+    }).outputTokens,
+    5,
+  );
+  assert.equal(
+    extractGeminiUsage({
+      usageMetadata: {
+        promptTokenCount: 1,
+        candidatesTokenCount: 1,
+        thoughtsTokenCount: Number.MAX_SAFE_INTEGER + 1,
+        totalTokenCount: 4,
+      },
+    }).outputTokens,
+    3,
+  );
+  assert.equal(
+    extractGeminiUsage({
+      usageMetadata: {
+        candidatesTokenCount: 5,
+        thoughtsTokenCount: 1,
+      },
+    }).known,
+    false,
+  );
+  const completeSplit = extractGeminiUsage({
+    usageMetadata: {
+      promptTokenCount: 3,
+      candidatesTokenCount: 5,
+      thoughtsTokenCount: 2,
+    },
+  });
+  assert.equal(completeSplit.known, true);
+  assert.equal(completeSplit.outputTokens, 7);
+  assert.equal(completeSplit.totalTokens, 10);
+});
+
+test("Gemini receipt boundary fails closed on missing or inconsistent aggregate splits", async () => {
+  for (const [name, usageMetadata] of [
+    ["missing prompt with total", { totalTokenCount: 12, candidatesTokenCount: 2, thoughtsTokenCount: 3 }],
+    ["candidate exceeds aggregate output", {
+      promptTokenCount: 10,
+      totalTokenCount: 12,
+      candidatesTokenCount: 3,
+      thoughtsTokenCount: 1,
+    }],
+    ["missing thinking without aggregate", {
+      promptTokenCount: 10,
+      candidatesTokenCount: 2,
+    }],
+    ["invalid thinking without aggregate", {
+      promptTokenCount: 10,
+      candidatesTokenCount: 2,
+      thoughtsTokenCount: -1,
+    }],
+  ] as const) {
+    const fixture = deps();
+    await assert.rejects(
+      submitGeminiWithReceipt(
+        { model: "gemini-3.5-flash", contents: `safe ${name}` },
+        { teamId: 7, operationType: "article_generation" },
+        async () => ({ usageMetadata } as never),
+        fixture._deps,
+      ),
+      (error: { code?: string }) => error.code === "PROVIDER_ATTEMPT_USAGE_UNAVAILABLE",
+    );
+    assert.equal(fixture.ledger.length, 0, name);
+    const receipt = [...fixture.store.rows.values()][0]!;
+    assert.equal(receipt.responseUsage?.known, false, name);
+  }
+});
+
+test("Gemini aggregate remains authoritative with missing or invalid thinking", async () => {
+  for (const usageMetadata of [
+    { promptTokenCount: 10, totalTokenCount: 15, candidatesTokenCount: 5 },
+    {
+      promptTokenCount: 10,
+      totalTokenCount: 15,
+      candidatesTokenCount: 5,
+      thoughtsTokenCount: -1,
+    },
+  ]) {
+    const fixture = deps();
+    await submitGeminiWithReceipt(
+      { model: "gemini-3.5-flash", contents: "safe aggregate request" },
+      { teamId: 7, operationType: "article_generation" },
+      async () => ({ usageMetadata } as never),
+      fixture._deps,
+    );
+    const ledgerInput = fixture.ledger[0] as Record<string, unknown>;
+    assert.equal(ledgerInput.outputUnits, 5);
+    const receipt = [...fixture.store.rows.values()][0]!;
+    assert.equal(receipt.responseUsage?.unitCount, 15);
+    assert.equal(receipt.responseUsage?.known, true);
+  }
+});
+
+test("Gemini image requests retain image unit semantics with thinking usage", async () => {
+  const fixture = deps();
+  await submitGeminiWithReceipt(
+    {
+      model: "gemini-3.5-flash",
+      contents: "safe image request",
+      config: { responseModalities: ["IMAGE"] },
+    },
+    { teamId: 7, operationType: "image_generation" },
+    async () => ({
+      usageMetadata: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 10,
+        thoughtsTokenCount: 5,
+        totalTokenCount: 115,
+      },
+      candidates: [{
+        content: { parts: [{ inlineData: { data: "encoded-image" } }] },
+      }],
+    } as never),
+    fixture._deps,
+  );
+  const ledgerInput = fixture.ledger[0] as Record<string, unknown>;
+  assert.equal(ledgerInput.unitType, "images");
+  assert.equal(ledgerInput.unitCount, 1);
+  assert.equal(ledgerInput.outputUnits, 10);
+
+  const imageOnlyFixture = deps();
+  await submitGeminiWithReceipt(
+    {
+      model: "gemini-3.5-flash",
+      contents: "safe image request with partial token metadata",
+      config: { responseModalities: ["IMAGE"] },
+    },
+    { teamId: 7, operationType: "image_generation" },
+    async () => ({
+      usageMetadata: { promptTokenCount: -1, totalTokenCount: 100 },
+      candidates: [{
+        content: { parts: [{ inlineData: { data: "encoded-image" } }] },
+      }],
+    } as never),
+    imageOnlyFixture._deps,
+  );
+  const imageReceipt = [...imageOnlyFixture.store.rows.values()][0]!;
+  assert.equal(imageReceipt.responseUsage?.known, true);
+  assert.equal(imageReceipt.responseUsage?.unitCount, 1);
+  assert.equal(imageOnlyFixture.ledger.length, 1);
 });
 
 test("separate helper invocations with identical config are distinct attempts", async () => {
@@ -176,13 +382,29 @@ test("separate helper invocations with identical config are distinct attempts", 
   await submitGeminiWithReceipt(
     request,
     context,
-    async () => ({ responseId: "first", usageMetadata: { totalTokenCount: 1 } } as never),
+    async () => ({
+      responseId: "first",
+      usageMetadata: {
+        promptTokenCount: 0,
+        candidatesTokenCount: 1,
+        thoughtsTokenCount: 0,
+        totalTokenCount: 1,
+      },
+    } as never),
     fixture._deps,
   );
   await submitGeminiWithReceipt(
     request,
     context,
-    async () => ({ responseId: "second", usageMetadata: { totalTokenCount: 1 } } as never),
+    async () => ({
+      responseId: "second",
+      usageMetadata: {
+        promptTokenCount: 0,
+        candidatesTokenCount: 1,
+        thoughtsTokenCount: 0,
+        totalTokenCount: 1,
+      },
+    } as never),
     fixture._deps,
   );
   assert.equal(fixture.ledger.length, 2);
@@ -196,7 +418,7 @@ test("raw Gemini fields and response identity survive the accounting boundary", 
     usageMetadata: {
       promptTokenCount: 10,
       candidatesTokenCount: 4,
-      totalTokenCount: 14,
+      totalTokenCount: 21,
       thoughtsTokenCount: 7,
       cachedContentTokenCount: 2,
       toolUsePromptTokenCount: 3,
@@ -212,7 +434,7 @@ test("raw Gemini fields and response identity survive the accounting boundary", 
   assert.deepEqual(receipt.responseUsage?.raw, {
     promptTokenCount: 10,
     candidatesTokenCount: 4,
-    totalTokenCount: 14,
+    totalTokenCount: 21,
     thoughtsTokenCount: 7,
     cachedContentTokenCount: 2,
     toolUsePromptTokenCount: 3,
@@ -247,7 +469,12 @@ test("response capture failure does not replay the provider call", async () => {
         submitted += 1;
         return {
           responseId: "paid-response",
-          usageMetadata: { totalTokenCount: 1 },
+          usageMetadata: {
+            promptTokenCount: 0,
+            candidatesTokenCount: 1,
+            thoughtsTokenCount: 0,
+            totalTokenCount: 1,
+          },
         } as never;
       },
       fixture._deps,

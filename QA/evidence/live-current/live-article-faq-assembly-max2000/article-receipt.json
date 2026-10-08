@@ -1,0 +1,35 @@
+{
+  "role": "article",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "requestSha256": "40265a01c8d3104dda4884f99ff08512e6c202cb7607b1589d033b92e8aa0ca7",
+  "inputBytes": 31170,
+  "maxInputTokens": 39362,
+  "maxOutputTokens": 16384,
+  "physicalCount": 1,
+  "state": "receipted",
+  "inputUsdPerMillion": 1.5,
+  "outputUsdPerMillion": 9,
+  "maximumUsd": 0.206499,
+  "submittedAt": "2026-10-08T19:57:27.397Z",
+  "status": 200,
+  "providerRequestId": "p_XHaoSZI4Cc_uMPpJGtsAE",
+  "actualModel": "gemini-3.5-flash",
+  "usage": {
+    "promptTokenCount": 6674,
+    "candidatesTokenCount": 1364,
+    "totalTokenCount": 23042,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 6674
+      }
+    ],
+    "thoughtsTokenCount": 15004,
+    "serviceTier": "standard"
+  },
+  "responseSha256": "44422fde7b7c1cd6d113adf0e58399eb3c6cef8456055d7cc90fe1567557e40d",
+  "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+  "actualUsd": 0.157323,
+  "receivedAt": "2026-10-08T19:58:29.460Z"
+}

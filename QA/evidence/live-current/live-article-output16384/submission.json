@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "body": {
+    "success": true,
+    "batchId": 1,
+    "jobId": "batch-1",
+    "articlesQueued": 1,
+    "message": "Batch submitted successfully. 1 articles will be generated."
+  }
+}

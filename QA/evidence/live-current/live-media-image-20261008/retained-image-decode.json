@@ -1,0 +1,36 @@
+{
+  "certification": "NOT CERTIFIED",
+  "originalRouteOutcome": "FAIL; image-native-response was rejected by the QA accounting guard",
+  "evidenceBoundary": "offline decode of retained real provider bytes, NOT successful route retrieval",
+  "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+  "physicalSubmissionsAdded": 0,
+  "mimeType": "image/jpeg",
+  "bytes": 1104473,
+  "sha256": "5f9d3d23d7b084e699fc040282aabf70c69d0cf283c2223038d624fb7c6c215f",
+  "format": "jpeg",
+  "width": 1408,
+  "height": 768,
+  "fullPixelDecode": true,
+  "decodedSha256": "ea16d797b107d890749a3685be075db216a2d2789d9a9770913bb60b4f04a3ea",
+  "nativeUsage": {
+    "promptTokenCount": 172,
+    "candidatesTokenCount": 1612,
+    "totalTokenCount": 1784,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 172
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1120
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "accountingBoundary": "Original $0.16 reservation/lock stays held; no offline rebilling or settlement",
+  "retrievedThroughApplication": false,
+  "cloudStorageCertified": false
+}

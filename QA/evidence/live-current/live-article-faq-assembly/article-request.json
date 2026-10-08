@@ -1,0 +1,15 @@
+{
+  "role": "article",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "requestSha256": "5f9213f92e086a6f1e6f57bc7520f3ab94b2585b9392fbd829828dc757f8124a",
+  "inputBytes": 31170,
+  "maxInputTokens": 39362,
+  "maxOutputTokens": 16384,
+  "physicalCount": 1,
+  "state": "pending",
+  "inputUsdPerMillion": 1.5,
+  "outputUsdPerMillion": 9,
+  "maximumUsd": 0.206499,
+  "submittedAt": "2026-10-08T19:53:38.096Z"
+}

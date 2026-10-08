@@ -1,0 +1,72 @@
+[
+  {
+    "id": "1",
+    "source_event_id": "provider-attempt:e6fea5189143df7bc6fe8eec914976c9edfa86c95fddb2abebb6c4078e20488b",
+    "team_id": 1,
+    "user_id": null,
+    "campaign_id": null,
+    "content_id": 1,
+    "resource_type": "article",
+    "resource_id": "1",
+    "run_id": null,
+    "job_id": null,
+    "operation_type": "article_generation",
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "attempt": 1,
+    "request_metadata": {
+      "seed": null,
+      "topK": null,
+      "topP": null,
+      "model": "gemini-3.5-flash",
+      "imageSize": null,
+      "maxImages": null,
+      "timeoutMs": null,
+      "requestKey": null,
+      "maxRequests": null,
+      "temperature": null,
+      "maxCharacters": null,
+      "adapterVersion": "google-genai@1.27.0",
+      "candidateCount": null,
+      "maxInputTokens": null,
+      "thinkingBudget": null,
+      "maxOutputTokens": 16384,
+      "imageAspectRatio": null,
+      "responseMimeType": "application/json",
+      "maxDurationSeconds": null,
+      "responseModalities": null
+    },
+    "provider_request_id": "K_PHarOwDuTQ_uMP3YyVoAc",
+    "response_usage": {
+      "raw": {
+        "totalTokenCount": 18174,
+        "promptTokenCount": 6674,
+        "thoughtsTokenCount": 9048,
+        "candidatesTokenCount": 2452,
+        "cachedContentTokenCount": 3741
+      },
+      "known": true,
+      "unitType": "tokens",
+      "unitCount": 18174,
+      "inputUnits": 6674,
+      "outputUnits": 2452
+    },
+    "response_metadata": {
+      "latencyMs": null,
+      "httpStatus": null,
+      "actualModel": "gemini-3.5-flash",
+      "operationId": null,
+      "finishReason": null,
+      "providerRequestId": "K_PHarOwDuTQ_uMP3YyVoAc"
+    },
+    "status": "accounted",
+    "failure_code": null,
+    "failure_message": null,
+    "prepared_at": "2026-10-08T19:46:51.012Z",
+    "submitted_at": "2026-10-08T19:46:51.038Z",
+    "usage_captured_at": "2026-10-08T19:47:32.605Z",
+    "accounted_at": "2026-10-08T19:47:32.701Z",
+    "created_at": "2026-10-08T19:46:51.016Z",
+    "updated_at": "2026-10-08T19:47:32.701Z"
+  }
+]

@@ -19,7 +19,7 @@ function smoke() {
   assert.equal(validateRequest(new URL("https://api.openai.com/v1/chat/completions"), request).call.role, "judge");
   const geminiRequest = { method: "POST", body: JSON.stringify({
     contents: [{ role: "user", parts: [{ text: "offline validation only" }] }],
-    generationConfig: { maxOutputTokens: 8192, responseMimeType: "application/json" },
+    generationConfig: { maxOutputTokens: 16384, responseMimeType: "application/json" },
   }) };
   const geminiUrl = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent");
   assert.equal(validateRequest(geminiUrl, geminiRequest).call.role, "article");
@@ -90,8 +90,16 @@ async function runLive() {
   if (!process.env.GEMINI_API_KEY || !process.env.OPENAI_API_KEY) {
     throw new Error("Both provider credentials must already be injected; no dotenv fallback");
   }
+  const wordCountMax = Number(process.env.QA_LIVE_WORD_MAX ?? 1400);
+  if (![1400, 2000].includes(wordCountMax)) {
+    throw new Error("Live QA word maximum must be explicitly 1400 or 2000");
+  }
   const report = preflight();
   const budget = reserveRun(process.env.QA_LIVE_RUN_ID ?? "first-article-v1", report);
+  durableJson(join(budget.directory, "requested-profile.json"), {
+    wordCountMin: 700, wordCountMax,
+    purpose: "Explicit requested word range; production validation remains unchanged",
+  });
   installNetworkGuard(budget);
   let fixture: ArticleChainFixture | undefined;
   let workers: ArticleChainWorkers | undefined;
@@ -122,7 +130,7 @@ async function runLive() {
       body: JSON.stringify({
         batchId: fixture.batchId, selectedTitles: ["San Francisco Home-Care Planning"],
         targetUrl: "https://example.com/services", tone: "professional",
-        wordCountMin: 700, wordCountMax: 1400, geographicFocus: "San Francisco",
+        wordCountMin: 700, wordCountMax, geographicFocus: "San Francisco",
         audience: "local families", businessName: "QA Article Chain",
         customInstructions: "This is a synthetic QA brief, not verified research. Do not invent facts or statistics. Include at least three useful links to the supplied target URL and an explicit Frequently Asked Questions section with at least three questions. Preserve Markdown headings and paragraphs.",
       }),
@@ -183,14 +191,42 @@ async function runLive() {
         tables[table] = await fixture.query(`SELECT * FROM ${table}`);
         durableJson(join(budget.directory, `${table}.json`), tables[table]);
       }
+      const expectedCreditRunId = `batch:${fixture.batchId}:live-first-article-v1`;
+      tables.credit_reservations = await fixture.query(
+        "SELECT * FROM credit_reservations WHERE team_id=$1 AND run_id=$2",
+        [fixture.teamId, expectedCreditRunId],
+      );
+      durableJson(join(budget.directory, "credit_reservations.json"), tables.credit_reservations);
+      tables.job_batches = await fixture.query(
+        "SELECT * FROM job_batches WHERE id=$1 AND team_id=$2",
+        [fixture.batchId, fixture.teamId],
+      );
+      durableJson(join(budget.directory, "job_batches.json"), tables.job_batches);
       if (outcome.endToEndPass) {
         const receipts = tables.provider_attempt_receipts!;
+        const [currentReservation] = tables.credit_reservations!;
+        const [currentBatch] = tables.job_batches!;
+        const runDebits = tables.credit_ledger!.filter((row) =>
+          row.team_id === fixture!.teamId &&
+          row.run_id === expectedCreditRunId &&
+          row.event_type === "debit",
+        );
         outcome.accountingVerified =
           PLAN.calls.every((planned) => receipts.some((receipt) =>
             receipt.provider === planned.provider && receipt.model === planned.model &&
             receipt.provider_request_id && receipt.status === "accounted")) &&
           tables.provider_usage_ledger!.length === PLAN.calls.length &&
-          tables.credit_ledger!.filter((row) => row.event_type === "debit").length === 1;
+          tables.credit_ledger!.filter((row) => row.event_type === "debit").length === 1 &&
+          currentReservation?.team_id === fixture.teamId &&
+          currentReservation.run_id === expectedCreditRunId &&
+          Number(currentReservation.remaining_amount) === 0 &&
+          currentReservation.status === "DEBITED" &&
+          currentBatch?.id === fixture.batchId &&
+          currentBatch.team_id === fixture.teamId &&
+          currentBatch.status === "COMPLETE" &&
+          runDebits.length === 1 &&
+          runDebits[0]?.team_id === fixture.teamId &&
+          Math.abs(Number(runDebits[0]?.amount)) === Number(currentReservation.original_amount);
         if (!outcome.accountingVerified) {
           outcome.endToEndPass = false;
           outcome.failureStage = "durable-accounting-verification";

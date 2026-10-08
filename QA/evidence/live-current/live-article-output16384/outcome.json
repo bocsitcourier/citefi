@@ -1,0 +1,37 @@
+{
+  "status": "FAILED",
+  "endToEndPass": false,
+  "articleId": 1,
+  "retrievedStatus": 200,
+  "wrongTenantStatus": 404,
+  "artifactSha256": "5ea7a9780570ef5581cf1dd24be4b84b7aad7ef210274f35eb3d8be285dd5e5c",
+  "guardianCalls": 1,
+  "judgeGateCalls": 0,
+  "profile": "Owned synthetic tenants, research/SEO cache; genuine provider text, Guardian and final judge",
+  "skipped": [
+    "optional enhancement",
+    "optional critic",
+    "image generation",
+    "publication",
+    "email"
+  ],
+  "failureType": "AssertionError",
+  "failureStage": "retrieval-and-tenant-denial",
+  "assertion": "Production gate rejected or timed out; not an end-to-end pass\n+ actual - expected\n\n+ 'FAILED'\n- 'COMPLETE'",
+  "physicalCounts": [
+    {
+      "role": "article",
+      "physicalCount": 1
+    }
+  ],
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 2.083604,
+    "availableUsd": 21.399325
+  },
+  "spendUsd": 0.113511
+}

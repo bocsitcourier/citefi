@@ -1,0 +1,133 @@
+{
+  "stage": "image",
+  "provider": "gemini",
+  "model": "gemini-3.1-flash-image",
+  "pricing": {
+    "file": "media-pricing-current.md",
+    "sha256": "a703d6e0d895539b01139d913bdceea3d28ec104311284aee3b2497f714dfbd3",
+    "url": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image"
+  },
+  "physicalCallsMaximum": 1,
+  "requestBytesMaximum": 8192,
+  "inputTokensMaximum": 16000,
+  "imageOutputTokensMaximum": 2520,
+  "maximumCogsUsd": 0.1592,
+  "reservedUsd": 0.16,
+  "noRetry": true,
+  "inputRateUsdPerMillion": 0.5,
+  "imageOutputRateUsdPerMillion": 60,
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  },
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.47487,
+    "availableUsd": 23.008059
+  },
+  "historicalCalls": "UNKNOWN / UNRECONCILED; historical HOLD remains coverage only, not actual spend",
+  "storageClaim": "This budget helper does not certify cloud object storage; the caller must report its storage boundary explicitly."
+}
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# Legacy storage reads remain enabled: no destination-matched PASS evidence was found
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: row 9: owned authenticated repair route persists production DB output
+ok 1 - row 9: owned authenticated repair route persists production DB output # SKIP test name does not match pattern
+  ---
+  duration_ms: 1.194335
+  ...
+# 🔄 Regenerating image 811 with image brand lock: "Fixture Media Co"
+# [model-resolver] getModel("geminiImage") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# Gemini image generation error: Error: exception Error: Image provider outcome or usage is ambiguous; keep the shared reservation and do not retry sending request
+#     at <anonymous> (/home/runner/workspace/node_modules/@google/genai/src/_api_client.ts:603:13)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async Models.Models.generateContent (/home/runner/workspace/node_modules/@google/genai/src/models.ts:76:14)
+#     at async Object.submit (/home/runner/workspace/lib/gemini-attempt-receipt.ts:328:24)
+#     at async <anonymous> (/home/runner/workspace/lib/provider-attempt-receipts.ts:1438:24)
+#     at async generateSingleImage (/home/runner/workspace/lib/gemini-image-generator.ts:420:22)
+#     at async generate (/home/runner/workspace/app/api/media/[id]/regenerate/route.ts:107:25)
+#     at async runDirectImageOperation (/home/runner/workspace/lib/direct-image-operation.ts:327:19)
+#     at async <anonymous> (/home/runner/workspace/app/api/media/[id]/regenerate/route.ts:99:20)
+#     at async withAuthenticatedTeamContext (/home/runner/workspace/lib/api/auth.ts:61:10)
+# ❌ Image regeneration error: Error: Gemini rejected image generation before returning a paid result
+#     at generate (/home/runner/workspace/app/api/media/[id]/regenerate/route.ts:113:29)
+#     at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+#     at async runDirectImageOperation (/home/runner/workspace/lib/direct-image-operation.ts:327:19)
+#     at async <anonymous> (/home/runner/workspace/app/api/media/[id]/regenerate/route.ts:99:20)
+#     at async withAuthenticatedTeamContext (/home/runner/workspace/lib/api/auth.ts:61:10)
+#     at async POST (/home/runner/workspace/app/api/media/[id]/regenerate/route.ts:21:12)
+#     at async withAuthenticatedTeamContext (/home/runner/workspace/lib/api/auth.ts:61:10)
+#     at async POST (/home/runner/workspace/app/api/media/assets/[identity]/regenerate/route.ts:12:12)
+#     at async TestContext.<anonymous> (/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:1043:22)
+#     at async Test.run (node:internal/test_runner/test:797:9)
+# Subtest: row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+not ok 2 - row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+  ---
+  duration_ms: 10960.219302
+  location: '/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:37:16276'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    500 !== 200
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 200
+  actual: 500
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:1054:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: row 15: idea route -> Redis job -> exported worker persists and debits fixture video
+ok 3 - row 15: idea route -> Redis job -> exported worker persists and debits fixture video # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.803037
+  ...
+# Subtest: row 16: like-video route -> Redis job -> same exported worker settles reference-led output
+ok 4 - row 16: like-video route -> Redis job -> same exported worker settles reference-led output # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.095938
+  ...
+# Subtest: row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles
+ok 5 - row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.126738
+  ...
+not ok 6 - /home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts
+  ---
+  duration_ms: 26.578784
+  location: '/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:36:5776'
+  failureType: 'hookFailed'
+  error: "ENOENT: no such file or directory, lstat '/tmp/media-route-worker-cP7rcj/durable-media-objects'"
+  code: 'ENOENT'
+  stack: |-
+    async lstat (node:internal/fs/promises:1015:18)
+    async Promise.all (index 0)
+    async checkPaths (node:internal/fs/cp/cp:76:39)
+    async cpFn (node:internal/fs/cp/cp:65:17)
+    async exportLiveEvidence (/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:551:5)
+    async TestContext.<anonymous> (/home/runner/workspace/tests/qa/media-route-worker-fullchain.test.ts:495:3)
+    async TestHook.run (node:internal/test_runner/test:797:9)
+    async Test.runHook (node:internal/test_runner/test:723:9)
+    async after (node:internal/test_runner/test:755:9)
+    async Test.run (node:internal/test_runner/test:804:7)
+  ...

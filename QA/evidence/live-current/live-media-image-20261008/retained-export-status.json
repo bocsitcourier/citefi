@@ -1,0 +1,14 @@
+{
+  "evidenceBoundary": "DB and spool exported by failed run before shell timeout; no stored application image",
+  "tables": [
+    "providerAttemptReceipts",
+    "providerUsageLedger",
+    "creditReservations",
+    "creditLedger",
+    "providerRateVersions",
+    "providerRates",
+    "articleAssets"
+  ],
+  "storageObjects": 0,
+  "paidReservationRetained": true
+}

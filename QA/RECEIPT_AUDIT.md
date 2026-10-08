@@ -176,3 +176,45 @@ journey-scheduler failures plus development Redis refusal require remediation
 and explicit authorization before a worker-enabled runtime retest. A paid cap
 alone is not the only remaining gate, and full-scope completion remains
 pending.
+
+## Latest live receipt and cost continuation — E-043 through E-046
+
+Four new genuine Gemini 3.5 Flash article requests returned HTTP 200 and are
+durably receipted and settled in `QA/evidence/live-current/budget-ledger.json`.
+Each is a separate physical call; their conservative usage estimates total
+$0.474870, not an invoice. All four end-to-end cases failed. The per-case
+artifact sets under `QA/evidence/live-current/` retain the provider response,
+receipt, usage-ledger, credit-ledger, retrieval, wrong-tenant check, and
+settlement evidence. Authenticated retrieval returned 200 and a different
+authenticated tenant returned 404 in all four cases; this is access-control
+observation, not evidence of complete/usable output or publication.
+
+`budget-ledger.json` is the current settled snapshot: $30 ceiling, $0.517071
+known prior valuation, separate $6 historical HOLD (not actual spend), both
+historical calls still `UNKNOWN / UNRECONCILED`, $0.474870 new estimated usage,
+and $23.008059 availability. Per-case `outcome.json.totalBudget` is a
+pre-settlement snapshot and is not the current balance.
+
+E-044's latest `thinking-accounting-final.tap` is 16/16 and supersedes the
+retained earlier `thinking-accounting-regression.tap` (12/12) for current
+status; do not aggregate them. Valid native prompt+total counts are
+authoritative, with output derived as total minus prompt; otherwise require a
+complete valid split and fail closed as `UNKNOWN` for inconsistent/missing
+pricing splits. Image-unit accounting is independent.
+`speedmode-faq-regression.tap` is 3/3 for the separate rendered-FAQ defect.
+Original raw exports were not rewritten; no historical or application DB
+rebilling occurred. Whole-project TypeScript passed in `final-typecheck.txt`.
+These checks do not recast the four live failures as passes.
+
+E-045's initial image preflight failed on a formatting-only `2,520` versus
+official `2520` comparison; section-whitespace and optional-comma normalization
+corrected it. The bounded rerun passed preflight only ($0.1592 maximum estimate,
+$0.16 reserve); no image provider submission or image E2E pass occurred.
+Filesystem storage is not cloud storage, and targeted Gemini 3.1 image is not
+the application's Gemini 2.5 default. No live audio/video calls occurred.
+E-046 records static review of `application-login.jpg`; anonymous API 401 is
+expected. This is not authenticated-login or generation certification.
+Paid QA stopped after the four article failures as agreed with the architect;
+this was not a provider payment/billing failure. Full results:
+`QA/evidence/live-current/live-qa-summary.md`. Overall certification remains
+**NOT CERTIFIED**.

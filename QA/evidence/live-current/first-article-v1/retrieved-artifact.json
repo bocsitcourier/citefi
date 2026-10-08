@@ -1,0 +1,49 @@
+{
+  "status": 200,
+  "body": {
+    "article": {
+      "id": 1,
+      "batchId": 1,
+      "targetUrl": "https://example.com/services",
+      "status": "FAILED",
+      "title": "San Francisco Home-Care Planning",
+      "heroImageUrl": null,
+      "seoTitle": null,
+      "metaDescription": null,
+      "slug": null,
+      "keywords": null,
+      "hashtags": null,
+      "faq": null,
+      "wordCount": null,
+      "htmlContent": null,
+      "seoScore": null,
+      "hyperlinkedKeywords": null,
+      "metaEnrichment": null,
+      "podcastUrl": null,
+      "podcastDuration": null,
+      "podcastStatus": "none",
+      "podcastGeneratedAt": null,
+      "podcastScriptJson": null,
+      "businessName": "QA Article Chain",
+      "createdAt": "2026-10-08T19:44:34.002Z",
+      "updatedAt": "2026-10-08T19:45:13.273Z"
+    },
+    "errors": [
+      {
+        "id": 2,
+        "errorType": "SYSTEM",
+        "errorMessage": "[article-worker] Article generation failed: provider attempt provider-attempt:b22539161df594d150a43ca592389257a53a170a78fa4766f32c787e319bbec8 already has a physical submission; reconcile instead of replaying",
+        "severity": "error",
+        "createdAt": "2026-10-08T19:45:15.039Z"
+      },
+      {
+        "id": 1,
+        "errorType": "GEMINI",
+        "errorMessage": "[article-worker] Article generation failed: Unterminated string in JSON at position 9960",
+        "severity": "error",
+        "createdAt": "2026-10-08T19:45:08.223Z"
+      }
+    ],
+    "assets": []
+  }
+}

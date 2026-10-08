@@ -1,0 +1,28 @@
+{
+  "runId": "live-article-output16384",
+  "state": "settled",
+  "newRunUsageEstimateUsd": 0.113511,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.197115,
+    "availableUsd": 23.285814
+  },
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceFile": "QA/evidence/live-current/budget-baseline.json",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  }
+}

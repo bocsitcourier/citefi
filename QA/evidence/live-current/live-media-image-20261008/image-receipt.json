@@ -1,0 +1,41 @@
+{
+  "role": "image",
+  "provider": "gemini",
+  "model": "gemini-3.1-flash-image",
+  "requestSha256": "7e8c5cf0c3de6fb95c08c936b9d09cb84a6c6104a0f39c8d4c266508dc76beb6",
+  "inputBytes": 917,
+  "physicalCount": 1,
+  "state": "ambiguous",
+  "maximumUsd": 0.1592,
+  "submittedAt": "2026-10-08T20:17:39.480Z",
+  "status": 200,
+  "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+  "actualModel": "gemini-3.1-flash-image",
+  "usage": {
+    "promptTokenCount": 172,
+    "candidatesTokenCount": 1612,
+    "totalTokenCount": 1784,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 172
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1120
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "responseSha256": "850088de73d3e55481a4d4ea03f292e650ff3494ea622801a5c5bdf5e8a2981b",
+  "costBasis": "Official standard-tier native token rates: input $0.50/M, image output $60/M, thinking $3/M",
+  "billedSplit": {
+    "inputTokens": 172,
+    "imageTokens": 1120,
+    "thinkingTokens": 0
+  },
+  "actualUsd": null,
+  "receivedAt": "2026-10-08T20:17:49.752Z"
+}

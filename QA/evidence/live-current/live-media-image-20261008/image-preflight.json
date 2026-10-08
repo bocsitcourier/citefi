@@ -1,0 +1,43 @@
+{
+  "stage": "image",
+  "provider": "gemini",
+  "model": "gemini-3.1-flash-image",
+  "pricing": {
+    "file": "media-pricing-current.md",
+    "sha256": "a703d6e0d895539b01139d913bdceea3d28ec104311284aee3b2497f714dfbd3",
+    "url": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image"
+  },
+  "physicalCallsMaximum": 1,
+  "requestBytesMaximum": 8192,
+  "inputTokensMaximum": 16000,
+  "imageOutputTokensMaximum": 2520,
+  "maximumCogsUsd": 0.1592,
+  "reservedUsd": 0.16,
+  "noRetry": true,
+  "inputRateUsdPerMillion": 0.5,
+  "imageOutputRateUsdPerMillion": 60,
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  },
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.47487,
+    "availableUsd": 23.008059
+  },
+  "historicalCalls": "UNKNOWN / UNRECONCILED; historical HOLD remains coverage only, not actual spend",
+  "storageClaim": "This budget helper does not certify cloud object storage; the caller must report its storage boundary explicitly."
+}

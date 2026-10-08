@@ -1,0 +1,19 @@
+{
+  "endToEndPass": false,
+  "storageClaim": "This budget helper does not certify cloud object storage; the caller must report its storage boundary explicitly.",
+  "evidence": {
+    "executionBoundary": "Production direct image regeneration route with runtime-selected Gemini 3.1 Flash Image; not the default 2.5 model certification"
+  },
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.63487,
+    "availableUsd": 22.848059
+  },
+  "providerUsageUsd": null,
+  "physicalCalls": 1,
+  "finishedAt": "2026-10-08T20:17:49.870Z"
+}
