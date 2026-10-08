@@ -493,7 +493,9 @@ async function dispatchRoute(
   routes: Map<string, { POST?: (request: any) => Promise<Response>; GET?: (request: any) => Promise<Response> }>,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", ARTICLE_CHAIN_BASE_URL);
-  const handler = routes.get(url.pathname)?.[request.method as "GET" | "POST"];
+  const matched = routes.get(url.pathname) ??
+    (/^\/api\/content\/\d+$/.test(url.pathname) ? routes.get("/api/content/:id") : undefined);
+  const handler = matched?.[request.method as "GET" | "POST"];
   if (!handler) {
     response.statusCode = 404;
     response.end(JSON.stringify({ error: "Not found" }));
@@ -555,6 +557,14 @@ export interface ArticleChainFixture {
   stop: () => Promise<void>;
 }
 
+/** Explicit live opt-in. Callers must install their paid network/budget guard first. */
+export interface ArticleChainLiveOptions {
+  authorization: "bounded-live-article";
+  model: string;
+  maxOutputTokens: number;
+  receiptDirectory: string;
+}
+
 interface Processes {
   root: string;
   pgData: string;
@@ -564,7 +574,12 @@ interface Processes {
   http: ChildServer;
 }
 
-export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
+export async function startArticleChainFixture(live?: ArticleChainLiveOptions): Promise<ArticleChainFixture> {
+  if (live && (live.authorization !== "bounded-live-article" ||
+      process.env.QA_LIVE_ARTICLE !== "I_AUTHORIZE_BOUNDED_LIVE_ARTICLE" ||
+      !process.env.GEMINI_API_KEY || !process.env.OPENAI_API_KEY)) {
+    throw new Error("Live fixture requires explicit authorization and provider credentials");
+  }
   const previous = Object.fromEntries(
     ENVIRONMENT_KEYS.map((key) => [key, process.env[key]]),
   ) as Record<string, string | undefined>;
@@ -593,8 +608,9 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
     TOTP_ENCRYPTION_KEY_VERSION: "v1",
     APP_URL: ARTICLE_CHAIN_BASE_URL,
     NEXT_PUBLIC_APP_URL: ARTICLE_CHAIN_BASE_URL,
+    // Child schema/bootstrap processes never receive a real provider key.
     GEMINI_API_KEY: "qa-article-chain-transport-only",
-    GEMINI_ARTICLE_MODEL: "gemini-3.5-flash",
+    GEMINI_ARTICLE_MODEL: live?.model ?? "gemini-3.5-flash",
     DISABLE_CRITIC_LOOP: "true",
     DISABLE_REFLEXIVE_CHECK: "true",
     DISABLE_CHATGPT_REVIEW: "true",
@@ -616,6 +632,7 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
       processes.root,
       "provider-receipt-spool",
     );
+    if (live) env.PROVIDER_ATTEMPT_RECEIPT_SPOOL_DIR = live.receiptDirectory;
     processes.pgData = join(processes.root, "postgres");
     processes.pgSocket = join(processes.root, "socket");
     await mkdir(processes.pgSocket, { recursive: true });
@@ -664,11 +681,14 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
       else (process.env as Record<string, string | undefined>)[key] = value;
     }
     for (const key of SENSITIVE_KEYS) delete process.env[key];
+    if (live) process.env.GEMINI_API_KEY = previous.GEMINI_API_KEY;
     // openai-client constructs its SDK at module import time. Keep imports
     // deterministic without supplying a credential; all OpenAI work is
     // explicitly disabled or injected in this fixture, and the offline guard
     // remains responsible for rejecting any accidental egress.
-    process.env.OPENAI_API_KEY = "qa-article-chain-openai-disabled";
+    process.env.OPENAI_API_KEY = live
+      ? previousSensitive.OPENAI_API_KEY
+      : "qa-article-chain-openai-disabled";
     await composeSchema(env);
     await applyCanonicalSecurityBootstrap(env);
     await assertCanonicalSecurityBootstrap();
@@ -686,6 +706,15 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
       "/api/articles/list",
       (await import("../../app/api/articles/list/route")) as any,
     );
+    if (live) {
+      // Dispatch the actual authenticated retrieval route, not a QA substitute.
+      const contentRoute = await import("../../app/api/content/[id]/route");
+      routes.set("/api/content/:id", {
+        GET: (request: any) => contentRoute.GET(request, {
+          params: Promise.resolve({ id: new URL(request.url).pathname.split("/").pop()! }),
+        }),
+      });
+    }
     processes.http = createHttpServer((request, response) => {
       void dispatchRoute(request, response, routes);
     });
@@ -781,6 +810,7 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
         // The transport is the final optional argument on the production
         // generator. Keep every preceding positional argument untouched.
         args[17] = transport;
+        if (live) args[18] = { maxOutputTokens: live.maxOutputTokens };
         const generate = (await import("../../lib/gemini")).generateArticleWithGemini as any;
         return generate(...args);
       };
@@ -811,9 +841,30 @@ export async function startArticleChainFixture(): Promise<ArticleChainFixture> {
         ARTICLE_GENERATION_QUEUE,
         (job: any) => processArticleGenerationJob(job, {
           generateGemini: generator,
-          guardianAudit,
+          guardianAudit: live ? productionGuardianAudit : guardianAudit,
           afterDebit: options.afterDebit,
-          finalizationGate: {
+          finalizationGate: live ? {
+            // Text-only speed mode does not create images. Run real structural
+            // Guardian checks and the mandatory paid judge; no success verdicts.
+            reviewContent: async (...args) => {
+              guardianAuditCalls += 1;
+              const audit = await productionGuardianAudit(args[3], {
+                minImages: 0, minHyperlinks: 3, minFaqQuestions: 2,
+                minWordCount: 600, persona: "professional",
+              });
+              const { durableJson } = await import("./live-article-budget.mjs");
+              durableJson(join(live.receiptDirectory, "guardian-report.json"), {
+                profile: "text-only; no images generated; professional tone uses genuine deterministic Guardian",
+                report: audit,
+              });
+              if (!audit.passed) throw new Error("Live text Guardian rejected generated article");
+              finalizationGateCalls += 1;
+              const { contentReviewService } = await import("../../lib/content-review-service");
+              const review = await contentReviewService.reviewContent(...args);
+              durableJson(join(live.receiptDirectory, "finalization-review.json"), review);
+              return review;
+            },
+          } : {
             // The real structural/URL gate still runs. This narrow test DI only
             // avoids an unrelated paid judge provider call.
             reviewContent: async () => {

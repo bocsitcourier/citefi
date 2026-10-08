@@ -261,14 +261,24 @@ ${content.slice(0, 8000)}`;
         model: "gpt-4.1-mini",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
+        max_tokens: 2048,
       }),
       "ContentReview judge",
       undefined,
-      { request: { model: "gpt-4.1-mini" } },
+      { request: { model: "gpt-4.1-mini", maxOutputTokens: 2048 } },
     );
 
     const text = raw.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+    if (raw.choices[0]?.finish_reason !== "stop" ||
+        !parsed || typeof parsed !== "object" ||
+        ALL_DIMS.some((dimension) => !Number.isFinite(parsed[dimension]) ||
+          parsed[dimension] < 0 || parsed[dimension] > 100) ||
+        !Array.isArray(parsed.defects) ||
+        parsed.defects.some((defect: any) => !defect || typeof defect.code !== "string" ||
+          typeof defect.evidence !== "string")) {
+      throw new Error("ContentReview judge returned incomplete or invalid evidence");
+    }
     const scores: Partial<Record<Dimension, number>> = {};
     for (const d of ALL_DIMS) if (typeof parsed[d] === "number") scores[d] = parsed[d];
     const defects: Defect[] = (parsed.defects || []).map((x: any) => ({

@@ -2,6 +2,11 @@
 
 **Current certification decision: NOT CERTIFIED.**
 
+**Superseding authorization:** The user subsequently explicitly authorized
+starting architect-assisted end-to-end generation QA. The USD 30 ceiling
+remains, but historical reconciliation no longer blocks new bounded calls.
+Historical calls are still unreconciled; see `QA/LIVE_TEST_AUTHORIZATION.md`.
+
 **Latest user decision:** Maximum testing spend **USD 30**; permission to
 resume paid QA with the two historical calls unreconciled **declined**.
 New paid QA remains paused. `QA/LIVE_TEST_AUTHORIZATION.md` supersedes the

@@ -1,5 +1,20 @@
 # Live-test authorization — latest user decision
 
+## Superseding authorization
+
+The user subsequently requested architect-assisted end-to-end generation QA
+and explicitly instructed: “there is no restriction please start.”
+This lifts the prior restriction on proceeding while the two historical calls
+remain unreconciled. The previously supplied **USD 30 total ceiling remains**;
+this is not interpreted as unlimited spending.
+
+Proceed with bounded new live QA, preflight cost limits, and durable new
+receipts. Keep both historical calls `UNKNOWN / UNRECONCILED`. This does not
+authorize unrelated publishing, advertising, or customer emails.
+
+The prior decisions below are retained as history and are superseded only
+where they prohibit new paid QA due to historical reconciliation.
+
 The user supplied **USD 30** as the maximum total testing spend and answered
 **false** to allowing new paid QA while the two historical calls remain
 unreconciled.

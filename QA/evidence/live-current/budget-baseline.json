@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "ceilingUsd": 30,
+  "knownPriorUsd": 0.517071,
+  "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+  "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+  "historicalHoldUsd": 6,
+  "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+  "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+  "historicalCalls": "UNKNOWN / UNRECONCILED",
+  "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md"
+}

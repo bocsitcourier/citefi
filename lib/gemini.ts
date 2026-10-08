@@ -1059,7 +1059,12 @@ export async function generateArticleContent(
   serpFeatureTarget?: string, // SERP feature optimization: Featured Snippet | PAA | List | Q&A
   shadowRunPlan?: ArticleShadowRunPlan, // Pre-flight failure pattern awareness
   generateContentTransport?: GeminiGenerateContentTransport,
+  requestLimits?: { maxOutputTokens: number },
 ): Promise<ArticleGenerationResult> {
+  if (requestLimits && (!Number.isInteger(requestLimits.maxOutputTokens) ||
+      requestLimits.maxOutputTokens < 1 || requestLimits.maxOutputTokens > 65536)) {
+    throw new Error("Invalid article output token limit");
+  }
   if (!Number.isInteger(teamId) || (teamId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated teamId");
   }
@@ -1749,7 +1754,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
     config: {
       // Set explicit ceiling so Gemini never truncates a long article.
       // gemini-2.5-flash supports up to 65536 output tokens.
-      maxOutputTokens: 65536,
+      maxOutputTokens: requestLimits?.maxOutputTokens ?? 65536,
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -2067,6 +2072,7 @@ export async function generateArticleWithGemini(
   shadowRunPlan?: ArticleShadowRunPlan,
   articleId?: number,
   generateContentTransport?: GeminiGenerateContentTransport,
+  requestLimits?: { maxOutputTokens: number },
 ): Promise<AdvancedArticleResult> {
   if (!Number.isInteger(articleId) || (articleId ?? 0) <= 0) {
     throw new Error("Article generation requires a validated articleId");
@@ -2089,7 +2095,8 @@ export async function generateArticleWithGemini(
     articleId,
     serpFeatureTarget,
      shadowRunPlan,
-     generateContentTransport
+     generateContentTransport,
+     requestLimits
   );
 
   let geoAccuracyScore: number | undefined;

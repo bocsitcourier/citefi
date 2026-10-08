@@ -1,5 +1,10 @@
 # Historical Provider Reconciliation
 
+**Superseding authorization:** The user has now explicitly authorized starting
+architect-assisted end-to-end QA despite the historical gaps. The USD 30
+ceiling remains; historical calls remain unreconciled. See
+`QA/LIVE_TEST_AUTHORIZATION.md`. Earlier paused-gate notices below are historical.
+
 **Latest authorization:** The user supplied a **USD 30** testing ceiling but
 declined new paid QA while the historical calls remain unreconciled. Paid QA
 therefore remains paused. See `QA/LIVE_TEST_AUTHORIZATION.md`; it supersedes

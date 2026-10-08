@@ -2,6 +2,11 @@
 
 **Overall status: NOT CERTIFIED.**
 
+**Superseding authorization:** Architect-assisted end-to-end generation QA is
+now authorized under the existing USD 30 ceiling despite the historical gaps.
+The old paused-gate notice below is historical; see
+`QA/LIVE_TEST_AUTHORIZATION.md`. Authorization is not a passing test result.
+
 **Latest authorization:** A **USD 30** testing ceiling has been supplied, but
 the user declined proceeding with the two historical calls unreconciled.
 The paid gate remains closed; see `QA/LIVE_TEST_AUTHORIZATION.md`. Earlier
