@@ -240,8 +240,22 @@ try {
     (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relrowsecurity) AS rls_tables,
     (SELECT count(*)::int FROM pg_policies WHERE schemaname='public' AND 'citefi_tenant'=ANY(roles)) AS tenant_policies,
     (SELECT count(*)::int FROM information_schema.role_table_grants WHERE grantee='citefi_tenant') AS tenant_grants`);
+  // Names identify candidates only, not proof of system ownership. Do not
+  // disclose names, emails, billing identifiers, or arbitrary customer rows.
+  const {rows:canaryOwnerCandidates} = await db.query(`SELECT t.id,
+    (t.name ~* '(^|[^a-z])(canary|synthetic|system|internal)([^a-z]|$)') AS system_name_candidate,
+    (to_jsonb(t)->>'deleted_at' IS NOT NULL) AS deleted,
+    (NULLIF(to_jsonb(t)->>'stripe_customer_id','') IS NOT NULL
+      OR NULLIF(to_jsonb(t)->>'stripe_subscription_id','') IS NOT NULL) AS has_billing,
+    (u.role = 'admin') AS creator_is_platform_admin,
+    (SELECT count(*)::int FROM team_members m WHERE m.team_id=t.id) AS member_count,
+    (SELECT count(*)::int FROM team_members m JOIN users mu ON mu.id=m.user_id
+      WHERE m.team_id=t.id AND mu.role IS DISTINCT FROM 'admin') AS non_admin_member_count
+    FROM teams t JOIN users u ON u.id=t.created_by
+    WHERE t.name ~* '(^|[^a-z])(canary|synthetic|system|internal)([^a-z]|$)'
+    ORDER BY t.id LIMIT 20`);
   await db.query('ROLLBACK');
-  console.log(JSON.stringify({identity,controls,environmentPresence:Object.fromEntries(
+  console.log(JSON.stringify({identity,controls,canaryOwnerCandidates,environmentPresence:Object.fromEntries(
     ['DO_SPACES_KEY','DO_SPACES_SECRET','DO_SPACES_ENDPOINT','DO_SPACES_BUCKET',
      'BACKUP_STATUS_FILE','RESTORE_VERIFICATION_STATUS_FILE','RESTORE_VERIFY_DATABASE_URL',
      'CANARY_ACCOUNTING_TEAM_ID'].map(k=>[k,Boolean(process.env[k])]))}));
