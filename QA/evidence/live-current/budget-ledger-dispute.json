@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "status": "disputed",
+  "authoritativeCurrentBalance": false,
+  "financialInterpretation": "UNKNOWN — no settlement, refund, or free-call inference",
+  "note": "The two immutable snapshots preserve the divergent HEAD and MERGE_HEAD histories only. Neither snapshot is the authoritative current ledger, and no current balance or settlement/refund/free-call conclusion may be derived from this manifest.",
+  "snapshots": [
+    {
+      "side": "HEAD",
+      "sourceCommit": "bae73278110495af4f6697268ca6e6229403c03c",
+      "file": "budget-ledger.head.json",
+      "sha256": "70379464d6fef0de280ecb0d5c3a7921de8c200f2054f68bee0e4afbfebebb11",
+      "authoritative": false
+    },
+    {
+      "side": "MERGE_HEAD",
+      "sourceCommit": "ffe2389dd69076e2166984e4d1a8af9900171db9",
+      "file": "budget-ledger.merge-head.json",
+      "sha256": "94de5b68c8dabaa7d6e420f68ef1ea7ba90ace62befa3ad5016a82d6065900a2",
+      "authoritative": false
+    }
+  ],
+  "paidQaGate": {
+    "blocked": true,
+    "requiredBeforeRelease": [
+      "Reconcile source records from both snapshots to an explicitly documented canonical ledger.",
+      "Record a separate owner permission scoped to paid-qa and bound to the reconciled ledger hash."
+    ],
+    "bypass": "None: environment variables, test modes, and fixture transports cannot bypass the live paid-QA guard."
+  },
+  "resolution": null
+}

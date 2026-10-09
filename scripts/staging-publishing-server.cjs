@@ -4,6 +4,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { createHash, randomBytes } = require('node:crypto');
 const { createRequire } = require('node:module');
+const retention = require('./staging-source-retention.cjs');
 const ROOT = '/var/www/citefi-staging';
 const QA_ROOT = `${ROOT}/publishing-qa`;
 const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
@@ -144,7 +145,48 @@ function prepare() {
   // Only root can replace the source archive between integrity check and extraction.
   fs.chownSync(incoming, 0, 0);
   fs.chmodSync(incoming, 0o700);
+  retention.requireSpace(QA_ROOT, 32 * 1024 * 1024);
   return account;
+}
+
+function activeSourcePaths(account) {
+  const active = [];
+  // /proc inspection does not start a PM2 daemon, write its logs, or save state.
+  // Inspect all processes: a live acceptance harness also pins its source.
+  function collect(value) {
+    if (typeof value === 'string' && value.startsWith(`${QA_ROOT}/source-`)) active.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  }
+  for (const pid of fs.readdirSync('/proc').filter(name => /^\d+$/.test(name))) {
+    try {
+      collect(fs.readlinkSync(`/proc/${pid}/cwd`));
+      fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').forEach(collect);
+    } catch (error) {
+      // Processes may exit during inspection; permissions failures are not exits.
+      if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error;
+    }
+  }
+  for (const file of [`${account.home}/.pm2/dump.pm2`, `${QA_ROOT}/setup.json`]) {
+    if (fs.existsSync(file)) collect(JSON.parse(fs.readFileSync(file, 'utf8')));
+  }
+  const config = `${QA_ROOT}/processes.config.cjs`;
+  if (fs.existsSync(config)) {
+    // Do not execute this private config or print its embedded environment.
+    const text = fs.readFileSync(config, 'utf8');
+    active.push(...(text.match(/\/var\/www\/citefi-staging\/publishing-qa\/source-[a-f0-9]{64}/g) || []));
+  }
+  return [...new Set(active)].sort();
+}
+
+async function lockedOperation(action, callback) {
+  const account = stageRoot();
+  if (fs.realpathSync(QA_ROOT) !== QA_ROOT) throw new Error('Staging QA root is a link');
+  const lock = `${QA_ROOT}/.source-operation.lock`;
+  // No automatic stale-lock deletion: an interrupted setup needs inspection.
+  fs.mkdirSync(lock, { mode: 0o700 });
+  try { return await callback(account); }
+  finally { fs.rmdirSync(lock); }
 }
 
 function run(command, args, timeout = 30000, logFile) {
@@ -220,6 +262,12 @@ async function setup(expectedHash) {
   const details = run('tar', ['-tvzf', archive]);
   if (details.split('\n').some(line => /^[lh]/.test(line))) throw new Error('Source archive may not contain links');
   const source = `${QA_ROOT}/source-${expectedHash}`;
+  phase = 'staging-source-disk-preflight';
+  const space = retention.preview(QA_ROOT, activeSourcePaths(account));
+  if (!space.setupAllowed) throw new Error('Staging retention or disk budget exceeded; preview and authorize cleanup first');
+  retention.requireSpace(QA_ROOT);
+  if (fs.existsSync(source)) throw new Error('Pinned staging source already exists; do not overwrite a retained release');
+  phase = 'extract-pinned-staging-source';
   fs.mkdirSync(source, { mode: 0o700, recursive: true });
   if (fs.realpathSync(source) !== source) throw new Error('Staging source directory is a link');
   fs.chownSync(source, account.uid, account.gid);
@@ -250,9 +298,15 @@ async function setup(expectedHash) {
     ownedWrite(`${source}/.dependencies-ready`, expectedHash, account);
   }
   if (!fs.existsSync(`${source}/packages/apex-receiver/node_modules/helmet/package.json`)) {
+    retention.requireSpace(QA_ROOT, 512 * 1024 * 1024);
     run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'install',
       '--prefix', `${source}/packages/apex-receiver`, '--registry=https://registry.npmjs.org', '--ignore-scripts', '--no-audit', '--no-fund'],
     180000, `${QA_ROOT}/receiver-dependency-install.log`);
+  }
+  phase = 'validate-post-install-disk-budget';
+  retention.requireSpace(QA_ROOT, 0);
+  if (retention.preview(QA_ROOT, [...activeSourcePaths(account), source]).totalBytes > retention.POLICY.maximumBytes) {
+    throw new Error('Installed staging snapshots exceed the source budget; current services remain unchanged');
   }
   phase = 'configure-private-staging-signing';
   let existing = {};
@@ -428,7 +482,11 @@ async function main() {
   try {
     const report = action === 'inspect' ? inspect() : action === 'prepare'
       ? (prepare(), { operation: 'prepare-staging-publishing-server', success: true })
-      : action === 'setup' ? await setup(process.argv[3]) : action === 'verify' ? verify()
+       : action === 'setup' ? await lockedOperation(action, () => setup(process.argv[3]))
+       : action === 'verify' ? await lockedOperation(action, () => verify())
+       : action === 'retention-preview' ? retention.preview(QA_ROOT, activeSourcePaths(stageRoot()))
+       : action === 'retention-cleanup' ? await lockedOperation(action, account =>
+         retention.cleanup(QA_ROOT, activeSourcePaths(account), process.argv[3]))
       : (() => { throw new Error('Unknown fixed staging operation'); })();
     console.log(JSON.stringify(report, null, 2));
   } catch (error) {

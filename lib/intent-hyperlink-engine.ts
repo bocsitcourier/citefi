@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 /**
  * INTENT-DRIVEN HYPERLINK ENGINE
  * ================================
@@ -156,11 +156,12 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
   const providerStartedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   const attemptKey = "intent-hyperlink";
+  const model = await getResolvedModel("geminiFlash");
   try {
     const startedAt = Date.now();
     const result = await throttledGeminiRequest(() => {
       const request = {
-        model: GEMINI_FLASH_MODEL,
+        model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           responseMimeType: "application/json",
@@ -197,7 +198,7 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
       }, () => (_deps.generateContent ?? ((input) => genAI.models.generateContent(input)))(request), _deps.receipt);
     });
     providerResponseReceived = true;
-    await (_deps.logSuccess ?? logCostTelemetry)({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+    await (_deps.logSuccess ?? logCostTelemetry)({ operationType: "article_hyperlink", provider: "gemini", model, teamId,
       providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);
 
@@ -268,7 +269,7 @@ Return a JSON array. Only include pages where you found a genuine 4–7 word mat
     // create a duplicate zero-usage provider event.
     // (Provider-call failures are logged by the request path before fallback.)
     if (!providerResponseReceived) {
-      await logFailedProviderAttempt({ operationType: "article_hyperlink", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+      await logFailedProviderAttempt({ operationType: "article_hyperlink", provider: "gemini", model, teamId, providerMetadata },
         { totalTokens: 0 }, Date.now() - providerStartedAt, err);
     }
     console.error("[IntentEngine] Gemini call failed — falling back to literal matching:", err);

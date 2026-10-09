@@ -5,7 +5,7 @@ import * as path from "path";
 import { execSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
 import { attachVideoNarration } from "./attach-video-narration";
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { sanitizeVeoPrompt } from "@/types/video-schema";
 import {
   isNonReplayableProviderError,
@@ -31,7 +31,8 @@ import { allocateProviderAttemptIdentity } from "./provider-invocation-identity"
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: { apiVersion: "v1" },
+  // Google's Veo preview-generation guide uses the v1beta endpoint.
+  httpOptions: { apiVersion: "v1beta" },
 });
 
 export interface VeoClip {
@@ -163,7 +164,7 @@ export async function generateVeoClip(
       (!Number.isSafeInteger(request.pollIntervalMs) || request.pollIntervalMs < 0 || request.pollIntervalMs > 10000)) {
     throw new Error("Veo pollIntervalMs must be an integer between 0 and 10000");
   }
-  const model = getModel("veoVideo");
+  const model = await getResolvedModel("veoVideo");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: request.invocationKey ?? jobId ?? runId,
     attemptKey: request.attemptKey ?? "veo-clip",

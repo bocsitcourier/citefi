@@ -10,6 +10,7 @@ bash -n "$ROOT/scripts/deploy-to-staging.sh"
 bash -n "$ROOT/scripts/verify-ssh-host-key.sh"
 bash -n "$ROOT/scripts/install-db-backup-cron.sh"
 bash -n "$ROOT/deploy.sh"
+node "$ROOT/tests/deployment/workflow-gates.test.cjs"
 
 assert_has() {
   grep -Eq "$2" "$1" || { echo "missing deployment contract '$2' in $1"; exit 1; }
@@ -24,6 +25,7 @@ assert_lacks() {
 # before secrets, key material, keyscan, or SSH are touched.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+env -i PATH="$PATH" HOME="$tmp" bash "$ROOT/tests/deployment/ssh-host-key.test.sh"
 if HOME="$tmp/home" env -u DEPLOY_ENVIRONMENT -u DO_SSH_PRIVATE_KEY -u DO_HOST -u PRODUCTION_DEPLOY_CONFIRMATION \
   "$TRANSPORT" >"$tmp/no-confirm.out" 2>&1; then
   echo "production transport ran without typed confirmation"; exit 1
@@ -202,7 +204,7 @@ success_line="$(grep -n 'write_status succeeded' "$HOST" | tail -1 | cut -d: -f1
 (( migration_line < cutover_line ))
 (( cutover_line < health_line && health_line < public_listener_line && public_listener_line < success_line ))
 
-assert_has "$ROOT/.github/workflows/deploy.yml" 'needs: validate'
+assert_has "$ROOT/.github/workflows/deploy.yml" 'needs: \[verify-ssh, validate\]'
 assert_has "$ROOT/.github/workflows/deploy.yml" 'PRODUCTION_DEPLOY_CONFIRMATION'
 assert_has "$ROOT/.github/workflows/deploy.yml" 'DEPLOY_CITEFI_PRODUCTION_UNTIL_'
 assert_has "$ROOT/.github/workflows/deploy.yml" 'workflow_dispatch'
@@ -233,7 +235,8 @@ JS
 assert_has "$ROOT/scripts/process-bootstrap.ts" 'next", "start", "-p", webPort'
 assert_has "$ROOT/scripts/process-bootstrap.ts" 'spawn\("ss", \["-ltn".*webPort'
 assert_lacks "$ROOT/.replit" '^\[deployment\]'
-assert_lacks "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*6379'
+python3 "$ROOT/scripts/check-private-redis-port.py" --self-test
+python3 "$ROOT/scripts/check-private-redis-port.py" "$ROOT/.replit"
 assert_has "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*5000'
 assert_has "$ROOT/.replit" 'localPort[[:space:]]*=[[:space:]]*5904'
 assert_has "$ROOT/lib/storage.ts" 'STORAGE_PREFIX'
@@ -260,6 +263,7 @@ assert_has "$HOST" 'assert r\.get\("ok"\) is True'
 assert_has "$HOST" 's\.get\("models".*get\("ok"\) is True'
 assert_lacks "$ROOT/server/index.ts" 'fuser[[:space:]]+-k'
 assert_has "$ROOT/server/index.ts" 'LOCAL_DEV_REDIS'
+assert_has "$ROOT/server/index.ts" "'--bind', '127.0.0.1', '--protected-mode', 'yes', '--port', '6379'"
 
 # Host-key verification is testable without network access.
 mkdir -p "$tmp/bin"

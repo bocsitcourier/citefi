@@ -1,0 +1,85 @@
+{
+  "runId": "live-selected-video-20261008",
+  "verifiedAt": "2026-10-09T00:48:53.022Z",
+  "retrospective": true,
+  "boundEvidenceAndSourceHashesVerified": true,
+  "liveValidator": {
+    "accepted": false,
+    "error": "Witnessed parent termination proof required; stale PID is insufficient"
+  },
+  "postTestCurrentCheck": {
+    "ps": {
+      "command": [
+        "ps",
+        "-eo",
+        "pid=,ppid=,comm=,args="
+      ],
+      "exitCode": 0,
+      "matching": [],
+      "qualification": "Collector itself excluded; initial check retained the collector as a run-name match."
+    },
+    "ss": {
+      "command": [
+        "ss",
+        "-ltnp"
+      ],
+      "exitCode": null,
+      "error": "spawnSync ss ENOENT",
+      "matching": []
+    },
+    "ownedTempRoots": {
+      "command": [
+        "find",
+        "/tmp",
+        "-maxdepth",
+        "1",
+        "-name",
+        "media-route-worker-*"
+      ],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "qualification": "Fresh current evidence only, not a historical shutdown witness. ss remains unavailable."
+  },
+  "finalCode": {
+    "file": "post-fixture-fix-fullchain.test.ts.txt",
+    "sha256": "287dada75de3de26ffd7383ca3f70b5b159578ce2ff43cec6441b74dfb248187",
+    "qualification": "Assembly-time snapshot predates a six-second isolated audio-fixture correction; teardown was unchanged."
+  },
+  "fixtureCorrection": "Idea-video fixture now contains real six-second audio and accounts six seconds; podcast fixture remains sixty seconds. No production teardown change.",
+  "tests": [
+    {
+      "command": "node --test tests/qa/video-recovery-budget.test.mjs tests/qa/selected-media-budget.test.mjs",
+      "exitCode": 0,
+      "pass": 50,
+      "fail": 0
+    },
+    {
+      "command": "LIVE_QA_IMAGE=0 SELECTED_MEDIA_QA= SELECTED_MEDIA_OFFLINE=1 VIDEO_RECOVERY_QA= node --import tsx/esm --test tests/qa/media-route-worker-fullchain.test.ts",
+      "initial": {
+        "exitCode": 1,
+        "pass": 3,
+        "fail": 2,
+        "reason": "Sixty-second audio bytes incorrectly declared as six-second narration"
+      },
+      "final": {
+        "exitCode": 0,
+        "pass": 5,
+        "fail": 0
+      }
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "initial": {
+        "exitCode": 2,
+        "errors": 36,
+        "reason": "Retained TypeScript source snapshot was initially included in compilation"
+      },
+      "final": {
+        "exitCode": 0
+      },
+      "resolution": "QA/evidence/** excluded by parent agent in tsconfig.json"
+    }
+  ]
+}

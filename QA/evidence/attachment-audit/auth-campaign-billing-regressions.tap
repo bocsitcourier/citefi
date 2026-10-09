@@ -1,0 +1,355 @@
+TAP version 13
+# (node:5766) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: renders a 154-word Markdown article as semantic safe HTML
+ok 1 - renders a 154-word Markdown article as semantic safe HTML
+  ---
+  duration_ms: 14.192018
+  ...
+# Subtest: preserves Markdown emphasis, code, ordered and unordered lists
+ok 2 - preserves Markdown emphasis, code, ordered and unordered lists
+  ---
+  duration_ms: 2.087626
+  ...
+# Subtest: escapes raw HTML and rejects unsafe Markdown destinations
+ok 3 - escapes raw HTML and rejects unsafe Markdown destinations
+  ---
+  duration_ms: 1.974034
+  ...
+# (node:5784) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: accepts clean structured article markdown
+ok 4 - accepts clean structured article markdown
+  ---
+  duration_ms: 3.481102
+  ...
+# Subtest: rejects the redacted live reasoning/debug regression
+ok 5 - rejects the redacted live reasoning/debug regression
+  ---
+  duration_ms: 0.767682
+  ...
+# Subtest: allows JSON-LD in final HTML but never lets it replace visible article body
+ok 6 - allows JSON-LD in final HTML but never lets it replace visible article body
+  ---
+  duration_ms: 1.605817
+  ...
+# Subtest: ignores nested hashtag links when checking HTML terminal punctuation
+ok 7 - ignores nested hashtag links when checking HTML terminal punctuation
+  ---
+  duration_ms: 0.58018
+  ...
+# Subtest: enforces an explicit word-count ceiling without padding
+ok 8 - enforces an explicit word-count ceiling without padding
+  ---
+  duration_ms: 0.636448
+  ...
+# Subtest: rejects the retained 844-word quality fixture at its requested 500-800 range
+ok 9 - rejects the retained 844-word quality fixture at its requested 500-800 range
+  ---
+  duration_ms: 2.450908
+  ...
+# Subtest: rejects malformed and unsafe article link destinations
+ok 10 - rejects malformed and unsafe article link destinations
+  ---
+  duration_ms: 0.327285
+  ...
+# Subtest: batch and campaign export eligibility reject a preexisting COMPLETE 844-word 500-800 artifact
+ok 11 - batch and campaign export eligibility reject a preexisting COMPLETE 844-word 500-800 artifact
+  ---
+  duration_ms: 3.592244
+  ...
+# Subtest: does not validate only a Markdown destination prefix before whitespace
+ok 12 - does not validate only a Markdown destination prefix before whitespace
+  ---
+  duration_ms: 0.318578
+  ...
+# Subtest: batch and campaign export routes wire persisted-bound eligibility before creating archives
+ok 13 - batch and campaign export routes wire persisted-bound eligibility before creating archives
+  ---
+  duration_ms: 77.199958
+  ...
+# Subtest: repairs model-inserted whitespace in canonical target URLs
+ok 14 - repairs model-inserted whitespace in canonical target URLs
+  ---
+  duration_ms: 0.42857
+  ...
+# (node:5802) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: cookie authentication CSRF
+    # Subtest: rejects a cross-origin cookie mutation
+    ok 1 - rejects a cross-origin cookie mutation
+      ---
+      duration_ms: 2.603175
+      ...
+    # Subtest: does not trust an attacker-controlled forwarded host for origin allowlisting
+    ok 2 - does not trust an attacker-controlled forwarded host for origin allowlisting
+      ---
+      duration_ms: 0.38341
+      ...
+    # Subtest: accepts same-origin signed double-submit proof
+    ok 3 - accepts same-origin signed double-submit proof
+      ---
+      duration_ms: 0.623403
+      ...
+    # Subtest: a bearer-shaped header cannot bypass cookie CSRF proof
+    ok 4 - a bearer-shaped header cannot bypass cookie CSRF proof
+      ---
+      duration_ms: 0.236908
+      ...
+    # Subtest: rejects unsigned or mismatched tokens
+    ok 5 - rejects unsigned or mismatched tokens
+      ---
+      duration_ms: 0.30855
+      ...
+    # Subtest: accepts a configured Replit preview origin without trusting forwarded authority
+    ok 6 - accepts a configured Replit preview origin without trusting forwarded authority
+      ---
+      duration_ms: 0.593453
+      ...
+    # Subtest: proxy rejects a spoofed origin paired with a forwarded host
+    ok 7 - proxy rejects a spoofed origin paired with a forwarded host
+      ---
+      duration_ms: 3.032105
+      ...
+    # Subtest: proxy accepts a configured Replit preview origin
+    ok 8 - proxy accepts a configured Replit preview origin
+      ---
+      duration_ms: 7.332325
+      ...
+    # Subtest: proxy leaves bearer-authenticated API mutations to the route authorization layer
+    ok 9 - proxy leaves bearer-authenticated API mutations to the route authorization layer
+      ---
+      duration_ms: 0.790314
+      ...
+    # Subtest: proxy preserves the explicit reset capability path without cookie CSRF
+    ok 10 - proxy preserves the explicit reset capability path without cookie CSRF
+      ---
+      duration_ms: 0.547588
+      ...
+    1..10
+ok 15 - cookie authentication CSRF
+  ---
+  duration_ms: 19.021088
+  type: 'suite'
+  ...
+# (node:5823) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: forgot-password never returns or console-delivers a reset credential
+ok 16 - forgot-password never returns or console-delivers a reset credential
+  ---
+  duration_ms: 247.123609
+  ...
+# Subtest: controlled admin recovery is explicit, role-bound, and revokes sessions
+ok 17 - controlled admin recovery is explicit, role-bound, and revokes sessions
+  ---
+  duration_ms: 2.971003
+  ...
+# (node:5841) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: password reset links enforce the shared password policy
+ok 18 - password reset links enforce the shared password policy
+  ---
+  duration_ms: 5.962907
+  ...
+# (node:5853) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:5853) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: weak password is rejected before hashing or any database mutation
+ok 19 - weak password is rejected before hashing or any database mutation
+  ---
+  duration_ms: 243.78393
+  ...
+# Subtest: non-string password preserves the required-fields error contract
+ok 20 - non-string password preserves the required-fields error contract
+  ---
+  duration_ms: 2.991571
+  ...
+# Subtest: a policy-verified strong password reaches the stub hash and transaction
+ok 21 - a policy-verified strong password reaches the stub hash and transaction
+  ---
+  duration_ms: 2.654269
+  ...
+# (node:5874) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: batch cap ownership survives orchestration until child settlement
+ok 22 - batch cap ownership survives orchestration until child settlement
+  ---
+  duration_ms: 90.184949
+  ...
+# Subtest: billing recovery settles cap without provider re-entry
+ok 23 - billing recovery settles cap without provider re-entry
+  ---
+  duration_ms: 5.945191
+  ...
+# (node:5892) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: batch requeue owns a fresh retry reservation and hands it to the worker
+ok 24 - batch requeue owns a fresh retry reservation and hands it to the worker
+  ---
+  duration_ms: 91.856439
+  ...
+# (node:5910) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# Subtest: cumulative Stripe partial refunds reverse an exact partitioned credit total
+ok 25 - cumulative Stripe partial refunds reverse an exact partitioned credit total
+  ---
+  duration_ms: 0.727539
+  ...
+# Subtest: created and won Stripe disputes never revoke credits; only lost does
+ok 26 - created and won Stripe disputes never revoke credits; only lost does
+  ---
+  duration_ms: 0.117736
+  ...
+# (node:5928) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: Ads approval RBAC enforces client, compliance, export, and separation authorities
+ok 27 - Ads approval RBAC enforces client, compliance, export, and separation authorities
+  ---
+  duration_ms: 1.075568
+  ...
+# Subtest: concurrent cross-type approvals cannot let one actor win twice
+ok 28 - concurrent cross-type approvals cannot let one actor win twice
+  ---
+  duration_ms: 0.566577
+  ...
+# Subtest: client approval route accepts a client reviewer without agency membership
+ok 29 - client approval route accepts a client reviewer without agency membership
+  ---
+  duration_ms: 8.886398
+  ...
+# Subtest: locked UTM convention is deterministic and preserves non-UTM query parameters
+ok 30 - locked UTM convention is deterministic and preserves non-UTM query parameters
+  ---
+  duration_ms: 1.307599
+  ...
+# Subtest: landing alignment is HTTPS, same-domain, and SSRF-safe without fetching
+ok 31 - landing alignment is HTTPS, same-domain, and SSRF-safe without fetching
+  ---
+  duration_ms: 3.764122
+  ...
+# Subtest: Google RSA and Meta creative limits are deterministic
+ok 32 - Google RSA and Meta creative limits are deterministic
+  ---
+  duration_ms: 0.516466
+  ...
+# Subtest: policy gate blocks prohibited claims and unresolved required disclaimers
+ok 33 - policy gate blocks prohibited claims and unresolved required disclaimers
+  ---
+  duration_ms: 0.681179
+  ...
+# Subtest: export rows are derived only from the immutable finalized manifest
+ok 34 - export rows are derived only from the immutable finalized manifest
+  ---
+  duration_ms: 0.60072
+  ...
+# Subtest: canonical ad manifest hashes survive Date-to-JSON round trips
+ok 35 - canonical ad manifest hashes survive Date-to-JSON round trips
+  ---
+  duration_ms: 2.818929
+  ...
+# Subtest: the finalized QA export preserves its real legacy hash failure
+ok 36 - the finalized QA export preserves its real legacy hash failure
+  ---
+  duration_ms: 145.597026
+  ...
+# (node:5950) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Subtest: claim-review rejection cannot write COMPLETE at the final article boundary
+ok 37 - claim-review rejection cannot write COMPLETE at the final article boundary
+  ---
+  duration_ms: 22.409694
+  ...
+# (node:5968) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:5968) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: confirm-brand route threads team/public id, confirms before detail, and flattens frozen response
+ok 38 - confirm-brand route threads team/public id, confirms before detail, and flattens frozen response
+  ---
+  duration_ms: 30.880905
+  ...
+# Subtest: confirm-brand route returns 409 and does not load detail when research is incomplete
+ok 39 - confirm-brand route returns 409 and does not load detail when research is incomplete
+  ---
+  duration_ms: 2.194938
+  ...
+# Subtest: confirm-brand route returns 404 for an absent campaign and never confirms
+ok 40 - confirm-brand route returns 404 for an absent campaign and never confirms
+  ---
+  duration_ms: 1.738935
+  ...
+# Subtest: confirm-brand route returns auth denial without campaign service calls
+ok 41 - confirm-brand route returns auth denial without campaign service calls
+  ---
+  duration_ms: 1.725853
+  ...
+# Subtest: confirm-brand route rejects an invalid public UUID before campaign lookup
+ok 42 - confirm-brand route rejects an invalid public UUID before campaign lookup
+  ---
+  duration_ms: 1.676715
+  ...
+# (node:5990) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: client CSRF fetch contract
+    # Subtest: does not allow raw local unsafe fetch calls in browser sources
+    ok 1 - does not allow raw local unsafe fetch calls in browser sources
+      ---
+      duration_ms: 2027.756635
+      ...
+    # Subtest: shared browser wrapper supplies signed double-submit proof
+    ok 2 - shared browser wrapper supplies signed double-submit proof
+      ---
+      duration_ms: 1.672997
+      ...
+    # Subtest: multipart bodies retain the browser-selected boundary
+    ok 3 - multipart bodies retain the browser-selected boundary
+      ---
+      duration_ms: 187.946446
+      ...
+    1..3
+ok 43 - client CSRF fetch contract
+  ---
+  duration_ms: 2218.194043
+  type: 'suite'
+  ...
+# (node:6011) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: idea and social video jobs carry the original cap hold
+ok 44 - idea and social video jobs carry the original cap hold
+  ---
+  duration_ms: 1.05209
+  ...
+# Subtest: video delivery settles the original cap row and checkpoints before retry
+ok 45 - video delivery settles the original cap row and checkpoints before retry
+  ---
+  duration_ms: 1.149788
+  ...
+1..45
+# tests 56
+# suites 2
+# pass 56
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16443.279905

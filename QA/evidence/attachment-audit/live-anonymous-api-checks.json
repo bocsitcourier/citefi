@@ -1,0 +1,12 @@
+{
+  "mode": "LIVE read-only anonymous authorization boundary",
+  "site": "https://citefi.co",
+  "interpretation": "Four routes denied signed-out requests. The article collection path returned 404, which proves neither implementation nor resource authorization. Response bodies were not retained; no authenticated or cross-tenant test is claimed.",
+  "records": [
+    {"path":"/api/auth/me","startedAt":"2026-10-08T20:40:56.517Z","status":401,"elapsedMs":203,"contentType":"application/json","location":null,"bodyRetained":false},
+    {"path":"/api/articles","startedAt":"2026-10-08T20:40:56.723Z","status":404,"elapsedMs":129,"contentType":"text/html; charset=utf-8","location":null,"bodyRetained":false},
+    {"path":"/api/campaigns","startedAt":"2026-10-08T20:40:56.852Z","status":401,"elapsedMs":46,"contentType":"application/json","location":null,"bodyRetained":false},
+    {"path":"/api/publishing/connections","startedAt":"2026-10-08T20:40:56.898Z","status":401,"elapsedMs":209,"contentType":"application/json","location":null,"bodyRetained":false},
+    {"path":"/api/schedules","startedAt":"2026-10-08T20:40:57.107Z","status":401,"elapsedMs":207,"contentType":"application/json","location":null,"bodyRetained":false}
+  ]
+}

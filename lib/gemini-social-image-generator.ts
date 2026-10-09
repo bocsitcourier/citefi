@@ -15,6 +15,7 @@ export { normalizeSocialImage } from "./social-image-normalizer";
 import { submitGeminiRequest } from "./gemini";
 import { providerAttemptSourceEventIdForResponse } from "./provider-attempt-receipts";
 import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
+import { getResolvedModel } from "./model-resolver";
 
 const genAI = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
@@ -126,12 +127,13 @@ export async function generateSocialImages(
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is required for image generation");
   }
+  const model = await getResolvedModel("geminiImage");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: request.invocationKey,
     attemptKey: "social-image",
     provider: "gemini",
     operationType: "image_generation",
-    model: "gemini-2.5-flash-image",
+    model,
   });
 
   console.log(`🖼️ Generating images with Gemini for ${platforms.length} platforms${companyName ? ` for ${companyName}` : ''}`);
@@ -171,7 +173,7 @@ Requirements:
       console.log(`📸 Generating ${canonicalPlatform} image (${platformSpec.aspectRatio}) with Gemini...`);
 
       const generationRequest = {
-        model: "gemini-2.5-flash-image",
+        model,
         contents: [{ role: "user", parts: [{ text: imagePrompt }] }],
         config: {
           responseModalities: ["Image"],
@@ -193,7 +195,7 @@ Requirements:
       );
       await logCostTelemetry(
         {
-          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          operationType: "image_generation", provider: "gemini", model,
           teamId,
           resourceType: "social_post", resourceId: socialPostId,
           providerRequestId: (result as any).responseId ?? null, attempt: 1,
@@ -278,7 +280,7 @@ Requirements:
       // assign image units without a confirmed delivered image.
       if (!providerSubmissionRecorded) await logFailedProviderAttempt(
         {
-          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          operationType: "image_generation", provider: "gemini", model,
           teamId,
           resourceType: "social_post", resourceId: socialPostId, attempt: 1,
           providerRequestId: `${socialPostId}:${platform}:1`,

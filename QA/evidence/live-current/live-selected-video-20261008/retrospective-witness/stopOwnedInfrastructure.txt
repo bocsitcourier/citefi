@@ -1,0 +1,12 @@
+async function stopOwnedInfrastructure(fixture: Awaited<ReturnType<typeof startOwnedInfrastructure>>) {
+  for (const child of [fixture.redis, fixture.pg]) {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+      await once(child, "exit").catch(() => undefined);
+    }
+  }
+  await runCommand("pg_ctl", [
+    "-D", join(fixture.root, "postgres"), "-m", "fast", "-w", "stop",
+  ], fixture.environment);
+  await rm(fixture.root, { recursive: true, force: true });
+}

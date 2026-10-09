@@ -14,9 +14,10 @@ end-to-end evidence rather than apparent frontend success.
 **How to apply:** Maintain architecture, generation/provider matrices, failure
 recovery, cost-control, testing, and provider-replacement documentation. Separate
 code inspection, simulated-provider tests, integration tests, and live-provider
-evidence; explicitly report unsupported features and untested steps. Fix safely
-reproducible defects and add regression tests. Never label a draft/export as a
-live external publication.
+evidence; explicitly report unsupported features and untested steps. Apply
+reproducible fixes and regression tests only when implementation is authorized;
+an initial audit-only request requires findings before changes. Never label a
+draft/export as a live external publication.
 
 Cost leakage in image, video, and audio generation is a critical audit priority.
 Test duplicate delivery, rapid repeated Generate clicks, retries after provider
@@ -90,3 +91,30 @@ only visible output; receipt completeness concealed an understated cost.
 calculations against native usage during live acceptance, including reasoning
 and modality-specific output. Preserve original underpriced evidence when
 fixing future accounting; do not silently rewrite historical costs.
+
+## All-role future scenarios
+
+Future-scenario hardening must cover team owners/admins, platform administrators,
+regular users, and client reviewers—not only generation happy paths.
+
+**Why:** The user explicitly requires the architect to consider future failures
+for all users, including administrators.
+
+**How to apply:** Include concurrent permission changes, credential recovery,
+administrator financial adjustments, delivery/callback ordering, revocation,
+and ambiguous work recovery. Distinguish confirmed defects from hypotheses and
+source-contract checks from actual concurrent/runtime evidence.
+
+The user's master QA contract distinguishes deployed Live, Sandbox, and Auto
+execution. Missing credentials in Strict Live block that stage; Auto fallback
+must remain visible and cannot turn a failed live stage into a live pass.
+
+**Why:** The requested release audit explicitly separates working simulations
+from verified real integrations and forbids silent fallback or inferred success.
+
+**How to apply:** Record mode and evidence per stage, distinguish deployed
+browser verification from isolated real-provider tests, and obtain explicit
+destination/content approval before public test publication. During an initial
+audit, preserve application code and live artifacts pending approval. Stop new
+paid generation and publication at 80% of the configured application-credit
+budget; track external API dollars separately.

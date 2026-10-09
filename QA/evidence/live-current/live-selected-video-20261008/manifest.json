@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "scope": "selected-model TTS-1; production default unchanged; filesystem only",
+  "certification": "NOT CERTIFIED",
+  "pricing": {
+    "file": "selected-media-pricing.md",
+    "sha256": "4f57cd09ab46b9b0688dc34ad514afd26ba68e86256623d68b90042ce16340e9",
+    "speechFile": "openai-bounded-speech-source.md",
+    "speechSha256": "3c5e8255b3655640a19f69d61c27ee20bf38873fa508ab8776adc5be47573da4",
+    "fetchedDate": "2026-10-08",
+    "scriptInputUsdPerMillion": 1.5,
+    "scriptOutputUsdPerMillion": 9,
+    "ttsUsdPerMillionCharacters": 15,
+    "videoUsdPerSecond": 0.1
+  },
+  "limits": {
+    "scriptModel": "gemini-3.5-flash",
+    "ttsModel": "tts-1",
+    "videoModel": "veo-3.1-fast-generate-preview",
+    "scriptBytes": 32768,
+    "scriptInputTokens": 65536,
+    "scriptOutputTokens": 8192,
+    "ttsSegmentCharacters": 4096,
+    "podcastSegments": 40,
+    "podcastCharacters": 30000,
+    "videoClips": 10,
+    "clipSeconds": 6,
+    "resolution": "720p",
+    "pollsPerClip": 30,
+    "pollElapsedMs": 300000,
+    "scriptTimeoutMs": 180000,
+    "ttsTimeoutMs": 120000,
+    "pollTimeoutMs": 30000,
+    "assetBytes": 67108864,
+    "podcastDeadlineMs": 600000,
+    "videoDeadlineMs": 900000
+  },
+  "stages": {
+    "podcast": {
+      "scripts": 1,
+      "ttsCalls": 40,
+      "ttsCharacters": 30000,
+      "videoCalls": 0,
+      "maximumUsd": 0.622032,
+      "reservedUsd": 0.65
+    },
+    "video": {
+      "scripts": 1,
+      "ttsCalls": 1,
+      "ttsCharacters": 4096,
+      "videoCalls": 10,
+      "maximumUsd": 6.233472,
+      "reservedUsd": 6.3
+    }
+  },
+  "combinedReserveUsd": 6.95,
+  "retries": 0,
+  "prohibited": [
+    "model fallback",
+    "expansion generation",
+    "judges",
+    "grounding",
+    "customer DB",
+    "cloud certification",
+    "publishing",
+    "scheduler startup"
+  ],
+  "exportBeforeCleanup": true,
+  "executionPolicy": "one paid run per stage; stop before next stage after failed acceptance/export; same-UTC-day pricing",
+  "implementation": {
+    "QA/support/selected-media-plan.mjs": "2dba73d6225b6565a59b5b853da26abeb549427af6a37ecf392abc337860c1cb",
+    "QA/support/selected-media-run.mjs": "4b5e6220b9342c3b209b0996a6141ee37e7aaf49487f2fddd947221c8e4c6950",
+    "QA/support/selected-media-network.mjs": "4e64f5701baaff19835445f1d6b5b092dfa21877a61024af512501bbca253715",
+    "scripts/qa-live-selected-media.mjs": "e559bd0203e73672d0c5acb7df0125f104755bfe2ab3fb99c75a8dd5ea265590",
+    "tests/qa/selected-media-acceptance.ts": "592c1e1c1a0d85df069c70155c27839a8ba5fff940cc8c8774ce2c44734ffaf4",
+    "tests/qa/media-route-worker-fullchain.test.ts": "43435f35c2cdd2955b5239baca59b218dd05e1f26ae96bd09811ada64b4f08df",
+    "lib/openai-tts.ts": "e37cd9bbac11b0c56c140959a6268c1c420b3a67480ef73577f0c68b09ee30bd",
+    "lib/merge-mp3-segments.ts": "fa2dc2855de13b34b12cbdefe20805664f8fafaecc98f0256044d57374ac007e",
+    "lib/podcast-generator.ts": "f3144ab2ef83f349034c5cae19f1ceaa22fb37b0d66566d0da18c3743147c83d",
+    "lib/podcast-worker.ts": "ea8a32946233395414acb1f3222d0e21d5311cb6e2f32f65dfe21d6a1c5c5a91",
+    "lib/veo-video-generator.ts": "dce8035f73d3273273c3483aee3ed6e721beab8f3cf03f85d3a3f0665fb0f728",
+    "lib/attach-video-narration.ts": "81163e498f0be89579bd93f0a0dca43d65149ef2c032639cb432b1393e2b032e",
+    "lib/veo-video-tts-generator.ts": "839cc7c9b6e65122c358bd6044253bc06d84b3062182f78147a9d1d1cf967b0f",
+    "lib/veo-social-video-generator.ts": "81e1362fda3420a1f26839bc80168b9126ce44a39a339cfcbcfe8d8b0b30ea85",
+    "lib/veo-script-generator.ts": "7387c3e73b2e1ff89005ad9339f35c513d9c3deb9512cd313d9046cd1e3cced6",
+    "lib/provider-attempt-receipts.ts": "23a50b87802e7cabd14d7f85a090ac07993ab216f9b4955ce8fc7962dcf8d42f",
+    "workers/video-idea-worker.ts": "0adce6b4a381104eae2af8548d969b09fa60dc2a69170ac8e13361b00d162dac",
+    "app/api/public-objects/[...path]/route.ts": "92d2f739660d4b6ed083c250e584fcc5b755d7c923ee675d758b7808aef08d6b"
+  },
+  "acceptance": [
+    "native scripts and receipts",
+    "production credit debit and COGS",
+    "cross-tenant generation denial without paid submission",
+    "HTTP byte retrieval",
+    "cross-tenant retrieval denial",
+    "durable operation IDs before polls",
+    "complete FFmpeg decode",
+    "ffprobe duration/resolution",
+    "non-silent audio"
+  ]
+}

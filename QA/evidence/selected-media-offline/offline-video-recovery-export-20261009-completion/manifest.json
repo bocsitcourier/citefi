@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "certification": "NOT CERTIFIED",
+  "scope": "selected video recovery only; no default/cloud certification",
+  "parentRunId": "live-selected-video-20261008",
+  "parentHoldUsd": 6.3,
+  "inventorySha256": "6333a664e9372f4738c774ad8befd6dc3190b5a01b6dcc427961bad5437ba82f",
+  "pricing": {
+    "file": "QA/evidence/live-current/video-recovery-pricing-current.md",
+    "sha256": "769f94f16bffde8f8feefa34f1fc999542799348b61e008d6448a3ecacffca54",
+    "consultedDate": "2026-10-09",
+    "microusdPerSecond": 100000
+  },
+  "limits": {
+    "pilot": {
+      "scenes": [
+        1
+      ],
+      "reserveMicrousd": 650000,
+      "deadlineMs": 720000
+    },
+    "completion": {
+      "scenes": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "reserveMicrousd": 5450000,
+      "deadlineMs": 4200000
+    },
+    "postTimeoutMs": 60000,
+    "downloadTimeoutMs": 60000,
+    "pollTimeoutMs": 30000,
+    "pollElapsedMs": 300000,
+    "pollsPerClip": 30,
+    "assetBytes": 67108864
+  },
+  "scriptCalls": 0,
+  "ttsCalls": 0,
+  "imageCalls": 0,
+  "retries": 0,
+  "maxInFlight": 1,
+  "microusdPerClip": 600000,
+  "implementation": {
+    "QA/support/selected-media-plan.mjs": "2dba73d6225b6565a59b5b853da26abeb549427af6a37ecf392abc337860c1cb",
+    "QA/support/selected-media-run.mjs": "4b5e6220b9342c3b209b0996a6141ee37e7aaf49487f2fddd947221c8e4c6950",
+    "QA/support/selected-media-network.mjs": "124755f8e12d61e768e0dcd8e7e244269271c9da2ff71aa6a84e795783b5fa78",
+    "scripts/qa-live-selected-media.mjs": "e559bd0203e73672d0c5acb7df0125f104755bfe2ab3fb99c75a8dd5ea265590",
+    "tests/qa/selected-media-acceptance.ts": "8fd672776a0bcf4dffaf5fdf3e3bb857a0dd48d598ef42d1b1c27390e142ae86",
+    "tests/qa/media-route-worker-fullchain.test.ts": "95c0f0e7939b36b1b16f4e25f068737829d5816d917275039cad7d134b2bcf6a",
+    "lib/openai-tts.ts": "e37cd9bbac11b0c56c140959a6268c1c420b3a67480ef73577f0c68b09ee30bd",
+    "lib/merge-mp3-segments.ts": "fa2dc2855de13b34b12cbdefe20805664f8fafaecc98f0256044d57374ac007e",
+    "lib/podcast-generator.ts": "f3144ab2ef83f349034c5cae19f1ceaa22fb37b0d66566d0da18c3743147c83d",
+    "lib/podcast-worker.ts": "ea8a32946233395414acb1f3222d0e21d5311cb6e2f32f65dfe21d6a1c5c5a91",
+    "lib/veo-video-generator.ts": "68441f609e79edd2943426798e594ba4b65764bfd3b4c2c813903aa29b78cb4a",
+    "lib/attach-video-narration.ts": "81163e498f0be89579bd93f0a0dca43d65149ef2c032639cb432b1393e2b032e",
+    "lib/veo-video-tts-generator.ts": "839cc7c9b6e65122c358bd6044253bc06d84b3062182f78147a9d1d1cf967b0f",
+    "lib/veo-social-video-generator.ts": "4f4bbcf3afbaf77694da072f57bbd3cc2330978a1aa1d6f72721ad12916ad586",
+    "lib/veo-script-generator.ts": "7387c3e73b2e1ff89005ad9339f35c513d9c3deb9512cd313d9046cd1e3cced6",
+    "lib/provider-attempt-receipts.ts": "bfc8a6ed9f0d72245f397b24e592c88afdedea2975d4de4716ffcd9f8d3055fa",
+    "workers/video-idea-worker.ts": "0adce6b4a381104eae2af8548d969b09fa60dc2a69170ac8e13361b00d162dac",
+    "app/api/public-objects/[...path]/route.ts": "92d2f739660d4b6ed083c250e584fcc5b755d7c923ee675d758b7808aef08d6b",
+    "QA/support/video-recovery-plan.mjs": "43a2049060b69a9b3a89a4385f875c0309bd843b5b3df9f369f95e14820b241c",
+    "QA/support/video-recovery-run.mjs": "eb03d7a23b825749e9fb2bbbc4c4ac32490114d370f05dceec777bc316d25789",
+    "QA/support/video-recovery-network.mjs": "f451a8f717214569d5a92fa694c7c362e48eb593d940c99f4dc1ffe40c9cf360",
+    "scripts/qa-video-recovery.mjs": "051ad39ec7440b235155da77659b9a030cc1f4ce3923f98be0af71d826e1dc95",
+    "tests/qa/video-recovery-acceptance.ts": "73c19fe5e827e5d5dd7efda3373a31ac5349e85f6e609329d6fe74d3cb773099",
+    "types/video-schema.ts": "2dba1d7931b9dba6a4f287d9a2cea91c65ff7dce38161efe8330eda31c946b31"
+  }
+}

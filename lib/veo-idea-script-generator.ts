@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { 
   VideoStyle, 
@@ -469,13 +469,14 @@ OUTPUT FORMAT (JSON only):
 
 CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
 
+  const model = await getResolvedModel("geminiFlash");
   try {
     const genAI = getGeminiClient();
     const startedAt = Date.now();
     let response;
     try {
       const generationRequest = {
-        model: GEMINI_FLASH_MODEL,
+        model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           temperature: 0.7,
@@ -502,7 +503,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
       if (isProviderAccountingError(error)) throw error;
       await logFailedProviderAttempt(
         {
-          operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+          operationType: "video_idea", provider: "gemini", model,
           teamId, attempt: 1,
         },
         { totalTokens: 0 }, Date.now() - startedAt, error
@@ -511,7 +512,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations.`;
     }
     await logCostTelemetry(
       {
-        operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        operationType: "video_idea", provider: "gemini", model,
         teamId,
         providerRequestId: (response as any).responseId ?? null, attempt: 1,
       },

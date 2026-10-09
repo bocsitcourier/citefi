@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { contentSchedules, scheduleRuns } from "@/shared/schema";
+import { calculateNextRun } from "@/lib/schedule-time";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 
@@ -99,6 +100,14 @@ export async function PATCH(
       ...validatedData,
       updatedAt: new Date(),
     };
+    // Validate the combined configuration, including timezone-only changes.
+    const nextRunAt = calculateNextRun(
+      validatedData.cronExpression ?? existing.cronExpression,
+      validatedData.timezone ?? existing.timezone,
+    );
+    if (validatedData.cronExpression !== undefined || validatedData.timezone !== undefined) {
+      updateData.nextRunAt = nextRunAt;
+    }
 
     if (validatedData.autoPublishEnabled !== undefined) {
       updateData.autoPublishEnabled = validatedData.autoPublishEnabled ? 1 : 0;
@@ -107,7 +116,7 @@ export async function PATCH(
     const [updatedRow] = await db
       .update(contentSchedules)
       .set(updateData)
-      .where(eq(contentSchedules.id, scheduleId))
+      .where(and(eq(contentSchedules.id, scheduleId), eq(contentSchedules.teamId, teamId), isNull(contentSchedules.deletedAt)))
       .returning();
     const updated = updatedRow!;
 

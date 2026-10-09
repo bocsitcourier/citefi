@@ -1,0 +1,34 @@
+{
+  "approvedAt": "2026-10-09T00:50:00Z",
+  "ownerDecision": "Image then video pilot (up to $0.81)",
+  "scope": {
+    "image": {
+      "model": "gemini-3.1-flash-image",
+      "maxReserveUsd": 0.16,
+      "calls": 2,
+      "retries": 0
+    },
+    "videoPilot": {
+      "model": "veo-3.1-fast-generate-preview",
+      "scene": 1,
+      "durationSeconds": 6,
+      "resolution": "720p",
+      "sampleCount": 1,
+      "maxReserveUsd": 0.65,
+      "calls": 1,
+      "retries": 0
+    }
+  },
+  "shutdownWitness": "Owner accepted current no-leftover-process/no-owned-root checks in place of the lost original shutdown log for live-selected-video-20261008.",
+  "pricingRecheckedUtcDate": "2026-10-09",
+  "historicalHoldUsd": 6.3,
+  "historicalHoldReleased": false,
+  "completionNineClipsAuthorized": false,
+  "amendments": [
+    {
+      "approvedAt": "2026-10-09T01:02:47.960Z",
+      "ownerDecision": "Yes, one more image call (~$0.07, $0.16 reserve) to confirm the cost-ledger fix live",
+      "reason": "first call passed provider/route/storage/retrieval; production COGS valued $0.04 vs $0.068726; repaired via migration 0036 + :text-output event, verified offline"
+    }
+  ]
+}

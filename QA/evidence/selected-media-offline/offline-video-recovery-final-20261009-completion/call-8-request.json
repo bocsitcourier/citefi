@@ -1,0 +1,24 @@
+{
+  "number": 8,
+  "kind": "clip",
+  "scene": 9,
+  "sourceEventId": "provider-attempt:5965442ca53780bca207a33481959fa31d98665bade505b127c9675e9ed2064b",
+  "requestSha256": "ac69486f90bd8308ca2a444f1baee9eec8096178c96e01d9ccdc6456b4788070",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a person's hand holding a modern smartphone with a glowing screen in a blurred modern living room, close-up tracking shot, warm interior lighting, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
+import { GoogleGenAI } from "@google/genai";
 import { EVIDENCE_ROOT, LIMITS, selectedMediaManifest, selectedMediaPreflight,
-  assertPaidMediaPermission } from "../../QA/support/selected-media-plan.mjs";
+  assertPaidMediaPermission, hash } from "../../QA/support/selected-media-plan.mjs";
 import { reserveSelectedMediaRun } from "../../QA/support/selected-media-run.mjs";
 import { validateSelectedSubmission, valueScriptUsage,
   installSelectedMediaNetworkGuard } from "../../QA/support/selected-media-network.mjs";
@@ -22,21 +23,96 @@ const nativeScript = {
   usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 2000,
     thoughtsTokenCount: 100, totalTokenCount: 3100 },
 };
+// The retained live call-3..11 bodies are all zero bytes; their HTTP statuses
+// were NOT retained. These statuses are alternatives, not historical claims.
+for (const status of [200, 204, 400, 403, 404, 429, 503]) {
+test(`empty native acknowledgement HTTP ${status} preserves evidence, hold and no-replay boundary`, async t => {
+  const root = isolated(t);
+  const run = reserveSelectedMediaRun("video", "empty-ack-test", { root, offline: true });
+  let submissions = 0;
+  const restore = installSelectedMediaNetworkGuard(
+    () => run, () => receipt("veo_clip", LIMITS.videoModel),
+    { fixtureFetch: async () => {
+      submissions++;
+      return new Response(status === 204 ? null : "", { status,
+        headers: { "retry-after": "30", "set-cookie": "fixture-only-not-for-export" } });
+    } },
+  );
+  t.after(restore);
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning";
+  const body = { instances: [{ prompt: "Owned empty acknowledgement scene" }],
+    parameters: { durationSeconds: 6, resolution: "720p", sampleCount: 1, aspectRatio: "16:9" } };
+  assert.throws(() => validateSelectedSubmission("video",
+    new URL(url.replace("/v1beta/", "/v1/")), post(body), receipt("veo_clip", LIMITS.videoModel)),
+  /Unapproved/);
+  await assert.rejects(fetch(url, post(body)), error =>
+    error.code === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN" && error.retryable === false &&
+    error.message.includes(`HTTP ${status}; empty JSON body`));
+  const http = JSON.parse(readFileSync(resolve(run.directory, "call-1-http.json")));
+  assert.equal(http.status, status);
+  assert.equal(http.headers["retry-after"], "30");
+  assert.equal(http.headers["set-cookie"], undefined);
+  assert.equal(readFileSync(resolve(run.directory, "call-1-native.json")).length, 0);
+  await assert.rejects(fetch(url, post(body)), /stopped/);
+  assert.equal(submissions, 1);
+  assert.equal(run.entry.calls[0].state, "pending");
+  assert.equal(run.finish(false), false);
+  assert.equal(existsSync(resolve(root, "budget.lock")), true);
+});
+}
 function isolated(t) {
   const root = mkdtempSync(resolve(tmpdir(), "selected-budget-unit-"));
-  for (const f of ["budget-baseline.json", "budget-ledger.json"]) cpSync(resolve(EVIDENCE_ROOT, f), resolve(root, f));
+  const baseline = resolve(root, "budget-baseline.json");
+  cpSync(resolve(EVIDENCE_ROOT, "budget-baseline.json"), baseline);
+  writeFileSync(resolve(root, "budget-ledger.json"), JSON.stringify({
+    version: 2, ceilingUsd: 30,
+    budgetBaseline: { sourceSha256: hash(readFileSync(baseline)) }, runs: [],
+  }, null, 2));
   t.after(() => rmSync(root, { force: true, recursive: true }));
   return root;
 }
 
+test("Veo SDK serializes the bounded REST body and can read the guard's cloned acknowledgement", async t => {
+  const root = isolated(t);
+  const run = reserveSelectedMediaRun("video", "sdk-clone-test", { root, offline: true });
+  const name = "models/veo-3.1-fast-generate-preview/operations/fixture-ack";
+  const native = JSON.stringify({ name });
+  let submissions = 0;
+  const restore = installSelectedMediaNetworkGuard(
+    () => run, () => receipt("veo_clip", LIMITS.videoModel),
+    { fixtureFetch: async (input, init) => {
+      submissions++;
+      const url = new URL(String(input));
+      assert.equal(url.pathname, "/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning");
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(init.body), {
+        instances: [{ prompt: "Owned SDK scene" }],
+        parameters: { aspectRatio: "16:9", durationSeconds: 6, sampleCount: 1, resolution: "720p" },
+      });
+      // No request-ID or content-type dependency for a Veo acknowledgement.
+      return new Response(native);
+    } },
+  );
+  t.after(restore);
+  const ai = new GoogleGenAI({ apiKey: "isolated-fixture-not-a-secret",
+    httpOptions: { apiVersion: "v1beta" } });
+  const operation = await ai.models.generateVideos({
+    model: LIMITS.videoModel, prompt: "Owned SDK scene",
+    config: { aspectRatio: "16:9", durationSeconds: 6, numberOfVideos: 1, resolution: "720p" },
+  });
+  assert.equal(operation.name, name);
+  assert.equal(submissions, 1);
+  assert.equal(readFileSync(resolve(run.directory, "call-1-native.json"), "utf8"), native);
+  assert.equal(JSON.parse(readFileSync(resolve(run.directory, "call-1-operation.json"))).operationName, name);
+  assert.equal(run.isStopped(), false);
+});
+
 test("offline preflight cannot authorize paid calls or mutate shared budget", () => {
   const before = readFileSync(resolve(EVIDENCE_ROOT, "budget-ledger.json"));
-  const report = selectedMediaPreflight();
-  assert.equal(report.manifest.combinedReserveUsd, 6.95);
-  assert.equal(report.paidExecutionAuthorized, false);
   assert.equal(selectedMediaManifest().scope.includes("production default unchanged"), true);
-  assert.throws(() => assertPaidMediaPermission("podcast"), /blocked/);
-  assert.throws(() => reserveSelectedMediaRun("podcast", "offline-bad", { offline: true }), /must not mutate/);
+  assert.throws(() => selectedMediaPreflight(), /ledger dispute unresolved/);
+  assert.throws(() => assertPaidMediaPermission("podcast"), /ledger dispute unresolved/);
+  assert.throws(() => reserveSelectedMediaRun("podcast", "offline-bad", { offline: true }), /canonical synthetic ledger root/);
   assert.deepEqual(readFileSync(resolve(EVIDENCE_ROOT, "budget-ledger.json")), before);
 });
 
@@ -70,7 +146,7 @@ test("default TTS, tools, oversized speech, auxiliary calls and high-resolution 
   assert.throws(() => validateSelectedSubmission("podcast", speechUrl, post({ ...tts, input: "x".repeat(4097) }), speechCtx));
   const video = { instances: [{ prompt: "A peaceful coastal landscape." }],
     parameters: { aspectRatio: "16:9", durationSeconds: 6, resolution: "720p", sampleCount: 1 } };
-  const videoUrl = new URL("https://generativelanguage.googleapis.com/v1/models/veo-3.1-fast-generate-preview:predictLongRunning");
+  const videoUrl = new URL("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning");
   assert.equal(validateSelectedSubmission("video", videoUrl, post(video),
     receipt("veo_clip", LIMITS.videoModel)).kind, "clip");
   assert.throws(() => validateSelectedSubmission("video", videoUrl,
@@ -117,7 +193,7 @@ test("guard preserves operation ID before polling, counts polls and permits only
     },
   });
   t.after(restore);
-  await fetch("https://generativelanguage.googleapis.com/v1/models/veo-3.1-fast-generate-preview:predictLongRunning",
+  await fetch("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning",
     post({ instances: [{ prompt: "An owned coastal scene" }], parameters: {
       durationSeconds: 6, resolution: "720p", sampleCount: 1, aspectRatio: "16:9",
     } }));
@@ -173,7 +249,7 @@ test("poll count stops without inventing completion cost", async t => {
     },
   });
   t.after(restore);
-  await fetch("https://generativelanguage.googleapis.com/v1/models/veo-3.1-fast-generate-preview:predictLongRunning",
+  await fetch("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning",
     post({ instances: [{ prompt: "Owned pending coastal scene" }], parameters: {
       durationSeconds: 6, resolution: "720p", sampleCount: 1, aspectRatio: "16:9",
     } }));
@@ -200,7 +276,7 @@ test("elapsed poll deadline prevents another native poll", async t => {
     },
   });
   t.after(restore);
-  await fetch("https://generativelanguage.googleapis.com/v1/models/veo-3.1-fast-generate-preview:predictLongRunning",
+  await fetch("https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning",
     post({ instances: [{ prompt: "Owned elapsed scene" }], parameters: {
       durationSeconds: 6, resolution: "720p", sampleCount: 1, aspectRatio: "16:9",
     } }));
@@ -210,26 +286,24 @@ test("elapsed poll deadline prevents another native poll", async t => {
   assert.equal(run.entry.calls[0].state, "pending");
 });
 
-test("synthetic approvals cannot admit video before podcast acceptance and export", t => {
+test("synthetic approvals and environment flags cannot bypass the disputed live ledger", t => {
   const root = isolated(t);
-  t.mock.method(Date.prototype, "toISOString", () => "2026-10-08T22:00:00.000Z");
-  const manifestSha256 = selectedMediaPreflight().manifestSha256;
+  const manifestSha256 = hash(JSON.stringify(selectedMediaManifest()));
   const approval = { approved: true, manifestSha256, maximumCombinedUsd: 6.95,
     stages: ["podcast", "video"], newImageCallsAuthorized: false };
   for (const file of ["selected-media-paid-authorization.json", "selected-media-execution-decision.json"]) {
     writeFileSync(resolve(root, file), JSON.stringify(approval));
   }
-  assert.throws(() => assertPaidMediaPermission("video", root), /podcast to settle/);
-  const ledger = JSON.parse(readFileSync(resolve(root, "budget-ledger.json"), "utf8"));
-  ledger.runs.push({ runId: "synthetic-podcast", stage: "podcast", state: "settled",
-    actualUsd: 0, reservedUsd: 0.65, manifestSha256 });
-  writeFileSync(resolve(root, "budget-ledger.json"), JSON.stringify(ledger));
-  const dir = resolve(root, "synthetic-podcast");
-  mkdirSync(dir);
-  writeFileSync(resolve(dir, "outcome.json"), JSON.stringify({ endToEndPass: false }));
-  writeFileSync(resolve(dir, "export-before-cleanup.json"), JSON.stringify({ cleanupPermitted: true }));
-  assert.throws(() => assertPaidMediaPermission("video", root), /incomplete or failed/);
-  writeFileSync(resolve(dir, "outcome.json"), JSON.stringify({ endToEndPass: true }));
-  assert.equal(assertPaidMediaPermission("video", root), manifestSha256);
+  const ledgerBefore = readFileSync(resolve(root, "budget-ledger.json"));
+  const previous = process.env.QA_LEDGER_DISPUTE_BYPASS;
+  process.env.QA_LEDGER_DISPUTE_BYPASS = "1";
+  try {
+    assert.throws(() => assertPaidMediaPermission("video", root), /ledger dispute unresolved/);
+    assert.throws(() => reserveSelectedMediaRun("video", "disputed-live-attempt", { root }), /ledger dispute unresolved/);
+  } finally {
+    if (previous === undefined) delete process.env.QA_LEDGER_DISPUTE_BYPASS;
+    else process.env.QA_LEDGER_DISPUTE_BYPASS = previous;
+  }
+  assert.deepEqual(readFileSync(resolve(root, "budget-ledger.json")), ledgerBefore);
   assert.equal(existsSync(resolve(root, "budget.lock")), false);
 });

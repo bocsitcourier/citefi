@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { db } from "@/lib/db";
 import { teamMembers, users, userInvites, teams } from "@/shared/schema";
-import { eq, and, isNull, gt, count } from "drizzle-orm";
+import { eq, and, isNull, gt, count, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 import { BILLING_PLANS } from "@/lib/billing/plans";
+import { lockTeamAdminMembershipState } from "@/lib/admin-invariant";
 
 export async function GET(req: NextRequest) {
   try {
@@ -209,34 +210,46 @@ export async function DELETE(req: NextRequest) {
     }
     const { memberId } = parsed.data;
 
-    // Fetch the target member to validate it belongs to this team
-    const [target] = await db
-      .select({ userId: teamMembers.userId, role: teamMembers.role })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)))
-      .limit(1);
+    const outcome = await db.transaction(async (tx) => {
+      // A shared team-scoped lock makes the privileged-member count and removal
+      // atomic with respect to concurrent administrator removals.
+      await lockTeamAdminMembershipState(tx, teamId);
 
-    if (!target) {
-      return NextResponse.json({ error: "Member not found" }, { status: 404 });
-    }
-
-    // Prevent self-removal
-    if (target.userId === userId) {
-      return NextResponse.json({ error: "You cannot remove yourself from the team" }, { status: 400 });
-    }
-
-    // Count remaining admins to prevent last-admin removal
-    if (target.role === "admin") {
-      const adminRows = await db
-        .select({ id: teamMembers.id })
+      const [target] = await tx
+        .select({ userId: teamMembers.userId, role: teamMembers.role })
         .from(teamMembers)
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, "admin")));
-      if (adminRows.length <= 1) {
-        return NextResponse.json({ error: "Cannot remove the last admin from the team" }, { status: 400 });
-      }
-    }
+        .where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)))
+        .limit(1);
 
-    await db.delete(teamMembers).where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)));
+      if (!target) return { status: 404 as const, error: "Member not found" };
+      if (target.userId === userId) {
+        return { status: 400 as const, error: "You cannot remove yourself from the team" };
+      }
+
+      if (target.role === "admin" || target.role === "owner") {
+        const adminRows = await tx
+          .select({ id: teamMembers.id })
+          .from(teamMembers)
+          .where(and(
+            eq(teamMembers.teamId, teamId),
+            inArray(teamMembers.role, ["admin", "owner"]),
+          ));
+        if (adminRows.length <= 1) {
+          return { status: 400 as const, error: "Cannot remove the last admin from the team" };
+        }
+      }
+
+      const removed = await tx
+        .delete(teamMembers)
+        .where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, teamId)))
+        .returning({ id: teamMembers.id });
+      if (removed.length === 0) return { status: 404 as const, error: "Member not found" };
+      return { status: 200 as const };
+    });
+
+    if (outcome.status !== 200) {
+      return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    }
 
     return NextResponse.json({ success: true, message: "Member removed" });
     });

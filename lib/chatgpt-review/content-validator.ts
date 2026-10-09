@@ -1,4 +1,5 @@
 import { openaiClient, callOpenAI } from "../openai-client";
+import { getResolvedModel } from "../model-resolver";
 
 /**
  * TASK 5: ADVANCED CONTENT VALIDATOR
@@ -373,9 +374,10 @@ ${faq ? `\n**FAQ SECTION:**\n${faq.map((q, i) => `${i + 1}. Q: ${q.question}\n  
 
 Be thorough and specific. List ALL paragraph violations. Identify exact missing elements.`;
 
+  const model = await getResolvedModel("gptMini");
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -386,7 +388,7 @@ Be thorough and specific. List ALL paragraph violations. Identify exact missing 
     }),
     `Content Validator: ${title.substring(0, 50)}`,
     undefined,
-    { request: { model: "gpt-4.1-mini", maxOutputTokens: 4000 } },
+    { request: { model, maxOutputTokens: 4000 } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";

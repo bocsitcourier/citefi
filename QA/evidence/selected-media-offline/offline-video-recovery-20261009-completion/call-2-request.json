@@ -1,0 +1,24 @@
+{
+  "number": 2,
+  "kind": "clip",
+  "scene": 3,
+  "sourceEventId": "provider-attempt:72a81d925774f05248d2ce7ef13586b0eddd04df57415d4fc506e975791c8ca4",
+  "requestSha256": "ee69bd69cfdb6c340e49f87b2dd1a3de9676f221c25d6839aa1b23e09d831fb4",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of an engineer in safety gear walking through a futuristic wind turbine farm on the hills overlooking Fixture City, low angle tracking shot, bright and airy lighting, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

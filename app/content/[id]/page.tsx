@@ -123,6 +123,9 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
   const articleId = resolvedParams.id;
   
   const [isEditing, setIsEditing] = useState(false);
+  const [editVersion, setEditVersion] = useState<string>();
+  const [hyperlinksVersion, setHyperlinksVersion] = useState<string>();
+  const [hashtagsVersion, setHashtagsVersion] = useState<string>();
   const [editedTitle, setEditedTitle] = useState("");
   const [editedSeoTitle, setEditedSeoTitle] = useState("");
   const [editedMetaDescription, setEditedMetaDescription] = useState("");
@@ -232,7 +235,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
     }) => {
       return await apiRequest(`/api/content/${articleId}/update`, {
         method: "PATCH",
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ ...updates, expectedUpdatedAt: editVersion }),
       });
     },
     onSuccess: () => {
@@ -254,6 +257,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
 
   // Hyperlink management functions
   const startEditingHyperlinks = () => {
+    setHyperlinksVersion(data?.article.updatedAt);
     setEditedHyperlinks(JSON.parse(JSON.stringify(data?.article.hyperlinkedKeywords || [])));
     setIsEditingHyperlinks(true);
     setEditingHyperlinkIndex(null);
@@ -309,7 +313,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
     try {
       await apiRequest(`/api/content/${articleId}/update`, {
         method: "PATCH",
-        body: JSON.stringify({ hyperlinkedKeywords: editedHyperlinks }),
+        body: JSON.stringify({ hyperlinkedKeywords: editedHyperlinks, expectedUpdatedAt: hyperlinksVersion }),
       });
       
       queryClient.invalidateQueries({ queryKey: [`/api/content/${articleId}`] });
@@ -332,6 +336,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
   // Hashtag management functions
   // Hashtags are stored as objects with { tag, url? } to support per-hashtag URLs
   const startEditingHashtags = () => {
+    setHashtagsVersion(data?.article.updatedAt);
     const currentHashtags = data?.article.hashtags || [];
     // Handle both old format (string[]) and new format (object[])
     const normalized = currentHashtags.map((h: string | { tag: string; url?: string }) => {
@@ -393,7 +398,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
       // Format: [{ tag: "#example", url: "https://..." }, ...]
       await apiRequest(`/api/content/${articleId}/update`, {
         method: "PATCH",
-        body: JSON.stringify({ hashtags: editedHashtags }),
+        body: JSON.stringify({ hashtags: editedHashtags, expectedUpdatedAt: hashtagsVersion }),
       });
       
       queryClient.invalidateQueries({ queryKey: [`/api/content/${articleId}`] });
@@ -497,6 +502,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
     setEditedMetaDescription(data.article.metaDescription || "");
     setEditedSlug(data.article.slug || "");
     setEditedContent(data.article.htmlContent || "");
+    setEditVersion(data.article.updatedAt);
     setIsEditing(true);
   };
 

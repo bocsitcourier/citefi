@@ -1,0 +1,23 @@
+# Persistent release remediation — verified results
+
+Decision: **Production is still gated; the production-build blocker is resolved.**
+
+Two parallel specialists investigated build IPC and readiness/configuration. Their findings are recorded in `persistence-specialists.md`; later build follow-ups refined the initial entry-point assumption using actual safe runtime diagnostics.
+
+## Completed
+
+- **Real production build PASS:** `production-build-final.log`. The unchanged `npm run build` succeeded in a disposable source tree with owned PostgreSQL/Redis, no real dotenv files, strict TypeScript checks, and the unchanged offline network guard. All 163 static pages generated. Scratch tree and owned services cleaned up. This is build evidence, not live provider/output or DigitalOcean certification.
+- Owned IPC capability accepts only the verified generated PostCSS pool evaluator's explicit argv port inside the nonce-marked scratch root. Arbitrary processes, forged markers, wrong/nested entries, unrelated ports and external hosts remain denied. Final helper tests: **3 passed**.
+- Process liveness is separated from full operational readiness: `/api/health/live` returns 200 with `readiness: not-assessed`; development warmup uses that endpoint with a bounded request timeout. Deployment acceptance still checks full `/api/health`. Liveness tests: **2 passed**.
+- Redis runtime observed `bind=127.0.0.1`, `protected-mode=yes`. Deployment policy now parses TOML and accepts only absent Redis mapping or explicit internal-only mapping; any external port, true/missing/ambiguous exposure flag, duplicate entry or malformed local port fails. **4 test groups** pass, including unsafe subcases.
+- Library metadata repaired by adding the missing table boundary, without deleting or changing prior output records. TOML validates and all 23 original output IDs are unique.
+
+## Remaining actual blockers
+
+1. **Platform port preference:** after restart the platform rewrites even an explicit internal-only Redis declaration to external port 3001 with localhost exposure enabled. Latest full release command therefore fails correctly after TypeScript succeeds. Do not treat a momentary file edit as persistent verification. Official Replit documentation identifies User Settings → Automatic port forwarding → Never as the control. The agent has no documented callback for changing this user preference. Existing explicit application port 5000 remains configured.
+2. **Operational readiness:** development full health still returns 503. Observed failing checks are worker/canary accounting configuration, missing backup evidence and missing successful restore-verification evidence. A liveness 200 deliberately does not satisfy these checks. Production configuration/evidence must be independently verified on the authorized target.
+3. **Publishing encryption:** development secret-existence check says `API_KEY_ENCRYPTION_SECRET` is absent. Existing ciphertext requires the exact original compatible key, installed through the secure secrets flow. Do not generate a replacement or rotate it casually.
+4. **Paid QA authority:** no new paid generation/canary calls were made. No arbitrary customer was selected as accounting owner; no historical holds were released. The earlier refusal to resume paid QA with historical exceptions is not overridden by a request for persistence.
+5. Approval-binding/reconciliation follow-up implementations require merge/acceptance verification; their separate task state is not automatically certification of this source tree.
+
+No DigitalOcean update, production schema/data write, publishing bypass, queue flush or secret rotation was performed. Remaining native readiness and staging acceptance are not fabricated from fixture results.

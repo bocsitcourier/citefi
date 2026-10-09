@@ -1,0 +1,56 @@
+{
+  "runId": "live-selected-video-20261008",
+  "simulated": false,
+  "basis": "owner-accepted-current-absence",
+  "retrospective": true,
+  "controllerTerminated": true,
+  "ownedProcessTreeStopped": true,
+  "matchingProcessesAbsent": true,
+  "controllerTerminatedBasis": "launcher exit observed by agent on 2026-10-08 (exit 1); original log lost; owner accepted substitute",
+  "authorizationSha256": "3420da79f4c63fa66bdcb1667b106c417b92c9d3b3bcdc84a80c104d689762e1",
+  "currentAbsenceEvidence": {
+    "file": "live-selected-video-20261008/retrospective-witness/current-absence-20261009.json",
+    "sha256": "cb6e020544c6fc9fde7772654e66858251ab6825b6b38efb28efeb996fccc78e"
+  },
+  "priorHonestWitness": {
+    "runId": "live-selected-video-20261008",
+    "simulated": false,
+    "controllerTerminated": false,
+    "ownedProcessTreeStopped": false,
+    "matchingProcessesAbsent": false,
+    "retrospective": true,
+    "witnessAssembledAt": "2026-10-09T00:46:22.589Z",
+    "controllerEvidence": {
+      "file": "live-selected-video-20261008/retrospective-witness/controller-evidence.json",
+      "sha256": "356532abebafb330583931c9d66b19623f3955528571fbcc85c4bc792620b1fc"
+    },
+    "teardownEvidence": {
+      "file": "live-selected-video-20261008/retrospective-witness/teardown-evidence.json",
+      "sha256": "fb2b294d59d4c749cfaf6229eec3887c6dcc7942cacd72880908ef764f005bf0"
+    },
+    "qualification": {
+      "firstPartyEvidenced": [
+        "Retained historical stop.json reports Unexpected end of JSON input and noRetry:true.",
+        "Retained export-before-cleanup.json reports completed evidence export and cleanupPermitted:true, not completed teardown.",
+        "Timestamped current local command results, including unavailable-command errors, are retained.",
+        "Current test/launcher source snapshots and function hashes are retained."
+      ],
+      "reportedNotIndependentlyEvidenced": [
+        "Architect memo reports launcher KRlz7fYo exit 1 and completed teardown."
+      ],
+      "inferred": [
+        "Owned ports 55488/16388 and temporary-root naming convention come from current code, not an original launcher log."
+      ]
+    },
+    "gaps": [
+      "Source unavailable at assembly: /tmp/live-selected-video-20261008.log",
+      "No retained original launcher/controller terminal receipt establishes task KRlz7fYo exit 1; that exit is reported only in the architect memo.",
+      "No retained original log establishes completed test.after/stopOwnedInfrastructure without hook failure.",
+      "Original shutdown event times and the exact historical owned temporary root are unknown.",
+      "Current code snapshots show intended awaited teardown, not the historical executed code version or successful execution.",
+      "export-before-cleanup.json proves an export/cleanup permission at 2026-10-08T23:25:20.306Z, not cleanup completion.",
+      "Current absence cannot establish historical shutdown.",
+      "ss current port check unavailable; matchingProcessesAbsent is conservatively false."
+    ]
+  }
+}

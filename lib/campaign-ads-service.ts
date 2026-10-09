@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { GoogleGenAI } from "@google/genai";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "./db";
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { PRODUCT_POLICY_DEFAULTS, LAUNCH_POLICY_VERSION, EXTERNAL_PLATFORM_APPROVALS } from "./launch-governance";
 import { safeFetchPageWithRedirects } from "./client-brand-profile-service";
 import { runWithSystemContext } from "./tenant-context";
@@ -247,7 +247,7 @@ async function generateAssets(prompt: string, telemetry: CampaignAdsTelemetryCon
     throw new Error("Campaign ad generation requires a validated teamId");
   }
   if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required for ad generation");
-  const model = getModel("geminiFlash");
+  const model = await getResolvedModel("geminiFlash");
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const startedAt = Date.now();
   let providerAttemptLogged = false;

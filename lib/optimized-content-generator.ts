@@ -21,7 +21,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { learningService } from "./learning-service";
 import { contentReviewService } from "./content-review-service";
-import { GEMINI_FLASH_MODEL, GPT_ENHANCEMENT_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { callOpenAI } from "./openai-client";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
@@ -151,6 +151,7 @@ export class OptimizedContentGenerator {
     brief: Partial<Brief> = {},
     opts: { requireJudge?: boolean; brandContext?: string } = {}
   ): Promise<RepairResult> {
+    const model = await getResolvedModel("geminiFlash");
     const fullBrief: Brief = { topic: brief.topic ?? contentType, contentId, ...brief };
 
     // ── INJECTION POINT 2: DURING — critic-in-the-loop ───────────────────────
@@ -184,7 +185,7 @@ export class OptimizedContentGenerator {
         currentContent,
         fixable,
         fullBrief,
-        { model: GEMINI_FLASH_MODEL, temperature: 0.3 },
+        { model, temperature: 0.3 },
         opts.brandContext
       );
       if (contentType.toLowerCase() === ContentType.ARTICLE) {
@@ -249,6 +250,7 @@ export class OptimizedContentGenerator {
     if (!Number.isInteger(teamId) || teamId <= 0) {
       throw new Error("Optimized content generation requires a validated teamId");
     }
+    const model = await getResolvedModel("geminiFlash");
     // ── INJECTION POINT 1: PRE — assemble everything the agent has learned ───
     const ctx = await learningService.getOptimizationContext(teamId, contentType, {});
     if (!ctx) throw new Error(`No learning agent for ${contentType}`);
@@ -263,7 +265,7 @@ export class OptimizedContentGenerator {
     );
 
     let content = await this.callModel(
-      ctx.modelConfig?.model ?? GEMINI_FLASH_MODEL,
+      model,
       prompt,
       ctx.modelConfig?.temperature ?? 0.7,
       { teamId, articleId: brief.contentId }

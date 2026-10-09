@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-process.env.DATABASE_URL ??= "postgres://unused:unused@localhost:5432/unused";
+process.env.DATABASE_URL = "postgres://unused:unused@127.0.0.1:1/unused";
+process.env.DATABASE_POOLED_URL = process.env.DATABASE_URL;
 
 const receipts = await import("../lib/provider-attempt-receipts");
+const { db } = await import("../lib/db");
+// Operational telemetry is not under test; never contact a customer database.
+test.mock.method(db, "insert", () => ({ values: async () => undefined }));
 type ReceiptDeps = import("../lib/provider-attempt-receipts").ProviderAttemptReceiptDependencies;
 type ReceiptHandle = import("../lib/provider-attempt-receipts").ProviderAttemptHandle;
 
@@ -263,7 +267,27 @@ test("partial response usage is retained as evidence but never becomes zero ledg
   });
 });
 
-test("provider rejection receipt stores only fixed safe classification", async () => {
+test("unparseable native acknowledgement remains uncertain, not rejected or replayable", async () => {
+  const store = new receipts.MemoryProviderAttemptReceiptStore();
+  const spool = new receipts.MemoryProviderAttemptReceiptSpool();
+  let submissions = 0;
+  const attempt = options({ store, spool, validateOwnership: async () => undefined },
+    async () => {
+      submissions++;
+      throw Object.assign(new Error("native acknowledgement unavailable"),
+        { code: "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN", retryable: false });
+    });
+  await assert.rejects(receipts.runWithProviderAttempt(attempt),
+    error => (error as { code?: string }).code === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN");
+  const receipt = [...store.rows.values()][0];
+  assert.ok(receipt);
+  assert.equal(receipt.status, "uncertain");
+  assert.equal(receipt.failureCode, "PROVIDER_SUBMISSION_UNCERTAIN");
+  await assert.rejects(receipts.runWithProviderAttempt(attempt));
+  assert.equal(submissions, 1);
+});
+
+test("unrecognized post-submission error retains an uncertain receipt with safe classification", async () => {
   const store = new receipts.MemoryProviderAttemptReceiptStore();
   const spool = new receipts.MemoryProviderAttemptReceiptSpool();
   await assert.rejects(
@@ -284,10 +308,31 @@ test("provider rejection receipt stores only fixed safe classification", async (
     ),
   );
   const receipt = [...store.rows.values()][0];
-  assert.equal(receipt?.status, "provider_rejected");
-  assert.equal(receipt?.failureCode, "PROVIDER_REJECTED");
-  assert.equal(receipt?.failureMessage, "PROVIDER_REJECTED");
+  assert.equal(receipt?.status, "uncertain");
+  assert.equal(receipt?.failureCode, "PROVIDER_SUBMISSION_UNCERTAIN");
+  assert.equal(receipt?.failureMessage, "provider submission outcome is uncertain");
   assert.equal(JSON.stringify(receipt).includes("secret customer prompt"), false);
+});
+
+test("explicit provider 4xx responses remain rejected, while unknown and 5xx errors are uncertain", async () => {
+  for (const [status, classification] of [
+    [400, "INVALID_REQUEST"], [401, "AUTHENTICATION_FAILED"],
+    [403, "AUTHENTICATION_FAILED"], [404, "PROVIDER_REJECTED"],
+    [429, "RATE_LIMITED"],
+  ] as const) {
+    const store = new receipts.MemoryProviderAttemptReceiptStore();
+    const spool = new receipts.MemoryProviderAttemptReceiptSpool();
+    const error = Object.assign(new Error("private provider response"), { status });
+    assert.equal(receipts.classifyProviderFailureCode(error), classification);
+    await assert.rejects(receipts.runWithProviderAttempt(options(
+      { store, spool, validateOwnership: async () => undefined },
+      async () => { throw error; },
+    )));
+    assert.equal([...store.rows.values()][0]?.status, "provider_rejected");
+  }
+  for (const error of [new Error("local receipt guard failed"), Object.assign(new Error("unknown"), { status: 503 })]) {
+    assert.equal(receipts.classifyProviderFailureCode(error), "TRANSIENT_PROVIDER_ERROR");
+  }
 });
 
 test("failed provider telemetry is operational-only without captured exact usage", async () => {
@@ -325,13 +370,13 @@ test("failed provider telemetry is operational-only without captured exact usage
         },
       ),
     ),
-    (error: any) => error?.message === secret,
+    (error: any) => error?.code === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN",
   );
   assert.equal(ledgerWrites, 0);
   const receipt = [...store.rows.values()][0];
-  assert.equal(receipt?.status, "provider_rejected");
-  assert.equal(receipt?.failureCode, "PROVIDER_REJECTED");
-  assert.equal(receipt?.failureMessage, "PROVIDER_REJECTED");
+  assert.equal(receipt?.status, "uncertain");
+  assert.equal(receipt?.failureCode, "PROVIDER_SUBMISSION_UNCERTAIN");
+  assert.equal(receipt?.failureMessage, "provider submission outcome is uncertain");
   assert.equal(JSON.stringify(receipt).includes(secret), false);
 });
 

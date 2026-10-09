@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { 
   createBrandValidationPrompt, 
@@ -235,9 +235,9 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
 
   // Generate content with Gemini (shared by both prompt systems)
   const _socialStart = Date.now();
+  const model = await getResolvedModel("geminiFlash");
   let result;
   try {
-    const model = getModel("geminiFlash");
     const generationRequest = {
       model,
       contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
@@ -250,7 +250,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
       attempt: 1,
     }, () => genAI.models.generateContent(generationRequest));
     await logCostTelemetry(
-      { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash"),
+      { operationType: "social_post", provider: "gemini", model,
         teamId: request.teamId, resourceType: "social_post", resourceId: request.socialPostId,
         providerRequestId: (result as any).responseId ?? null },
       extractGeminiUsage(result), Date.now() - _socialStart, true
@@ -258,7 +258,7 @@ Generate ONLY the post caption text. No explanations, no metadata, just the post
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     await logFailedProviderAttempt(
-      { operationType: "social_post", provider: "gemini", model: getModel("geminiFlash"),
+      { operationType: "social_post", provider: "gemini", model,
         teamId: request.teamId, resourceType: "social_post", resourceId: request.socialPostId },
       { totalTokens: 0 }, Date.now() - _socialStart, error
     );

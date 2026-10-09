@@ -110,6 +110,7 @@ export interface PodcastPayload {
 }
 
 export interface CallbackPayload {
+  dispatchAttempt?: string;
   jobId: string;
   status: 'success' | 'failure' | 'partial' | 'retryable';
   pageUrl?: string;

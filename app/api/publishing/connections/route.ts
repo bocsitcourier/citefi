@@ -8,7 +8,7 @@ import { withAuthenticatedTeamContext } from '@/lib/api/auth';
 
 const createConnectionSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  channel: z.enum(['website', 'facebook', 'linkedin', 'tiktok']),
+  channel: z.enum(['website']),
   baseUrl: z.string().url().optional(),
 });
 

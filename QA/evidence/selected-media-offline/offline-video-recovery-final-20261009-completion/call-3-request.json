@@ -1,0 +1,24 @@
+{
+  "number": 3,
+  "kind": "clip",
+  "scene": 4,
+  "sourceEventId": "provider-attempt:49492e1be055bce6274344aaca1e871aaa110d93df5270c2f9b211677ba9148f",
+  "requestSha256": "5294013228ef08cc6d6ce505dbb1c1124f1e69d9d28432b244df8ac48ed8421e",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of close-up hands installing a high-efficiency smart home energy monitoring fixture on a clean wooden wall, camera slowly pans left, bright indoor lighting, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

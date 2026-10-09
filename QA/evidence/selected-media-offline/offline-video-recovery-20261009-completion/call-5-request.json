@@ -1,0 +1,24 @@
+{
+  "number": 5,
+  "kind": "clip",
+  "scene": 6,
+  "sourceEventId": "provider-attempt:bea9267ef966acfb6ea748f78a9d980f3a2bcc2ed8e2dd9d9a77793ff67d88e0",
+  "requestSha256": "494aa567eaa8313625a6a08f56871c8eb6a1a93ec7a2fa94732e730740c517bc",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of two smiling engineers in a bright workshop examining a glowing, innovative bioluminescent lighting fixture, over-the-shoulder tracking shot, soft futuristic glow, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

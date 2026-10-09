@@ -59,7 +59,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Patch lockfile registry
-        run: sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+        run: node scripts/normalize-release-lockfiles.cjs .
       - run: npm ci --registry https://registry.npmjs.org
       - run: npm run validate:release
       - run: npm run build

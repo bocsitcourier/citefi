@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
@@ -616,7 +616,7 @@ Return as JSON:
       }
 
       const genAI = new GoogleGenAI({ apiKey });
-      const model = getModel("geminiFlash"), startedAt = Date.now();
+      const model = await getResolvedModel("geminiFlash"), startedAt = Date.now();
       const providerMetadata = { queryHash: createHash("sha256").update(critiquePrompt).digest("hex") };
       let result;
       try {

@@ -3,10 +3,9 @@
  * Creates and tears down isolated test users (no team) per test run.
  * Uses RUN_ID suffix so parallel runs don't collide.
  *
- * Auth tokens are generated directly (bypassing /api/auth/login) so the tests
- * are not blocked by the pre-existing 404 on that route.  The generated JWT +
- * matching session row are recognised by requireAdmin / requireTeamMember via
- * the standard Authorization: Bearer header path in lib/api/auth.ts.
+ * The HTTP suite logs the seeded synthetic accounts through /api/auth/login,
+ * then sends the resulting bearer token through the standard Authorization
+ * header path in lib/api/auth.ts.
  *
  * The signup-alert notification is created by calling notifyAdminsNewSignup()
  * directly — the same function that is triggered on real user signups — so the
@@ -22,37 +21,43 @@ import {
   emailVerificationCodes,
 } from "../../shared/schema.js";
 import { hashPassword } from "../../lib/auth.js";
-import { generateAccessToken, hashToken } from "../../lib/auth.js";
 import { notifyAdminsNewSignup } from "../../lib/notification-service.js";
 import { and, eq, isNull, inArray } from "drizzle-orm";
+import {
+  SYNTHETIC_ACCOUNT_PASSWORD,
+  syntheticAccountEmail,
+} from "../../QA/support/qa-fixtures.mjs";
 
 export interface NotificationSeedResult {
   password: string;
-  teamlessAdmin: { id: number; email: string; bearerToken: string };
-  teamlessNonAdmin: { id: number; email: string; bearerToken: string };
+  teamlessAdmin: { id: number; email: string };
+  teamlessNonAdmin: { id: number; email: string };
   notificationId: number;
 }
 
 /**
  * Creates two team-less users (one admin, one regular), calls
  * notifyAdminsNewSignup() to exercise the real notification service, then
- * finds the resulting notification for the admin user.  Returns pre-built
- * bearer tokens so tests can call the API without going through the login route.
+ * finds the resulting notification for the admin user.  The HTTP suite logs
+ * these synthetic accounts in through /api/auth/login; this keeps the test on
+ * the same credential/session path as a real admin instead of manufacturing a
+ * recovery token and session row.
  */
 export async function seedNotificationUsers(runId: string): Promise<NotificationSeedResult> {
-  const password = "Test!Pass#123";
+  const password = SYNTHETIC_ACCOUNT_PASSWORD;
   const passwordHash = await hashPassword(password);
-  const prefix = `test_notif_${runId}`;
+  const accountEmail = (role: string) => syntheticAccountEmail(runId, `notifications_${role}`);
 
   // Team-less admin — no defaultTeamId, no team membership
   const [adminRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_admin@test.invalid`,
+      email: accountEmail("admin"),
       passwordHash,
       role: "admin",
       accountStatus: "active",
       fullName: "Teamless Admin",
+      mfaEnrollmentDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     })
     .returning({ id: users.id, email: users.email });
   if (!adminRow) throw new Error("Failed to seed notification admin");
@@ -62,7 +67,7 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
   const [nonAdminRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_member@test.invalid`,
+      email: accountEmail("member"),
       passwordHash,
       role: "team_member",
       accountStatus: "active",
@@ -70,34 +75,6 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
     })
     .returning({ id: users.id, email: users.email });
   if (!nonAdminRow) throw new Error("Failed to seed notification member");
-
-  // Build bearer tokens directly — mirrors what /api/auth/login produces
-  const adminToken = generateAccessToken({
-    userId: adminRow.id,
-    email: adminRow.email,
-    role: "admin",
-  });
-  const nonAdminToken = generateAccessToken({
-    userId: nonAdminRow.id,
-    email: nonAdminRow.email,
-    role: "team_member",
-  });
-
-  // Insert matching session rows so requireAdmin / requireTeamMember pass
-  await db.insert(sessions).values([
-    {
-      userId: adminRow.id,
-      tokenHash: hashToken(adminToken),
-      isActive: 1,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-    {
-      userId: nonAdminRow.id,
-      tokenHash: hashToken(nonAdminToken),
-      isActive: 1,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-  ]);
 
   // Trigger the real notification service — this exercises notifyAdminsNewSignup's
   // admin-discovery query, notification payload, and userId/teamId scoping.
@@ -131,8 +108,8 @@ export async function seedNotificationUsers(runId: string): Promise<Notification
 
   return {
     password,
-    teamlessAdmin: { ...adminRow, bearerToken: adminToken },
-    teamlessNonAdmin: { ...nonAdminRow, bearerToken: nonAdminToken },
+    teamlessAdmin: adminRow,
+    teamlessNonAdmin: nonAdminRow,
     notificationId: notifRow.id,
   };
 }

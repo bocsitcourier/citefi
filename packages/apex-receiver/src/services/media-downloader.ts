@@ -3,15 +3,18 @@ import { localStorage } from '../storage/localFilesystem';
 import { MediaPayload } from '../types/payloads';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
+import { reviewedMediaDigest, verifyReviewedMedia } from './reviewed-media';
 
 export interface DownloadResult {
   id: string;
   localPath: string;
   publicUrl: string;
   filename: string;
+  relativePath: string;
 }
 
 export async function downloadMedia(media: MediaPayload): Promise<DownloadResult> {
+  const expectedDigest = reviewedMediaDigest(media.sourceUrl);
   const uniqueId = nanoid(8);
   const ext = path.extname(media.filename) || getExtensionFromMimeType(media.mimeType);
   const filename = `${path.basename(media.filename, ext)}-${uniqueId}${ext}`;
@@ -45,29 +48,30 @@ export async function downloadMedia(media: MediaPayload): Promise<DownloadResult
 
     const base64Clean = media.base64Data.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Clean, 'base64');
+    verifyReviewedMedia(buffer, expectedDigest);
     const localPath = await localStorage.saveFile(targetPath, buffer);
     const publicUrl = localStorage.getFileUrl(targetPath);
 
     logger.info('Media saved from base64', { id: media.id, localPath, publicUrl, size: buffer.length });
 
-    return { id: media.id, localPath, publicUrl, filename };
+    return { id: media.id, localPath, publicUrl, filename, relativePath: targetPath };
   }
 
   // ── Standard path: download from sourceUrl ────────────────────────────────
   logger.info('Downloading media', { 
     id: media.id, 
     type: media.type, 
-    sourceUrl: media.sourceUrl,
     targetPath 
   });
   
-  const result = await localStorage.downloadAndStore(media.sourceUrl, targetPath);
+  const result = await localStorage.downloadAndStore(media.sourceUrl, targetPath, expectedDigest);
   
   return {
     id: media.id,
     localPath: result.localPath,
     publicUrl: result.publicUrl,
     filename,
+    relativePath: targetPath,
   };
 }
 
@@ -80,16 +84,22 @@ export async function downloadMultipleMedia(
     mediaList.map(media => downloadMedia(media))
   );
   
+  let failed = false;
   downloads.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       results.set(mediaList[index]!.id, result.value);
     } else {
+      failed = true;
       logger.error('Failed to download media', {
         id: mediaList[index]!.id,
-        error: result.reason?.message,
+        error: 'Required media could not be downloaded and verified',
       });
     }
   });
+  if (failed) {
+    await Promise.allSettled([...results.values()].map(result => localStorage.deleteFile(result.relativePath)));
+    throw new Error('Required media download failed; article was not published');
+  }
   
   return results;
 }

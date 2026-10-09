@@ -27,6 +27,7 @@ import { NextRequest } from "next/server";
 import ffmpegPath from "ffmpeg-static";
 import { and, desc, eq } from "drizzle-orm";
 import { Pool } from "pg";
+import { assertPaidQaLedgerResolved } from "../../QA/support/budget-ledger-dispute.mjs";
 import {
   installGeminiImageNetworkGuard,
   preflight as preflightLiveImage,
@@ -34,6 +35,8 @@ import {
 } from "../../QA/support/live-media-budget.mjs";
 import { installSelectedMediaNetworkGuard } from "../../QA/support/selected-media-network.mjs";
 import { registerSelectedMediaAcceptance } from "./selected-media-acceptance";
+import { registerVideoRecoveryAcceptance } from "./video-recovery-acceptance";
+import { installVideoRecoveryNetworkGuard } from "../../QA/support/video-recovery-network.mjs";
 
 const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
@@ -41,6 +44,13 @@ const LIVE_IMAGE_QA = process.env.LIVE_QA_IMAGE === "1";
 const SELECTED_MEDIA_QA = process.env.SELECTED_MEDIA_QA;
 const SELECTED_MEDIA_OFFLINE = process.env.SELECTED_MEDIA_OFFLINE === "1";
 const SELECTED_MEDIA_RUN_ID = process.env.SELECTED_MEDIA_RUN_ID;
+const VIDEO_RECOVERY_QA = process.env.VIDEO_RECOVERY_QA;
+if (LIVE_IMAGE_QA || SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE) {
+  assertPaidQaLedgerResolved();
+}
+if (VIDEO_RECOVERY_QA && (SELECTED_MEDIA_QA !== "video" || !["pilot", "completion", "both"].includes(VIDEO_RECOVERY_QA))) {
+  throw new Error("Invalid video recovery configuration");
+}
 if (SELECTED_MEDIA_QA && !["podcast", "video"].includes(SELECTED_MEDIA_QA)) {
   throw new Error("Unknown selected media stage");
 }
@@ -48,9 +58,15 @@ if (SELECTED_MEDIA_QA && LIVE_IMAGE_QA) throw new Error("Image and selected AV Q
 if (SELECTED_MEDIA_QA && !/^[a-z0-9-]{1,80}$/.test(SELECTED_MEDIA_RUN_ID ?? "")) {
   throw new Error("Selected media requires a unique run ID");
 }
-if (SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE) {
+if (SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE && !VIDEO_RECOVERY_QA) {
   const { assertPaidMediaPermission } = await import("../../QA/support/selected-media-plan.mjs");
   assertPaidMediaPermission(SELECTED_MEDIA_QA);
+}
+if (VIDEO_RECOVERY_QA && !SELECTED_MEDIA_OFFLINE) {
+  if (VIDEO_RECOVERY_QA === "both") throw new Error("Live recovery refuses automatic phase progression");
+  const { assertRecoveryPermission, recoveryManifest } = await import("../../QA/support/video-recovery-plan.mjs");
+  const proof = JSON.parse(await readFile(join(ROOT, "QA/evidence/live-current/video-recovery-parent-termination.json"), "utf8"));
+  assertRecoveryPermission(VIDEO_RECOVERY_QA, join(ROOT, "QA/evidence/live-current"), recoveryManifest(), proof);
 }
 if (LIVE_IMAGE_QA && !process.env.GEMINI_API_KEY) {
   throw new Error("LIVE_QA_IMAGE requires a runtime-injected GEMINI_API_KEY; .env.local is never loaded");
@@ -334,7 +350,7 @@ async function assertCanonicalSecurityBootstrap(): Promise<void> {
 
 function installOwnedNetworkGuard(liveBudgetRun?: () => ReturnType<typeof reserveImageRun> | undefined): () => void {
   if (SELECTED_MEDIA_QA) {
-    return installSelectedMediaNetworkGuard(
+    return (VIDEO_RECOVERY_QA ? installVideoRecoveryNetworkGuard : installSelectedMediaNetworkGuard)(
       () => selectedMediaRun,
       () => selectedReceiptGetter?.(),
       { fixtureFetch: SELECTED_MEDIA_OFFLINE
@@ -422,9 +438,7 @@ async function startOwnedInfrastructure(): Promise<{
     DEFAULT_OBJECT_STORAGE_BUCKET_ID: "fixture-bucket",
     GEMINI_API_KEY: LIVE_IMAGE_QA || (SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE)
       ? process.env.GEMINI_API_KEY : "fixture-no-network",
-    GEMINI_IMAGE_MODEL: LIVE_IMAGE_QA
-      ? "gemini-3.1-flash-image"
-      : process.env.GEMINI_IMAGE_MODEL,
+    GEMINI_IMAGE_MODEL: "gemini-3.1-flash-image",
     OPENAI_API_KEY: SELECTED_MEDIA_QA && !SELECTED_MEDIA_OFFLINE
       ? process.env.OPENAI_API_KEY : "fixture-no-network",
     ...(SELECTED_MEDIA_QA ? {
@@ -602,8 +616,9 @@ if (LIVE_IMAGE_QA || SELECTED_MEDIA_QA) {
     }, null, 2), { mode: 0o600 });
     await syncEvidenceTree(directory);
     if (SELECTED_MEDIA_QA && SELECTED_MEDIA_OFFLINE) {
-      const retained = join(ROOT, "QA/evidence/selected-media-offline", SELECTED_MEDIA_RUN_ID!);
-      await cp(directory, retained, { recursive: true, force: false, errorOnExist: true });
+      const retained = join(ROOT, "QA/evidence/selected-media-offline",
+        VIDEO_RECOVERY_QA ? selectedMediaRun.entry.runId : SELECTED_MEDIA_RUN_ID!);
+      await cp(directory, retained, { recursive: true, force: !!VIDEO_RECOVERY_QA, errorOnExist: !VIDEO_RECOVERY_QA });
       await syncEvidenceTree(retained);
     }
   };
@@ -856,9 +871,10 @@ closeImageTransport = setSingleImageProviderTransportForTests({
     return {
       responseId: "fixture-image-route",
       usageMetadata: {
-        promptTokenCount: 12,
-        candidatesTokenCount: 16,
-        totalTokenCount: 28,
+        promptTokenCount: 172,
+        candidatesTokenCount: 1600,
+        totalTokenCount: 1772,
+        candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }],
       },
       candidates: [{
         content: {
@@ -910,6 +926,9 @@ async function fixtureMp4(): Promise<Buffer> {
 
 const fixtureVideoBytes = await fixtureMp4();
 const fixtureAudioBytes = await fixtureMp3(60);
+// Idea-video narration must match its declared six-second duration, rather than
+// reusing the sixty-second podcast fixture and violating the speech-fit guard.
+const fixtureIdeaAudioBytes = await fixtureMp3(6);
 const videoProvider = {
   submitCount: 0,
   pollCount: 0,
@@ -925,6 +944,7 @@ async function runFixtureProviderReceipt(
   resourceId: number,
   bytes: Buffer,
   counter: { accountedReceipts: number } = videoProvider,
+  unitCount = mediaKind === "video" ? 6 : 60,
 ): Promise<void> {
   const sequence = ++fixtureReceiptSequence;
   const providerRequestId = `fixture-${mediaKind}-${resourceId}-${sequence}`;
@@ -936,7 +956,7 @@ async function runFixtureProviderReceipt(
     submit: async () => ({
       id: providerRequestId,
       bytes: Buffer.from(bytes),
-      usage: { unitType: "seconds" as const, unitCount: mediaKind === "video" ? 6 : 60 },
+      usage: { unitType: "seconds" as const, unitCount },
     }),
     persist: async () => `/api/public-objects/${providerRequestId}`,
     providerRequestId: (value) => value.id,
@@ -1006,10 +1026,10 @@ const fixtureIdeaVideo = async (request: any) => {
         videoProvider.submitCount += 1;
         videoProvider.pollCount += 1;
         videoProvider.downloadCount += 1;
-        await runFixtureProviderReceipt("audio", "video_idea", ideaId, fixtureAudioBytes);
+        await runFixtureProviderReceipt("audio", "video_idea", ideaId, fixtureIdeaAudioBytes, videoProvider, 6);
         const root = await mkdtemp(join(tmpdir(), "media-qa-idea-audio-"));
         const path = join(root, "fixture.mp3");
-        await writeFile(path, fixtureAudioBytes.subarray(0));
+        await writeFile(path, fixtureIdeaAudioBytes.subarray(0));
         return { audioUrl: "/api/public-objects/fixture-idea.mp3", localPath: path, duration: 6, voice: "fixture" };
       },
       generateClip: async (clip: any) => {
@@ -1157,7 +1177,8 @@ test("row 10: authenticated identity route runs provider transport, persists byt
       });
       assert.equal(denied.status, 401, "public-object HTTP retrieval denies a different synthetic tenant");
       imageEvidence.tenantRetrieval = { authorizedStatus: retrieved.status, otherTenantStatus: denied.status };
-
+    }
+    {
       const productionReceipts = await systemDb.select({
         id: schema.providerAttemptReceipts.id,
         model: schema.providerAttemptReceipts.model,
@@ -1188,25 +1209,35 @@ test("row 10: authenticated identity route runs provider transport, persists byt
         eq(schema.providerUsageLedger.model, "gemini-3.1-flash-image"),
       )).orderBy(desc(schema.providerUsageLedger.id));
       assert.ok(providerUsage.length > 0, "production provider-usage ledger contains the image event");
-      const cogsEvent = providerUsage.find(
+      const cogsEvents = providerUsage.filter(
         (event) => event.providerRequestId === accountedReceipt.providerRequestId,
       );
-      assert.ok(cogsEvent, "provider COGS event correlates to the provider attempt receipt");
-      assert.ok(cogsEvent.costMicrousd > 0, "locked official token rates value this image event");
-      assert.notEqual((cogsEvent.rateSnapshot as any)?.version, "unpriced");
-      const budgetReceipt = JSON.parse(await readFile(join(budgetRun!.directory, "image-receipt.json"), "utf8"));
+      assert.ok(cogsEvents.length > 0, "provider COGS events correlate to the provider attempt receipt");
+      for (const event of cogsEvents) {
+        assert.equal((event.rateSnapshot as any)?.version, "2026-10-09");
+      }
+      const cogsMicrousd = cogsEvents.reduce((sum, event) => sum + event.costMicrousd, 0);
+      const budgetReceipt = budgetRun
+        ? JSON.parse(await readFile(join(budgetRun.directory, "image-receipt.json"), "utf8"))
+        : { actualUsd: (172 * 0.50 + 1120 * 60 + 480 * 3) / 1_000_000 };
       assert.equal(
-        cogsEvent.costMicrousd,
+        cogsMicrousd,
         Math.round(budgetReceipt.actualUsd * 1_000_000),
         "production image COGS must include every native billed category at its official rate",
       );
+      if (!LIVE_IMAGE_QA) {
+        assert.equal(cogsEvents.length, 2);
+        assert.equal(cogsMicrousd, 68726);
+        console.log(`Offline image COGS: ${cogsEvents.map((event) => `${event.unitType}=${event.costMicrousd}`).join(" + ")}; sum=${cogsMicrousd} microUSD`);
+      }
       imageEvidence.accounting = {
         productionProviderAttemptReceipt: accountedReceipt,
-        productionProviderUsageLedgerCogsEvent: cogsEvent,
+        productionProviderUsageLedgerCogsEvents: cogsEvents,
+        cogsMicrousd,
         liveBudgetPricingReceiptFile: "image-receipt.json",
         liveBudgetProviderRequestId: accountedReceipt.providerRequestId,
       };
-      budgetRun!.writeEvidence("image-production-accounting.json", imageEvidence);
+      budgetRun?.writeEvidence("image-production-accounting.json", imageEvidence);
     }
 
     const [reservation] = await systemDb.select().from(schema.creditReservations)
@@ -1372,7 +1403,7 @@ test("row 17: podcast route -> Redis job -> exported worker stores measured MP3 
   assert.equal(reservation?.status, "DEBITED");
 });
 
-registerSelectedMediaAcceptance({
+const selectedMediaContext = {
   owned, schema, systemDb, userId, teamId, articleId, ideaId, likeIdeaId, wrongTeamId,
   token, wrongTenantToken, authHeaders, wrongTenantHeaders, fixtureAudioBytes,
   runWithAuthenticatedTeamContext, videoIdeaDependencies, startPublicObjectsHttpServer,
@@ -1380,4 +1411,7 @@ registerSelectedMediaAcceptance({
   setReceiptGetter: (getter: () => any) => { selectedReceiptGetter = getter; },
   setFixtureFetch: (fetcher: any) => { selectedFixtureFetch = fetcher; },
   setPublicServer: (server: Server) => { publicObjectsServer = server; },
-});
+  exportEvidence: async () => { await exportLiveEvidence?.(); },
+};
+registerSelectedMediaAcceptance(selectedMediaContext);
+registerVideoRecoveryAcceptance(selectedMediaContext);

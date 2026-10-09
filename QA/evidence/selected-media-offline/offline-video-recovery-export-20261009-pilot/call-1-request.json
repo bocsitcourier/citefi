@@ -1,0 +1,24 @@
+{
+  "number": 1,
+  "kind": "clip",
+  "scene": 1,
+  "sourceEventId": "provider-attempt:a7182c748e2b1f20978f0c6d299d6f0e9c1ea4cfb9d71a664d5cd7b16ae1513b",
+  "requestSha256": "0763c739e0192d8984bc3ec778529cf52361b9848a9f399231f102c856689b2c",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of the modern skyline of Fixture City, showcasing integrated green energy infrastructure like solar roofs and vertical wind generators, camera slowly pans right, bright daylight, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

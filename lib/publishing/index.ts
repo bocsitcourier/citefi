@@ -5,12 +5,22 @@ import {
   publishingCallbacks,
   articles,
   articleAssets,
+  jobBatches,
+  teams,
+  teamMembers,
   videoIdeas,
   type PublishingConnection,
   type PublishingJob
 } from '../../shared/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, or, lte, inArray, ne, sql } from 'drizzle-orm';
+import { assertReviewedArticle, dispatchContract, publicationHash, reviewHash } from './dispatch-policy';
+import { assertBoundReview, assertCurrentActor, reviewMediaPayload } from './review-binding';
+import { assertPublishingOperator, detailsOf, reconciliationOf, type Operator } from './reconciliation';
+import { reconciliationError } from './receipt-policy';
+import type { FormattedContent } from './types';
+import { getDatabaseExecutionContext, runWithSystemContext } from '../tenant-context';
 import { websiteAdapter } from './channels/website/adapter';
+import { safeFetchWithRedirects, validateExternalUrl } from '../url-validation';
 import type { 
   ChannelAdapter, 
   PublishableContent, 
@@ -125,6 +135,14 @@ export async function createConnection(
     baseUrl?: string;
   }
 ): Promise<{ connection: PublishingConnection; apiKey?: string }> {
+  if (!getAdapter(data.channel)) throw Object.assign(new Error('This publishing channel is not yet supported'), { statusCode: 400 });
+  if (data.channel === 'website') {
+    if (!data.baseUrl) throw Object.assign(new Error('Website connections require a base URL'), { statusCode: 400 });
+    try { validateExternalUrl(data.baseUrl); } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error('Invalid receiver URL'), { statusCode: 400 });
+    }
+    if (new URL(data.baseUrl).protocol !== 'https:') throw Object.assign(new Error('Publishing receivers require HTTPS'), { statusCode: 400 });
+  }
   let apiKey: string | undefined;
   let apiKeyHash: string | undefined;
   let encryptedKey: string | undefined;
@@ -194,17 +212,24 @@ export async function testConnection(
       // Use the receiver origin only — same as the publish() method — to handle
       // cases where baseUrl includes a content path like /blog or /articles.
       const receiverOrigin = new URL(connection.baseUrl).origin;
-      const response = await fetch(`${receiverOrigin}/api/v1/status/ping`, {
+      const response = await safeFetchWithRedirects(`${receiverOrigin}/api/v1/status/ping`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
+        maxRedirects: 0,
+        timeoutMs: 12000,
+        maxBytes: 65536,
       });
+      if (!response) throw new Error('Receiver URL blocked or request exceeded safe network limits');
       
       if (response.ok) {
+        const ping = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+        const capabilities = ping?.data?.capabilities ?? ping?.capabilities ?? {};
         await db.update(publishingConnections)
           .set({ 
             status: 'active', 
             lastHeartbeatAt: new Date(),
             lastErrorMessage: null,
+            capabilities: { ...connection.capabilities, publishingReceiptV1: capabilities.publishingReceiptV1 === true },
             updatedAt: new Date(),
           })
           .where(eq(publishingConnections.id, connectionId));
@@ -244,77 +269,135 @@ export async function createPublishingJob(
   teamId: number,
   connectionId: number,
   contentType: 'article' | 'social_post' | 'video' | 'podcast',
-  contentId: number
+  contentId: number,
+  publisher?: { userId: number; role: string },
+  replacement?: { originalJobId: number; decisionId: string; operator: Operator },
 ): Promise<PublishingJob> {
-  const jobData: any = {
+  const connection = await getConnectionById(connectionId, teamId);
+  if (!connection || connection.status !== 'active' || !getAdapter(connection.channel)) {
+    throw Object.assign(new Error('Publishing connection is unavailable or unsupported'), { statusCode: 400 });
+  }
+  // Only article-backed formats currently have a reviewed-version workflow.
+  // Do not let video or social exports silently bypass it.
+  if (contentType !== 'article' && contentType !== 'podcast') {
+    throw Object.assign(new Error('This content type does not have a supported publishing approval workflow'), { statusCode: 409 });
+  }
+  const adapter = getAdapter(connection.channel)!;
+  const context = getDatabaseExecutionContext();
+  const actor = publisher ?? (context?.scope === 'tenant' && context.userId ? { userId: context.userId, role: context.role } : undefined);
+  if (!actor) throw Object.assign(new Error('An explicitly authorized publisher is required'), { statusCode: 403 });
+  const job = await runWithSystemContext('exact publishing admission and reviewer revalidation', () => db.transaction(async (tx): Promise<PublishingJob> => {
+    // Serialize identical requests across processes, including concurrent clicks.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`publish:${teamId}:${connectionId}:${contentType}:${contentId}`}, 0))`);
+    const publishingActor = { ...actor };
+    // Global authority is not publishing consent. A platform administrator
+    // must still have an actual current membership in the owning workspace.
+    if (actor.role === 'platform_admin') {
+      const [direct] = await tx.select().from(teamMembers).where(and(
+        eq(teamMembers.userId, actor.userId), eq(teamMembers.teamId, teamId),
+      )).for('share');
+      if (!direct || !['owner', 'admin', 'member'].includes(direct.role))
+        reconciliationError('Current owning-workspace publishing membership is required', 403);
+      publishingActor.role = direct.role;
+    }
+    const publisherMembership = await assertCurrentActor(tx, { ...publishingActor, teamId }, ['owner', 'admin', 'member']);
+    const [currentConnection] = await tx.select().from(publishingConnections).where(and(
+      eq(publishingConnections.id, connectionId), eq(publishingConnections.teamId, teamId),
+    )).for('share');
+    if (!currentConnection) throw Object.assign(new Error('Destination not found'), { statusCode: 404 });
+    const [article] = await tx.select().from(articles)
+      .where(and(eq(articles.id, contentId), eq(articles.teamId, teamId), isNull(articles.deletedAt)))
+      .for('update');
+    if (!article) throw Object.assign(new Error('Content not found'), { statusCode: 404 });
+    assertReviewedArticle(article);
+    const snapshot = await assertBoundReview(tx, article, currentConnection, contentType);
+    const hash = reviewHash({ publication: publicationHash(snapshot.formatted, currentConnection), reviewDigest: snapshot.digest });
+    const priorOperations = await tx.select({ errorDetails: publishingJobs.errorDetails }).from(publishingJobs).where(and(
+      eq(publishingJobs.teamId, teamId), eq(publishingJobs.connectionId, connectionId),
+      eq(publishingJobs.contentType, contentType), eq(publishingJobs.articleId, contentId),
+    ));
+    if (priorOperations.some(prior => {
+      const binding = dispatchContract(prior.errorDetails);
+      return !binding?.reviewId || !binding.publisherUserId || !binding.publisherRole || !binding.publisherMembership;
+    }))
+      reconciliationError('A legacy operation lacks a trustworthy submission binding; a new request cannot bypass it');
+    let original: PublishingJob | undefined;
+    if (replacement) {
+      if (replacement.operator.teamId !== teamId) reconciliationError('Wrong operator workspace', 403);
+      await assertPublishingOperator(tx, replacement.operator);
+      [original] = await tx.select().from(publishingJobs).where(and(
+        eq(publishingJobs.id, replacement.originalJobId), eq(publishingJobs.teamId, teamId),
+      )).for('update');
+      if (!original || original.articleId !== contentId || original.connectionId !== connectionId ||
+          original.contentType !== contentType) reconciliationError('Original operation does not match');
+      const retained = reconciliationOf(original);
+      if (original.status !== 'not_accepted' || retained.decision?.outcome !== 'not_accepted' ||
+          retained.decision.decisionId !== replacement.decisionId ||
+          !dispatchContract(original.errorDetails)?.submissionStarted ||
+          detailsOf(original).reconciliationConflict === true)
+        reconciliationError('A proven, fenced non-acceptance decision is required');
+      const contradiction = await tx.select({ id: publishingCallbacks.id }).from(publishingCallbacks).where(and(
+        eq(publishingCallbacks.publishingJobId, original.id),
+        sql`(${publishingCallbacks.status} = 'success' OR
+          (${publishingCallbacks.status} = 'native_evidence' AND
+           ${publishingCallbacks.payload}->'receipt'->>'outcome' = 'accepted'))`,
+      )).limit(1);
+      if (contradiction.length) reconciliationError('Conflicting evidence prevents a replacement');
+      if (retained.replacementJobId) {
+        const [successor] = await tx.select().from(publishingJobs).where(and(
+          eq(publishingJobs.id, retained.replacementJobId), eq(publishingJobs.teamId, teamId),
+        ));
+        if (!successor) reconciliationError('Retained replacement is unavailable');
+        return successor;
+      }
+      if (hash !== dispatchContract(original.errorDetails)?.hash ||
+          new URL(currentConnection.baseUrl!).origin !== dispatchContract(original.errorDetails)?.receiverOrigin ||
+          currentConnection.apiKeyHash !== dispatchContract(original.errorDetails)?.receiverKeyHash)
+        reconciliationError('Original content or receiver changed; replacement cannot be authorized');
+    }
+    const [existing] = await tx.select().from(publishingJobs).where(and(
+      eq(publishingJobs.teamId, teamId), eq(publishingJobs.connectionId, connectionId),
+      eq(publishingJobs.contentType, contentType), eq(publishingJobs.articleId, contentId),
+      sql`${publishingJobs.status} <> 'cancelled'`,
+      original ? ne(publishingJobs.id, original.id) : undefined,
+      replacement ? sql`(${publishingJobs.status} <> 'not_accepted' OR coalesce(${publishingJobs.errorDetails}->>'reconciliationConflict', 'false') = 'true')` : undefined,
+      sql`${publishingJobs.errorDetails}->'dispatchContract'->>'hash' = ${hash}`,
+    )).limit(1);
+    if (existing) return existing;
+    const [created] = await tx.insert(publishingJobs).values({
     teamId,
     connectionId,
     contentType,
+    articleId: contentId,
+    campaignId: article.campaignId,
     status: 'pending',
     attempts: 0,
     maxAttempts: 3,
-  };
-  
-  switch (contentType) {
-    case 'article':
-      jobData.articleId = contentId;
-      break;
-    case 'social_post':
-      jobData.socialPostId = contentId;
-      break;
-    case 'video':
-      jobData.videoIdeaId = contentId;
-      break;
-    case 'podcast':
-      // Podcasts are tied to articles — contentId is the articleId
-      jobData.articleId = contentId;
-      break;
-  }
-
-  // Canonically derive the campaign association from the content row, scoped to
-  // the team so a derived campaignId can never cross tenant boundaries. Never
-  // trusts a caller-supplied value. Best-effort — null when unknown/legacy.
-  try {
-    const { articles, socialPosts, videoIdeas } = await import('@/shared/schema');
-    const { and } = await import('drizzle-orm');
-    if (contentType === 'article' || contentType === 'podcast') {
-      const [row] = await db
-        .select({ campaignId: articles.campaignId })
-        .from(articles)
-        .where(and(eq(articles.id, contentId), eq(articles.teamId, teamId)))
-        .limit(1);
-      jobData.campaignId = row?.campaignId ?? null;
-    } else if (contentType === 'social_post') {
-      const [row] = await db
-        .select({ campaignId: socialPosts.campaignId })
-        .from(socialPosts)
-        .where(and(eq(socialPosts.id, contentId), eq(socialPosts.teamId, teamId)))
-        .limit(1);
-      jobData.campaignId = row?.campaignId ?? null;
-    } else if (contentType === 'video') {
-      const [row] = await db
-        .select({ campaignId: videoIdeas.campaignId })
-        .from(videoIdeas)
-        .where(and(eq(videoIdeas.id, contentId), eq(videoIdeas.teamId, teamId)))
-        .limit(1);
-      jobData.campaignId = row?.campaignId ?? null;
+    errorDetails: { dispatchContract: { version: 1, hash, submissionStarted: false, reviewId: snapshot.reviewId,
+      publisherUserId: publishingActor.userId, publisherRole: publishingActor.role, publisherMembership },
+      ...(original ? { replacementOf: original.id, replacementDecisionId: replacement!.decisionId } : {}) },
+    }).returning();
+    if (original) {
+      const retained = reconciliationOf(original);
+      await tx.update(publishingJobs).set({
+        errorDetails: { ...detailsOf(original), reconciliation: { ...retained, replacementJobId: created!.id,
+          audit: [...(retained.audit ?? []), { action: 'replacement_authorized', actorId: replacement!.operator.userId,
+            at: new Date().toISOString(), replacementJobId: created!.id, decisionId: replacement!.decisionId }] } },
+        updatedAt: new Date(),
+      }).where(and(eq(publishingJobs.id, original.id), eq(publishingJobs.teamId, teamId)));
     }
-  } catch (err) {
-    console.warn('[publishing] campaignId derivation failed:', (err as Error)?.message ?? err);
-  }
-
-  const [jobRow] = await db.insert(publishingJobs).values(jobData).returning();
-  const job = jobRow!;
+    return created!;
+  }));
+  if (job.status !== 'pending' || job.pgBossJobId) return job;
 
   // Enqueue in BullMQ so the publishing worker picks it up
   try {
     const pgBossId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId, campaignId: (job as any).campaignId ?? null });
     if (pgBossId) {
       await db.update(publishingJobs)
-        .set({ pgBossJobId: pgBossId, status: 'queued', updatedAt: new Date() })
-        .where(eq(publishingJobs.id, job.id));
+        .set({ pgBossJobId: pgBossId, updatedAt: new Date() })
+        .where(and(eq(publishingJobs.id, job.id), eq(publishingJobs.status, 'pending')));
       job.pgBossJobId = pgBossId;
-      job.status = 'queued';
     }
   } catch (err) {
     // Non-fatal — the job is in DB and the recovery monitor will re-enqueue
@@ -322,49 +405,6 @@ export async function createPublishingJob(
   }
 
   return job;
-}
-
-export async function processCallback(callback: CallbackPayload): Promise<void> {
-  const [job] = await db.select().from(publishingJobs)
-    .where(eq(publishingJobs.publicId, callback.jobId as any))
-    .limit(1);
-  
-  if (!job) {
-    console.error(`Publishing job not found for callback: ${callback.jobId}`);
-    return;
-  }
-  
-  await db.insert(publishingCallbacks).values({
-    publishingJobId: job.id,
-    status: callback.status,
-    payload: callback as any,
-  });
-  
-  if (callback.status === 'success') {
-    await db.update(publishingJobs)
-      .set({
-        status: 'delivered',
-        publishedUrl: callback.pageUrl,
-        publishedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(publishingJobs.id, job.id));
-  } else if (callback.status === 'failure') {
-    const newAttempts = job.attempts + 1;
-    const shouldRetry = newAttempts < job.maxAttempts;
-    
-    await db.update(publishingJobs)
-      .set({
-        status: shouldRetry ? 'pending' : 'failed',
-        attempts: newAttempts,
-        lastError: callback.error,
-        errorDetails: callback as any,
-        lastAttemptAt: new Date(),
-        nextRetryAt: shouldRetry ? new Date(Date.now() + 60000 * newAttempts) : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(publishingJobs.id, job.id));
-  }
 }
 
 export async function deleteConnection(
@@ -397,13 +437,21 @@ export async function processPublishingJob(jobId: number): Promise<{
   if (!job) {
     return { success: false, error: 'Job not found', errorCode: 'JOB_NOT_FOUND' };
   }
+  if (!['pending', 'queued'].includes(job.status)) {
+    return { success: false, error: 'Operation is already active or terminal', errorCode: 'JOB_NOT_CLAIMABLE' };
+  }
+  const initialContract = dispatchContract(job.errorDetails);
+  if (initialContract?.submissionStarted || (!initialContract && job.lastAttemptAt)) {
+    await markJobFailed(job.id, 'Prior submission requires reconciliation, not another send', 'OUTCOME_UNKNOWN', undefined, true);
+    return { success: false, error: 'Prior submission requires reconciliation', errorCode: 'OUTCOME_UNKNOWN' };
+  }
   
   // Get connection
   const [connection] = await db.select().from(publishingConnections)
-    .where(eq(publishingConnections.id, job.connectionId))
+    .where(and(eq(publishingConnections.id, job.connectionId), eq(publishingConnections.teamId, job.teamId), isNull(publishingConnections.deletedAt)))
     .limit(1);
   
-  if (!connection) {
+  if (!connection || connection.status !== 'active') {
     await markJobFailed(job.id, 'Connection not found', 'CONNECTION_NOT_FOUND');
     return { success: false, error: 'Connection not found', errorCode: 'CONNECTION_NOT_FOUND' };
   }
@@ -481,24 +529,114 @@ export async function processPublishingJob(jobId: number): Promise<{
     return { success: false, error: 'Content not found', errorCode: 'CONTENT_NOT_FOUND' };
   }
   
+  let reviewedFormatted: FormattedContent | undefined;
   // Mark job as processing
-  await db.update(publishingJobs)
-    .set({ status: 'processing', lastAttemptAt: new Date(), updatedAt: new Date() })
-    .where(eq(publishingJobs.id, job.id));
+  const claimed = await runWithSystemContext('exact publishing dispatch claim and reviewer revalidation', () => db.transaction(async (tx): Promise<{ id: number; lastAttemptAt: Date | null }[]> => {
+    const [currentTeam] = await tx.select({
+      deletedAt: teams.deletedAt, clientStatus: teams.clientStatus,
+    }).from(teams).where(eq(teams.id, job.teamId)).for('share');
+    if (!currentTeam || currentTeam.deletedAt || currentTeam.clientStatus !== 'active') return [];
+    // A revocation committed before this dispatch claim fences the queued job.
+    // Revocation cannot undo an external request that has already been claimed.
+    const [currentConnection] = await tx.select().from(publishingConnections)
+      .where(and(eq(publishingConnections.id, job.connectionId), eq(publishingConnections.teamId, job.teamId)))
+      .for('update');
+    if (!currentConnection || currentConnection.deletedAt || currentConnection.status !== 'active') return [];
+    const contract = dispatchContract(job.errorDetails);
+    if (!contract || contract.submissionStarted || !job.articleId) return [];
+    if (detailsOf(job).replacementOf) {
+      const [parent] = await tx.select().from(publishingJobs).where(and(
+        eq(publishingJobs.id, Number(detailsOf(job).replacementOf)), eq(publishingJobs.teamId, job.teamId),
+      )).for('share');
+      if (!parent || parent.status !== 'not_accepted' || detailsOf(parent).reconciliationConflict === true ||
+          reconciliationOf(parent).replacementJobId !== job.id ||
+          reconciliationOf(parent).decision?.decisionId !== detailsOf(job).replacementDecisionId) return [];
+    }
+    const [currentArticle] = await tx.select().from(articles)
+      .where(and(eq(articles.id, job.articleId), eq(articles.teamId, job.teamId), isNull(articles.deletedAt)))
+      .for('update');
+    if (!currentArticle) return [];
+    try { assertReviewedArticle(currentArticle); } catch { return []; }
+    try {
+      if (!contract.reviewId || !contract.publisherUserId || !contract.publisherRole) return [];
+      const membership = await assertCurrentActor(tx, { userId: contract.publisherUserId, role: contract.publisherRole, teamId: job.teamId }, ['owner', 'admin', 'member']);
+      if (membership !== contract.publisherMembership) return [];
+      const snapshot = await assertBoundReview(tx, currentArticle, currentConnection, job.contentType === 'podcast' ? 'podcast' : 'article');
+      if (snapshot.reviewId !== contract.reviewId ||
+          reviewHash({ publication: publicationHash(snapshot.formatted, currentConnection), reviewDigest: snapshot.digest }) !== contract.hash) return [];
+      reviewedFormatted = reviewMediaPayload(snapshot);
+    } catch { return []; }
+    const currentAssets = await tx.select().from(articleAssets)
+      .where(and(eq(articleAssets.articleId, currentArticle.id), isNull(articleAssets.deletedAt)))
+      .orderBy(articleAssets.id);
+    const [currentBatch] = currentArticle.batchId ? await tx.select({ businessName: jobBatches.businessName })
+      .from(jobBatches).where(and(eq(jobBatches.id, currentArticle.batchId), eq(jobBatches.teamId, job.teamId))) : [];
+    const reviewedContent: PublishableContent = {
+      type: job.contentType === 'podcast' ? 'podcast' : 'article', article: currentArticle,
+      articleAssets: currentAssets, businessName: currentBatch?.businessName ?? undefined,
+    };
+    // This row-locked claim is the authorization linearization point. Publish
+    // this immutable in-memory snapshot, never a later mutable content lookup.
+    content = reviewedContent;
+    Object.assign(connection, currentConnection);
+    return tx.update(publishingJobs)
+    .set({ status: 'processing', attempts: sql`${publishingJobs.attempts} + 1`, lastAttemptAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(publishingJobs.id, job.id),
+       inArray(publishingJobs.status, ['pending', 'queued']),
+      or(isNull(publishingJobs.nextRetryAt), lte(publishingJobs.nextRetryAt, new Date())),
+    )).returning({ id: publishingJobs.id, lastAttemptAt: publishingJobs.lastAttemptAt });
+  }));
+  if (!claimed.length) {
+    await markJobFailed(job.id, 'Current approval, immutable payload binding, and active destination are required', 'DISPATCH_NOT_AUTHORIZED');
+    return { success: false, error: 'Job is not authorized or is already claimed', errorCode: 'JOB_NOT_CLAIMABLE' };
+  }
+  const claimAt = claimed[0]!.lastAttemptAt!;
+  // Use the locked and reviewed credential revision, never a stale ID cache.
+  apiKey = connection.encryptedApiKey ? decryptApiKey(connection.encryptedApiKey) : undefined;
+  let submissionStarted = false;
   
   try {
     // Validate
     const validation = await adapter.validate(content, connection);
     if (!validation.valid) {
-      await markJobFailed(job.id, validation.errors?.join(', ') || 'Validation failed', 'VALIDATION_FAILED');
+      await markJobFailed(job.id, validation.errors?.join(', ') || 'Validation failed', 'VALIDATION_FAILED', claimAt);
       return { success: false, error: 'Validation failed', errorCode: 'VALIDATION_FAILED' };
     }
     
     // Format
-    const formatted = await adapter.format(content, connection);
+    const formatted = reviewedFormatted!;
     
     // Publish
-    const result = await adapter.publish(formatted, connection, apiKey, job.publicId);
+    const contract = dispatchContract(job.errorDetails)!;
+    const submitted = await db.transaction(async tx => {
+      if (detailsOf(job).replacementOf) {
+        const [parent] = await tx.select().from(publishingJobs).where(and(
+          eq(publishingJobs.id, Number(detailsOf(job).replacementOf)), eq(publishingJobs.teamId, job.teamId),
+        )).for('share');
+        if (!parent || parent.status !== 'not_accepted' || detailsOf(parent).reconciliationConflict === true ||
+            reconciliationOf(parent).replacementJobId !== job.id ||
+            reconciliationOf(parent).decision?.decisionId !== detailsOf(job).replacementDecisionId) return [];
+        const originalReceiver = dispatchContract(parent.errorDetails);
+        if (!originalReceiver?.receiverOrigin || !originalReceiver.receiverKeyHash ||
+            originalReceiver.receiverOrigin !== new URL(connection.baseUrl!).origin ||
+            originalReceiver.receiverKeyHash !== hashApiKey(apiKey!)) return [];
+      }
+      return tx.update(publishingJobs).set({
+      errorDetails: sql`coalesce(${publishingJobs.errorDetails}, '{}'::jsonb) || ${JSON.stringify({
+        dispatchContract: { ...contract, submissionStarted: true,
+          receiverOrigin: new URL(connection.baseUrl!).origin, receiverKeyHash: hashApiKey(apiKey!),
+        },
+      })}::jsonb`,
+    }).where(and(eq(publishingJobs.id, job.id), eq(publishingJobs.status, 'processing'), eq(publishingJobs.lastAttemptAt, claimAt)))
+      .returning({ id: publishingJobs.id });
+    });
+    if (!submitted.length) return { success: false, error: 'Dispatch was superseded', errorCode: 'DISPATCH_SUPERSEDED' };
+    submissionStarted = true;
+    const result = await adapter.publish({
+      ...formatted, payload: { ...formatted.payload, dispatchAttempt: claimAt.toISOString(),
+        contentHash: contract.hash, receiverOrigin: new URL(connection.baseUrl!).origin },
+    }, connection, apiKey!, job.publicId);
     
     if (result.success) {
       await db.update(publishingJobs)
@@ -508,15 +646,14 @@ export async function processPublishingJob(jobId: number): Promise<{
           lastError: null,   // Clear any stale error from a prior failed attempt
           updatedAt: new Date(),
         })
-        .where(eq(publishingJobs.id, job.id));
+        .where(and(eq(publishingJobs.id, job.id), eq(publishingJobs.status, 'processing'), eq(publishingJobs.lastAttemptAt, claimAt)));
       
       return { success: true };
     } else {
       const newAttempts = job.attempts + 1;
-      // RECEIVER_REJECTED (HTTP 400) = permanent receiver validation failure — retrying
-      // the same payload will always get the same 400. Mark as failed immediately.
-      const permanentErrorCodes = ['AUTHENTICATION_ERROR', 'RECEIVER_REJECTED'];
-      const shouldRetry = newAttempts < job.maxAttempts && !permanentErrorCodes.includes(result.errorCode || '');
+      // A failed response is not evidence that the receiver did nothing.
+      // Without a reconciliation/idempotency contract no physical resend is safe.
+      const shouldRetry = false;
 
       if (!shouldRetry) {
         await logError({
@@ -537,14 +674,15 @@ export async function processPublishingJob(jobId: number): Promise<{
       
       await db.update(publishingJobs)
         .set({
-          status: shouldRetry ? 'pending' : 'failed',
-          attempts: newAttempts,
+          status: 'outcome_unknown',
           lastError: result.error,
-          errorDetails: result.rawResponse as any,
-          nextRetryAt: shouldRetry ? new Date(Date.now() + 60000 * newAttempts) : null,
+          errorDetails: sql`coalesce(${publishingJobs.errorDetails}, '{}'::jsonb) || ${JSON.stringify({
+            errorCode: result.errorCode ?? 'OUTCOME_UNKNOWN', reconciliationRequired: true,
+          })}::jsonb`,
+          nextRetryAt: null,
           updatedAt: new Date(),
         })
-        .where(eq(publishingJobs.id, job.id));
+        .where(and(eq(publishingJobs.id, job.id), eq(publishingJobs.status, 'processing'), eq(publishingJobs.lastAttemptAt, claimAt)));
       
       return { success: false, error: result.error, errorCode: result.errorCode };
     }
@@ -560,20 +698,26 @@ export async function processPublishingJob(jobId: number): Promise<{
         stack: e instanceof Error ? e.stack?.slice(0, 500) : undefined,
       },
     });
-    await markJobFailed(job.id, error, 'PUBLISH_ERROR');
+    await markJobFailed(job.id, error, 'PUBLISH_ERROR', claimAt, submissionStarted);
     return { success: false, error, errorCode: 'PUBLISH_ERROR' };
   }
 }
 
-async function markJobFailed(jobId: number, error: string, errorCode: string): Promise<void> {
+async function markJobFailed(jobId: number, error: string, errorCode: string, claimAt?: Date, outcomeUnknown = false): Promise<void> {
   await db.update(publishingJobs)
     .set({
-      status: 'failed',
+      status: outcomeUnknown ? 'outcome_unknown' : 'failed',
       lastError: error,
-      errorDetails: { errorCode } as any,
+      errorDetails: sql`coalesce(${publishingJobs.errorDetails}, '{}'::jsonb) || ${JSON.stringify({
+        errorCode, ...(outcomeUnknown ? { reconciliationRequired: true } : {}),
+      })}::jsonb`,
       updatedAt: new Date(),
     })
-    .where(eq(publishingJobs.id, jobId));
+    .where(and(
+      eq(publishingJobs.id, jobId),
+       claimAt ? eq(publishingJobs.status, 'processing') : inArray(publishingJobs.status, ['pending', 'queued']),
+      claimAt ? eq(publishingJobs.lastAttemptAt, claimAt) : undefined,
+    ));
 }
 
 export { generateApiKey, hashApiKey } from './auth/hmac';

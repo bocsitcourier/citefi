@@ -1,42 +1,73 @@
 ---
-name: GitHub push script
-description: How to push local commits to GitHub from the Replit main agent, which blocks git pull/merge/rebase/force-push.
+name: GitHub networking
+description: Sandbox transport constraints do not justify bypassing protected-branch checks.
 ---
 
-## The Problem
-Replit main agent sandbox blocks all state-changing git ops with exit 254:
-- git pull, git fetch (that writes refs), git merge, git rebase, git reset, git checkout
-- git push --force / --force-with-lease
-- git commit
+The main-agent sandbox has historically rejected some state-changing git
+transport operations. GitHub REST operations can avoid that transport problem,
+but must still honor the repository's protected-branch rules.
 
-This means the normal "pull to resolve non-fast-forward, then push" workflow is impossible in the main agent.
+**Why:** The previous direct force-ref synchronization approach predates required
+merge checks. Treating it as the default now conflicts with deliberate no-bypass
+enforcement.
 
-## The Solution
-Use the **GitHub REST API** via curl to force-move the branch ref pointer:
+**How to apply:** Use REST to publish a branch and open a pull request when git
+transport is unavailable. Never force-update main or weaken the ruleset to get
+past a sync failure. See [required deployment checks](required-deployment-check.md).
 
-```
-PATCH https://api.github.com/repos/{owner}/{repo}/git/refs/heads/main
-Body: { "sha": "<local HEAD sha>", "force": true }
-Auth: Authorization: Bearer <GITHUB_PERSONAL_ACCESS_TOKEN>
-```
+Preserving remote commits and remote-only changes takes priority over mirroring
+the identities of individual local commits. Consolidating local changes is an
+acceptable synchronization tradeoff; replacing the remote tree with the local
+snapshot is not.
 
-This bypasses git transport entirely — only the ref pointer moves.
+**Why:** The REST write path avoids blocked git pushes, but a snapshot overwrite
+would silently discard GitHub-side work when the histories diverge.
 
-## Fallback: Object upload via temp branch
-If the commit SHA is not yet known to GitHub (422 response), the script:
-1. Does a plain `git push` to a temp branch name (e.g. `replit-sync-<timestamp>`) — this is allowed because it's not force-push
-2. Then retries the PATCH API call to move main
-3. Deletes the temp branch via API
+**How to apply:** Keep a real three-way merge boundary and stop on conflicts;
+do not simplify synchronization to "upload HEAD's tree onto remote main."
 
-## Script location
-`scripts/push-to-github.sh` — already implements the full flow with fallback.
+Check the GitHub deployment secret inventory before concluding DigitalOcean
+access was never configured merely because SSH secrets are absent in Replit.
+Deployment access can exist in GitHub without being available to the workspace.
 
-## Required secret
-`GITHUB_PERSONAL_ACCESS_TOKEN` — must have `repo` scope. Set in Replit Secrets.
+**Why:** The user previously deployed through GitHub and explicitly directed us
+to check the saved publishing secrets after a workspace-only check missed them.
 
-## DO_SSH_PRIVATE_KEY
-This is a DigitalOcean infra key, not a GitHub auth key. Not needed for GitHub push.
+**How to apply:** Inspect secret names and deployment run status read-only.
+Do not disclose values, attempt to extract GitHub secrets, or trigger a deployment
+as a substitute for authorization to inspect or test staging.
 
-**Why:** git pull/force-push are blocked at the Replit sandbox level (exit 254), not fixable by switching to SSH transport. API-first is the only reliable approach.
+Prefer an explicitly authorized GitHub-run inspection using existing deployment
+secrets over repeatedly requesting that the user duplicate SSH credentials here.
+A successful deployment-named workflow does not prove a deployment occurred.
 
-**How to apply:** Whenever push fails with non-fast-forward, just run `bash scripts/push-to-github.sh` — the script handles everything automatically without any git state reconciliation.
+**Why:** The user expects reuse of previously configured access. A verification-only
+run can succeed while skipping SSH authentication and the actual deployment.
+
+**How to apply:** Inspect job conclusions before reporting deployment success.
+If the existing workflow cannot perform the requested inspection, explain the
+need for a separate read-only workflow rather than implying access never existed.
+
+Read-only SSH authorization does not authorize storage provisioning or external
+delivery. Treat literal environment-file inspection as configuration evidence,
+not proof of effective runtime variables or usable provider access.
+
+**Why:** Existing GitHub-held SSH credentials can authenticate without copying
+private keys into Replit, but file-only inspection cannot certify injected
+settings, bucket existence, or receiver behavior.
+
+**How to apply:** Reuse the saved access path, then obtain exact staging
+resource/write authorization before advancing to storage or receiver tests.
+
+Treat transport failures on REST writes as ambiguous outcomes, not permission
+to blindly retry. Recovery should verify content-addressed objects or reconcile
+immutable branch/PR identity; automatic retries are reserved for explicit
+rate-limit rejections and must have a finite wait budget.
+
+**Why:** A lost response can occur after GitHub accepted the write. Blind retries
+can duplicate publication, while unlimited rate-limit waits can leave the sync
+workflow stalled indefinitely.
+
+**How to apply:** Keep recovery journals credential-free and tied to the exact
+merge inputs. When the base advances, preserving the new three-way merge boundary
+is more important than maximizing reuse from an earlier journal.

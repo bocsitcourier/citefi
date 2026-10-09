@@ -1,4 +1,6 @@
-import { google } from 'googleapis';
+// The root registry imports declarations for every Google API. Use the same
+// pinned library's Drive factory/auth singleton without that unrelated catalog.
+import { drive as createDrive, auth as googleAuth } from 'googleapis/build/src/apis/drive/index.js';
 import { Readable } from 'stream';
 
 interface GoogleDriveConfig {
@@ -46,12 +48,12 @@ export async function uploadPodcastToDrive(
   try {
     const credentials = JSON.parse(config.serviceAccountKey);
 
-    const auth = new google.auth.GoogleAuth({
+    const auth = new googleAuth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive.file'],
     });
 
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = createDrive({ version: 'v3', auth });
 
     const fileMetadata = {
       name: fileName,
@@ -105,12 +107,12 @@ export async function testConnection(): Promise<boolean> {
   try {
     const credentials = JSON.parse(config.serviceAccountKey);
 
-    const auth = new google.auth.GoogleAuth({
+    const auth = new googleAuth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive.file'],
     });
 
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = createDrive({ version: 'v3', auth });
 
     const response = await drive.files.get({
       fileId: config.folderId,

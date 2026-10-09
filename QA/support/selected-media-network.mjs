@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import net from "node:net";
 import { syncBuiltinESMExports } from "node:module";
 import { LIMITS, hash, assertPaidMediaPermission } from "./selected-media-plan.mjs";
+import { assertPaidQaLedgerResolved } from "./budget-ledger-dispute.mjs";
 
 const GOOGLE = "https://generativelanguage.googleapis.com";
 const OPENAI = "https://api.openai.com";
@@ -46,9 +47,10 @@ export function validateSelectedSubmission(stage, url, init, receipt) {
     return { kind: "tts", body };
   }
   if (stage === "video" && url.origin === GOOGLE &&
-      /^\/v1(?:beta)?\/models\/veo-3\.1-fast-generate-preview:predictLongRunning$/.test(url.pathname)) {
+      /^\/v1beta\/models\/veo-3\.1-fast-generate-preview:predictLongRunning$/.test(url.pathname)) {
     const p = body.parameters ?? {};
     if (receipt.operationType !== "veo_clip" || receipt.model !== LIMITS.videoModel ||
+        Object.keys(body).some(k => !["instances", "parameters"].includes(k)) ||
         body.instances?.length !== 1 ||
         Object.keys(body.instances[0]).some(k => k !== "prompt") ||
         typeof body.instances[0].prompt !== "string" ||
@@ -81,7 +83,9 @@ export function valueScriptUsage(body) {
 
 async function boundedBytes(response) {
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Empty provider body");
+  // A null body (e.g. HTTP 204) is also zero bytes. Preserve that evidence
+  // before classifying the missing acknowledgement, just like an empty stream.
+  if (!reader) return Buffer.alloc(0);
   const buffers = [];
   let size = 0;
   try {
@@ -92,7 +96,12 @@ async function boundedBytes(response) {
       if (size > LIMITS.assetBytes) throw new Error("Provider response exceeded byte cap");
       buffers.push(Buffer.from(value));
     }
-  } catch (error) { await reader.cancel().catch(() => {}); throw error; }
+  } catch (error) {
+    // A cloned response is a tee. Awaiting cancellation of just one branch
+    // can deadlock while the unreturned original branch is still unread.
+    void reader.cancel().catch(() => {});
+    throw error;
+  }
   return Buffer.concat(buffers);
 }
 
@@ -102,6 +111,13 @@ function videoUris(body) {
   return generated.map(v => v.video?.uri).filter(v => typeof v === "string");
 }
 
+function uncertainNativeResponse(cause, detail = "") {
+  return Object.assign(new Error(
+    `Native provider acknowledgement unavailable${detail}; retain hold and refuse replay`,
+    { cause },
+  ), { code: "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN", retryable: false });
+}
+
 /**
  * Every paid POST is reserved durably before native fetch. Unknown submissions
  * retain the stage lock. Poll/download admission depends on a durable native
@@ -109,6 +125,7 @@ function videoUris(body) {
  * the endpoint, receipt, duplicate-hash and physical-count checks.
  */
 export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {}) {
+  const limits = { ...LIMITS, ...options.recoveryLimits };
   const nativeFetch = globalThis.fetch;
   const nativeConnect = net.Socket.prototype.connect;
   const external = new AsyncLocalStorage();
@@ -144,18 +161,38 @@ export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {
     }
     const run = getRun();
     if (!run) throw new Error("Selected media reservation required");
+    if (!run.offline) assertPaidQaLedgerResolved();
     if (run.isStopped()) throw new Error("Selected media stopped; no further provider traffic");
     try {
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
       if (method === "POST") {
         const { kind, body } = validateSelectedSubmission(run.stage, url, init, getReceipt());
-        if (!run.offline && assertPaidMediaPermission(run.stage) !== run.entry.manifestSha256) {
+        if (options.recoveryPolicy) options.recoveryPolicy(run, kind, body, getReceipt());
+        const approvalHash = options.recoveryPolicy ? run.assertLiveAdmission() :
+          run.offline ? run.entry.manifestSha256 : assertPaidMediaPermission(run.stage);
+        if (approvalHash !== run.entry.manifestSha256) {
           throw new Error("Execution manifest changed; no further paid calls authorized");
         }
         const call = run.submit(kind, body, getReceipt().sourceEventId);
         const response = await request(url, input, init,
-          kind === "tts" ? LIMITS.ttsTimeoutMs : LIMITS.scriptTimeoutMs);
-        const bytes = await boundedBytes(response.clone());
+          options.recoveryPolicy ? limits.postTimeoutMs :
+            kind === "tts" ? LIMITS.ttsTimeoutMs : LIMITS.scriptTimeoutMs);
+        // Persist safe transport evidence even when the body is empty,
+        // malformed, oversized or truncated. Never persist credentials.
+        run.writeEvidence(`call-${call.number}-http.json`, {
+          status: response.status,
+          ok: response.ok,
+          origin: url.origin,
+          path: url.pathname,
+          receivedAt: new Date().toISOString(),
+          headers: Object.fromEntries(
+            ["content-type", "content-length", "x-request-id", "x-goog-request-id", "retry-after"]
+              .map(name => [name, response.headers.get(name)]).filter(([, value]) => value !== null),
+          ),
+        });
+        let bytes;
+        try { bytes = await boundedBytes(response.clone()); }
+        catch (error) { throw uncertainNativeResponse(error); }
         if (kind === "tts") {
           run.writeBytes(`call-${call.number}-native.mp3`, bytes);
           if (!response.ok || !response.headers.get("x-request-id") || bytes.length < 1000) {
@@ -166,7 +203,15 @@ export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {
             billingBasis: "exact request characters; not an invoice" }, body.input.length * 15);
         } else {
           run.writeBytes(`call-${call.number}-native.json`, bytes);
-          const native = JSON.parse(bytes);
+          let native;
+          if (bytes.length === 0) {
+            throw uncertainNativeResponse(undefined, ` (HTTP ${response.status}; empty JSON body)`);
+          }
+          try { native = JSON.parse(bytes); }
+          catch {
+            // Do not expose a parser's snippet of an untrusted response body.
+            throw uncertainNativeResponse(undefined, ` (HTTP ${response.status}; malformed JSON body)`);
+          }
           if (!response.ok) throw new Error("Provider rejected; no retry/fallback");
           if (kind === "script") {
             const usage = valueScriptUsage(native);
@@ -193,10 +238,13 @@ export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {
       const name = url.pathname.replace(/^\/v1(?:beta)?\//, "");
       const op = operations.get(name);
       if (op) {
-        if (op.complete || ++op.polls > LIMITS.pollsPerClip ||
-            Date.now() - op.started >= LIMITS.pollElapsedMs) throw new Error("Veo poll count/time cap reached");
-        const remaining = LIMITS.pollElapsedMs - (Date.now() - op.started);
-        const response = await request(url, input, init, Math.min(remaining, LIMITS.pollTimeoutMs));
+        if (options.recoveryPolicy && !url.pathname.startsWith("/v1beta/")) {
+          throw new Error("Recovery operation polls require acknowledged v1beta path");
+        }
+        if (op.complete || ++op.polls > limits.pollsPerClip ||
+            Date.now() - op.started >= limits.pollElapsedMs) throw new Error("Veo poll count/time cap reached");
+        const remaining = limits.pollElapsedMs - (Date.now() - op.started);
+        const response = await request(url, input, init, Math.min(remaining, limits.pollTimeoutMs));
         const bytes = await boundedBytes(response.clone());
         run.writeBytes(`call-${op.call.number}-poll-${op.polls}.json`, bytes);
         if (!response.ok) throw new Error("Veo poll rejected; stop with operation retained");
@@ -210,7 +258,7 @@ export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {
       const download = downloads.get(normalized.href);
       if (!download || download.requested) throw new Error("Unapproved/repeated native asset download");
       download.requested = true;
-      const response = await request(url, input, init, LIMITS.scriptTimeoutMs);
+      const response = await request(url, input, init, options.recoveryPolicy ? limits.downloadTimeoutMs : LIMITS.scriptTimeoutMs);
       const bytes = await boundedBytes(response.clone());
       run.writeBytes(`call-${download.call.number}-native.mp4`, bytes);
       if (!response.ok || bytes.length < 1000) throw new Error("Veo download failed; no paid replay");
@@ -221,11 +269,22 @@ export function installSelectedMediaNetworkGuard(getRun, getReceipt, options = {
       return response;
     } catch (error) {
       run.stop(error instanceof Error ? error.message : "Unknown guarded media failure");
+      if (options.recoveryPolicy) throw uncertainNativeResponse(error);
       throw error;
     }
   };
 
   function completeOperation(run, op, body) {
+    if (options.recoveryPolicy) {
+      const result = body.response?.generateVideoResponse;
+      const reportedModel = body.modelVersion ?? result?.modelVersion ?? body.response?.modelVersion ??
+        result?.generatedSamples?.[0]?.video?.modelVersion;
+      if (body.done !== true || !result || result.generatedSamples?.length !== 1 ||
+          result.raiMediaFilteredCount || result.raiMediaFilteredReasons?.length ||
+          (reportedModel && ![LIMITS.videoModel, `models/${LIMITS.videoModel}`].includes(reportedModel))) {
+        throw new Error("Recovery native schema/count/filter/model mismatch; hold retained");
+      }
+    }
     const uris = videoUris(body);
     if (body.error || uris.length !== 1) throw new Error("Veo operation failed/missing video; retain hold");
     const uri = new URL(uris[0]);

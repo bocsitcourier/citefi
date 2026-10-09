@@ -7,7 +7,7 @@ import {
   GenerationContext,
   ClaimWithBinding,
 } from "./anti-hallucination";
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
@@ -15,7 +15,7 @@ import { submitGeminiRequest } from "./gemini";
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 async function callGeminiWithRetry(prompt: string, options?: { model?: string; responseFormat?: string; teamId?: number; contentId?: number }): Promise<string> {
-  const model = options?.model || GEMINI_FLASH_MODEL;
+  const model = options?.model || await getResolvedModel("geminiFlash");
   if (!Number.isInteger(options?.teamId) || (options?.teamId ?? 0) <= 0) {
     throw new Error("Verified Gemini generation requires a validated teamId");
   }
@@ -89,6 +89,7 @@ export async function generateVerifiedContent(
     allowedOperations = DEFAULT_ALLOWED_OPERATIONS,
     skipVerification = false,
   } = options;
+  const model = await getResolvedModel("geminiFlash");
 
   console.log(`[VerifiedGenerator] Starting ${contentType} generation for team ${teamId}${skipVerification ? " (verification skipped)" : ""}`);
 
@@ -144,7 +145,7 @@ export async function generateVerifiedContent(
     }
 
     console.log(`[VerifiedGenerator] Calling Gemini for ${contentType} generation...`);
-    const rawOutput = await callGeminiWithRetry(enhancedPrompt, { model: GEMINI_FLASH_MODEL, teamId, contentId });
+    const rawOutput = await callGeminiWithRetry(enhancedPrompt, { model, teamId, contentId });
 
     if (skipVerification) {
       console.log(`[VerifiedGenerator] Verification skipped, returning raw output`);
@@ -200,7 +201,7 @@ export async function generateVerifiedContent(
         factPack,
         validationResult,
         ["verified-content-generator", "anti-hallucination"],
-        GEMINI_FLASH_MODEL,
+        model,
         minConfidence
       );
     }

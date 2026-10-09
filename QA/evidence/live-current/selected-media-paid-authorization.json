@@ -1,0 +1,14 @@
+{
+  "approved": true,
+  "authorizationDate": "2026-10-08",
+  "source": "Explicit owner response: Authorize one podcast, then one video — up to $6.95",
+  "manifestSha256": "ee5871d2968ccada3b97cf1dc8285012d417cd3387408a429eec789e9f5dde2e",
+  "maximumCombinedUsd": 6.95,
+  "stages": ["podcast", "video"],
+  "newImageCallsAuthorized": false,
+  "stageOrder": ["podcast", "video"],
+  "requiresPodcastAcceptanceAndExportBeforeVideo": true,
+  "sameUtcDayPricingRequired": true,
+  "additionalComments": null,
+  "boundary": "One run each, no retries or fallback; owned database and filesystem only; no customer DB, cloud certification, publishing, schedulers or hidden auxiliary paid calls."
+}

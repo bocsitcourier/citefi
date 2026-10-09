@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import type { Scene, Emotion, SSMLSegment } from '@/types/video-schema';
 import { GoogleGenAI } from '@google/genai';
 import { throttledGeminiRequest } from './gemini';
@@ -76,13 +76,14 @@ EMPHASIS WORDS TO HIGHLIGHT: ${audio.emphasisWords?.join(', ') || 'None specifie
 OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starting with <speak> and ending with </speak>.`;
 
     const userPrompt = audio.dialogue;
+    const model = await getResolvedModel("geminiFlash");
 
     try {
       const startedAt = Date.now();
       let result;
       try {
         const generationRequest = {
-            model: getModel("geminiFlash"),
+            model,
             contents: userPrompt,
             config: {
               systemInstruction: systemPrompt,
@@ -106,7 +107,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
       } catch (error) {
         await logFailedProviderAttempt(
           {
-            operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+            operationType: "video_script", provider: "gemini", model,
             teamId: this.teamId, resourceType: "video_scene", resourceId: scene.id, attempt: 1,
           },
           { totalTokens: 0 }, Date.now() - startedAt, error
@@ -115,7 +116,7 @@ OUTPUT ONLY THE SSML - no explanations, no markdown, just the SSML string starti
       }
       await logCostTelemetry(
         {
-          operationType: "video_script", provider: "gemini", model: getModel("geminiFlash"),
+          operationType: "video_script", provider: "gemini", model,
           teamId: this.teamId,
           resourceType: "video_scene", resourceId: scene.id,
           providerRequestId: (result as any).responseId ?? null, attempt: 1,

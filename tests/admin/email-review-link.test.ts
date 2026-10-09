@@ -18,7 +18,7 @@
  * via t.mock.method so calls are asserted without requiring SMTP credentials.
  *
  * Run:
- *   node --env-file=.env.local --import tsx/esm --test tests/admin/email-review-link.test.ts
+ *   bash QA/support/with-isolated-database.sh --http -- tests/admin/email-review-link.test.ts
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -39,6 +39,11 @@ import { hashPassword, generateAccessToken, hashToken } from "../../lib/auth.js"
 import { generateApprovalToken, verifyApprovalToken } from "../../lib/approval-token.js";
 import { emailService } from "../../lib/email.js";
 import { and, eq, inArray } from "drizzle-orm";
+import {
+  SYNTHETIC_ACCOUNT_PASSWORD,
+  requireHttpFixture,
+  syntheticAccountEmail,
+} from "../../QA/support/qa-fixtures.mjs";
 
 import { GET, POST } from "../../app/api/admin/users/review/route.js";
 import { POST as adminApprove } from "../../app/api/admin/users/[id]/approve/route.js";
@@ -48,6 +53,9 @@ import { POST as revokeApprovalToken } from "../../app/api/admin/users/[id]/revo
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const RUN_ID = `rl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+const HTTP_FIXTURE = requireHttpFixture("email-review-link");
+const HTTP_ORIGIN = HTTP_FIXTURE.origin;
+const reviewEmail = (role: string) => syntheticAccountEmail(RUN_ID, `review_${role}`);
 function missingInsertedRow(): never {
   throw new Error("Expected inserted test row");
 }
@@ -90,14 +98,14 @@ function tamperToken(token: string): string {
 
 function makeGetReq(token: string | null): NextRequest {
   const url = token
-    ? new URL(`/api/admin/users/review?token=${encodeURIComponent(token)}`, "http://localhost")
-    : new URL("/api/admin/users/review", "http://localhost");
+    ? new URL(`/api/admin/users/review?token=${encodeURIComponent(token)}`, HTTP_ORIGIN)
+    : new URL("/api/admin/users/review", HTTP_ORIGIN);
   return new NextRequest(url);
 }
 
 /** Build a NextRequest for an admin route handler call, authenticated via Bearer token. */
 function makeAdminReq(path: string, bearerToken: string, body: unknown = {}): NextRequest {
-  return new NextRequest(new URL(path, "http://localhost"), {
+  return new NextRequest(new URL(path, HTTP_ORIGIN), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -108,20 +116,29 @@ function makeAdminReq(path: string, bearerToken: string, body: unknown = {}): Ne
 }
 
 function makePostReq(token: string | null, useForm = true): NextRequest {
+  // NextRequest normalizes an absolute URL without a Host header to localhost
+  // in the direct-handler test process. Preserve the owned fixture origin for
+  // the route's same-origin guard via the explicit forwarded-origin headers.
+  const originUrl = new URL(HTTP_ORIGIN);
+  const originHeaders = {
+    Origin: HTTP_ORIGIN,
+    "x-forwarded-host": originUrl.host,
+    "x-forwarded-proto": originUrl.protocol.replace(":", ""),
+  };
   if (useForm) {
     const body = token ? new URLSearchParams({ token }).toString() : "";
-    return new NextRequest(new URL("/api/admin/users/review", "http://localhost"), {
+    return new NextRequest(new URL("/api/admin/users/review", HTTP_ORIGIN), {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Origin: "http://localhost",
+        ...originHeaders,
       },
       body,
     });
   }
-  return new NextRequest(new URL("/api/admin/users/review", "http://localhost"), {
+  return new NextRequest(new URL("/api/admin/users/review", HTTP_ORIGIN), {
     method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
+    headers: { "Content-Type": "application/json", ...originHeaders },
     body: JSON.stringify(token !== null ? { token } : {}),
   });
 }
@@ -155,14 +172,13 @@ interface ReviewLinkSeed {
 let seed: ReviewLinkSeed;
 
 before(async () => {
-  const passwordHash = await hashPassword("Test!Pass#123");
-  const prefix = `rl_${RUN_ID}`;
+  const passwordHash = await hashPassword(SYNTHETIC_ACCOUNT_PASSWORD);
 
   // Bootstrapper user (needed as teams.createdBy FK)
   const [bootstrap] = await db
     .insert(users)
     .values({
-      email: `${prefix}_bootstrap@test.invalid`,
+      email: reviewEmail("bootstrap"),
       passwordHash,
       role: "admin",
       accountStatus: "active",
@@ -195,7 +211,7 @@ before(async () => {
   const [pa] = await db
     .insert(users)
     .values({
-      email: `${prefix}_pa@test.invalid`,
+      email: reviewEmail("pending_approve"),
       passwordHash,
       role: "team_member",
       accountStatus: "pending_approval",
@@ -209,7 +225,7 @@ before(async () => {
   const [pr] = await db
     .insert(users)
     .values({
-      email: `${prefix}_pr@test.invalid`,
+      email: reviewEmail("pending_reject"),
       passwordHash,
       role: "team_member",
       accountStatus: "pending_approval",
@@ -223,7 +239,7 @@ before(async () => {
   const [active] = await db
     .insert(users)
     .values({
-      email: `${prefix}_active@test.invalid`,
+      email: reviewEmail("active"),
       passwordHash,
       role: "team_member",
       accountStatus: "active",
@@ -477,7 +493,7 @@ describe("POST /api/admin/users/review — approve", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_fp_approve@test.invalid`,
+        email: reviewEmail("fresh_approve"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -512,7 +528,7 @@ describe("POST /api/admin/users/review — approve", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_replay_approve@test.invalid`,
+        email: reviewEmail("replay_approve"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -555,7 +571,7 @@ describe("POST /api/admin/users/review — approve", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_json_approve@test.invalid`,
+        email: reviewEmail("json_approve"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -597,7 +613,7 @@ describe("POST /api/admin/users/review — reject", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_fp_reject@test.invalid`,
+        email: reviewEmail("fresh_reject"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -631,7 +647,7 @@ describe("POST /api/admin/users/review — reject", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_replay_reject@test.invalid`,
+        email: reviewEmail("replay_reject"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -745,7 +761,7 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_rot_get@test.invalid`,
+        email: reviewEmail("rotation_get"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -783,7 +799,7 @@ describe("Key rotation — previous-key tokens survive rotation", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_rot_post@test.invalid`,
+        email: reviewEmail("rotation_post"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -858,7 +874,7 @@ describe("Race-condition guard — email-link wins, admin panel blocked", () => 
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_race_approve@test.invalid`,
+        email: reviewEmail("race_approve"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -902,7 +918,7 @@ describe("Race-condition guard — email-link wins, admin panel blocked", () => 
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_race_reject@test.invalid`,
+        email: reviewEmail("race_reject"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -950,7 +966,7 @@ describe("Race-condition guard — admin panel wins, email-link blocked", () => 
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_race_adm_approve@test.invalid`,
+        email: reviewEmail("race_admin_approve"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -996,7 +1012,7 @@ describe("Race-condition guard — admin panel wins, email-link blocked", () => 
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_race_adm_reject@test.invalid`,
+        email: reviewEmail("race_admin_reject"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1066,7 +1082,7 @@ describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endp
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_revoke_unauth@test.invalid`,
+        email: reviewEmail("revoke_unauthenticated"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1105,7 +1121,7 @@ describe("POST /api/admin/users/[id]/revoke-approval-token — admin revoke endp
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_revoke_create@test.invalid`,
+        email: reviewEmail("revoke_create"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1142,7 +1158,7 @@ describe("GET /api/admin/users/review — revoked token is blocked", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_revoke_get@test.invalid`,
+        email: reviewEmail("revoke_get"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1177,7 +1193,7 @@ describe("POST /api/admin/users/review — revoked token is blocked", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_revoke_post@test.invalid`,
+        email: reviewEmail("revoke_post"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1218,7 +1234,7 @@ describe("POST /api/admin/users/review — revoked token is blocked", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_revoke_new_token@test.invalid`,
+        email: reviewEmail("revoke_new_token"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
@@ -1281,7 +1297,7 @@ describe("POST /api/admin/users/review — expired token pruning", () => {
     const [fp = missingInsertedRow()] = await db
       .insert(users)
       .values({
-        email: `rl_${RUN_ID}_prune_test@test.invalid`,
+        email: reviewEmail("prune"),
         passwordHash: "unused",
         role: "team_member",
         accountStatus: "pending_approval",
