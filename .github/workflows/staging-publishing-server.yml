@@ -6,7 +6,7 @@ on:
       operation:
         description: Inspect, set up, or verify isolated staging publishing
         type: choice
-        options: [inspect, setup, verify]
+        options: [inspect, inspect-root, setup, verify]
         required: true
         default: inspect
 

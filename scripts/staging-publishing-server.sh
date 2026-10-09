@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 case "${STAGING_OPERATION:-inspect}" in
-  inspect|setup|verify) operation="${STAGING_OPERATION:-inspect}" ;;
+  inspect|inspect-root|setup|verify) operation="${STAGING_OPERATION:-inspect}" ;;
   *) echo "Unrecognized staging operation" >&2; exit 64 ;;
 esac
 : "${DO_HOST:?DO_HOST is required}"
@@ -26,8 +26,13 @@ with os.fdopen(fd, "w") as key:
 PY
 unset DO_SSH_PRIVATE_KEY QA_SSH_KEY_PATH
 KNOWN_HOSTS_FILE="$work/known_hosts" bash "$SCRIPT_DIR/verify-ssh-host-key.sh"
+remote_user="${DO_USER:-citefi}"
+if [[ "$operation" == inspect-root ]]; then
+  remote_user=root
+  operation=inspect
+fi
 ssh -i "$work/key" -p "${DO_PORT:-22}" \
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$work/known_hosts" -o ConnectTimeout=15 \
   -o ForwardAgent=no -o ClearAllForwardings=yes -T \
-  "${DO_USER:-citefi}@${DO_HOST}" "node - $operation" < "$SCRIPT_DIR/staging-publishing-server.cjs"
+  "$remote_user@${DO_HOST}" "node - $operation" < "$SCRIPT_DIR/staging-publishing-server.cjs"
