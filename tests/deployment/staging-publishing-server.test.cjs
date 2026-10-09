@@ -13,9 +13,9 @@ test('staging operations are manual and reviewed-default-branch only', () => {
   const w = yaml.load(fs.readFileSync('.github/workflows/staging-publishing-server.yml', 'utf8'));
   assert.deepEqual(Object.keys(w.on), ['workflow_dispatch']);
   assert.deepEqual(w.permissions, { contents: 'read' });
-  assert.deepEqual(w.on.workflow_dispatch.inputs.operation.options, ['inspect', 'setup', 'verify']);
+  assert.deepEqual(w.on.workflow_dispatch.inputs.operation.options, ['inspect', 'inspect-root', 'setup', 'verify']);
   assert.match(w.jobs.staging.if, /github.event.repository.default_branch/);
   assert.equal(w.jobs.staging.steps[0].with['persist-credentials'], false);
   assert.equal(w.jobs.staging.steps[1].env.DO_SSH_PRIVATE_KEY, '${{ secrets.DO_SSH_KEY }}');
-  assert.match(fs.readFileSync('scripts/staging-publishing-server.sh', 'utf8'), /inspect\|setup\|verify/);
+  assert.match(fs.readFileSync('scripts/staging-publishing-server.sh', 'utf8'), /inspect\|inspect-root\|setup\|verify/);
 });

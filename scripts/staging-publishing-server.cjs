@@ -54,6 +54,7 @@ function inspect() {
   } catch { /* A missing saved PM2 list is not evidence of running services. */ }
   return {
     operation: 'inspect-staging-publishing-server',
+    infrastructureAdministrator: process.getuid() === 0,
     staging: appRoots.map(dir => ({
       directory: dir, built: fs.existsSync(path.join(dir, '.next/BUILD_ID')),
       dependencies: fs.existsSync(path.join(dir, 'node_modules')),
@@ -64,8 +65,9 @@ function inspect() {
     savedStagingProcessNames: processNames,
     publicTlsDomains: tls.flatMap(route => route.domains),
     existingCertificatePairs: tls.length,
-    privilegedOperationsAvailable: commandResult('sudo', ['-n', 'true']).ok,
-    existingNginxConfigurationValid: commandResult('sudo', ['-n', 'nginx', '-t']).ok,
+    privilegedOperationsAvailable: process.getuid() === 0 || commandResult('sudo', ['-n', 'true']).ok,
+    existingNginxConfigurationValid: process.getuid() === 0
+      ? commandResult('nginx', ['-t']).ok : commandResult('sudo', ['-n', 'nginx', '-t']).ok,
     nodeVersion: process.version,
     productionChanged: false,
   };
