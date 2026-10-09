@@ -82,6 +82,14 @@ function inspect() {
           .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]').replace(/[A-Za-z0-9_-]{20,}/g, '[opaque]').slice(0, 180)).slice(-8);
       } catch { return []; }
     })(),
+    liveFailureDiagnostics: (() => {
+      try {
+        return fs.readFileSync(`${QA_ROOT}/live-acceptance.log`, 'utf8').split('\n')
+          .filter(line => /^\[PUBLISH\].*status=|^FAIL |Receiver URL blocked|Publishing request failed/.test(line))
+          .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
+            .replace(/[A-Za-z0-9_+/-]{20,}/g, '[opaque]').slice(0, 220)).slice(0, 10);
+      } catch { return []; }
+    })(),
     npmDebug: (() => {
       try {
         const directory = '/home/citefi/.npm/_logs';
