@@ -75,6 +75,13 @@ function inspect() {
       ? commandResult('nginx', ['-t']).ok : commandResult('sudo', ['-n', 'nginx', '-t']).ok,
     nodeVersion: process.version,
     availableMemoryMiB: Math.floor(os.freemem() / 1024 / 1024),
+    stagingWebStartupErrors: (() => {
+      try {
+        return fs.readFileSync('/home/citefi/.pm2/logs/citefi-publishing-staging-web-error.log', 'utf8').split('\n')
+          .filter(line => line.trim() && !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
+          .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]').replace(/[A-Za-z0-9_-]{20,}/g, '[opaque]').slice(0, 180)).slice(-8);
+      } catch { return []; }
+    })(),
     npmDebug: (() => {
       try {
         const directory = '/home/citefi/.npm/_logs';
@@ -274,7 +281,7 @@ async function setup(expectedHash) {
   ownedWrite(ecosystem, `module.exports = ${JSON.stringify({ apps: [
     { name: 'citefi-publishing-staging-web', namespace: 'citefi-staging', cwd: source,
       script: `${source}/node_modules/next/dist/bin/next`, interpreter: 'node',
-      node_args: ['--env-file=.env.local'],
+      node_args: [`--env-file=${source}/.env.local`],
       args: ['dev', '--webpack', '-H', '127.0.0.1', '-p', '5100'], env: runtimeEnv },
     { name: 'citefi-publishing-staging-receiver', namespace: 'citefi-staging', cwd: source,
       script: `${source}/QA/support/staging-real-receiver.ts`, interpreter: 'node',
