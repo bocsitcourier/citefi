@@ -12,6 +12,7 @@ on:
           - inspect-release
           - stage-application
           - plan-application
+          - verify-application
         required: true
       candidate_id:
         description: Validated staged release identifier (planning only)
@@ -38,10 +39,15 @@ jobs:
           python3 tests/deployment/production-recovery.test.py
           bash tests/deployment/ssh-host-key.test.sh
       - uses: actions/setup-node@v4
-        if: inputs.operation == 'stage-application'
+        if: inputs.operation == 'stage-application' || inputs.operation == 'verify-application'
         with:
           node-version: 22
           cache: npm
+      - name: Install isolated verifier dependencies
+        if: inputs.operation == 'verify-application'
+        run: |
+          sed -i -E 's#https?://package-firewall\.replit\.(local|internal)/npm#https://registry.npmjs.org#g' package-lock.json
+          npm ci --registry https://registry.npmjs.org
       - name: Install and validate current release
         if: inputs.operation == 'stage-application'
         run: |
@@ -59,7 +65,7 @@ jobs:
           npm run build
           npx --no-install drizzle-kit export --schema=./shared/schema.ts --dialect=postgresql > .recovery-schema.sql
       - name: Prepare isolated PostgreSQL 16 verifier
-        if: inputs.operation == 'verify-restore' || github.event_name == 'schedule'
+        if: inputs.operation == 'verify-restore' || inputs.operation == 'verify-application' || github.event_name == 'schedule'
         run: |
           sudo systemctl start postgresql
           psql --version | grep -E ' 16\.'
@@ -79,5 +85,6 @@ jobs:
             inspect-release) bash scripts/recovery/inspect-release.sh ;;
             stage-application) bash scripts/recovery/stage-application.sh ;;
             plan-application) bash scripts/recovery/plan-application.sh ;;
+            verify-application) bash scripts/recovery/verify-application.sh ;;
             *) echo "Unapproved operation"; exit 1 ;;
           esac
