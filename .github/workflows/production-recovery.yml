@@ -40,7 +40,7 @@ jobs:
       - name: Install and validate current release
         if: inputs.operation == 'stage-application'
         run: |
-          sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+          sed -i -E 's|https?://package-firewall\.replit\.(local|internal)/npm|https://registry.npmjs.org|g' package-lock.json
           npm ci --registry https://registry.npmjs.org
           npm run validate:release
       - name: Build off-host without production credentials
