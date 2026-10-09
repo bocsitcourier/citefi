@@ -30,9 +30,28 @@ remote_user="${DO_USER:-citefi}"
 if [[ "$operation" == inspect-root ]]; then
   remote_user=root
   operation=inspect
+elif [[ "$operation" == setup || "$operation" == verify ]]; then
+  remote_user=root
+fi
+if [[ "$operation" == setup ]]; then
+  : "${STAGING_SOURCE_BLOB:?reviewed immutable staging source blob is required}"
+  : "${STAGING_SOURCE_SHA256:?reviewed staging source digest is required}"
+  [[ "$STAGING_SOURCE_BLOB" =~ ^[a-f0-9]{40}$ && "$STAGING_SOURCE_SHA256" =~ ^[a-f0-9]{64}$ ]] ||
+    { echo "Invalid pinned staging source identifiers" >&2; exit 64; }
+  gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${STAGING_SOURCE_BLOB}" --jq .content |
+    base64 --decode > "$work/source.tar.gz"
+  printf '%s  %s\n' "$STAGING_SOURCE_SHA256" "$work/source.tar.gz" | sha256sum --check --status
+  ssh -i "$work/key" -p "${DO_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/known_hosts" \
+    -o ForwardAgent=no -o ClearAllForwardings=yes -T \
+    "$remote_user@${DO_HOST}" "node - prepare" < "$SCRIPT_DIR/staging-publishing-server.cjs"
+  scp -q -i "$work/key" -P "${DO_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/known_hosts" \
+    -o ForwardAgent=no -o ClearAllForwardings=yes \
+    "$work/source.tar.gz" "$remote_user@${DO_HOST}:/var/www/citefi-staging/publishing-qa/incoming/source.tar.gz"
 fi
 ssh -i "$work/key" -p "${DO_PORT:-22}" \
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$work/known_hosts" -o ConnectTimeout=15 \
   -o ForwardAgent=no -o ClearAllForwardings=yes -T \
-  "$remote_user@${DO_HOST}" "node - $operation" < "$SCRIPT_DIR/staging-publishing-server.cjs"
+  "$remote_user@${DO_HOST}" "node - $operation ${STAGING_SOURCE_SHA256:-}" < "$SCRIPT_DIR/staging-publishing-server.cjs"
