@@ -30,6 +30,6 @@ jobs:
           DO_USER: citefi
           STAGING_OPERATION: ${{ inputs.operation }}
           GH_TOKEN: ${{ github.token }}
-          STAGING_SOURCE_BLOB: 6990fd8fc292ae88fe3934c7f17e79b0eb72ad13
-          STAGING_SOURCE_SHA256: 0cd4cd04380887a846b0983eb5668feb8120bcbc6a02aaebafc193586709f453
+          STAGING_SOURCE_BLOB: 9dc16a733fa4970c519a3df8d03ff15046a69164
+          STAGING_SOURCE_SHA256: 6ac509fe36ea0957d3b6189035b777815e8701549b8914694ca434aaec728e7d
         run: bash scripts/staging-publishing-server.sh

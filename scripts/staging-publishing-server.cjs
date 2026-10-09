@@ -137,12 +137,13 @@ function isolatedEnv(env) {
       redis.protocol !== 'redis:' || !['localhost', '127.0.0.1', '[::1]'].includes(redis.hostname) || redis.pathname !== '/1' ||
       env.STORAGE_PREFIX !== 'staging/synthetic/' || env.DO_SPACES_BUCKET !== 'citefi' ||
       env.DO_SPACES_ENDPOINT !== 'https://nyc3.digitaloceanspaces.com' ||
-      !env.DO_SPACES_ACCESS_KEY_ID || !env.DO_SPACES_SECRET_ACCESS_KEY) throw new Error('Staging isolation/storage configuration failed');
+      !env.DO_SPACES_KEY || !env.DO_SPACES_SECRET) throw new Error('Staging isolation/storage configuration failed');
   return database;
 }
 
 async function setup(expectedHash) {
   const account = prepare();
+  phase = 'validate-source-integrity';
   if (!/^[a-f0-9]{64}$/.test(expectedHash || '')) throw new Error('Pinned source digest required');
   const archive = `${QA_ROOT}/incoming/source.tar.gz`;
   if (fs.realpathSync(archive) !== archive || fs.statSync(archive).size > 32 * 1024 * 1024 ||
@@ -151,7 +152,9 @@ async function setup(expectedHash) {
   const envFile = `${ROOT}/.env.local`;
   if (!fs.realpathSync(envFile).startsWith(`${ROOT}/`)) throw new Error('Staging environment outside staging root');
   const stageEnv = stageRequire('dotenv').parse(fs.readFileSync(envFile));
+  phase = 'validate-saved-staging-isolation';
   const database = isolatedEnv(stageEnv);
+  phase = 'validate-existing-tls-certificate';
   const tls = publicTlsRoutes().find(route => route.domains.includes('citefi.co'));
   if (!tls || !commandResult('openssl', ['x509', '-in', tls.certificate, '-noout', '-checkend', '86400']).ok) throw new Error('Existing public certificate unavailable');
   phase = 'extract-pinned-staging-source';
@@ -187,7 +190,7 @@ async function setup(expectedHash) {
   if (fs.existsSync(liveFile) && !fs.lstatSync(liveFile).isSymbolicLink()) existing = stageRequire('dotenv').parse(fs.readFileSync(liveFile));
   const signing = existing.QA_LIVE_SIGNING_SECRET?.length >= 32 ? existing.QA_LIVE_SIGNING_SECRET : randomBytes(32).toString('hex');
   const receiverKey = existing.QA_LIVE_RECEIVER_KEY?.length >= 32 ? existing.QA_LIVE_RECEIVER_KEY : randomBytes(32).toString('hex');
-  const storage = Object.fromEntries(['DO_SPACES_BUCKET', 'DO_SPACES_ENDPOINT', 'DO_SPACES_ACCESS_KEY_ID', 'DO_SPACES_SECRET_ACCESS_KEY', 'STORAGE_PREFIX'].map(key => [key, stageEnv[key]]));
+  const storage = Object.fromEntries(['DO_SPACES_BUCKET', 'DO_SPACES_ENDPOINT', 'DO_SPACES_KEY', 'DO_SPACES_SECRET', 'STORAGE_PREFIX'].map(key => [key, stageEnv[key]]));
   ownedWrite(liveFile, envText({
     ...storage, QA_LIVE_APP_URL: 'https://citefi.co:8443', QA_LIVE_RECEIVER_URL: 'https://citefi.co:8444',
     QA_LIVE_SIGNING_SECRET: signing, QA_LIVE_RECEIVER_KEY: receiverKey,
