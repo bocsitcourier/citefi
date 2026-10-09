@@ -9,6 +9,7 @@ on:
         options:
           - prepare-backup
           - verify-restore
+          - inspect-release
         required: true
   schedule:
     - cron: "15 8 * * 0"
@@ -47,5 +48,6 @@ jobs:
           case "$OPERATION" in
             prepare-backup) bash scripts/recovery/prepare-backup.sh ;;
             verify-restore) bash scripts/recovery/verify-restore.sh ;;
+            inspect-release) bash scripts/recovery/inspect-release.sh ;;
             *) echo "Unapproved operation"; exit 1 ;;
           esac
