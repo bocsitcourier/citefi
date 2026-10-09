@@ -75,6 +75,19 @@ function inspect() {
       ? commandResult('nginx', ['-t']).ok : commandResult('sudo', ['-n', 'nginx', '-t']).ok,
     nodeVersion: process.version,
     availableMemoryMiB: Math.floor(os.freemem() / 1024 / 1024),
+    npmDebug: (() => {
+      try {
+        const directory = '/home/citefi/.npm/_logs';
+        const latest = fs.readdirSync(directory).filter(name => /^\d{4}-.*-debug-\d+\.log$/.test(name)).sort().at(-1);
+        if (!latest) return { available: false };
+        const text = fs.readFileSync(`${directory}/${latest}`, 'utf8');
+        return { available: true,
+          errorCodes: [...new Set(text.match(/\b(?:EACCES|EPERM|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EINTEGRITY|ENOENT|ENOSPC)\b/g) || [])],
+          diagnostics: text.split('\n').filter(line => /^\d+ (?:verbose|info|error) /.test(line) && !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
+            .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{24,}/g, '[opaque]').slice(0, 160)).slice(-12),
+        };
+      } catch { return { available: false }; }
+    })(),
     dependencyFailures: ['dependency-install.log', 'receiver-dependency-install.log'].flatMap(name => {
       try {
         const text = fs.readFileSync(`${QA_ROOT}/${name}`, 'utf8').replace(/\x1b\[[0-9;]*[mGK]/g, '');
