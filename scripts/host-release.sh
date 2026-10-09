@@ -181,8 +181,8 @@ process_uses_bootstrap() {
 let source="";
 process.stdin.on("data", chunk => source += chunk);
 process.stdin.on("end", () => {
-  const process = JSON.parse(source).find(item => item.name === process.env.PROCESS_NAME);
-  const executable = process?.pm2_env?.pm_exec_path ?? "";
+  const application = JSON.parse(source).find(item => item.name === process.env.PROCESS_NAME);
+  const executable = application?.pm2_env?.pm_exec_path ?? "";
   process.exit(executable.endsWith("/scripts/process-bootstrap.ts") ? 0 : 1);
 });
 '

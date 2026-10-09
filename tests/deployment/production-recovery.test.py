@@ -11,6 +11,26 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RecoverySafety(unittest.TestCase):
+    def test_shared_operational_env_is_app_root_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            production = Path(directory) / "production"
+            staging = Path(directory) / "staging"
+            (production / "ops-recovery").mkdir(parents=True)
+            (production / "ops-recovery/recovery.env").write_text("CANARY_ACCOUNTING_TEAM_ID=1025\n")
+            script = "console.log(JSON.stringify(require(process.argv[1]).apps.map(a=>a.interpreter_args)))"
+            for root, present in [(production, True), (staging, False)]:
+                result = subprocess.run(["node", "-e", script, str(ROOT / "ecosystem.config.cjs")],
+                    env={**os.environ, "DO_CURRENT_DIR": str(root / "current")},
+                    capture_output=True, text=True, check=True)
+                self.assertEqual("--env-file=" + str(production / "ops-recovery/recovery.env") in result.stdout, present)
+
+    def test_bootstrap_executable_detection_uses_node_process(self):
+        script = '''export HOST_RELEASE_SOURCE_ONLY=1; source "$1"
+pm2() { printf '%s' '[{"name":"citefi-worker","pm2_env":{"pm_exec_path":"/test/scripts/process-bootstrap.ts"}}]'; }
+process_uses_bootstrap citefi-worker
+'''
+        subprocess.run(["bash", "-c", script, "test", str(ROOT / "scripts/host-release.sh")], check=True)
+
     def test_off_host_registry_normalization_covers_both_private_origins(self):
         paths = [".github/workflows/production-recovery.yml",
                  ".github/workflows/deploy.yml", "scripts/deploy-to-do.sh"]

@@ -9,6 +9,11 @@
 //
 // DO_CURRENT_DIR is the atomically switched immutable-release symlink.
 const cwd = process.env.DO_CURRENT_DIR || "/var/www/citefi/current";
+// Operational evidence and canary attribution are shared across releases.
+// Derive this from the selected app root so staging never loads production's.
+const operationalEnvFile = require("node:path").join(require("node:path").dirname(cwd), "ops-recovery/recovery.env");
+const interpreterArgs = "--import tsx/esm --env-file=.env.local" +
+  (require("node:fs").existsSync(operationalEnvFile) ? ` --env-file=${operationalEnvFile}` : "");
 
 // Next.js loads .env.local automatically.
 // The worker uses --env-file so env vars are injected before any imports run.
@@ -21,7 +26,7 @@ module.exports = {
       script: "scripts/process-bootstrap.ts",
       args: "--web",
       interpreter: "node",
-      interpreter_args: "--import tsx/esm --env-file=.env.local",
+      interpreter_args: interpreterArgs,
       cwd,
       instances: 1,
       exec_mode: "fork",
@@ -55,7 +60,7 @@ module.exports = {
       script: "scripts/process-bootstrap.ts",
       args: "--worker",
       interpreter: "node",
-      interpreter_args: "--import tsx/esm --env-file=.env.local",
+      interpreter_args: interpreterArgs,
       cwd,
       instances: 1,
       exec_mode: "fork",

@@ -23,7 +23,7 @@ try {
   const typeDrift: { table: string; column: string; expected: string; actual: string }[] = [];
   const normalize = (value: string) => value.toLowerCase().replace(/^serial$/, "integer").replace(/^bigserial$/, "bigint")
     .replace(/^varchar/, "character varying").replace(/^timestamp$/, "timestamp without time zone")
-    .replace(/^timestamptz$/, "timestamp with time zone").replace(/^int$/, "integer");
+    .replace(/^timestamptz$/, "timestamp with time zone").replace(/^int$/, "integer").replace(/\s+/g, "");
   for (const value of Object.values(schema)) {
     if (!is(value, PgTable)) continue;
     const expected = getTableConfig(value);

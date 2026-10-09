@@ -11,7 +11,12 @@ on:
           - verify-restore
           - inspect-release
           - stage-application
+          - plan-application
         required: true
+      candidate_id:
+        description: Validated staged release identifier (planning only)
+        type: string
+        required: false
   schedule:
     - cron: "15 8 * * 0"
 
@@ -66,11 +71,13 @@ jobs:
           DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
           OPERATION: ${{ inputs.operation || 'verify-restore' }}
+          CANDIDATE_ID: ${{ inputs.candidate_id }}
         run: |
           case "$OPERATION" in
             prepare-backup) bash scripts/recovery/prepare-backup.sh ;;
             verify-restore) bash scripts/recovery/verify-restore.sh ;;
             inspect-release) bash scripts/recovery/inspect-release.sh ;;
             stage-application) bash scripts/recovery/stage-application.sh ;;
+            plan-application) bash scripts/recovery/plan-application.sh ;;
             *) echo "Unapproved operation"; exit 1 ;;
           esac
