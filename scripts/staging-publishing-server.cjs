@@ -281,7 +281,9 @@ async function setup(expectedHash) {
   ownedWrite(ecosystem, `module.exports = ${JSON.stringify({ apps: [
     { name: 'citefi-publishing-staging-web', namespace: 'citefi-staging', cwd: source,
       script: `${source}/node_modules/next/dist/bin/next`, interpreter: 'node',
-      node_args: [`--env-file=${source}/.env.local`],
+      // Next copies execArgv to NODE_OPTIONS for its child server, where
+      // --env-file is forbidden. PM2 env + Next's .env.local provide these values.
+      node_args: [],
       args: ['dev', '--webpack', '-H', '127.0.0.1', '-p', '5100'], env: runtimeEnv },
     { name: 'citefi-publishing-staging-receiver', namespace: 'citefi-staging', cwd: source,
       script: `${source}/QA/support/staging-real-receiver.ts`, interpreter: 'node',
