@@ -165,6 +165,14 @@ aws s3 cp "$LOCAL_PATH" "s3://${DO_SPACES_BUCKET}/${SPACES_KEY}" \
 
 echo "  Upload complete."
 
+# Incident recovery must preserve every existing backup, including local copies.
+# Retention is an independent, separately authorized operational decision.
+if [[ "${BACKUP_PRESERVE_ALL:-false}" == "true" ]]; then
+  echo "${LOG_PREFIX} Backup complete; all local and remote backups preserved."
+  write_status "success" "Backup uploaded; all backups preserved; restore verification recorded separately"
+  exit 0
+fi
+
 # Remove local copy — the authoritative copy lives in Spaces
 rm -f "$LOCAL_PATH"
 

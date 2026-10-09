@@ -1,0 +1,51 @@
+name: Scoped production backup recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Approved system team and backup preparation, or isolated restore verification
+        type: choice
+        options:
+          - prepare-backup
+          - verify-restore
+        required: true
+  schedule:
+    - cron: "15 8 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scoped tooling and SSH pin contract
+        run: |
+          python3 tests/deployment/production-recovery.test.py
+          bash tests/deployment/ssh-host-key.test.sh
+      - name: Prepare isolated PostgreSQL 16 verifier
+        if: inputs.operation == 'verify-restore' || github.event_name == 'schedule'
+        run: |
+          sudo systemctl start postgresql
+          psql --version | grep -E ' 16\.'
+          sudo -u postgres createuser --superuser "$USER"
+          createdb citefi_restore_verify
+      - name: Apply only the explicitly approved operation
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          OPERATION: ${{ inputs.operation || 'verify-restore' }}
+        run: |
+          case "$OPERATION" in
+            prepare-backup) bash scripts/recovery/prepare-backup.sh ;;
+            verify-restore) bash scripts/recovery/verify-restore.sh ;;
+            *) echo "Unapproved operation"; exit 1 ;;
+          esac
