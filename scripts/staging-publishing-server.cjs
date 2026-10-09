@@ -363,11 +363,11 @@ function verify() {
   const log = `${QA_ROOT}/live-acceptance.log`;
   fs.writeFileSync(log, '', { mode: 0o600 });
   const result = spawnSync('runuser', ['-u', 'citefi', '--', 'env',
-    `HOME=${account.home}`, `PATH=/usr/lib/postgresql/${pgDirectory}/bin:${process.env.PATH}`,
+    `HOME=${account.home}`, `PATH=/usr/lib/postgresql/${pgDirectory}/bin:${SYSTEM_PATH}`,
     `QA_LIVE_PUBLISHING_CONFIG=${QA_ROOT}/live-tests.env`,
     'bash', `${setupInfo.source}/QA/support/with-isolated-database.sh`, '--with-redis', '--direct', '--live-publishing', '--',
     'tests/security/publishing-review-binding.integration.test.mjs',
-  ], { encoding: 'utf8', timeout: 300000, maxBuffer: 16 * 1024 * 1024 });
+  ], { cwd: setupInfo.source, encoding: 'utf8', timeout: 300000, maxBuffer: 16 * 1024 * 1024 });
   fs.writeFileSync(log, `${result.stdout || ''}\n${result.stderr || ''}`, { mode: 0o600 });
   fs.chownSync(log, account.uid, account.gid);
   const successes = (result.stdout || '').split('\n').filter(line => /^PASS /.test(line));
@@ -376,6 +376,10 @@ function verify() {
   const summary = {
     operation: 'verify-staging-publishing-server', success: result.status === 0,
     passed: successes, failed: failures, exitCode: result.status,
+    startupDiagnostics: `${result.stdout || ''}\n${result.stderr || ''}`.split('\n')
+      .filter(line => /Error:|FATAL|error:|permission denied|not found|owned fixture/i.test(line) &&
+        !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
+      .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]').replace(/[A-Za-z0-9_-]{20,}/g, '[opaque]').slice(0, 180)).slice(-10),
     ownedPostgresRedis: true, realProviderReceiver: true,
     sourceSha256: setupInfo.sourceSha256, paidGeneration: false, customerPublication: false,
     productionApplicationDataCredentialsChanged: false,
