@@ -81,7 +81,7 @@ function inspect() {
         return [{ stage: name, codes: [...text.matchAll(/^npm (?:error|ERR!) code ([A-Z0-9_]+)/gm)].map(match => match[1]),
           bytes: Buffer.byteLength(text),
           firstSafeLines: text.split('\n').filter(line => line.trim() && !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
-            .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{24,}/g, '[opaque]').slice(0, 160)).slice(0, 5),
+            .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{24,}/g, '[opaque]').slice(0, 160)).slice(-8),
           inaccessibleWorkingDirectory: /\buv_cwd\b/.test(text),
           inaccessibleExecutable: /(?:env|runuser):[^\n]*(?:npm|node|pm2)[^\n]*Permission denied/.test(text),
           recognisedDiagnostics: text.split('\n').filter(line => /^(?:Error:|node:internal|env:|\/usr\/bin\/env:|runuser:)/.test(line))
