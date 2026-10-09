@@ -143,6 +143,11 @@ function run(command, args, timeout = 30000, logFile) {
   if (result.status !== 0) {
     const error = new Error('Fixed staging command failed');
     error.status = result.status; error.code = result.error?.code;
+    error.action = args.includes('jlist') ? 'pm2-list' : args.includes('start') ? 'pm2-start' : args.includes('save') ? 'pm2-save' : command;
+    error.diagnostics = (result.stderr || '').split('\n')
+      .filter(line => /bad option|not found|unknown option|not allowed|no such file|permission denied/i.test(line) &&
+        !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
+      .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{24,}/g, '[opaque]').slice(0, 160)).slice(0, 3);
     throw error;
   }
   return result.stdout || '';
@@ -374,7 +379,7 @@ async function main() {
       : (() => { throw new Error('Unknown fixed staging operation'); })();
     console.log(JSON.stringify(report, null, 2));
   } catch (error) {
-    console.log(JSON.stringify({ operation: 'staging-publishing-server', action, phase, success: false, exitCode: error.status, errorCode: error.code }));
+    console.log(JSON.stringify({ operation: 'staging-publishing-server', action, phase, success: false, exitCode: error.status, errorCode: error.code, commandAction: error.action, diagnostics: error.diagnostics }));
     process.exitCode = 1;
   }
 }
