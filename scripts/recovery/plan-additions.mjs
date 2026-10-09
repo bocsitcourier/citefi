@@ -19,7 +19,7 @@ export function planAdditions(sql, diff) {
   }
   for (const column of diff.missingColumns) {
     if (column.notNull && !column.hasDefault) throw new Error("Required historical-row backfill needs separate review");
-    const definition = blocks.get(column.table)?.split("\n").find(line => line.startsWith(`"${column.column}" `));
+    const definition = blocks.get(column.table)?.split("\n").map(line => line.trim()).find(line => line.startsWith(`"${column.column}" `));
     if (!definition || /[;\r]/.test(definition)) throw new Error("Unsupported column definition");
     additions.push(`ALTER TABLE "${column.table}" ADD COLUMN ${definition.replace(/,$/, "")};`);
   }

@@ -11,6 +11,20 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RecoverySafety(unittest.TestCase):
+    def test_plan_is_additive_and_handles_indented_export(self):
+        script = '''
+import {planAdditions} from "./scripts/recovery/plan-additions.mjs";
+import assert from "node:assert/strict";
+const sql='CREATE TABLE "existing" (\\n\\t"id" integer,\\n\\t"added" integer DEFAULT 0 NOT NULL\\n);\\n';
+const diff={missingTables:[],missingColumns:[{table:"existing",column:"added",notNull:true,hasDefault:true}],typeDrift:[]};
+const result=planAdditions(sql,diff);
+assert.equal(result,'ALTER TABLE "existing" ADD COLUMN "added" integer DEFAULT 0 NOT NULL;\\n');
+assert.throws(()=>planAdditions(sql,{...diff,typeDrift:[{expected:"integer",actual:"text"}]}));
+assert.throws(()=>planAdditions(sql,{...diff,missingColumns:[{...diff.missingColumns[0],hasDefault:false}]}));
+assert.throws(()=>planAdditions(sql,{...diff,missingTables:["invalid;DROP TABLE users"]}));
+'''
+        subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT, check=True)
+
     def test_shared_operational_env_is_app_root_scoped(self):
         with tempfile.TemporaryDirectory() as directory:
             production = Path(directory) / "production"
