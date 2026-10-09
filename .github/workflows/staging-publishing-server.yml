@@ -17,7 +17,7 @@ jobs:
   staging:
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -29,4 +29,7 @@ jobs:
           DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
           DO_USER: citefi
           STAGING_OPERATION: ${{ inputs.operation }}
+          GH_TOKEN: ${{ github.token }}
+          STAGING_SOURCE_BLOB: 6990fd8fc292ae88fe3934c7f17e79b0eb72ad13
+          STAGING_SOURCE_SHA256: 0cd4cd04380887a846b0983eb5668feb8120bcbc6a02aaebafc193586709f453
         run: bash scripts/staging-publishing-server.sh
