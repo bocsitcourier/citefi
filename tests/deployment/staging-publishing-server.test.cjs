@@ -19,3 +19,14 @@ test('staging operations are manual and reviewed-default-branch only', () => {
   assert.equal(w.jobs.staging.steps[1].env.DO_SSH_PRIVATE_KEY, '${{ secrets.DO_SSH_KEY }}');
   assert.match(fs.readFileSync('scripts/staging-publishing-server.sh', 'utf8'), /inspect\|inspect-root\|setup\|verify/);
 });
+
+test('root controller confines writes, drops privileges and isolates host-scoped cookies', () => {
+  const source = fs.readFileSync('scripts/staging-publishing-server.cjs', 'utf8');
+  assert.match(source, /fs\.realpathSync\(ROOT\) !== ROOT/);
+  assert.match(source, /source archive integrity failed/i);
+  assert.match(source, /proxy_set_header Cookie ""/);
+  assert.match(source, /proxy_hide_header Set-Cookie/);
+  assert.match(source, /'env', '-i'/);
+  assert.doesNotMatch(source, /pm2\('(?:stop|delete)', 'all'\)/);
+  assert.doesNotMatch(source, /'\/var\/www\/citefi\/'/);
+});

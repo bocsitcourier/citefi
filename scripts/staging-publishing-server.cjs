@@ -78,6 +78,8 @@ function inspect() {
       try {
         const text = fs.readFileSync(`${QA_ROOT}/${name}`, 'utf8');
         return [{ stage: name, codes: [...text.matchAll(/^npm (?:error|ERR!) code ([A-Z0-9_]+)/gm)].map(match => match[1]),
+          inaccessibleWorkingDirectory: /\buv_cwd\b/.test(text),
+          inaccessibleExecutable: /(?:env|runuser):[^\n]*(?:npm|node|pm2)[^\n]*Permission denied/.test(text),
           lockMismatches: text.split('\n').filter(line => /^npm (?:error|ERR!) (?:Missing:|Invalid:)/.test(line))
             .map(line => line.replace(/[^a-zA-Z0-9@./_:+~^ '=-]/g, '').slice(0, 180)).slice(0, 12),
         }];
@@ -112,6 +114,7 @@ function run(command, args, timeout = 30000, logFile) {
   const fd = logFile ? fs.openSync(logFile, 'a', 0o600) : undefined;
   const result = spawnSync(command, args, {
     timeout, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+    cwd: ROOT, env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' },
     stdio: logFile ? ['ignore', fd, fd] : ['ignore', 'pipe', 'pipe'],
   });
   if (fd !== undefined) fs.closeSync(fd);
@@ -186,11 +189,11 @@ async function setup(expectedHash) {
   fs.unlinkSync(extractionArchive);
   phase = 'install-staging-only-dependencies';
   if (!fs.existsSync(`${source}/node_modules/next/package.json`)) {
-    run('runuser', ['-u', 'citefi', '--', 'env', `HOME=${account.home}`, 'npm', 'ci',
+    run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, 'npm', 'ci',
       '--prefix', source, '--ignore-scripts', '--no-audit', '--no-fund'], 360000, `${QA_ROOT}/dependency-install.log`);
   }
   if (!fs.existsSync(`${source}/packages/apex-receiver/node_modules/helmet/package.json`)) {
-    run('runuser', ['-u', 'citefi', '--', 'env', `HOME=${account.home}`, 'npm', 'install',
+    run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, 'npm', 'install',
       '--prefix', `${source}/packages/apex-receiver`, '--ignore-scripts', '--no-audit', '--no-fund'],
     180000, `${QA_ROOT}/receiver-dependency-install.log`);
   }
@@ -200,10 +203,13 @@ async function setup(expectedHash) {
   if (fs.existsSync(liveFile) && !fs.lstatSync(liveFile).isSymbolicLink()) existing = stageRequire('dotenv').parse(fs.readFileSync(liveFile));
   const signing = existing.QA_LIVE_SIGNING_SECRET?.length >= 32 ? existing.QA_LIVE_SIGNING_SECRET : randomBytes(32).toString('hex');
   const receiverKey = existing.QA_LIVE_RECEIVER_KEY?.length >= 32 ? existing.QA_LIVE_RECEIVER_KEY : randomBytes(32).toString('hex');
+  const runtimeSecrets = Object.fromEntries(['JWT_SECRET', 'CSRF_SECRET', 'APPROVAL_TOKEN_SECRET', 'API_KEY_ENCRYPTION_SECRET']
+    .map(key => [key, existing[`QA_STAGING_${key}`] || randomBytes(32).toString('hex')]));
   const storage = Object.fromEntries(['DO_SPACES_BUCKET', 'DO_SPACES_ENDPOINT', 'DO_SPACES_KEY', 'DO_SPACES_SECRET', 'STORAGE_PREFIX'].map(key => [key, stageEnv[key]]));
   ownedWrite(liveFile, envText({
     ...storage, QA_LIVE_APP_URL: 'https://citefi.co:8443', QA_LIVE_RECEIVER_URL: 'https://citefi.co:8444',
     QA_LIVE_SIGNING_SECRET: signing, QA_LIVE_RECEIVER_KEY: receiverKey,
+    ...Object.fromEntries(Object.entries(runtimeSecrets).map(([key, value]) => [`QA_STAGING_${key}`, value])),
   }), account);
   // Use a separate staging runtime environment. Never rotate production or
   // overwrite the shared staging environment used by the old release.
@@ -215,7 +221,7 @@ async function setup(expectedHash) {
     OPENAI_API_KEY: 'qa-isolated-disabled-openai', GEMINI_API_KEY: 'qa-isolated-disabled-gemini',
   };
   for (const key of ['JWT_SECRET', 'CSRF_SECRET', 'APPROVAL_TOKEN_SECRET', 'API_KEY_ENCRYPTION_SECRET']) {
-    runtimeEnv[key] = stageEnv[key] || randomBytes(32).toString('hex');
+    runtimeEnv[key] = runtimeSecrets[key];
   }
   ownedWrite(`${source}/.env.local`, envText(runtimeEnv), account);
   ownedWrite(`${QA_ROOT}/receiver.env`, envText({
@@ -226,7 +232,7 @@ async function setup(expectedHash) {
   for (const directory of [`${QA_ROOT}/receiver`, `${QA_ROOT}/receiver/uploads`]) fs.chownSync(directory, account.uid, account.gid);
   if (!fs.existsSync(`${QA_ROOT}/ambiguous-jobs.json`)) ownedWrite(`${QA_ROOT}/ambiguous-jobs.json`, '[]', account);
   phase = 'start-only-staging-processes';
-  const pm2 = (...args) => run('runuser', ['-u', 'citefi', '--', 'env', `HOME=${account.home}`, `PM2_HOME=${account.home}/.pm2`, 'pm2', ...args]);
+  const pm2 = (...args) => run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, `PM2_HOME=${account.home}/.pm2`, 'pm2', ...args]);
   const processes = JSON.parse(pm2('jlist'));
   for (const name of ['citefi-staging-web', 'citefi-staging-worker', 'citefi-publishing-staging-web', 'citefi-publishing-staging-receiver']) {
     if (processes.some(item => item.name === name)) pm2('stop', name);
@@ -255,6 +261,11 @@ async function setup(expectedHash) {
     proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Cookies are host-scoped, not port-scoped. Never forward a customer's
+    # production cookie into staging or let staging overwrite it. The
+    # development-only, origin-scoped bearer fallback is used by this sandbox.
+    proxy_set_header Cookie "";
+    proxy_hide_header Set-Cookie;
     proxy_read_timeout 60s;
   }
 }
@@ -275,7 +286,7 @@ async function setup(expectedHash) {
   ownedWrite(`${QA_ROOT}/setup.json`, JSON.stringify({
     source, sourceSha256: expectedHash, appUrl: 'https://citefi.co:8443', receiverUrl: 'https://citefi.co:8444',
     productionApplicationChanged: false, productionDataChanged: false, productionCredentialsRotated: false,
-    sharedProxyCheckedReload: true, paidGenerationEnabled: false,
+    sharedProxyCheckedReload: true, paidGenerationEnabled: false, cookieIsolation: true,
   }), account);
   phase = 'verify-real-https-readiness';
   let appStatus = 0, receiverStatus = 0;
@@ -323,7 +334,8 @@ function verify() {
     passed: successes, failed: failures, exitCode: result.status,
     ownedPostgresRedis: true, realProviderReceiver: true,
     sourceSha256: setupInfo.sourceSha256, paidGeneration: false, customerPublication: false,
-    productionChanges: false,
+    productionApplicationDataCredentialsChanged: false,
+    sharedProxyCheckedReload: setupInfo.sharedProxyCheckedReload,
   };
   ownedWrite(`${QA_ROOT}/acceptance.json`, JSON.stringify(summary, null, 2), account);
   if (result.status !== 0) process.exitCode = 1;
