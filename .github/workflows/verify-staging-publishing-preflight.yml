@@ -1,0 +1,30 @@
+name: Verify staging publishing preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_synthetic_storage:
+        description: Write tiny QA objects only under staging/synthetic; no publication
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: ${{ inputs.confirm_synthetic_storage && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify live storage and discover existing staging HTTPS routes
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_USER: citefi
+        run: bash scripts/verify-staging-publishing-preflight.sh
