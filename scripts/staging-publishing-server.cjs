@@ -6,6 +6,7 @@ const { createHash, randomBytes } = require('node:crypto');
 const { createRequire } = require('node:module');
 const ROOT = '/var/www/citefi-staging';
 const QA_ROOT = `${ROOT}/publishing-qa`;
+const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 let phase = 'preflight';
 
 function commandResult(command, args) {
@@ -80,6 +81,8 @@ function inspect() {
         return [{ stage: name, codes: [...text.matchAll(/^npm (?:error|ERR!) code ([A-Z0-9_]+)/gm)].map(match => match[1]),
           inaccessibleWorkingDirectory: /\buv_cwd\b/.test(text),
           inaccessibleExecutable: /(?:env|runuser):[^\n]*(?:npm|node|pm2)[^\n]*Permission denied/.test(text),
+          recognisedDiagnostics: text.split('\n').filter(line => /^(?:Error:|node:internal|env:|\/usr\/bin\/env:|runuser:)/.test(line))
+            .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{48,}/g, '[redacted]').slice(0, 180)).slice(0, 4),
           lockMismatches: text.split('\n').filter(line => /^npm (?:error|ERR!) (?:Missing:|Invalid:)/.test(line))
             .map(line => line.replace(/[^a-zA-Z0-9@./_:+~^ '=-]/g, '').slice(0, 180)).slice(0, 12),
         }];
@@ -114,7 +117,7 @@ function run(command, args, timeout = 30000, logFile) {
   const fd = logFile ? fs.openSync(logFile, 'a', 0o600) : undefined;
   const result = spawnSync(command, args, {
     timeout, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
-    cwd: ROOT, env: { ...process.env, PATH: '/usr/local/bin:/usr/bin:/bin' },
+    cwd: ROOT, env: { ...process.env, PATH: SYSTEM_PATH },
     stdio: logFile ? ['ignore', fd, fd] : ['ignore', 'pipe', 'pipe'],
   });
   if (fd !== undefined) fs.closeSync(fd);
@@ -189,11 +192,11 @@ async function setup(expectedHash) {
   fs.unlinkSync(extractionArchive);
   phase = 'install-staging-only-dependencies';
   if (!fs.existsSync(`${source}/node_modules/next/package.json`)) {
-    run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, 'npm', 'ci',
+    run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'ci',
       '--prefix', source, '--ignore-scripts', '--no-audit', '--no-fund'], 360000, `${QA_ROOT}/dependency-install.log`);
   }
   if (!fs.existsSync(`${source}/packages/apex-receiver/node_modules/helmet/package.json`)) {
-    run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, 'npm', 'install',
+    run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'install',
       '--prefix', `${source}/packages/apex-receiver`, '--ignore-scripts', '--no-audit', '--no-fund'],
     180000, `${QA_ROOT}/receiver-dependency-install.log`);
   }
@@ -232,7 +235,7 @@ async function setup(expectedHash) {
   for (const directory of [`${QA_ROOT}/receiver`, `${QA_ROOT}/receiver/uploads`]) fs.chownSync(directory, account.uid, account.gid);
   if (!fs.existsSync(`${QA_ROOT}/ambiguous-jobs.json`)) ownedWrite(`${QA_ROOT}/ambiguous-jobs.json`, '[]', account);
   phase = 'start-only-staging-processes';
-  const pm2 = (...args) => run('runuser', ['-u', 'citefi', '--', 'env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', `HOME=${account.home}`, `PM2_HOME=${account.home}/.pm2`, 'pm2', ...args]);
+  const pm2 = (...args) => run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, `PM2_HOME=${account.home}/.pm2`, 'pm2', ...args]);
   const processes = JSON.parse(pm2('jlist'));
   for (const name of ['citefi-staging-web', 'citefi-staging-worker', 'citefi-publishing-staging-web', 'citefi-publishing-staging-receiver']) {
     if (processes.some(item => item.name === name)) pm2('stop', name);
