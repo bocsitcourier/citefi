@@ -358,7 +358,12 @@ function verify() {
   const setupInfo = JSON.parse(fs.readFileSync(`${QA_ROOT}/setup.json`, 'utf8'));
   if (!setupInfo.source.startsWith(`${QA_ROOT}/source-`) || fs.realpathSync(setupInfo.source) !== setupInfo.source) throw new Error('Unowned test source');
   phase = 'owned-services-live-acceptance';
-  const pgDirectory = fs.readdirSync('/usr/lib/postgresql').filter(value => /^\d+$/.test(value)).sort((a, b) => Number(b) - Number(a))[0];
+  // A newer client-only installation has no initdb. Select a complete server
+  // toolchain, not merely the highest directory number.
+  const pgDirectory = fs.readdirSync('/usr/lib/postgresql').filter(value =>
+    /^\d+$/.test(value) && ['initdb', 'pg_ctl', 'postgres'].every(binary =>
+      fs.existsSync(`/usr/lib/postgresql/${value}/bin/${binary}`)))
+    .sort((a, b) => Number(b) - Number(a))[0];
   if (!pgDirectory) throw new Error('Existing PostgreSQL binaries missing');
   const log = `${QA_ROOT}/live-acceptance.log`;
   fs.writeFileSync(log, '', { mode: 0o600 });
