@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,6 +11,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class RecoverySafety(unittest.TestCase):
+    def test_off_host_registry_normalization_covers_both_private_origins(self):
+        paths = [".github/workflows/production-recovery.yml",
+                 ".github/workflows/deploy.yml", "scripts/deploy-to-do.sh"]
+        expressions = [re.search(r"sed -i -E '([^']+)'", (ROOT / path).read_text()).group(1) for path in paths]
+        self.assertEqual(len(set(expressions)), 1)
+        inputs = "\n".join(f"{protocol}://package-firewall.replit.{host}/npm/example/-/example.tgz"
+                           for protocol in ["http", "https"] for host in ["local", "internal"])
+        result = subprocess.run(["sed", "-E", expressions[0]], input=inputs,
+                                text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout.splitlines(),
+                         ["https://registry.npmjs.org/example/-/example.tgz"] * 4)
+
     def test_preserve_all_retains_local_backup_and_skips_prune(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
