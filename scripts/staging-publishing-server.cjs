@@ -268,12 +268,19 @@ async function setup(expectedHash) {
   for (const name of ['citefi-publishing-staging-web', 'citefi-publishing-staging-receiver']) {
     if (processes.some(item => item.name === name)) pm2('delete', name);
   }
-  pm2('start', `${source}/node_modules/next/dist/bin/next`, '--name', 'citefi-publishing-staging-web',
-    '--namespace', 'citefi-staging', '--cwd', source, '--interpreter', 'node',
-    '--node-args', '--env-file=.env.local', '--', 'dev', '--webpack', '-H', '127.0.0.1', '-p', '5100');
-  pm2('start', `${source}/QA/support/staging-real-receiver.ts`, '--name', 'citefi-publishing-staging-receiver',
-    '--namespace', 'citefi-staging', '--cwd', source, '--interpreter', 'node',
-    '--node-args', `--env-file=${QA_ROOT}/receiver.env --import tsx`);
+  // PM2's CLI treated space-separated node flags as a single env-file name.
+  // Use the structured array contract, not shell-like flag splitting.
+  const ecosystem = `${QA_ROOT}/processes.config.cjs`;
+  ownedWrite(ecosystem, `module.exports = ${JSON.stringify({ apps: [
+    { name: 'citefi-publishing-staging-web', namespace: 'citefi-staging', cwd: source,
+      script: `${source}/node_modules/next/dist/bin/next`, interpreter: 'node',
+      node_args: ['--env-file=.env.local'],
+      args: ['dev', '--webpack', '-H', '127.0.0.1', '-p', '5100'], env: runtimeEnv },
+    { name: 'citefi-publishing-staging-receiver', namespace: 'citefi-staging', cwd: source,
+      script: `${source}/QA/support/staging-real-receiver.ts`, interpreter: 'node',
+      node_args: [`--env-file=${QA_ROOT}/receiver.env`, '--import', 'tsx'] },
+  ] })};\n`, account);
+  pm2('start', ecosystem, '--only', 'citefi-publishing-staging-web,citefi-publishing-staging-receiver');
   pm2('save');
   phase = 'configure-dedicated-staging-tls-ports';
   const configuration = `/etc/nginx/conf.d/citefi-publishing-staging.conf`;
