@@ -3,7 +3,33 @@ name: DO deploy pitfalls
 description: Hard-won lessons from deploying this Next.js app from Replit to a DigitalOcean droplet via SSH.
 ---
 
+Historical in-place build and recovery notes below do not authorize those steps
+for the current immutable release path. Consult the production runbook before
+using an older recipe; in particular, never stop all PM2 processes or install
+dependencies in the active release as part of a normal release.
+
 ## Rules
+
+### Next development-server environment flags
+Do not start Next development servers with Node `--env-file` arguments. Supply
+their environment through PM2's structured `env` and the release's `.env.local`.
+
+**Why:** Next forwards Node execution arguments to its child server through
+`NODE_OPTIONS`, where Node rejects `--env-file`; the parent can appear started
+while its web child repeatedly exits.
+
+**How to apply:** Reserve Node `--env-file` for ordinary Node processes that do
+not forward execution arguments into `NODE_OPTIONS`. Check the actual HTTP
+endpoint, not only a successful PM2 start.
+
+### Production target for live QA
+Use the DigitalOcean production server, not the separate Replit deployment, for
+the requested production update and subsequent live acceptance testing.
+**Why:** The user explicitly identified DigitalOcean when asked to distinguish
+the two available production paths.
+**How to apply:** Prepare the reviewed GitHub/DigitalOcean release and verify
+that target. Do not treat a successful Replit publish or preview as evidence
+that the DigitalOcean server received the changes.
 
 **Why:** Each of these caused real outages or silent failures during the first successful deploy session.
 
@@ -13,10 +39,23 @@ description: Hard-won lessons from deploying this Next.js app from Replit to a D
 **How to apply:** The deploy script uses only `git reset --hard`; no `git clean`.
 
 ### 2. package-lock.json contains Replit-internal proxy URLs
-Replit's npm sandbox injects `package-firewall.replit.local` into every tarball `resolved` URL in `package-lock.json`.
+Replit's npm sandbox can inject both `package-firewall.replit.local` and
+`package-firewall.replit.internal` into tarball `resolved` URLs in lockfiles.
 `npm ci --registry` does NOT override these baked-in URLs.
 **Fix:** `sed -i 's|http://package-firewall.replit.local/npm|https://registry.npmjs.org|g' package-lock.json` before `npm ci`, then `git checkout -- package-lock.json` to restore the original (sha hashes are unaffected by URL host change).
 **How to apply:** Already in `scripts/deploy-to-do.sh` build section.
+
+Inspect the frozen exported artifact, including nested lockfiles, rather than
+trusting an earlier workspace observation. Normalize both private proxy hosts
+in the isolated exported copy; preserve locked versions and integrity hashes.
+Do not rely on `--registry` to rewrite tarball URLs.
+
+**Why:** A DigitalOcean install reported npm's misleading “Exit handler never
+called!” error; its debug log showed `ENOTFOUND` for a private proxy host. An
+earlier assumption that the exported lock contained only public hosts was wrong.
+
+**How to apply:** Keep the Replit workspace lock compatible with its package
+firewall, and use a tested source-export transformation for staging deployments.
 
 ### 3. Production DB is local PostgreSQL 16 on the droplet — not Neon
 The live server runs its own PostgreSQL 16 instance at `localhost:5432`, database `citefi`, user `citefi`.
@@ -90,6 +129,42 @@ Production and shared-host staging both expect Redis at `127.0.0.1:6379`. If Red
 The safe staging topology is a separate app directory and PM2 names, port 5100, database `citefi_staging`, Redis DB 1, and `staging/synthetic/` object prefix. It contains no copied production rows.
 **Why:** Destructive drills need production parity without risking the live application or customer data.
 **How to apply:** Keep staging loopback-only until its DNS and HTTPS proxy are configured. Never substitute the production database, Redis DB 0, production process names, or unprefixed storage.
+
+Locate the staging topology through deployment configuration and authenticated
+server inspection before asking the user to identify staging or repeat credentials.
+If public endpoints were never provisioned, explain that missing setup and ask
+for the necessary operational authorization, not an existing URL.
+
+**Why:** The user expects us to trace the environment we configured. A private
+staging directory is not evidence that a public staging app or receiver exists.
+
+**How to apply:** Reuse the established GitHub-held SSH access, distinguish file
+configuration from active services and public routing, and keep shared-proxy/DNS
+changes separate from authorization for synthetic delivery tests.
+
+Missing SSH variables in the local Replit process do not establish that the
+existing DigitalOcean access path is unavailable.
+
+**Why:** The deployment workflow supplies its SSH credentials from GitHub-held
+secrets, independently of the local workspace environment. Treating local
+absence as global absence led to an incorrect deployment-capability claim.
+
+**How to apply:** Inspect the documented workflow mapping and authenticated
+operational evidence before requesting replacement credentials or claiming
+there is no access. A saved mapping is not proof of a successful current login.
+
+For explicitly authorized isolated staging infrastructure setup, test whether
+the existing GitHub-held key also authenticates root before requesting new
+credentials. A service account's missing sudo access does not prove that the
+saved infrastructure access is unusable.
+
+**Why:** The existing key authenticated both the service account and root,
+while the service account could not configure nginx.
+
+**How to apply:** Keep ordinary releases under the service account. Limit root
+to a fixed staging infrastructure controller; extract, install and run
+application code as the service account. Never infer permission to deploy or
+rotate production credentials from successful root authentication.
 
 ### 16. In-place droplet deploys must never run automatically on push
 The current host release process stops PM2 before installing and building in the live directory. Triggering it on every main-branch push caused an immediate Nginx 502 for the full install/build window.

@@ -1,0 +1,35 @@
+{
+  "entry": {
+    "runId": "offline-video-recovery-20261009-pilot",
+    "stage": "video",
+    "recovery": true,
+    "phase": "pilot",
+    "offline": true,
+    "state": "pending",
+    "reservedUsd": 0.65,
+    "manifestSha256": "b26d7bb135e4029d464c1bd8082ca62ce4d924dc32a8ea1103d8bd589f9a705e",
+    "parentRunId": "live-selected-video-20261008",
+    "parentSha256": "ea1dac108709e1e20a03ed1a8470ea8526a0514d0cab0ad95cc8bc4a6f0fe555",
+    "calls": [
+      {
+        "number": 1,
+        "kind": "clip",
+        "scene": 1,
+        "sourceEventId": "provider-attempt:d49332354a866965c3629164f6143c8114414135fe37bb2a4929306a426e5937",
+        "requestSha256": "0763c739e0192d8984bc3ec778529cf52361b9848a9f399231f102c856689b2c",
+        "state": "accepted",
+        "physicalSubmissions": 0,
+        "simulatedSubmissions": 1,
+        "providerRequestId": "models/veo-3.1-fast-generate-preview/operations/offline-1",
+        "videoSeconds": 6,
+        "operationName": "models/veo-3.1-fast-generate-preview/operations/offline-1",
+        "polls": 1,
+        "billingBasis": "native completion of requested duration; decoded duration checked separately",
+        "costMicrousd": 600000,
+        "nativeSha256": "912e9f288f882ab6a9b38b15981c68d4531f33dd730b26e05ba7dc71ebcabb47"
+      }
+    ],
+    "createdAt": "2026-10-09T00:05:48.309Z"
+  },
+  "expectedPreviousLedgerSha256": "b073955a1b81d801496d11d0617e772c126e637f10eda273152963762562e187"
+}

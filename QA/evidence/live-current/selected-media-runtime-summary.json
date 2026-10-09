@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "status": "NOT CERTIFIED",
+  "taskComplete": false,
+  "recordedAt": "2026-10-08T23:34:56.662Z",
+  "originalAuthorizedManifestSha256": "ee5871d2968ccada3b97cf1dc8285012d417cd3387408a429eec789e9f5dde2e",
+  "postRepairManifestSha256": "f4584563bb5df161718e9cf34280ead20aa9d99f3867016976522af31ae87c7d",
+  "postRepairPaidAuthorization": false,
+  "paidRecoveryAuthorized": false,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 6.885916,
+    "availableUsd": 16.597013
+  },
+  "retainedLock": {
+    "runId": "live-selected-video-20261008",
+    "stage": "video",
+    "offline": false,
+    "pid": 908
+  },
+  "runs": [
+    {
+      "runId": "live-selected-podcast-20261008",
+      "endToEndPass": true,
+      "reservedUsd": 0.65,
+      "actualUsd": 0.042284,
+      "physicalSubmissions": 11,
+      "pendingClipSubmissions": 0,
+      "knownNativeUsageUsd": 0.042284,
+      "playback": {
+        "duration": 82.128,
+        "fullDecode": true,
+        "audioMeanDb": -26.8
+      },
+      "exportComplete": true
+    },
+    {
+      "runId": "live-selected-video-20261008",
+      "endToEndPass": false,
+      "reservedUsd": 6.3,
+      "actualUsd": null,
+      "physicalSubmissions": 11,
+      "pendingClipSubmissions": 9,
+      "knownNativeUsageUsd": 0.046806,
+      "playback": null,
+      "exportComplete": true
+    }
+  ]
+}

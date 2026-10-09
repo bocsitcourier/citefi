@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { systemDb as db } from "@/lib/db";
-import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
+import {
+  users,
+  emailVerificationCodes,
+  passwordResets,
+  activityLogs,
+} from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { eq, and, sql } from "drizzle-orm";
@@ -83,6 +88,18 @@ export async function POST(req: Request) {
             eq(emailVerificationCodes.purpose, purpose)
           )
         );
+
+      if (purpose === "password_reset") {
+        await tx
+          .update(passwordResets)
+          .set({ status: "cancelled" })
+          .where(
+            and(
+              eq(passwordResets.userId, userId),
+              eq(passwordResets.status, "pending"),
+            )
+          );
+      }
 
       await tx
         .insert(emailVerificationCodes)

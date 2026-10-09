@@ -1,6 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface EnhancedImagePrompt {
   original: string;
@@ -98,10 +99,11 @@ Return ONLY this JSON structure:
 }`;
 
 
+  const model = await getResolvedModel("gptMini");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -112,7 +114,7 @@ Return ONLY this JSON structure:
       }),
       `Image Enhancer: ${coreTopic.substring(0, 50)}`,
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 1500 } },
+      { request: { model, maxOutputTokens: 1500 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

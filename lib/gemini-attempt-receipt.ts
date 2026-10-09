@@ -19,6 +19,7 @@ import {
   type SafeProviderRequest,
 } from "./provider-attempt-receipts";
 import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
+import { notifyModelNotFound } from "./model-resolver";
 
 export const GEMINI_PROVIDER = "gemini" as const;
 
@@ -44,6 +45,7 @@ export type GeminiRequestLimits = {
   imageAspectRatio?: string;
   imageSize?: string;
   thinkingBudget?: number;
+  thinkingLevel?: string;
 };
 
 export type GeminiAttemptReceiptContext = Omit<
@@ -109,9 +111,12 @@ export function extractGeminiRequestLimits(
   const imageAspectRatio = safeString(imageConfig?.aspectRatio);
   const imageSize = safeString(imageConfig?.imageSize);
   const thinkingConfig = (config as unknown as { thinkingConfig?: unknown }).thinkingConfig as
-    | { thinkingBudget?: unknown }
+    | { thinkingBudget?: unknown; thinkingLevel?: unknown }
     | undefined;
   const thinkingBudget = safeNonNegativeInteger(thinkingConfig?.thinkingBudget);
+  const extraGeneration = config?.httpOptions?.extraBody?.generationConfig as
+    { thinkingConfig?: { thinkingLevel?: unknown } } | undefined;
+  const thinkingLevel = thinkingConfig?.thinkingLevel ?? extraGeneration?.thinkingConfig?.thinkingLevel;
 
   if (maxOutputTokens !== undefined) limits.maxOutputTokens = maxOutputTokens;
   if (maxInputTokens !== undefined) limits.maxInputTokens = maxInputTokens;
@@ -125,6 +130,7 @@ export function extractGeminiRequestLimits(
   if (imageAspectRatio !== undefined) limits.imageAspectRatio = imageAspectRatio;
   if (imageSize !== undefined) limits.imageSize = imageSize;
   if (thinkingBudget !== undefined) limits.thinkingBudget = thinkingBudget;
+  if (typeof thinkingLevel === "string" && ["MINIMAL", "LOW", "MEDIUM", "HIGH"].includes(thinkingLevel)) limits.thinkingLevel = thinkingLevel;
   return limits;
 }
 
@@ -213,6 +219,23 @@ export function extractRawGeminiUsage(
     const value = numericUsageValue(rawValue);
     if (value !== undefined) usage[name] = value;
   }
+  // Candidate totals may include unattributed text/thinking tokens even for
+  // an image-only payload. Preserve the native IMAGE split separately.
+  if (Array.isArray(metadata.candidatesTokensDetails)) {
+    const images = metadata.candidatesTokensDetails.filter(
+      (detail) => detail?.modality === "IMAGE",
+    );
+    if (images.length > 0 && images.every(
+      (detail) => safeNonNegativeInteger(detail.tokenCount) !== undefined,
+    )) {
+      const imageTokens = images.reduce((sum, detail) => sum + detail.tokenCount, 0);
+      if (Number.isSafeInteger(imageTokens) && usage.candidatesTokenCount !== undefined &&
+        imageTokens <= usage.candidatesTokenCount) {
+        usage.imageOutputTokens = imageTokens;
+        usage.otherOutputTokens = usage.candidatesTokenCount - imageTokens;
+      }
+    }
+  }
   // Partial or inconsistent blocks remain persisted as raw evidence but are
   // not reconciled as billable usage.
   return {
@@ -241,12 +264,34 @@ function toKnownProviderUsage(
       .filter((part) => typeof part.inlineData?.data === "string" && part.inlineData.data.length > 0)
       .length)
     : 0;
+  const metadata = response.usageMetadata as Record<string, unknown> | undefined;
+  // Token-priced image rates need a complete, consistent native split:
+  // prompt tokens, an explicit IMAGE-modality count, and a total that equals
+  // prompt + candidates + thinking. Anything less stays an unknown (retained,
+  // unreconciled) paid receipt rather than a zero- or mis-priced COGS event.
+  const hasValidThoughts =
+    !metadata ||
+    !Object.prototype.hasOwnProperty.call(metadata, "thoughtsTokenCount") ||
+    usage.thoughtsTokenCount !== undefined;
+  const imageSplitKnown =
+    imageRequested &&
+    imageCount > 0 &&
+    normalized.known &&
+    hasValidThoughts &&
+    usage.promptTokenCount !== undefined &&
+    usage.imageOutputTokens !== undefined &&
+    usage.imageOutputTokens > 0 &&
+    usage.otherOutputTokens !== undefined &&
+    usage.candidatesTokenCount !== undefined &&
+    usage.totalTokenCount !== undefined &&
+    usage.totalTokenCount ===
+      usage.promptTokenCount + usage.candidatesTokenCount + (usage.thoughtsTokenCount ?? 0);
   return {
     unitType: imageRequested ? "images" : "tokens",
     unitCount: imageRequested ? imageCount : normalized.unitCount ?? null,
     inputUnits: imageRequested ? usage.promptTokenCount ?? null : normalized.inputUnits ?? null,
-    outputUnits: imageRequested ? usage.candidatesTokenCount ?? null : normalized.outputUnits ?? null,
-    known: imageRequested ? true : usageKnown && normalized.known,
+    outputUnits: imageRequested ? usage.imageOutputTokens ?? null : normalized.outputUnits ?? null,
+    known: imageRequested ? imageSplitKnown : usageKnown && normalized.known,
     raw: Object.fromEntries(
       Object.entries(usage).filter(([, value]) => value !== undefined),
     ) as Record<string, number>,
@@ -325,7 +370,20 @@ export async function submitGeminiWithReceipt<TResponse extends GenerateContentR
     },
     request: toSafeRequest(request, limits),
     submit: async ({ captureResponse, receipt }) => {
-      const response = await call();
+      let response: TResponse;
+      try {
+        response = await call();
+      } catch (error: unknown) {
+        const rejected = error as { code?: unknown; status?: unknown; message?: unknown };
+        if ((rejected?.code === 404 || rejected?.status === 404) &&
+          typeof rejected.message === "string" && rejected.message.includes(request.model) &&
+          /not found|not supported/i.test(rejected.message)) {
+          notifyModelNotFound(request.model);
+        }
+        // Refresh selection for future operations only. This receipt/attempt
+        // still owns its original model and must not be physically replayed.
+        throw error;
+      }
       const extracted = extractRawGeminiUsage(response);
       await captureResponse({
         providerRequestId: safeString(response.responseId) ?? null,

@@ -1,7 +1,7 @@
 import { openaiClient, callOpenAI } from "./openai-client";
 import type { VeoClipPrompt } from "./veo-video-generator";
 import { objectStorageClient } from "./storage";
-import { TTS_MODEL, TTS_VOICE } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import {
   isNonReplayableProviderError,
   isProviderAccountingError,
@@ -128,6 +128,7 @@ export async function generateVeoTTS(
   console.log(`  📝 Applied phonetic corrections for natural TTS delivery`);
 
   const voice = (TONE_VOICE_MAP[tone] || TONE_VOICE_MAP['default'])!;
+  const model = await getResolvedModel("tts");
   const emotionInstructions = (TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS['default'])!;
   let paidProviderResultReceived = false;
 
@@ -136,11 +137,11 @@ export async function generateVeoTTS(
     console.log(`  🎭 Emotion: ${emotionInstructions.slice(0, 60)}...`);
 
     // Use gpt-4o-mini-tts for emotional steering
-    const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
+    const useEmotionalTTS = model.endsWith("-tts");
     
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
-        model: TTS_MODEL,
+        model,
         voice: voice as any,
         input: ttsNarration,
         speed: 0.95,
@@ -150,12 +151,12 @@ export async function generateVeoTTS(
       undefined,
       {
         operationType: "video_tts",
-        model: TTS_MODEL,
+        model,
         teamId,
         resourceType: request.resourceType ?? "social_post",
         resourceId: request.resourceId ?? socialPostId,
         usage: { characters: ttsNarration.length },
-        request: { model: TTS_MODEL },
+        request: { model },
       }
     );
     paidProviderResultReceived = true;

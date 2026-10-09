@@ -19,12 +19,14 @@ import {
   isProviderAttemptTerminalError,
   providerAttemptUsageFromTelemetry,
   runWithProviderAttempt,
+  ProviderRequestNotSubmittedError,
 } from "./provider-attempt-receipts";
 import type {
   ProviderAttemptReceiptDependencies,
   SafeProviderRequest,
 } from "./provider-attempt-receipts";
 import { allocateProviderAttemptIdentity } from "./provider-invocation-identity";
+import { notifyModelNotFound } from "./model-resolver";
 
 const OPENAI_CONCURRENCY = parseInt(process.env.OPENAI_CONCURRENCY || "15");
 const MAX_RETRIES = 3;
@@ -207,10 +209,20 @@ function isReceiptTerminalError(error: unknown): boolean {
   return isProviderAttemptTerminalError(error);
 }
 
+class OpenAIRequestMetadataMismatch extends ProviderRequestNotSubmittedError {
+  override readonly code = "OPENAI_REQUEST_METADATA_MISMATCH";
+}
 function requestMetadataMismatch(message: string): Error {
-  const error = new Error(message) as Error & { code: string };
-  error.code = "OPENAI_REQUEST_METADATA_MISMATCH";
-  return error;
+  return new OpenAIRequestMetadataMismatch(message);
+}
+
+function localRequestRejection(error: unknown): ProviderRequestNotSubmittedError | null {
+  let current = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (current instanceof ProviderRequestNotSubmittedError) return current;
+    current = current && typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return null;
 }
 
 function isRequestMetadataMismatch(error: unknown): boolean {
@@ -273,7 +285,18 @@ const receiptAwareFetch: typeof fetch = async (input, init) => {
       }
     }
   }
-  return fetch(input, init);
+  const response = await fetch(input, init);
+  if (response.status === 404 && typeof init?.body === "string") {
+    // Only a confirmed model-specific error invalidates selection. This does
+    // not retry, release a reservation, or change the failed receipt's model.
+    try {
+      const body = JSON.parse(init.body) as { model?: unknown };
+      const error = (await response.clone().json())?.error;
+      if (typeof body.model === "string" && error?.code === "model_not_found")
+        notifyModelNotFound(body.model);
+    } catch { /* Preserve the original response, including malformed errors. */ }
+  }
+  return response;
 };
 
 export const openaiClient = new OpenAI({
@@ -388,7 +411,14 @@ export async function callOpenAI<T>(
             adapterVersion: requestMetadata.adapterVersion ?? "openai-client/receipt-v1",
           },
           submit: async ({ captureResponse }) => {
-            const response = await operation(client);
+            let response: T;
+            try { response = await operation(client); }
+            catch (error) {
+              // The SDK wraps local fetch validation as APIConnectionError.
+              // Unwrap only our branded pre-transport proof, never a provider
+              // code/string or an ambiguous real network failure.
+              throw localRequestRejection(error) ?? error;
+            }
             await captureResponse(
               captureOpenAIResponse(response, providedUsage, Date.now() - attemptStartedAt),
             );

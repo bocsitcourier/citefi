@@ -1,0 +1,1 @@
+{"name":"models/veo-3.1-fast-generate-preview/operations/offline-7","done":true,"response":{"generateVideoResponse":{"generatedSamples":[{"video":{"uri":"https://generativelanguage.googleapis.com/v1beta/files/offline-7:download?alt=media"}}]}}}

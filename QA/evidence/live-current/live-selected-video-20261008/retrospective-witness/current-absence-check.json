@@ -1,0 +1,62 @@
+{
+  "at": "2026-10-09T00:46:22.594Z",
+  "commands": [
+    [
+      "ps",
+      "-eo",
+      "pid=,ppid=,comm=,args="
+    ],
+    [
+      "ss",
+      "-ltnp"
+    ],
+    [
+      "find",
+      "/tmp",
+      "-maxdepth",
+      "1",
+      "-name",
+      "media-route-worker-*"
+    ]
+  ],
+  "results": {
+    "ps": {
+      "command": [
+        "ps",
+        "-eo",
+        "pid=,ppid=,comm=,args="
+      ],
+      "exitCode": 0,
+      "error": null,
+      "stdout": "    564     554 node            /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node QA/evidence/live-current/live-selected-video-20261008/retrospective-witness/assemble.mjs",
+      "stderr": ""
+    },
+    "ss": {
+      "command": [
+        "ss",
+        "-ltnp"
+      ],
+      "exitCode": null,
+      "error": "spawnSync ss ENOENT",
+      "stdout": "",
+      "stderr": ""
+    },
+    "ownedTempRoots": {
+      "command": [
+        "find",
+        "/tmp",
+        "-maxdepth",
+        "1",
+        "-name",
+        "media-route-worker-*"
+      ],
+      "exitCode": 0,
+      "error": null,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "matchingProcessesAbsent": false,
+  "anyMatchingTempRootExists": false,
+  "historicalOwnedTempRootIdentityKnown": false
+}

@@ -21,7 +21,7 @@ import { GoogleGenAI } from "@google/genai";
 import { db } from "./db";
 import { articles, citationProbes } from "@/shared/schema";
 import { eq, avg, and, isNotNull } from "drizzle-orm";
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
@@ -120,9 +120,10 @@ export async function processCitationProbe(job: CitationProbeJob): Promise<void>
     const startedAt = Date.now();
     const providerMetadata = { queryHash: createHash("sha256").update(targetQuery).digest("hex") };
     let response;
+    const model = await getResolvedModel("geminiFlash");
     try {
       const generationRequest = {
-        model: GEMINI_FLASH_MODEL,
+        model,
         contents: targetQuery,
       };
       response = await submitGeminiRequest(generationRequest, {
@@ -133,12 +134,12 @@ export async function processCitationProbe(job: CitationProbeJob): Promise<void>
         resourceId: articleId,
         attempt: 1,
       }, () => genAI.models.generateContent(generationRequest));
-      await logCostTelemetry({ operationType: "article_review", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      await logCostTelemetry({ operationType: "article_review", provider: "gemini", model,
         teamId, articleId, jobId: String(probe.id), providerRequestId: (response as any).responseId ?? (response as any).id ?? null, providerMetadata },
       extractGeminiUsage(response), Date.now() - startedAt);
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
-      await logFailedProviderAttempt({ operationType: "article_review", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      await logFailedProviderAttempt({ operationType: "article_review", provider: "gemini", model,
         teamId, articleId, jobId: String(probe.id), providerMetadata },
       { totalTokens: 0 }, Date.now() - startedAt, error);
       throw error;

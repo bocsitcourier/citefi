@@ -37,16 +37,16 @@ import {
 } from "./url-validation";
 export { safeFetchPageWithRedirects } from "./url-validation";
 
-async function recordBrandGeminiAttempt(teamId: number, result: any, startedAt: number, success: boolean, error?: unknown, prompt?: string): Promise<void> {
+async function recordBrandGeminiAttempt(model: string, teamId: number, result: any, startedAt: number, success: boolean, error?: unknown, prompt?: string): Promise<void> {
   await logCostTelemetry(
-    { operationType: "brand_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1,
+    { operationType: "brand_intelligence", provider: "gemini", model, teamId, attempt: 1,
       providerRequestId: result?.responseId ?? result?.id ?? null,
       providerMetadata: prompt ? { queryHash: createHash("sha256").update(prompt).digest("hex") } : undefined },
     success ? extractGeminiUsage(result) : { totalTokens: 0 },
     Date.now() - startedAt, success, error instanceof Error ? error.message : error ? String(error) : undefined
   );
 }
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import {
   criticalProfileIssues,
   parseSingleStructuredObject,
@@ -427,10 +427,11 @@ Return a JSON object with EXACTLY this structure (all fields required):
   }
 }`;
 
+  const model = await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   try {
     const request = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     };
@@ -440,7 +441,7 @@ Return a JSON object with EXACTLY this structure (all fields required):
       resourceType: "brand_profile",
       attempt: 1,
     }, () => genAI.models.generateContent(request));
-    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
+    await recordBrandGeminiAttempt(model, teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (
       !Array.isArray(parsed.brandVoice?.toneAdjectives) ||
@@ -461,7 +462,7 @@ Return a JSON object with EXACTLY this structure (all fields required):
     };
   } catch (err) {
     if (isProviderAccountingError(err)) throw err;
-    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
+    await recordBrandGeminiAttempt(model, teamId, null, startedAt, false, err, prompt);
     console.error("analyzeClientWebsite Gemini error:", err);
     return { brandVoice: emptyBrandVoice(), positioning: emptyPositioning(), targetAudience: {}, localNicheIntelligence: emptyLocalIntel(), rawText: "" };
   }
@@ -568,10 +569,11 @@ Return a JSON object:
 
 Use real companies — not placeholder names. If Brave results are provided, prioritize those.`;
 
+  const model = await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   try {
     const request = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     };
@@ -581,7 +583,7 @@ Use real companies — not placeholder names. If Brave results are provided, pri
       resourceType: "brand_profile",
       attempt: 1,
     }, () => genAI.models.generateContent(request));
-    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
+    await recordBrandGeminiAttempt(model, teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     const rawCompetitors: Competitor[] = Array.isArray(parsed.competitors) ? parsed.competitors : [];
 
@@ -599,7 +601,7 @@ Use real companies — not placeholder names. If Brave results are provided, pri
     return enriched.map(r => (r.status === "fulfilled" ? r.value : null)).filter(Boolean) as Competitor[];
   } catch (err) {
     if (isProviderAccountingError(err)) throw err;
-    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
+    await recordBrandGeminiAttempt(model, teamId, null, startedAt, false, err, prompt);
     console.error("discoverCompetitors Gemini error:", err);
     return [];
   }
@@ -708,10 +710,11 @@ Return a JSON object:
   "decisionDrivers": ["the real psychological triggers that move a prospect from research to purchase — up to 5"]
 }`;
 
+  const model = await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   try {
     const request = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     };
@@ -721,7 +724,7 @@ Return a JSON object:
       resourceType: "brand_profile",
       attempt: 1,
     }, () => genAI.models.generateContent(request));
-    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
+    await recordBrandGeminiAttempt(model, teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (
       !Array.isArray(parsed.competitiveGaps?.opportunityTopics) ||
@@ -741,7 +744,7 @@ Return a JSON object:
     };
   } catch (err) {
     if (isProviderAccountingError(err)) throw err;
-    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
+    await recordBrandGeminiAttempt(model, teamId, null, startedAt, false, err, prompt);
     console.error("analyzeGapsAndFailures Gemini error:", err);
     throw new Error(`Competitive gap analysis failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -802,10 +805,11 @@ ${sourceText.slice(0, 12_000)}
 
 If the source does not explicitly support a claim, omit it. An empty approvedClaims array is correct.`;
 
+  const model = await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   try {
     const request = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" },
     };
@@ -815,7 +819,7 @@ If the source does not explicitly support a claim, omit it. An empty approvedCla
       resourceType: "brand_profile",
       attempt: 1,
     }, () => genAI.models.generateContent(request));
-    await recordBrandGeminiAttempt(teamId, result, startedAt, true, undefined, prompt);
+    await recordBrandGeminiAttempt(model, teamId, result, startedAt, true, undefined, prompt);
     const parsed = parseSingleStructuredObject(result.text ?? "");
     if (
       !Array.isArray(parsed.approvedClaims) ||
@@ -847,7 +851,7 @@ If the source does not explicitly support a claim, omit it. An empty approvedCla
     };
   } catch (err) {
     if (isProviderAccountingError(err)) throw err;
-    await recordBrandGeminiAttempt(teamId, null, startedAt, false, err, prompt);
+    await recordBrandGeminiAttempt(model, teamId, null, startedAt, false, err, prompt);
     console.error("buildBrandPolicyPack Gemini error:", err);
     throw new Error(`Brand policy analysis failed: ${err instanceof Error ? err.message : String(err)}`);
   }

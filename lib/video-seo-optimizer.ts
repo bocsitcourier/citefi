@@ -1,6 +1,7 @@
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 
 export interface VideoSEOMetadataRequest {
   topic: string;
@@ -111,16 +112,17 @@ Return valid JSON only:
 
 Return ONLY valid JSON. No markdown, no explanations.`;
 
+  const model = await getResolvedModel("gptMini");
   try {
     const response = await callOpenAI((client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       max_tokens: 1500,
     }), "Video SEO metadata", undefined, {
       operationType: "seo_analysis",
-      model: "gpt-4.1-mini",
-      request: { model: "gpt-4.1-mini", maxOutputTokens: 1500 },
+      model,
+      request: { model, maxOutputTokens: 1500 },
     });
 
     const text = response.choices[0]?.message?.content?.trim() || "";

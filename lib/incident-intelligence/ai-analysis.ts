@@ -95,11 +95,11 @@ type AiInvoker = (args: {
 }) => Promise<unknown>;
 
 async function defaultInvoker(args: Parameters<AiInvoker>[0]): Promise<unknown> {
-  const [{ callOpenAI }, { getModel }] = await Promise.all([
+  const [{ callOpenAI }, { getResolvedModel }] = await Promise.all([
     import("@/lib/openai-client"),
     import("@/lib/model-resolver"),
   ]);
-  const model = getModel("gptMini");
+  const model = await getResolvedModel("gptMini");
   const response = await callOpenAI(
     (client) => client.chat.completions.create({
       model,

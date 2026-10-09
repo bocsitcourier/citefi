@@ -4,6 +4,7 @@ import { resolve, dirname, join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import net from "node:net";
 import { syncBuiltinESMExports } from "node:module";
+import { assertPaidQaLedgerResolved } from "./budget-ledger-dispute.mjs";
 
 export const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 export const ROOT = resolve("QA/evidence/live-current");
@@ -67,6 +68,7 @@ export function durableJson(path, data) {
   try { fsyncSync(dir); } finally { closeSync(dir); }
 }
 export function preflight() {
+  assertPaidQaLedgerResolved();
   const budgetBaseline = canonicalBudgetBaseline();
   const ledgerPath = join(ROOT, "budget-ledger.json");
   const existing = existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, "utf8")) : null;
@@ -98,6 +100,7 @@ export function preflight() {
 // One shared lock/ledger across every run and helper. A crash leaves the lock
 // and pending reservation intact: a human must reconcile before removing it.
 export function reserveRun(runId, report) {
+  assertPaidQaLedgerResolved();
   if (!/^[a-z0-9-]{1,80}$/.test(runId)) throw new Error("Invalid run ID");
   mkdirSync(ROOT, { recursive: true, mode: 0o700 });
   const lockPath = join(ROOT, "budget.lock");
@@ -256,6 +259,7 @@ export function installNetworkGuard(budget) {
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.origin === "http://127.0.0.1:5110") return nativeFetch(input, { ...init, redirect: "error" });
+    assertPaidQaLedgerResolved();
     const { call, bytes, hash } = validateRequest(url, init);
     const attempt = budget.submit(call, bytes, hash);
     try {

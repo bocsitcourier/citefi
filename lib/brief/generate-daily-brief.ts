@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { dailyBriefs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { GoogleGenAI, type GenerateContentResponse } from "@google/genai";
-import { GEMINI_ARTICLE_MODEL } from "@/lib/ai-config";
+import { getResolvedModel } from "@/lib/model-resolver";
 import { assembleBriefContext, scoreActions, type BriefContext } from "./assembler";
 import { throttledGeminiRequest, submitGeminiRequest } from "@/lib/gemini";
 import type {
@@ -271,12 +271,13 @@ JSON schema:
 
 Respond with ONLY the JSON object.`;
 
+    const model = await getResolvedModel("geminiArticle");
     const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
       const attemptKey = `daily-brief:${teamId}:${userId}:${localDate}`;
     let result: any;
     try {
       const generationRequest = {
-        model: GEMINI_ARTICLE_MODEL,
+        model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" },
       };
@@ -305,7 +306,7 @@ Respond with ONLY the JSON object.`;
       if (dependencies.logCostTelemetry) {
         await dependencies.logCostTelemetry(telemetryInput);
       } else {
-        await logCostTelemetry({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId,
+        await logCostTelemetry({ operationType: "other", provider: "gemini", model, teamId, userId,
           providerRequestId: result.responseId ?? null, providerMetadata },
         extractGeminiUsage(result), telemetryInput.latencyMs);
       }
@@ -322,7 +323,7 @@ Respond with ONLY the JSON object.`;
       if (dependencies.logFailedProviderAttempt) {
         await dependencies.logFailedProviderAttempt(telemetryInput);
       } else {
-        await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model: GEMINI_ARTICLE_MODEL, teamId, userId, providerMetadata },
+        await logFailedProviderAttempt({ operationType: "other", provider: "gemini", model, teamId, userId, providerMetadata },
           { totalTokens: 0 }, telemetryInput.latencyMs, error);
       }
       throw error;

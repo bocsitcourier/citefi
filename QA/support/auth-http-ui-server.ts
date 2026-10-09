@@ -32,6 +32,7 @@ import {
   seedAuthHttpUiUsers,
   type AuthHttpUiSeed,
 } from "./auth-http-ui-seed.js";
+import { seedPublishingReconciliationUi, PUBLISHING_UI_ENCRYPTION_FIXTURE } from "./publishing-reconciliation-ui-seed.js";
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const PRIVATE_ROOT = "/tmp/privatefixture";
@@ -107,6 +108,7 @@ if (originalFetch) {
 `;
 
 type UiCredentials = {
+  publishingReview?: { articleId: number; connectionId: number; teamId: number; policy: string };
   uiUrl: string;
   routeFixtureUrl: string;
   admin: { email: string; password: string };
@@ -125,6 +127,7 @@ async function preparePrivateProject(): Promise<void> {
     "components",
     "hooks",
     "lib",
+    "workers",
     "public",
     "shared",
     "types",
@@ -162,6 +165,14 @@ async function preparePrivateProject(): Promise<void> {
     ].join("\n"),
   );
   await writeFile(join(PRIVATE_ROOT, "network-deny.cjs"), networkDenyPreload);
+  if (process.argv.includes("--publishing-review")) {
+    // Keep fixture-only storage wiring out of the application source tree.
+    await copyFile(join(ROOT, "QA/support/publishing-review-ui-storage.ts"), join(PRIVATE_ROOT, "lib/qa-publishing-storage.ts"));
+    const mediaModule = join(PRIVATE_ROOT, "lib/publishing/review-media.ts");
+    const source = await readFile(mediaModule, "utf8");
+    if (!source.includes('from "../storage"')) throw new Error("Review media fixture import no longer matches");
+    await writeFile(mediaModule, source.replace('from "../storage"', 'from "../qa-publishing-storage"'));
+  }
 }
 
 async function waitForUi(nextProcess: ChildProcess, nextLog: string): Promise<void> {
@@ -221,6 +232,21 @@ async function run(): Promise<void> {
     fixture = await startAuthHttpFixture({ smtpCapturePath: SMTP_CAPTURE_FILE });
     db = await import("../../lib/db.js");
     seed = await seedAuthHttpUiUsers();
+    let publishingReview: UiCredentials["publishingReview"];
+    const publishingUi = process.env.QA_PUBLISHING_RECONCILIATION_UI === "true";
+    if (publishingUi && process.argv.includes("--publishing-review"))
+      throw new Error("Choose one owned publishing fixture mode");
+    if (publishingUi) {
+      process.env.NEXTAUTH_URL = UI_URL;
+      process.env.NEXT_PUBLIC_APP_URL = UI_URL;
+      await writeFile(join(PRIVATE_ROOT, "publishing-reconciliation-ui.json"),
+        JSON.stringify(await seedPublishingReconciliationUi(seed), null, 2), { mode: 0o600 });
+    }
+    if (process.argv.includes("--publishing-review")) {
+      process.env.API_KEY_ENCRYPTION_SECRET = "qa-owned-ui-encryption-key-32-only";
+      const { seedPublishingReviewUi } = await import("./publishing-review-ui-seed");
+      publishingReview = await seedPublishingReviewUi(seed);
+    }
     const environment: NodeJS.ProcessEnv = {
       ...fixture.environment,
       NODE_ENV: "development",
@@ -237,6 +263,8 @@ async function run(): Promise<void> {
       ALL_PROXY: "",
       NO_PROXY: "*",
       NODE_OPTIONS: `--require=${join(PRIVATE_ROOT, "network-deny.cjs")}`,
+      ...(publishingReview ? { API_KEY_ENCRYPTION_SECRET: "qa-owned-ui-encryption-key-32-only" } : {}),
+      ...(publishingUi ? { API_KEY_ENCRYPTION_SECRET: PUBLISHING_UI_ENCRYPTION_FIXTURE } : {}),
     };
     await writeFile(
       join(PRIVATE_ROOT, ".env.local"),
@@ -261,9 +289,12 @@ async function run(): Promise<void> {
         APP_URL: UI_URL,
         NEXT_PUBLIC_APP_URL: UI_URL,
         NEXTAUTH_URL: UI_URL,
+        ...(publishingReview ? { API_KEY_ENCRYPTION_SECRET: "qa-owned-ui-encryption-key-32-only" } : {}),
+        ...(publishingUi ? { API_KEY_ENCRYPTION_SECRET: PUBLISHING_UI_ENCRYPTION_FIXTURE } : {}),
       }).map(([key, value]) => `${key}=${value ?? ""}`).join("\n") + "\n",
     );
     const credentials: UiCredentials = {
+      ...(publishingReview ? { publishingReview } : {}),
       uiUrl: UI_URL,
       routeFixtureUrl: fixture.baseUrl,
       admin: { email: seed.admin.email, password: AUTH_HTTP_UI_PASSWORD },

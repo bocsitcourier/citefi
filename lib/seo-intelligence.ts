@@ -1,9 +1,9 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
 import { GoogleGenAI } from "@google/genai";
 import { openaiClient, callOpenAI } from "./openai-client";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
+import { getResolvedModel } from "./model-resolver";
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 async function generateSeoIntelligence(prompt: string, teamId: number) {
@@ -11,9 +11,10 @@ async function generateSeoIntelligence(prompt: string, teamId: number) {
     throw new Error("SEO intelligence requires a validated teamId");
   }
   const startedAt = Date.now(), providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
+  const model = await getResolvedModel("geminiFlash");
   try {
     const request = {
-      model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
+      model, contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { temperature: 0.7, responseMimeType: "application/json" },
     };
     const result = await submitGeminiRequest(request, {
@@ -22,13 +23,13 @@ async function generateSeoIntelligence(prompt: string, teamId: number) {
       resourceType: "seo_analysis",
       attempt: 1,
     }, () => genAI.models.generateContent(request));
-    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model, teamId,
       providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
     extractGeminiUsage(result), Date.now() - startedAt);
     return result;
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
-    await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+    await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model, teamId, providerMetadata },
       { totalTokens: 0 }, Date.now() - startedAt, error);
     throw error;
   }
@@ -306,16 +307,17 @@ Return ONLY valid JSON:
   "keyword_opportunities": string[]
 }`;
 
+  const model = await getResolvedModel("gptMini");
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.7,
     }),
     `Competitor Analysis: ${competitor_url}`,
     undefined,
-    { request: { model: "gpt-4.1-mini" } },
+    { request: { model } },
   );
 
   return JSON.parse(completion.choices[0]!.message.content!) as CompetitorAnalysis;
@@ -729,16 +731,17 @@ Return ONLY valid JSON:
   }]
 }`;
 
+  const model = await getResolvedModel("gptMini");
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.8,
     }),
     `Pillar Cluster Strategy: ${main_topic}`,
     undefined,
-    { request: { model: "gpt-4.1-mini" } },
+    { request: { model } },
   );
 
   return JSON.parse(completion.choices[0]!.message.content!) as PillarClusterStrategy;

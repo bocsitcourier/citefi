@@ -299,13 +299,38 @@ test("SDK payload model and output limit are checked before physical fetch", asy
         },
       ),
       (error: any) =>
-        error?.cause?.message ===
-        "OpenAI SDK output limit did not match prepared receipt metadata",
+        error?.code === "OPENAI_REQUEST_METADATA_MISMATCH" &&
+        error?.message === "OpenAI SDK output limit did not match prepared receipt metadata",
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
   assert.equal(physicalFetches, 0);
+  assert.equal([...store.rows.values()][0]?.status, "provider_rejected");
+});
+
+test("a forged pre-transport error code does not prove a request was never submitted", async () => {
+  const store = new MemoryProviderAttemptReceiptStore();
+  const ledger: Array<Record<string, unknown>> = [];
+  await assert.rejects(
+    () => callOpenAI(
+      async () => {
+        throw Object.assign(new Error("connection lost"), {
+          code: "PROVIDER_REQUEST_NOT_SUBMITTED",
+        });
+      },
+      "untrusted error shape",
+      undefined,
+      {
+        teamId: 7, operationType: "article_review", model: "gpt-4.1-mini",
+        request: { model: "gpt-4.1-mini" },
+      },
+      { receipt: receiptDeps(store, ledger) },
+    ),
+    (error: any) => error?.code === "PROVIDER_ATTEMPT_SUBMISSION_UNCERTAIN",
+  );
+  assert.equal([...store.rows.values()][0]?.status, "uncertain");
+  assert.equal(ledger.length, 0);
 });
 
 test("TTS SDK input length is checked against exact character bound", async () => {
@@ -344,11 +369,12 @@ test("TTS SDK input length is checked against exact character bound", async () =
         },
       ),
       (error: any) =>
-        error?.cause?.message ===
-        "OpenAI SDK TTS input length did not match prepared receipt metadata",
+        error?.code === "OPENAI_REQUEST_METADATA_MISMATCH" &&
+        error?.message === "OpenAI SDK TTS input length did not match prepared receipt metadata",
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
   assert.equal(physicalFetches, 0);
+  assert.equal([...store.rows.values()][0]?.status, "provider_rejected");
 });

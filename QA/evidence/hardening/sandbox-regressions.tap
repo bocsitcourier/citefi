@@ -1,0 +1,247 @@
+
+> rest-express@1.0.0 test:e2e
+> node scripts/run-generation-qa.mjs
+
+{"requestedMode":"sandbox","resolvedMode":"sandbox","scope":"Offline regression coverage only","productionCertified":false,"providerCalls":0}
+TAP version 13
+# Subtest: admin credit adjustment commitment guard
+    # Subtest: rejects removing credits already held for in-flight work
+    ok 1 - rejects removing credits already held for in-flight work
+      ---
+      duration_ms: 0.60489
+      ...
+    # Subtest: rejects removing credits already consumed in the adjusted bucket
+    ok 2 - rejects removing credits already consumed in the adjusted bucket
+      ---
+      duration_ms: 0.16511
+      ...
+    # Subtest: allows a correction that removes only uncommitted balance
+    ok 3 - allows a correction that removes only uncommitted balance
+      ---
+      duration_ms: 0.085599
+      ...
+    # Subtest: positive grants are unaffected and fractional corrections fail closed
+    ok 4 - positive grants are unaffected and fractional corrections fail closed
+      ---
+      duration_ms: 0.074855
+      ...
+    # Subtest: adminAdjust evaluates the policy under a balance-row lock before updating
+    ok 5 - adminAdjust evaluates the policy under a balance-row lock before updating
+      ---
+      duration_ms: 0.581947
+      ...
+    1..5
+ok 1 - admin credit adjustment commitment guard
+  ---
+  duration_ms: 2.409183
+  type: 'suite'
+  ...
+# Subtest: scheduled generation billing hardening
+    # Subtest: keeps the cron claim serialized and reserves cap plus credits before provider calls
+    ok 1 - keeps the cron claim serialized and reserves cap plus credits before provider calls
+      ---
+      duration_ms: 0.6035
+      ...
+    # Subtest: retains the deterministic schedule/run billing identity and shrinks short title pools safely
+    ok 2 - retains the deterministic schedule/run billing identity and shrinks short title pools safely
+      ---
+      duration_ms: 0.16607
+      ...
+    # Subtest: uncertain provider/accounting and enqueue outcomes preserve both holds
+    ok 3 - uncertain provider/accounting and enqueue outcomes preserve both holds
+      ---
+      duration_ms: 0.236067
+      ...
+    1..3
+ok 2 - scheduled generation billing hardening
+  ---
+  duration_ms: 1.6321
+  type: 'suite'
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# Subtest: schedule calculation respects the configured timezone and cadence
+ok 3 - schedule calculation respects the configured timezone and cadence
+  ---
+  duration_ms: 28.632112
+  ...
+# Subtest: invalid cron or timezone fails visibly rather than scheduling a fallback
+ok 4 - invalid cron or timezone fails visibly rather than scheduling a fallback
+  ---
+  duration_ms: 0.921671
+  ...
+# Subtest: social scheduling rejects past dates and terminal posts
+ok 5 - social scheduling rejects past dates and terminal posts
+  ---
+  duration_ms: 0.259215
+  ...
+# Subtest: every accepted negative callback has a bounded retry transition
+ok 6 - every accepted negative callback has a bounded retry transition
+  ---
+  duration_ms: 0.195534
+  ...
+# Subtest: late negative callbacks cannot regress delivered jobs
+ok 7 - late negative callbacks cannot regress delivered jobs
+  ---
+  duration_ms: 0.095457
+  ...
+# Subtest: publishing response, duplicate dispatch, and callback receipt races are fenced in source
+ok 8 - publishing response, duplicate dispatch, and callback receipt races are fenced in source
+  ---
+  duration_ms: 0.625402
+  ...
+# Subtest: both scheduling entry points share the same tenant-scoped conditional write
+ok 9 - both scheduling entry points share the same tenant-scoped conditional write
+  ---
+  duration_ms: 0.404808
+  ...
+# Subtest: dispatched publishing evidence cannot be deleted in a claim race
+ok 10 - dispatched publishing evidence cannot be deleted in a claim race
+  ---
+  duration_ms: 0.222528
+  ...
+# Subtest: cap holds do not disappear merely because queued work is older than two hours
+ok 11 - cap holds do not disappear merely because queued work is older than two hours
+  ---
+  duration_ms: 0.311855
+  ...
+# Subtest: schedule claiming and interrupted-run evidence share one transaction
+ok 12 - schedule claiming and interrupted-run evidence share one transaction
+  ---
+  duration_ms: 0.343807
+  ...
+# Subtest: manual credit corrections cannot over-remove a bucket and falsify its ledger delta
+ok 13 - manual credit corrections cannot over-remove a bucket and falsify its ledger delta
+  ---
+  duration_ms: 0.187267
+  ...
+# Subtest: article requests control thinking by model family without changing output limits
+ok 14 - article requests control thinking by model family without changing output limits
+  ---
+  duration_ms: 0.483855
+  ...
+# Subtest: installed SDK serializes thinking level without dropping schema or token ceiling
+ok 15 - installed SDK serializes thinking level without dropping schema or token ceiling
+  ---
+  duration_ms: 5.424655
+  ...
+# Subtest: team administrator removal serializes invariant check and deletion per team
+ok 16 - team administrator removal serializes invariant check and deletion per team
+  ---
+  duration_ms: 0.804171
+  ...
+# Subtest: platform admin lifecycle changes share the serialized last-admin invariant
+ok 17 - platform admin lifecycle changes share the serialized last-admin invariant
+  ---
+  duration_ms: 4.836035
+  ...
+# Subtest: identity lifecycle guards reject suspended users and removed team contexts
+ok 18 - identity lifecycle guards reject suspended users and removed team contexts
+  ---
+  duration_ms: 0.237419
+  ...
+# Subtest: password recovery issuance invalidates competing recovery channels
+ok 19 - password recovery issuance invalidates competing recovery channels
+  ---
+  duration_ms: 3.332877
+  ...
+# Subtest: signed POST uses pinned transport and preserves its method and body
+ok 20 - signed POST uses pinned transport and preserves its method and body
+  ---
+  duration_ms: 19.156062
+  ...
+# Subtest: signed POST never replays a body or credentials to a redirect target
+ok 21 - signed POST never replays a body or credentials to a redirect target
+  ---
+  duration_ms: 0.984628
+  ...
+# Subtest: HEAD verification ignores entity length but still pins the connection
+ok 22 - HEAD verification ignores entity length but still pins the connection
+  ---
+  duration_ms: 0.432695
+  ...
+# Subtest: independent URL validation and pinned transport
+    # Subtest: normalizes and rejects mapped, compatible, private, and reserved address classes
+    ok 1 - normalizes and rejects mapped, compatible, private, and reserved address classes
+      ---
+      duration_ms: 1.24482
+      ...
+    # Subtest: requires every DNS answer to be public and requests all addresses
+    ok 2 - requires every DNS answer to be public and requests all addresses
+      ---
+      duration_ms: 0.351528
+      ...
+    # Subtest: permits a public host and pins the all-address lookup before transport
+    ok 3 - permits a public host and pins the all-address lookup before transport
+      ---
+      duration_ms: 1.447094
+      ...
+    # Subtest: blocks a private DNS answer before opening transport
+    ok 4 - blocks a private DNS answer before opening transport
+      ---
+      duration_ms: 1.323934
+      ...
+    # Subtest: blocks a private redirect before a second transport connection
+    ok 5 - blocks a private redirect before a second transport connection
+      ---
+      duration_ms: 0.627546
+      ...
+    # Subtest: repins and rejects a DNS-rebound redirect before a second connection
+    ok 6 - repins and rejects a DNS-rebound redirect before a second connection
+      ---
+      duration_ms: 0.816251
+      ...
+    # Subtest: rejects HTTPS-to-HTTP downgrade before resolving or connecting the next hop
+    ok 7 - rejects HTTPS-to-HTTP downgrade before resolving or connecting the next hop
+      ---
+      duration_ms: 0.795493
+      ...
+    # Subtest: follows a public redirect only after repinning its destination
+    ok 8 - follows a public redirect only after repinning its destination
+      ---
+      duration_ms: 1.214272
+      ...
+    # Subtest: enforces response byte limits before returning a response
+    ok 9 - enforces response byte limits before returning a response
+      ---
+      duration_ms: 0.645433
+      ...
+    # Subtest: rejects a declared content length above the bound before reading the body
+    ok 10 - rejects a declared content length above the bound before reading the body
+      ---
+      duration_ms: 0.357762
+      ...
+    # Subtest: enforces per-hop timeout before returning a response
+    ok 11 - enforces per-hop timeout before returning a response
+      ---
+      duration_ms: 0.268892
+      ...
+    # Subtest: bounds a hanging DNS lookup with the whole-operation deadline
+    ok 12 - bounds a hanging DNS lookup with the whole-operation deadline
+      ---
+      duration_ms: 8.458066
+      ...
+    # Subtest: all three URL-fetching sinks use the bounded pinned helper
+    ok 13 - all three URL-fetching sinks use the bounded pinned helper
+      ---
+      duration_ms: 5.515219
+      ...
+    1..13
+ok 23 - independent URL validation and pinned transport
+  ---
+  duration_ms: 23.868015
+  type: 'suite'
+  ...
+# Subtest: SSRF validation rejects IPv4-mapped loopback addresses
+ok 24 - SSRF validation rejects IPv4-mapped loopback addresses
+  ---
+  duration_ms: 6.35311
+  ...
+1..24
+# tests 42
+# suites 3
+# pass 42
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10102.288287

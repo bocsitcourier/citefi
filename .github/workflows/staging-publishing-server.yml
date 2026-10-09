@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Inspect, set up, or verify isolated staging publishing
+        description: Inspect, set up, verify, preview retention, or explicitly clean expired staging sources
         type: choice
-        options: [inspect, inspect-root, setup, verify]
+        options: [inspect, inspect-root, setup, verify, retention-preview, retention-cleanup]
         required: true
         default: inspect
+      retention_digest:
+        description: Required for cleanup; copy the digest from a reviewed retention-preview run
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -29,6 +33,7 @@ jobs:
           DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
           DO_USER: citefi
           STAGING_OPERATION: ${{ inputs.operation }}
+          STAGING_RETENTION_DIGEST: ${{ inputs.retention_digest }}
           GH_TOKEN: ${{ github.token }}
           STAGING_SOURCE_BLOB: 71cf753a62551dd56f1a392941c0ff12214e199e
           STAGING_SOURCE_SHA256: 6cb3fbdda254edec7f448e3407561ef7017527b5822ca6000f2df4c485869c50

@@ -145,6 +145,11 @@ Add metrics and alerts for:
 - Duplicate object hashes across legacy content stores.
 - Failed output grouped by pipeline stage and provider.
 
+
+### 6. Complete the object-storage migration — medium priority
+
+The legacy Replit bucket is now a read-only compatibility source. Inventory and copy historical objects to the intended production storage provider, verify hashes and byte-range reads, then remove the fallback only after migration parity is certified.
+
 ### 6. Object-storage migration — completed September 9, 2026
 
 The historical object migration is certified in

@@ -101,7 +101,8 @@ function assertCiContract(w) {
           },
           {
             name: 'Check workflow gates and stubbed host pins',
-            run: 'env -i PATH="$PATH" HOME="$RUNNER_TEMP" NODE_PATH="$RUNNER_TEMP/deployment-contract/node_modules" node tests/deployment/workflow-gates.test.cjs\n',
+            run: 'env -i PATH="$PATH" HOME="$RUNNER_TEMP" NODE_PATH="$RUNNER_TEMP/deployment-contract/node_modules" node tests/deployment/workflow-gates.test.cjs\n'
+              + 'env -i PATH="$PATH" HOME="$RUNNER_TEMP" NODE_PATH="$RUNNER_TEMP/deployment-contract/node_modules" node --test tests/deployment/merge-protection-audit.test.mjs\n',
           },
         ],
       },

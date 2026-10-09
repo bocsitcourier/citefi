@@ -1,0 +1,11 @@
+{
+  "approved": true,
+  "permissionScope": "offline_implementation_and_isolated_verification_only",
+  "ownerDecision": "Implement and verify offline",
+  "paidRecoveryAuthorized": false,
+  "releaseOriginalHoldAuthorized": false,
+  "customerDatabaseAccessAuthorized": false,
+  "productionDefaultSpeechChangeAuthorized": false,
+  "newProviderCallsAuthorized": false,
+  "ordinarySchedulerStartupAuthorized": false
+}

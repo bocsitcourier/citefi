@@ -1,0 +1,1911 @@
+I’ve combined the live-testing instructions from your attached document with the Citefi generation, QA, auto-publishing, sandbox fallback, dashboard, database, and Replit implementation requirements you pasted earlier.
+
+The combined prompt has one important distinction: Citefi must support both real integrations and sandbox testing, but a sandbox success can never count as a live test pass. Missing credentials must trigger a visible fallback in Auto mode, while Strict Live mode must report the integration as blocked rather than quietly substituting mock output.
+
+It also preserves the attached document’s production safeguards: dedicated test workspaces, a defined credit budget, evidence for every result, a cleanup inventory, and no code changes or deletion of live content until you approve them.
+
+CITEFI — MASTER REPLIT PROMPT
+
+# CITEFI — MASTER REPLIT PROMPT
+
+## Live Production QA, Full-Stack Implementation Audit, AI Generation, Automated Quality Gates, Multi-Channel Auto-Publishing, and Sandbox Testing
+
+**Target application:** [https://citefi.co](https://citefi.co)
+
+**Primary objective:** Establish whether Citefi works end to end in the real deployed environment, identify and document defects, and ensure every content-generation, quality-assurance, scheduling, and publishing workflow can be tested reliably.
+
+**Execution requirement:** Perform actual live browser tests and real integration tests wherever authorized. Build or verify the automated testing infrastructure described below. Do not confuse source-code inspection, local tests, mocked API calls, or sandbox success with live production verification.
+
+You are acting as a principal QA engineer, senior full-stack developer, AI systems auditor, browser automation engineer, publishing-integration specialist, security tester, and release-readiness auditor.
+
+You must inspect the existing Citefi application before deciding what to implement. Preserve working functionality, architecture, customer data, and existing integrations. Do not replace the current stack merely because another stack is listed below.
+
+---
+
+# PART 1 — SYSTEM GOAL
+
+The system must allow an authorized user to initiate a comprehensive end-to-end test from a single local prompt input and follow the entire workflow:
+
+**Prompt input → campaign creation → AI content generation → media creation → automated QA → review and approval → scheduling → publication → destination verification → analytics and audit reporting.**
+
+The platform must support the following deliverables:
+
+1. SEO blog articles.
+
+2. Social media content for each implemented and authorized platform, including LinkedIn, Facebook, and X/Twitter where supported.
+
+3. AI-generated vertical videos.
+
+4. Two-voice AI podcast episodes.
+
+5. Website/CMS publication.
+
+6. Automated social and video publication through actual supported integrations.
+
+7. Webhook-triggered publishing through configured external automation tools.
+
+8. Quality scoring, content validation, approval controls, scheduling, retry, and recovery.
+
+The system must support three clearly distinguished execution modes.
+
+### Mode A — SANDBOX
+
+Run a fully functional test without requiring paid AI or publishing credentials.
+
+* Simulate external API calls.
+
+* Generate deterministic, realistic test payloads.
+
+* Generate actual local mock media files where practical.
+
+* Exercise the real application UI, database, job queues, state transitions, validation, and reporting.
+
+* Use configurable artificial latency of approximately 1–3 seconds per simulated external step.
+
+* Never send content to public channels.
+
+* Label all simulated results as SANDBOX.
+
+* Verify that the complete pipeline works without external production services.
+
+### Mode B — LIVE
+
+Use the real deployed application and actual configured external integrations.
+
+* Use real AI generation APIs.
+
+* Use real TTS, image, and video services when configured.
+
+* Use actual database persistence and production-equivalent background processing.
+
+* Use real publishing APIs and authorized test destinations.
+
+* Verify actual external publication outcomes where supported.
+
+* Record real job IDs, request results, destination IDs, elapsed times, and evidence.
+
+If a required API key or permission is missing, mark that specific step BLOCKED. Do not silently replace a live integration with a mock and report success.
+
+### Mode C — AUTO
+
+Automatically choose the appropriate execution method based on configuration.
+
+* Use real services when valid credentials and permissions are available.
+
+* Fall back to sandbox services when required credentials are missing or a noncritical external dependency is unavailable.
+
+* Log every fallback, including the missing dependency, reason, timestamp, and selected implementation.
+
+* Display the execution mode separately for every pipeline stage.
+
+* Never label sandbox output as live-generated or live-published.
+
+* Never interpret a simulated publication as an actual public post.
+
+* Never silently fall back during a test explicitly designated Strict Live.
+
+**Important:** A real API failure must remain visible even when Auto mode successfully completes the remaining workflow using a fallback. Report partial live execution and sandbox completion separately.
+
+---
+
+# PART 2 — TEST ENVIRONMENT AND SAFETY CONFIGURATION
+
+Before starting live execution, collect and validate the following settings.
+
+* Dedicated test workspace: `[WORKSPACE NAME]`
+
+* Authorized test account: `[ACCOUNT / ROLE]`
+
+* Test brand: `[BRAND NAME]`
+
+* Test website: `[WEBSITE URL]`
+
+* Authorized Facebook destination: `[PAGE]`
+
+* Authorized LinkedIn destination: `[PAGE OR PROFILE]`
+
+* Authorized X/Twitter destination: `[ACCOUNT]`
+
+* Authorized TikTok destination: `[ACCOUNT]`
+
+* Authorized YouTube destination: `[CHANNEL]`
+
+* Website receiver: `[AUTHORIZED RECEIVER URL]`
+
+* Credit budget: `[N CREDITS]`
+
+* Maximum permitted external API spend: `[$ AMOUNT]`
+
+* Allowed publication window: `[START / END]`
+
+* Test timezone: `America/New_York`
+
+* Cleanup owner: `[OWNER]`
+
+These are configuration placeholders, not assumed credentials. Detect which integrations actually exist in the deployed application.
+
+## Mandatory live-testing rules
+
+1. Use only the dedicated test workspace and explicitly authorized accounts.
+
+2. Never publish to customer accounts or public destinations without explicit authorization.
+
+3. Clearly label live test content with `[QA TEST]` wherever practical and permitted.
+
+4. Maintain a cleanup inventory containing every generated artifact, published post, uploaded file, scheduled job, database record, and external ID created by the tests.
+
+5. Do not automatically delete, unpublish, or modify live artifacts during cleanup. Produce a cleanup plan and wait for approval.
+
+6. Record credit and API-cost consumption before and after every test phase.
+
+7. Stop new paid generation and publishing tests when 80% of the configured credit budget is consumed. Finish safe verification of existing jobs and report remaining work.
+
+8. Stop before any action that risks customer data, shared queues, global configuration, irreversible changes, or unapproved production migrations.
+
+9. Do not expose API keys, OAuth tokens, passwords, or sensitive customer data in screenshots, logs, reports, or browser output.
+
+10. Do not modify application code during the initial live audit. Document findings and wait for approval before applying fixes.
+
+11. Do not run destructive load tests, mass-publication tests, or high-volume paid generation against production.
+
+12. Use sandbox, staging, or controlled test accounts for destructive, concurrency, and failure-injection tests.
+
+---
+
+# PART 3 — INITIAL APPLICATION DISCOVERY
+
+Before making changes, inspect both the live application and the available source repository.
+
+## 3.1 Live browser inspection
+
+Open [https://citefi.co](https://citefi.co) using a real browser and:
+
+* Confirm availability, redirects, TLS, and page loading.
+
+* Log in using authorized credentials if required.
+
+* Explore the actual navigation, dashboard, campaign tools, generators, QA interface, publishing settings, subscription controls, and administration pages.
+
+* Test visible controls and forms.
+
+* Identify broken links, dead buttons, loading loops, JavaScript errors, and misleading status messages.
+
+* Inspect network requests and responses where authorized.
+
+* Verify that records persist after refreshing or reopening the application.
+
+* Capture redacted screenshots and reproduction steps for defects.
+
+If browser automation or a live authenticated session is unavailable, report that limitation. Do not claim browser testing occurred when it did not.
+
+## 3.2 Repository and architecture inspection
+
+Inspect:
+
+* Frontend routes, components, state management, and forms.
+
+* API routes, server actions, Express endpoints, and middleware.
+
+* AI-generation services and prompts.
+
+* Content-processing pipelines and quality gates.
+
+* Background workers, queues, scheduled jobs, and webhooks.
+
+* Database schemas, migrations, indexes, and transactions.
+
+* File storage, media rendering, and download handling.
+
+* Publishing integrations, OAuth flows, and token refresh.
+
+* Authentication, roles, subscription limits, and credits.
+
+* Logging, monitoring, error handling, and deployment configuration.
+
+* Environment variables and missing integration dependencies.
+
+Produce a complete feature inventory and a workflow dependency map.
+
+For every advertised feature, classify its implementation as:
+
+* Implemented and verified.
+
+* Implemented but unverified.
+
+* Partially implemented.
+
+* Mock or placeholder only.
+
+* Broken.
+
+* Missing.
+
+* Blocked by access or credentials.
+
+Do not infer implementation from the presence of a UI component.
+
+---
+
+# PART 4 — TECHNICAL ARCHITECTURE REQUIREMENTS
+
+Preserve the existing architecture wherever practical.
+
+The intended technology options are:
+
+* **Frontend:** Next.js App Router, Tailwind CSS, Lucide Icons, Shadcn UI, and Recharts.
+
+* **Backend:** Node.js/Express or the application's existing Next.js API architecture.
+
+* **Background processing:** BullMQ with Redis or the existing reliable queue implementation.
+
+* **Database:** PostgreSQL with Prisma ORM, if consistent with the existing project.
+
+* **Storage:** Amazon S3, Supabase Storage, or a secure local development fallback.
+
+* **Live updates:** Server-Sent Events or WebSockets.
+
+* **Automated browser tests:** Playwright or the existing equivalent.
+
+* **Media processing:** FFmpeg or another reliable renderer supported by the deployment environment.
+
+Do not introduce a new database, queue, rendering system, or hosting dependency without first checking what already exists.
+
+If a required capability is absent, document the gap, propose the smallest compatible implementation, and separate approved implementation work from the live audit.
+
+Local media storage under `/public/uploads` may be used for development and sandbox tests only when compatible with the deployment. Do not assume local filesystem persistence is reliable in production or that generated files should be publicly accessible.
+
+---
+
+# PART 5 — ONE-CLICK TEST CAMPAIGN UI
+
+Create or verify a prominent **Load Live Test Campaign** button in the campaign interface.
+
+When clicked, populate the form with the following controlled test data.
+
+**Topic**
+
+24/7 Emergency Plumbing Services in Austin TX
+
+**Target location**
+
+Austin, TX 78701 (Downtown, South Congress)
+
+**Brand voice**
+
+Authoritative, trustworthy, urgent yet empathetic, zero jargon.
+
+**Target outputs**
+
+* Blog article.
+
+* LinkedIn post.
+
+* X/Twitter four-post thread.
+
+* Facebook community post.
+
+* 60-second vertical video.
+
+* Two-voice podcast episode.
+
+These are six content deliverables spanning multiple media types, not necessarily six publishing destinations.
+
+The seeded campaign must:
+
+* Be clearly labeled as test data.
+
+* Use a dedicated test workspace.
+
+* Populate only fields actually supported by the application.
+
+* Avoid inventing a real plumbing company's identity or claiming that a real business offers specific services without evidence.
+
+* Use synthetic business details or an explicitly authorized test profile when appropriate.
+
+* Preserve the user's existing unsaved work and ask before overwriting it.
+
+## Execution controls
+
+Provide or verify:
+
+* Sandbox / Live / Auto mode selection.
+
+* Strict Live option.
+
+* Execute Full Pipeline.
+
+* Generate Only.
+
+* Run QA.
+
+* Publish Approved Content.
+
+* Cancel eligible jobs.
+
+* Retry Failed Job.
+
+* View Logs.
+
+* Export Test Report.
+
+* Export Cleanup Inventory.
+
+Before the first live publication, display the destination account, content preview, execution mode, and estimated or known costs. Require explicit confirmation for the authorized live test.
+
+---
+
+# PART 6 — COMPLETE MULTI-MODAL GENERATION PIPELINE
+
+Implement or test each stage independently and as a complete campaign.
+
+Each stage must have a persistent job record, an accurate status, timestamps, useful error information, and traceable relationships to the campaign and its outputs.
+
+## 6.1 Blog and article generator
+
+### Generation requirements
+
+Generate an article targeting approximately 1,200 words, with a configurable range and:
+
+* Descriptive title and introduction.
+
+* Logical H2 and H3 hierarchy.
+
+* Useful, original body content.
+
+* Appropriate internal and external links.
+
+* FAQ section.
+
+* SEO title and meta description.
+
+* Suggested URL slug and canonical URL where applicable.
+
+* Appropriate images and descriptive alt text where supported.
+
+* Structured data, including LocalBusiness JSON-LD only when the required business information is available and accurate.
+
+* A source and fact-verification record for claims that require evidence.
+
+* An article preview and editable stored output.
+
+### Live tests
+
+1. Generate one article.
+
+2. Verify its word count programmatically.
+
+3. Inspect the article manually for accuracy, relevance, and completeness.
+
+4. Confirm that generation actually used the configured AI provider.
+
+5. Confirm the generated output is persisted.
+
+6. Refresh the page and retrieve the same article.
+
+7. Test editing, regeneration, export, and saving.
+
+8. Run the article's QA gates.
+
+9. Verify all required metadata and structured data.
+
+10. Validate links and source references.
+
+11. Test failure recovery and partial generation.
+
+### Batch tests
+
+Use staged batch sizes of 1, 10, and, if capacity and budget permit, 50 articles.
+
+Do not automatically launch a 50-article paid production batch. Obtain explicit confirmation for the associated credits and API costs. Prefer sandbox or staging for large-volume tests.
+
+Check:
+
+* Title uniqueness and near-duplicate detection.
+
+* Correct campaign and location assignment.
+
+* Consistent brand voice.
+
+* Correct job and asset counts.
+
+* Batch progress and partial completion.
+
+* Per-item retry without duplicating successful items.
+
+* Credit accounting.
+
+* Queue recovery and concurrent execution.
+
+Do not claim zero near-duplicates without defining and applying a documented detection method.
+
+## 6.2 Social media pack
+
+Generate platform-specific content for every implemented and authorized social destination.
+
+Required formats include:
+
+**LinkedIn**
+
+* Long-form professional insights.
+
+* Appropriate opening hook and CTA.
+
+* Valid links and supported formatting.
+
+**X/Twitter**
+
+* Four-post thread where supported.
+
+* Correct post ordering and character limits.
+
+* Valid references and thread relationships.
+
+**Facebook**
+
+* Community-oriented post.
+
+* Appropriate CTA.
+
+* Image prompt or supported media attachment.
+
+Also test TikTok social/video content and any other implemented platforms.
+
+Verify:
+
+* Character and media limits.
+
+* Brand voice.
+
+* Correct source-article relationship.
+
+* Accurate business and location details.
+
+* Hashtags and links.
+
+* Unicode, emoji, accents, and encoding.
+
+* Correct destination account.
+
+* Preview versus actual submission payload.
+
+* Empty inputs and unusually long inputs.
+
+* Media present and absent.
+
+* Platform rejection handling.
+
+Do not fabricate platform API capabilities. Respect actual permissions, current platform rules, and connected-account limitations.
+
+## 6.3 AI short-video generator
+
+Target a vertical 9:16 video of approximately 60 seconds.
+
+Test the complete pipeline:
+
+1. Generate the video script.
+
+2. Validate the script against the source article.
+
+3. Generate or retrieve visual assets.
+
+4. Generate narration using the configured TTS provider.
+
+5. Assemble the scenes.
+
+6. Render the final video.
+
+7. Store the actual rendered file.
+
+8. Generate captions or subtitles if supported.
+
+9. Validate the video.
+
+10. Display and play the final result.
+
+Use the actual configured services in Live mode, such as an authorized TTS provider, Pexels, or the existing video-rendering service.
+
+Use local or generated test assets in Sandbox mode. Web Speech API may be used for a browser-based demonstration, but do not misrepresent a browser speech preview as a downloadable rendered MP4.
+
+FFmpeg or an equivalent renderer must create an actual video file if the application promises MP4 downloads.
+
+Verify:
+
+* File exists and opens.
+
+* Video plays from beginning to end.
+
+* Duration matches the requested tolerance.
+
+* Aspect ratio and resolution are correct.
+
+* Audio is present and synchronized.
+
+* Captions, branding, and scene transitions are correct.
+
+* Narration is not truncated.
+
+* Visuals are relevant and legally usable.
+
+* File size, codec, and storage URL are valid.
+
+* The final file can be downloaded.
+
+* A failed render cannot be marked complete.
+
+Run five videos sequentially and a batch of ten only when permitted by budget and environment. Otherwise, use sandbox tests for scale and clearly label the results.
+
+## 6.4 Two-voice podcast generator
+
+Generate a two-speaker episode using the source article as the content basis.
+
+Test:
+
+1. Outline and dialogue generation.
+
+2. Speaker turn consistency.
+
+3. TTS generation for each speaker.
+
+4. Audio segment assembly.
+
+5. Optional intro/outro music.
+
+6. Final audio rendering and storage.
+
+7. Metadata, cover art, and playback.
+
+8. Download and streaming links.
+
+Verify:
+
+* Two distinct voices are used where supported.
+
+* Speaker turns alternate correctly.
+
+* Labels such as “Host A” are not unintentionally spoken.
+
+* Markdown, stage directions, and URLs are not read aloud unless explicitly intended.
+
+* The episode remains factually aligned with its source article.
+
+* There is no unintended silence, truncation, or missing segment.
+
+* Audio format, duration, loudness consistency, and metadata are valid.
+
+* The final audio can be opened and played.
+
+In Sandbox mode, create real playable mock audio files if possible. Concatenating two sample audio clips is acceptable for testing assembly, but must be labeled as mock content rather than genuine generated dialogue.
+
+Run five episodes and a batch of ten only within the approved budget. Use sandbox for load tests.
+
+---
+
+# PART 7 — AUTOMATED QA AND ANTI-HALLUCINATION GATES
+
+Every generated artifact must pass the configured QA policy before it can be approved or published.
+
+Implement or verify individual checks, their outcomes, and the effect each check has on publication eligibility.
+
+## 7.1 QA metrics
+
+Use the following scoring framework as the desired specification, adapting to existing implemented metrics.
+
+### E-E-A-T and evidence quality
+
+Score from 0–100 using documented, explainable criteria.
+
+Evaluate:
+
+* Relevance and usefulness.
+
+* Appropriate expertise signals.
+
+* Source quality.
+
+* Factual support.
+
+* Local entity consistency.
+
+* Geographic relevance.
+
+* Evidence and citation traceability.
+
+A ZIP code, street name, or landmark appearing in text is not proof of local accuracy. Verify actual claims against trustworthy sources when required.
+
+Do not treat an AI-generated score as an objective guarantee of expertise, trustworthiness, or factual accuracy.
+
+### Compliance and brand checks
+
+Validate:
+
+* Brand identity.
+
+* Banned or prohibited wording.
+
+* Claims that require evidence.
+
+* Required disclosures.
+
+* CTA URLs.
+
+* Link destination validity.
+
+* Platform-specific requirements.
+
+* Approved content policies.
+
+### SEO and readability
+
+Evaluate:
+
+* Heading structure.
+
+* Title and meta description.
+
+* Keyword relevance and density.
+
+* Readability.
+
+* Flesch-Kincaid grade estimate where language and text length make it appropriate.
+
+* Internal and external links.
+
+* Structured data.
+
+* Content duplication.
+
+* Image alt text.
+
+* Placeholder content and malformed markup.
+
+### Media QA
+
+Validate that video and podcast files exist, are readable, have expected metadata, and contain playable media.
+
+## 7.2 QA threshold and state handling
+
+Default threshold: 85/100, configurable by policy.
+
+Use the following outcomes:
+
+* PASS: required checks passed and the scoring threshold was met.
+
+* FAIL: a blocking validation failed.
+
+* NEEDS_REVIEW: a claim, source, or risk requires human review.
+
+* FLAGGED FOR REVIEW: a deliberate or detected policy violation requires review.
+
+* BLOCKED: the check could not execute or a required dependency is unavailable.
+
+Do not allow a high average score to conceal a critical failure.
+
+Fabricated citations, incorrect business identity, unsupported consequential claims, invalid destination accounts, and missing required media must trigger the appropriate blocking rules.
+
+A score of 85 or above does not automatically override a failed mandatory check.
+
+## 7.3 QA Inspector interface
+
+Provide or verify:
+
+* Radar chart of QA metrics using Recharts or the existing visualization system.
+
+* Individual pass/fail indicators.
+
+* Score explanation and underlying evidence.
+
+* Warnings and blocking errors.
+
+* Source references.
+
+* Remediation guidance.
+
+* Audit history.
+
+* Re-run QA action.
+
+Provide an **Override & Force Pass** control only in a restricted test environment, with appropriate permissions and an explicit warning.
+
+Every override must record the user, timestamp, reason, affected artifact, failed checks, and override outcome. Production publishing policies must not be silently bypassed by this control.
+
+## 7.4 Required QA interception tests
+
+Deliberately introduce controlled failures:
+
+* Banned wording, including “guaranteed” and “100% free money.”
+
+* An invalid CTA URL.
+
+* A nonexistent ZIP code.
+
+* A fabricated statistic.
+
+* An incorrect brand name.
+
+* A missing required disclosure.
+
+* Malformed JSON-LD.
+
+* Broken links.
+
+* Duplicate content.
+
+* A missing media asset.
+
+* A failed mandatory validator.
+
+Verify that the relevant gates detect each applicable failure, produce a specific audit flag, and block or flag publication according to policy.
+
+Do not assume every gate can detect every failure. Record false negatives and false positives as defects.
+
+---
+
+# PART 8 — PUBLISHING CONNECTORS AND WEBHOOK SUITE
+
+Inspect the real application to determine which connectors exist, which are partially implemented, and which require additional implementation.
+
+Test supported integrations including:
+
+* Website/CMS publishing.
+
+* WordPress REST API.
+
+* Facebook.
+
+* LinkedIn.
+
+* X/Twitter.
+
+* TikTok.
+
+* YouTube Data API or authorized upload integration.
+
+* Zapier webhooks.
+
+* Make webhooks.
+
+* n8n webhooks.
+
+* Other existing integrations discovered in the repository.
+
+Do not represent an optional integration as implemented simply because it is listed in this specification.
+
+## 8.1 WordPress publishing
+
+Test:
+
+* Authentication and authorization.
+
+* Draft creation.
+
+* Published post creation where authorized.
+
+* Categories and featured images.
+
+* Title, body, metadata, canonical URL, and supported structured data.
+
+* Response parsing and post ID persistence.
+
+* Duplicate prevention.
+
+* Update and republish behavior.
+
+* Error handling.
+
+* Unauthorized requests.
+
+* Receiver unavailability and recovery.
+
+Verify the actual WordPress page in a browser after publication.
+
+## 8.2 Website receiver
+
+Where the Citefi receiver package is available:
+
+* Test installation in a clean test project.
+
+* Verify valid signed requests where signing is implemented.
+
+* Verify unauthorized or unsigned requests are rejected according to policy.
+
+* Verify malformed payload rejection.
+
+* Publish a test article.
+
+* Confirm title, meta fields, canonical URL, local images, internal links, and structured data.
+
+* Check desktop and mobile rendering.
+
+* Update an existing article without creating a duplicate page.
+
+* Test unpublishing only where supported and authorized.
+
+* Test receiver outage and recovery.
+
+* Verify queued delivery occurs once after recovery.
+
+Do not assume the receiver package or its exact API exists until the repository confirms it.
+
+## 8.3 Social and video publishing
+
+For every supported destination:
+
+1. Connect the authorized test account.
+
+2. Verify permissions and account identity.
+
+3. Test disconnect and reconnect.
+
+4. Test token expiry or revocation in a controlled environment.
+
+5. Publish an explicitly authorized test post.
+
+6. Verify the external post ID.
+
+7. Open the returned URL where available.
+
+8. Compare actual published content with the approved artifact.
+
+9. Test safe failure and retry behavior.
+
+10. Confirm duplicate prevention.
+
+For TikTok and YouTube, explicitly verify current API permissions, review/audit restrictions, media requirements, and actual post visibility. Distinguish private, unlisted, public, processing, and rejected states wherever supported.
+
+If public publishing is unavailable because of platform restrictions, report the exact limitation as BLOCKED. Do not bypass platform restrictions.
+
+## 8.4 Webhook Inspector
+
+Create or verify an embedded webhook inspection interface showing:
+
+* Target name and redacted URL.
+
+* Event type.
+
+* Request timestamp.
+
+* HTTP method.
+
+* Redacted request headers.
+
+* Request payload.
+
+* HTTP response status.
+
+* Redacted response body.
+
+* Response latency.
+
+* Retry count.
+
+* Delivery status.
+
+* Correlation or job ID.
+
+Support safe test payloads and replay in Sandbox mode.
+
+Do not expose credentials, signatures, tokens, or secrets in the UI or exported logs.
+
+Webhook delivery tests against arbitrary URLs must be protected against SSRF, internal network access, and unauthorized destinations.
+
+For live webhook tests, use an explicitly authorized receiver such as a dedicated test endpoint or Webhook.site session controlled by the tester.
+
+## 8.5 Publication integrity
+
+Verify that:
+
+* Only eligible and approved content is published.
+
+* The published content matches the approved version.
+
+* A stale draft cannot overwrite newer approved content.
+
+* One client's content cannot publish to another client's account.
+
+* A timeout does not cause duplicate posts.
+
+* Partial channel failure does not erase successful publications.
+
+* Retries preserve the correct artifact and destination.
+
+* An external post is not reported as published without appropriate evidence.
+
+---
+
+# PART 9 — SCHEDULING, QUEUES, AND FAILURE RECOVERY
+
+Audit all background workers, Redis/BullMQ queues where used, scheduled jobs, cron tasks, webhooks, and asynchronous rendering services.
+
+Test:
+
+* Job creation and persistence.
+
+* Correct time zone.
+
+* Future execution.
+
+* Scheduling across a day boundary.
+
+* Rescheduling.
+
+* Cancellation.
+
+* Edit-before-publish behavior.
+
+* Worker restart during processing.
+
+* Duplicate queue delivery.
+
+* Provider timeout.
+
+* Rate limiting.
+
+* Token expiration.
+
+* Storage outage.
+
+* AI provider outage.
+
+* Partial batch failure.
+
+* Retry and backoff.
+
+* Queue backlog and concurrency.
+
+* Accurate terminal status.
+
+* Recovery after deployment or worker restart.
+
+Use a controlled short schedule for authorized live tests, such as one post approximately five minutes into the future, only when the destination is approved.
+
+For broader schedule testing, use a controllable clock and sandbox scheduler.
+
+Confirm that essential scheduled work executes without an open browser.
+
+Use bounded retries, appropriate backoff, and provider-aware idempotency or reconciliation.
+
+If a provider may have accepted a post but Citefi did not receive its response, mark the result UNKNOWN until it can be reconciled. Do not blindly publish it again.
+
+---
+
+# PART 10 — LIVE TERMINAL AND OBSERVABILITY
+
+Create or verify a persistent test log stream accessible through the application.
+
+Provide a bottom drawer or side panel named **Live Terminal**.
+
+Support log filtering by:
+
+* INFO
+
+* WARN
+
+* ERROR
+
+* PAYLOAD
+
+* QA
+
+* PUBLISH
+
+* SANDBOX
+
+* LIVE
+
+Example messages:
+
+\(INFO\) Article generation started.
+
+\(INFO\) Article generated — actual word count recorded.
+
+\(WARN\) Required TTS credential missing — Auto mode selected mock TTS.
+
+\(ERROR\) LinkedIn publishing failed — authorization error.
+
+\(QA\) Mandatory citation check failed — publication blocked.
+
+\(PUBLISH\) Provider accepted the request — final publication not yet verified.
+
+Every log must include an appropriate timestamp, job or correlation ID, and relevant artifact ID.
+
+Provide:
+
+* Live job progress.
+
+* Stage-level timing.
+
+* Retry history.
+
+* Error details.
+
+* Export Test Log (JSON/TXT).
+
+* Redaction of secrets.
+
+* Separation of sandbox logs from live logs.
+
+Do not emit fabricated timestamps or successful events for stages that never executed.
+
+---
+
+# PART 11 — DATABASE AND AUDIT TRAIL
+
+Inspect the existing schema before proposing migrations.
+
+The following logical entities must be represented through existing models or compatible equivalents.
+
+### Campaign
+
+* ID.
+
+* Title.
+
+* Topic.
+
+* Location.
+
+* Keywords.
+
+* Brand voice.
+
+* Target channels.
+
+* Workspace ID.
+
+* Execution mode.
+
+* Status.
+
+* Created and updated timestamps.
+
+### ContentAsset
+
+* ID.
+
+* Campaign ID.
+
+* Channel type.
+
+* Raw content.
+
+* Media URLs and metadata.
+
+* Structured data.
+
+* Generation status.
+
+* QA status.
+
+* Approval status.
+
+* Version.
+
+* Created and updated timestamps.
+
+### QAReport
+
+* ID.
+
+* Asset ID.
+
+* Total score.
+
+* E-E-A-T score.
+
+* Compliance result.
+
+* Individual check results.
+
+* Flags and warnings.
+
+* Evidence and source references.
+
+* Validator version.
+
+* Timestamp.
+
+### PublishLog
+
+* ID.
+
+* Asset ID.
+
+* Target platform.
+
+* Destination account reference.
+
+* Endpoint reference.
+
+* Execution mode.
+
+* External publication ID.
+
+* Response status.
+
+* Error details.
+
+* Retry count.
+
+* Publication timestamp.
+
+* Verification status.
+
+### Supporting records
+
+Verify that the data model also supports:
+
+* Job and queue history.
+
+* Generation attempts.
+
+* Asset version history.
+
+* Approval records.
+
+* Scheduling.
+
+* Credit ledger.
+
+* Integration connection metadata.
+
+* Webhook delivery history.
+
+* Test execution records.
+
+* Cleanup inventory.
+
+* Audit events.
+
+Use appropriate foreign keys, unique constraints, indexes, transaction boundaries, and tenant/workspace isolation.
+
+Do not store secrets as ordinary plaintext application records.
+
+Do not apply production migrations until explicitly authorized.
+
+---
+
+# PART 12 — CREDITS, SUBSCRIPTIONS, AND MULTI-TENANT SECURITY
+
+## 12.1 Credit accounting
+
+Test actual accounting for:
+
+* Article generation.
+
+* Social media generation.
+
+* Video generation.
+
+* Podcast generation.
+
+* Batch generation.
+
+* Failed jobs.
+
+* Cancelled jobs.
+
+* Retries.
+
+* Partially completed batches.
+
+* Sandbox runs.
+
+* Duplicate requests.
+
+Verify the UI balance against the authoritative database ledger.
+
+Define whether sandbox consumes credits. Make the policy visible and test it consistently.
+
+A retry must not silently double-charge the user. Failed operations must follow the actual documented refund or reconciliation policy.
+
+## 12.2 Plan gating
+
+Where these plans exist, test Free, Starter, Growth, and Agency entitlements.
+
+Verify server-side enforcement for:
+
+* Podcast generation.
+
+* Video generation.
+
+* Batch generation.
+
+* Topic clusters.
+
+* White-label features.
+
+* Publishing access.
+
+* Credit limits.
+
+* User and workspace limits.
+
+Do not assume a plan or entitlement exists unless the current application confirms it.
+
+Test API endpoints directly in an authorized test environment. Hiding a UI control is not sufficient authorization.
+
+## 12.3 Agency and client isolation
+
+Create two test client workspaces if the environment permits.
+
+Verify:
+
+* Neither client can read the other's assets.
+
+* Neither client can modify the other's content.
+
+* Publishing destinations remain isolated.
+
+* Credits cannot be transferred or spent across clients without authorization.
+
+* Queue jobs retain the correct workspace identity.
+
+* Search and analytics respect access controls.
+
+* Agency administrators see only authorized client data.
+
+* White-label behavior follows the configured plan and settings.
+
+Test IDOR and unauthorized object access safely with synthetic records.
+
+---
+
+# PART 13 — SECURITY AND COMPLIANCE TESTS
+
+Audit:
+
+* Authentication and session security.
+
+* Role and permission enforcement.
+
+* API authorization.
+
+* Cross-workspace access.
+
+* Token and secret exposure.
+
+* Webhook signing and replay protection.
+
+* Upload validation.
+
+* File access permissions.
+
+* URL fetching and SSRF risks.
+
+* Rate limiting.
+
+* Injection and XSS.
+
+* Malformed content.
+
+* Unsafe HTML and structured data.
+
+* Password reset and token expiry.
+
+* Sensitive information in generated content.
+
+* Privacy policy and terms links.
+
+* Required AI disclosures.
+
+* Platform-specific AI labeling and publishing requirements.
+
+Use safe test payloads and controlled accounts.
+
+Do not attack unrelated infrastructure or perform destructive security tests on live customer systems.
+
+Do not add an arbitrary disclosure claiming compliance with a law. Determine which disclosure is actually required for the product, jurisdiction, content type, and platform before treating it as a blocking requirement.
+
+---
+
+# PART 14 — AUTOMATED TEST RUNNER
+
+Create or verify an automated test runner accessible through the UI and a command such as:
+
+`npm run test:e2e`
+
+Adapt the command to the repository's actual package manager and scripts.
+
+The runner must provide a dashboard with:
+
+* Test name.
+
+* Execution mode.
+
+* Start and end time.
+
+* Duration.
+
+* Status.
+
+* Failed assertion.
+
+* Evidence.
+
+* Related job ID.
+
+* Logs.
+
+* Retry eligibility.
+
+## Required test cases
+
+### Test 1 — Full Pipeline Sandbox
+
+Input → blog → social → video → podcast → QA → mock publish → report.
+
+Verify all six requested deliverables or clearly document unsupported outputs.
+
+### Test 2 — QA Interception
+
+Inject banned wording, invalid URLs, malformed schema, incorrect brand information, and other controlled errors.
+
+Verify specific audit flags and correct blocking behavior.
+
+### Test 3 — Real AI Generation
+
+Execute real AI generation through the configured provider. Verify the actual request, returned content, provider status, persistence, and cost or credit impact.
+
+### Test 4 — Live Media Generation
+
+Generate an actual video and podcast through the configured services. Validate playable files and metadata.
+
+### Test 5 — Live Webhook Delivery
+
+Send a real test payload to an authorized target. Record response status, latency, and delivery evidence.
+
+### Test 6 — Live Publishing
+
+Publish an approved test artifact to each explicitly authorized connected destination. Verify the provider result and destination-side publication wherever supported.
+
+### Test 7 — Scheduled Auto-Post
+
+Schedule an authorized test post and observe the actual backend scheduler execute it.
+
+### Test 8 — Duplicate Prevention
+
+Repeat or redeliver a publish request. Confirm no duplicate publication is created.
+
+### Test 9 — Partial Failure
+
+Cause one controlled destination to fail while other authorized destinations succeed. Verify isolated failure, accurate reporting, and safe retry.
+
+### Test 10 — Persistence and Recovery
+
+Refresh the UI, restart a permitted test worker, and verify stored job state and recoverability.
+
+### Test 11 — Credits and Plan Gating
+
+Verify ledger changes, insufficient-credit behavior, and server-side entitlement checks.
+
+### Test 12 — Workspace Isolation
+
+Verify access controls between synthetic test clients.
+
+### Test 13 — Security and Authorization
+
+Run safe security regression tests against the authorized test environment.
+
+### Test 14 — Regression Suite
+
+Run existing tests and all relevant new tests.
+
+Report actual pass/fail counts. Do not fabricate test results or label unexecuted tests as passed.
+
+---
+
+# PART 15 — LIVE TEST EXECUTION PLAN
+
+Run the audit in the following order.
+
+## Phase 1: Access and baseline
+
+1. Open the live application.
+
+2. Establish authorized access.
+
+3. Inventory real features and connected destinations.
+
+4. Record baseline errors and application status.
+
+5. Inspect the repository and trace relevant workflows.
+
+6. Record available credentials and missing dependencies without exposing secret values.
+
+## Phase 2: Sandbox smoke test
+
+1. Load the test campaign.
+
+2. Run the entire sandbox pipeline.
+
+3. Verify actual saved outputs and playable mock media.
+
+4. Run the QA interception tests.
+
+5. Test mock publishing and webhook inspection.
+
+6. Export logs and the test report.
+
+The requested initial target is under ten seconds for the sandbox pipeline, but this is a performance target, not a guaranteed result. Measure it and report the actual duration.
+
+## Phase 3: Live generation
+
+1. Generate one real article.
+
+2. Generate the social media pack.
+
+3. Generate one actual video.
+
+4. Generate one actual podcast.
+
+5. Run all applicable QA gates.
+
+6. Verify files, persistence, credits, costs, and source alignment.
+
+7. Record missing integrations and failure reasons.
+
+Use real services for the live tests. If an API is unavailable, record BLOCKED or FAILED as appropriate and continue with other independent workflows.
+
+## Phase 4: Live publication
+
+1. Confirm the authorized test destinations.
+
+2. Review the exact content and estimated costs.
+
+3. Obtain explicit confirmation for live publication.
+
+4. Publish a single labeled test artifact to each approved destination.
+
+5. Verify actual destination-side results.
+
+6. Test scheduling.
+
+7. Test safe retry and duplicate prevention.
+
+8. Record all publication IDs and URLs.
+
+9. Stop before any unauthorized public publication.
+
+## Phase 5: Staged scale and resilience
+
+Run larger batches, concurrency tests, worker restart tests, and failure injection in sandbox or staging first.
+
+Only perform paid live load tests when explicitly authorized, within the configured budget, and without risking production users.
+
+## Phase 6: Report and await approval
+
+Finish the audit, preserve all evidence, produce the cleanup inventory, and report defects.
+
+Do not modify code or delete live content until approval is granted.
+
+---
+
+# PART 16 — EXACT README VERIFICATION SCRIPT
+
+Include a `README.md` with the following verification steps, adapting commands to the existing repository without claiming unsupported dependencies exist.
+
+## Step 1 — Environment setup
+
+Create or verify `.env.example` containing optional placeholders for:
+
+* `OPENAI_API_KEY`
+
+* `ANTHROPIC_API_KEY`
+
+* `ELEVENLABS_API_KEY`
+
+* `PEXELS_API_KEY`
+
+* `WORDPRESS_URL`
+
+* `WORDPRESS_APPLICATION_PASSWORD`
+
+* Existing social OAuth credentials.
+
+* Existing database and queue configuration.
+
+* Existing storage configuration.
+
+* Existing webhook configuration.
+
+Document which variables are required for each integration. Never commit actual secrets.
+
+## Step 2 — Database initialization
+
+If Prisma and the required database are already configured:
+
+* Install the documented dependencies.
+
+* Configure the local test database.
+
+* Run `npx prisma db push` for the appropriate development/test environment.
+
+* Seed the initial test campaign.
+
+* Verify records are created and retrievable.
+
+Do not run development schema-push commands against production without explicit authorization. Use reviewed migrations for production.
+
+## Step 3 — Test A: Mock pipeline
+
+1. Open the application.
+
+2. Click **Load Live Test Campaign**.
+
+3. Select Sandbox mode.
+
+4. Click **Execute Full Pipeline**.
+
+5. Verify all requested outputs are generated or explicitly marked unsupported.
+
+6. Confirm saved assets, mock media, QA results, logs, and mock publication records.
+
+7. Measure completion time and report whether the ten-second target was met.
+
+## Step 4 — Test B: QA interception
+
+1. Open the generated blog article.
+
+2. Insert the phrases `guaranteed` and `100% free money` into a controlled test copy.
+
+3. Run QA again.
+
+4. Verify the relevant rules detect the configured prohibited wording.
+
+5. Confirm the artifact is flagged for review or blocked according to the configured policy.
+
+6. Inspect the audit flags and logs.
+
+7. Verify the failed content cannot be published through the normal publishing path.
+
+## Step 5 — Test C: Live integration
+
+1. Confirm the authorized live test workspace and connected destinations.
+
+2. Confirm the credit budget and external cost budget.
+
+3. Select Strict Live mode.
+
+4. Generate a small approved test artifact using the actual provider.
+
+5. Verify the real provider response and persisted result.
+
+6. Submit a test webhook to an authorized target or controlled Webhook.site endpoint.
+
+7. Inspect the outgoing payload, response, status code, and latency.
+
+8. Publish to a real connected destination only after explicit confirmation.
+
+9. Verify the actual external publication or clearly report the blocker.
+
+10. Record the cleanup information and export the report.
+
+If credentials are missing, the Strict Live test must remain blocked for the affected integration. Do not count sandbox fallback as a live success.
+
+---
+
+# PART 17 — REQUIRED FINAL DELIVERABLES
+
+Provide a complete evidence-based report with these sections.
+
+## A. Executive summary
+
+* Overall platform health.
+
+* What was tested live.
+
+* What was tested in sandbox.
+
+* What was blocked.
+
+* Critical and high-severity defects.
+
+* Overall release-readiness recommendation.
+
+## B. Application inventory
+
+* All identified features.
+
+* Routes and workflows.
+
+* Connected providers.
+
+* Required credentials.
+
+* Implemented, missing, partial, and unverified capabilities.
+
+## C. End-to-end flow maps
+
+For each content type, document:
+
+Trigger → Queue/worker → AI stages → Media processing → Storage → QA → Approval → Scheduling → Publishing → Verification → Analytics.
+
+## D. Test matrix
+
+Include:
+
+| ID | Area | Scenario | Expected result | Actual result | Mode | Evidence | Status |
+| -- | ---- | -------- | --------------- | ------------- | ---- | -------- | ------ |
+
+Use these statuses:
+
+* LIVE PASSED
+
+* LIVE FAILED
+
+* SANDBOX PASSED
+
+* SANDBOX FAILED
+
+* BLOCKED
+
+* NOT TESTED
+
+## E. Generation and publishing coverage
+
+| Workflow                        | Live status | Sandbox status | Evidence | Blocker |
+| ------------------------------- | ----------- | -------------- | -------- | ------- |
+| Blog generation                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Blog QA and persistence         |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Social generation               |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Video generation and playback   |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Podcast generation and playback |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| QA and approval                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Website/CMS publishing          |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Facebook publishing             |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| LinkedIn publishing             |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| X/Twitter publishing            |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| TikTok publishing               |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| YouTube publishing              |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Webhook delivery                |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Scheduled auto-posting          |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Duplicate prevention            |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Credits and subscriptions       |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Workspace isolation             |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+| Security                        |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+|                                 |             |                |          |         |
+
+Remove or mark unsupported destinations appropriately rather than implying they were available.
+
+## F. Defect report
+
+For every defect, provide:
+
+* Severity.
+
+* Reproduction steps.
+
+* Expected versus actual behavior.
+
+* Root cause where established.
+
+* Relevant file, function, endpoint, or component.
+
+* User and business impact.
+
+* Evidence.
+
+* Recommended fix.
+
+* Whether a fix has been approved and applied.
+
+## G. Performance and accounting
+
+Include:
+
+* Actual elapsed time per stage.
+
+* End-to-end generation time.
+
+* Batch performance where tested.
+
+* Provider errors and retry counts.
+
+* Credit consumption per test.
+
+* API costs where measurable.
+
+* Budget remaining.
+
+* QA failure counts.
+
+* Publication success and failure counts.
+
+Clearly distinguish measured data from estimates.
+
+## H. Fact-check and QA report
+
+Include tested claims, sources consulted, verification outcomes, flagged inaccuracies, QA scores, false positives, and false negatives.
+
+## I. Security report
+
+Include tested authorization boundaries, credential handling, tenant isolation, webhook protections, and outstanding security concerns.
+
+## J. Cleanup inventory
+
+List every live artifact created, including:
+
+* Content title.
+
+* Workspace.
+
+* Destination.
+
+* External publication ID.
+
+* URL.
+
+* Creation timestamp.
+
+* Scheduled job ID.
+
+* Stored media path or reference.
+
+* Credit impact.
+
+* Suggested cleanup action.
+
+Do not delete anything automatically. Request approval for cleanup.
+
+## K. Release readiness
+
+Provide a separate readiness verdict for:
+
+* Blog generation.
+
+* Social generation.
+
+* Video generation.
+
+* Podcast generation.
+
+* QA and approval.
+
+* Auto-publishing.
+
+* Website receiver.
+
+* Scheduling and retries.
+
+* Multi-client isolation.
+
+* Overall platform.
+
+Use GO, GO WITH FIXES, or NO-GO, supported by actual evidence. Identify the five highest-priority blockers.
+
+---
+
+# FINAL EXECUTION DIRECTIVE
+
+Begin by opening [https://citefi.co](https://citefi.co) and establishing the strongest authorized live access available.
+
+First map the actual deployed system. Then execute the sandbox smoke test, followed by safe live generation and authorized publication tests.
+
+Do not stop after reviewing code or producing a plan. Execute every test that available permissions and safeguards allow.
+
+Do not claim a test passed without evidence of its actual outcome. Do not claim a real post was published without verifying the provider's response and, where possible, the destination itself.
+
+Do not silently substitute mocked services in Strict Live mode.
+
+Do not make code changes during the initial audit. Deliver the defect report and wait for approval before fixing defects. Do not delete live artifacts without approval.
+
+If access to the browser, credentials, API integrations, database, worker logs, or publishing destinations is unavailable, specify exactly what is missing and how it prevents verification.
+
+**The final objective is not merely a green test dashboard. It is verified evidence that Citefi can reliably generate, validate, save, schedule, and publish the correct content through the real authorized integrations, while distinguishing genuine success from simulation, failure, and blocked execution.**
+
+## How I would run it
+
+I recommend using this in Replit Agent in stages rather than asking it to execute the entire audit in one uninterrupted session.
+
+Run 1 — Discovery and access
+
+Have Replit inspect the live site, map the repository, list integrations, and identify missing access. No code changes.
+
+Run 2 — Sandbox and QA interception
+
+Execute the entire mock pipeline, validate real local media files, test quality gates, and confirm reporting works.
+
+Run 3 — Live generation
+
+Test real AI, image, TTS, video, and podcast services with one campaign first. Measure actual cost, latency, and output quality.
+
+Run 4 — Live publishing and auto-posting
+
+Test each authorized destination, followed by scheduled publishing, failure recovery, and duplicate prevention.
+
+Run 5 — Final evidence report
+
+Produce the test matrix, defects, actual pass/fail results, credit ledger, cleanup inventory, and release-readiness assessment.
+
+One final safeguard: don't let Replit test auto-posting by publishing dozens of articles to real channels. Start with one clearly labeled test item per authorized destination, verify the result, and expand only after that workflow passes. This gives you meaningful live evidence without creating a large amount of public test content.

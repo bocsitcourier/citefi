@@ -1,0 +1,307 @@
+{
+  "version": 2,
+  "ceilingUsd": 30,
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceFile": "QA/evidence/live-current/budget-baseline.json",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  },
+  "runs": [
+    {
+      "runId": "first-article-v1",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "83de775ae7ff5d1298deb020c35ba4aa2a6dd763523935515904eef8f2b16c12",
+          "inputBytes": 31169,
+          "maxInputTokens": 39361,
+          "maxOutputTokens": 8192,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.1327695,
+          "submittedAt": "2026-10-08T19:44:38.041Z",
+          "status": 200,
+          "providerRequestId": "pvLHat6gEbrM_PUP7-DFkAE",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 1808,
+            "totalTokenCount": 14851,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "thoughtsTokenCount": 6369,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "a8c845d57425aaa3d767d7771b33463aef71b8a672739b49802e1351001fb53f",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.083604,
+          "receivedAt": "2026-10-08T19:45:08.046Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:44:04.785Z",
+      "actualUsd": 0.083604
+    },
+    {
+      "runId": "live-article-output16384",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "5f9213f92e086a6f1e6f57bc7520f3ab94b2585b9392fbd829828dc757f8124a",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:46:51.053Z",
+          "status": 200,
+          "providerRequestId": "K_PHarOwDuTQ_uMP3YyVoAc",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 2452,
+            "totalTokenCount": 18174,
+            "cachedContentTokenCount": 3741,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "cacheTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 3741
+              }
+            ],
+            "thoughtsTokenCount": 9048,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "fc42ad38934c6f219e5fd020bc68b0ce133986f5f295792c8e4f5e6a25b1231c",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.113511,
+          "receivedAt": "2026-10-08T19:47:32.343Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:46:34.202Z",
+      "actualUsd": 0.113511
+    },
+    {
+      "runId": "live-article-faq-assembly",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "5f9213f92e086a6f1e6f57bc7520f3ab94b2585b9392fbd829828dc757f8124a",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:53:38.096Z",
+          "status": 200,
+          "providerRequestId": "wvTHarq4EqbO_uMPqonB8Ak",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 2552,
+            "totalTokenCount": 18943,
+            "cachedContentTokenCount": 3741,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "cacheTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 3741
+              }
+            ],
+            "thoughtsTokenCount": 9717,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "0621d6caf9906a72699b29d74e285ae156c0e8180f5f21a4d85fb7721c5d3652",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.120432,
+          "receivedAt": "2026-10-08T19:54:20.518Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:53:12.813Z",
+      "actualUsd": 0.120432
+    },
+    {
+      "runId": "live-article-faq-assembly-max2000",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "40265a01c8d3104dda4884f99ff08512e6c202cb7607b1589d033b92e8aa0ca7",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:57:27.397Z",
+          "status": 200,
+          "providerRequestId": "p_XHaoSZI4Cc_uMPpJGtsAE",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 1364,
+            "totalTokenCount": 23042,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "thoughtsTokenCount": 15004,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "44422fde7b7c1cd6d113adf0e58399eb3c6cef8456055d7cc90fe1567557e40d",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.157323,
+          "receivedAt": "2026-10-08T19:58:29.460Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:57:12.778Z",
+      "actualUsd": 0.157323
+    },
+    {
+      "runId": "live-media-image-20261008",
+      "state": "settled",
+      "reservedUsd": 0.16,
+      "calls": [
+        {
+          "role": "image",
+          "provider": "gemini",
+          "model": "gemini-3.1-flash-image",
+          "requestSha256": "7e8c5cf0c3de6fb95c08c936b9d09cb84a6c6104a0f39c8d4c266508dc76beb6",
+          "inputBytes": 917,
+          "physicalCount": 1,
+          "state": "ambiguous",
+          "maximumUsd": 0.1592,
+          "submittedAt": "2026-10-08T20:17:39.480Z",
+          "status": 200,
+          "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+          "actualModel": "gemini-3.1-flash-image",
+          "usage": {
+            "promptTokenCount": 172,
+            "candidatesTokenCount": 1612,
+            "totalTokenCount": 1784,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 172
+              }
+            ],
+            "candidatesTokensDetails": [
+              {
+                "modality": "IMAGE",
+                "tokenCount": 1120
+              }
+            ],
+            "serviceTier": "standard"
+          },
+          "responseSha256": "850088de73d3e55481a4d4ea03f292e650ff3494ea622801a5c5bdf5e8a2981b",
+          "costBasis": "Official standard-tier native token rates: input $0.50/M, image output $60/M, thinking $3/M",
+          "billedSplit": {
+            "inputTokens": 172,
+            "imageTokens": 1120,
+            "thinkingTokens": 0
+          },
+          "actualUsd": null,
+          "receivedAt": "2026-10-08T20:17:49.752Z"
+        }
+      ],
+      "createdAt": "2026-10-08T20:17:39.083Z",
+      "actualUsd": 0.068762,
+      "reconciliation": {
+        "kind": "owner-approved-offline-native-usage",
+        "runId": "live-media-image-20261008",
+        "reconciledAt": "2026-10-08T21:09:37.771Z",
+        "ownerApprovalSha256": "45ec7ffc01b4e97c9d84505e6aaf1e01ae63d1e47e41c018aaa7a9c46883e4a8",
+        "pricingSha256": "a703d6e0d895539b01139d913bdceea3d28ec104311284aee3b2497f714dfbd3",
+        "nativeResponseSha256": "850088de73d3e55481a4d4ea03f292e650ff3494ea622801a5c5bdf5e8a2981b",
+        "originalReceiptSha256": "1998ee76a4a63868be181045bda417ee8c9817c95126c978b918553680eacb12",
+        "originalFailedOutcomeSha256": "aad4138e6b2ac7e2369ebd75b4ff6d3041bea2be9bff3770a44d8780fec920e8",
+        "originalLedgerSha256": "e40ad50aafdd33eaa33581ce1be1d5b85f957fb26cd133b23a71b372a1e4c14d",
+        "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+        "inputTokens": 172,
+        "imageTokens": 1120,
+        "nonImageOutputTokens": 492,
+        "explicitThinkingTokens": null,
+        "textThinkingSplitKnown": false,
+        "inputUsdPerMillion": 0.5,
+        "imageOutputUsdPerMillion": 60,
+        "nonImageOutputUsdPerMillion": 3,
+        "costMicrousd": 68762,
+        "usageEstimateUsd": 0.068762,
+        "basis": "Retained native token counts and official standard rates; not an invoice or application COGS",
+        "originalApplicationEndToEndPass": false,
+        "applicationReceiptsOrCreditsModified": false,
+        "customerDatabaseAccessed": false,
+        "newPhysicalSubmissions": 0,
+        "historicalCalls": "UNKNOWN / UNRECONCILED",
+        "certification": "NOT CERTIFIED",
+        "totalBudget": {
+          "ceilingUsd": 30,
+          "knownPriorUsd": 0.517071,
+          "historicalHoldUsd": 6,
+          "historicalHoldIsActualSpend": false,
+          "historicalCalls": "UNKNOWN / UNRECONCILED",
+          "newCommittedUsd": 0.543632,
+          "availableUsd": 22.939297
+        }
+      }
+    }
+  ],
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.543632,
+    "availableUsd": 22.939297
+  }
+}

@@ -8,6 +8,7 @@ import articlesRouter from './routes/articles';
 import mediaRouter from './routes/media';
 import podcastsRouter from './routes/podcasts';
 import statusRouter from './routes/status';
+import publishingReceiptsRouter from './routes/publishing-receipts';
 import { logger } from './utils/logger';
 import { getConfig } from './config';
 
@@ -43,6 +44,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   });
   
   app.use('/api/v1/status', statusRouter);
+  app.use('/api/v1/publishing/receipts', publishingReceiptsRouter);
   
   app.use('/api/v1/articles', validateSignature, articlesRouter);
   app.use('/api/v1/media', validateSignature, mediaRouter);

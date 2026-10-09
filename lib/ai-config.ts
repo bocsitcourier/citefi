@@ -1,8 +1,10 @@
 /**
  * AI Model Configuration
  *
- * All model IDs verified against the live APIs (August 2026).
- * Override any via environment variable to pin a specific version.
+ * Conservative bootstrap defaults, not claims about the newest releases.
+ * The shared resolver periodically discovers models and promotes only
+ * compatible, release-approved candidates with locked pricing evidence.
+ * Any explicit environment override pins that tier (and disables promotion).
  *
  * Gemini ground truth (from ListModels against this key, 2026-08):
  *   gemini-3.5-flash        — live, current flash tier

@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "ok": true,
+  "origin": "https://generativelanguage.googleapis.com",
+  "path": "/v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning",
+  "receivedAt": "2026-10-09T00:14:07.663Z",
+  "headers": {
+    "content-type": "application/json"
+  }
+}

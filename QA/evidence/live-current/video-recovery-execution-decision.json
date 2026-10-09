@@ -1,0 +1,15 @@
+{
+  "approved": true,
+  "phase": "pilot",
+  "manifestSha256": "462385d8e4200fc4eb6cd67d829bd903a0671e1d64f126878680483339785ce0",
+  "maximumUsd": 0.65,
+  "ledgerSha256": "bf41a68c999a80f3f96e1dd4424322565f092b830368f165a79bf0902e048bff",
+  "parentTerminationProofSha256": "7dfe0f7ce6f6c6a3916cd4449b8a2a074a1bd25ea050d017eed69125a12ed622",
+  "duplicateWorkRiskAccepted": true,
+  "parentHoldRetained": true,
+  "acceptHistoricalPodcastPass": true,
+  "allowChildLockException": true,
+  "issuedAt": "2026-10-09T00:52:40.805Z",
+  "issuer": "media-execution-architect conditional decision 2026-10-09 (video-recovery-live-pilot-decision.md); shutdown-witness condition satisfied by owner-accepted current-absence substitute",
+  "scope": "scene 1 only; one 6s 720p one-sample request; no retries; completion excluded"
+}

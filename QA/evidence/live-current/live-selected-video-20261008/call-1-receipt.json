@@ -1,0 +1,19 @@
+{
+  "number": 1,
+  "kind": "script",
+  "sourceEventId": "provider-attempt:463dcc365a1d58aafa5bd8d35137997d49a991f432e58100c585e8bbef45bbb1",
+  "requestSha256": "d50a9318778022db3ac6d05f77a2ea22b470c6aa45028eb57a3a6a7f84f7ceba",
+  "state": "receipted",
+  "model": "gemini-3.5-flash",
+  "submittedAt": "2026-10-08T23:24:52.779Z",
+  "requestUnits": null,
+  "physicalSubmissions": 1,
+  "simulatedSubmissions": 0,
+  "providerRequestId": "RCbIavLzOKe839IP6MCXKQ",
+  "nativeSha256": "0cae3ef3eb33751a1cb242b8cd07369ee9f0539c82a7357085c34b0d5a6bec06",
+  "inputTokens": 1082,
+  "outputTokensIncludingThinking": 2982,
+  "costMicrousd": 28461,
+  "actualUsd": 0.028461,
+  "receivedAt": "2026-10-08T23:25:03.578Z"
+}

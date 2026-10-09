@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles, articleAssets, jobBatches, errorLogs } from "@/shared/schema";
-import { and, eq, asc, desc } from "drizzle-orm";
+import { and, eq, asc, desc, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
 import { assertValidArticleOutput } from "@/lib/article-output-safety";
@@ -141,6 +141,7 @@ export async function GET(
 }
 
 const updateArticleSchema = z.object({
+  expectedUpdatedAt: z.string().datetime(),
   finalHtmlContent: z.string().optional(),
   seoTitle: z.string().max(60).optional(),
   metaDescription: z.string().max(160).optional(),
@@ -211,14 +212,19 @@ export async function PUT(
     if (updateData.slug !== undefined) updatePayload.slug = updateData.slug;
     if (updateData.keywordsJson !== undefined) updatePayload.keywordsJson = updateData.keywordsJson;
     if (updateData.hashtagsJson !== undefined) updatePayload.hashtagsJson = updateData.hashtagsJson;
-    updatePayload.updatedAt = new Date();
+    updatePayload.updatedAt = new Date(Math.max(Date.now(), Date.parse(updateData.expectedUpdatedAt) + 1));
+    updatePayload.approvalStatus = "draft";
+    updatePayload.approvalReviewedAt = null;
+    updatePayload.approvalReviewedBy = null;
 
     if (Object.keys(updatePayload).length > 1) {
       const [updated] = await db
         .update(articles)
         .set(updatePayload)
-        .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId)))
+        .where(and(eq(articles.id, articleId), eq(articles.teamId, teamId), isNull(articles.deletedAt),
+          sql`date_trunc('milliseconds', ${articles.updatedAt}) = ${new Date(updateData.expectedUpdatedAt)}`))
         .returning();
+      if (!updated) return NextResponse.json({ error: "Article changed; reload before saving" }, { status: 409 });
 
       return NextResponse.json({
         success: true,

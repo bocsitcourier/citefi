@@ -1,6 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface SEOAnalysis {
   seoScore: number; // 0-100
@@ -74,10 +75,11 @@ Return ONLY this JSON structure:
   "recommendations": ["<recommendation 1>", "<recommendation 2>", "..."]
 }`;
 
+  const model = await getResolvedModel("gptMini");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -88,7 +90,7 @@ Return ONLY this JSON structure:
       }),
       `SEO Analyzer: ${title.substring(0, 50)}`,
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 1000 } },
+      { request: { model, maxOutputTokens: 1000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

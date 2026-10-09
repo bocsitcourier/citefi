@@ -14,6 +14,7 @@
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 
 export interface SurgicalFixResult {
   html: string;
@@ -110,9 +111,10 @@ ${html}`;
   const estimatedInputTokens = Math.ceil(html.length / 3.5); // ~3.5 chars/token for HTML
   const maxOutputTokens = Math.min(Math.max(estimatedInputTokens + 2000, 8000), 16000);
 
+  const model = await getResolvedModel("gptAdvanced");
   try {
     const response = await callOpenAI((client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -121,8 +123,8 @@ ${html}`;
       max_tokens: maxOutputTokens,
     }), "Surgical article fix", undefined, {
       operationType: "article_generation",
-      model: "gpt-4.1-mini",
-      request: { model: "gpt-4.1-mini", maxOutputTokens },
+      model,
+      request: { model, maxOutputTokens },
     });
 
     const fixedHtml = response.choices[0]?.message?.content || html;

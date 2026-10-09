@@ -1,12 +1,13 @@
 import { config } from 'dotenv';
 import { sql } from 'drizzle-orm';
 import { registerWorkers } from "../lib/worker";
-import { validateAndResolveModels } from "../lib/model-resolver";
+import { validateAndResolveModels, startModelRefresh, stopModelRefresh, getModelResolutionStatus } from "../lib/model-resolver";
 import { validateApprovalTokenSecret } from "../lib/approval-token";
 import { closeQueues, getRedisConnection } from "../lib/queue";
 import { startWorkerHeartbeat, stopWorkerHeartbeat } from "../lib/ops/worker-heartbeat";
 import { closePipelineWorkers } from "../lib/pipeline-worker";
 import { startJobMonitor, stopJobMonitor } from "./job-monitor";
+import { startStorageAuditMonitor, stopStorageAuditMonitor } from "./storage-audit-monitor";
 import { ensurePublishingSecretsReady } from "../lib/publishing";
 import { systemDb } from "../lib/db";
 import { runWithSystemContext } from "../lib/tenant-context";
@@ -135,7 +136,8 @@ async function startWorkers() {
     // Validate AI model IDs against live APIs; fall back through chains if any
     // are retired. Throws if a critical tier (flash, pro, gpt-mini) has no live model.
     await validateAndResolveModels();
-    await markWorkerModelsReady(redis);
+    await markWorkerModelsReady(redis, true, getModelResolutionStatus());
+    startModelRefresh(ready => markWorkerModelsReady(redis, ready, getModelResolutionStatus()));
     
     // Register all BullMQ workers
     await registerWorkers();
@@ -144,6 +146,11 @@ async function startWorkers() {
     // Start job monitoring for stuck job detection
     await startJobMonitor();
     await markWorkerScheduler(redis, "job-monitor");
+
+    // Read-only daily inventory reconciliation. Coordination and history are
+    // shared in Redis, so only one worker performs an audit for a storage scope.
+    await startStorageAuditMonitor();
+    await markWorkerScheduler(redis, "storage-audit");
 
     // Provider outage circuit breaker: probes open Gemini/OpenAI circuits every
     // minute and resumes their queues only after a cheap provider health check.
@@ -207,9 +214,11 @@ async function shutdown(signal: NodeJS.Signals) {
   let exitCode = 0;
   try {
     if (keepAliveTimer) clearInterval(keepAliveTimer);
+    stopModelRefresh();
     await stopWorkerHeartbeat(getRedisConnection());
     await clearWorkerReadiness(getRedisConnection());
     await stopJobMonitor();
+    await stopStorageAuditMonitor();
     const [
       { stopProviderCircuitScheduler },
       { stopSpendBreakerScheduler },

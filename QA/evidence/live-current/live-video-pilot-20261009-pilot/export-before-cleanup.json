@@ -1,0 +1,17 @@
+{
+  "exportedAt": "2026-10-09T00:53:51.489Z",
+  "tables": [
+    "providerAttemptReceipts",
+    "providerUsageLedger",
+    "creditReservations",
+    "creditLedger",
+    "providerRateVersions",
+    "providerRates",
+    "articleAssets",
+    "articles",
+    "videoIdeas"
+  ],
+  "receiptSpoolCopied": true,
+  "storageCopied": true,
+  "cleanupPermitted": true
+}

@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { db } from "./db";
 import { batchSeoCache, jobBatches } from "../shared/schema";
 import { eq } from "drizzle-orm";
@@ -256,6 +256,7 @@ async function generateBatchSeoContext(params: {
   cachedRedditResearch?: any;
 }, batchId: number, teamId: number, invocationKey?: string): Promise<BatchSeoContext | null> {
   const { coreTopic, geographicFocus, targetUrl, businessName, competitorUrls, cachedRedditResearch } = params;
+  const model = await getResolvedModel("geminiFlash");
   
   // STEP 1A: Enhanced Reddit Research (JSON API - faster, more reliable)
   let redditResearch;
@@ -441,12 +442,12 @@ Return ONLY valid JSON in this exact structure:
     attemptKey: "seo-analysis",
     provider: "gemini",
     operationType: "seo_analysis",
-    model: GEMINI_FLASH_MODEL,
+    model,
   });
   try {
     const startedAt = Date.now();
     const request = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [
         {
           role: "user" as const,
@@ -472,7 +473,7 @@ Return ONLY valid JSON in this exact structure:
       }, () => genAI.models.generateContent(request));
     });
     providerResponseReceived = true;
-    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+    await logCostTelemetry({ operationType: "seo_analysis", provider: "gemini", model, teamId,
       batchId, providerRequestId: (response as any).responseId ?? (response as any).id ?? null, providerMetadata },
     extractGeminiUsage(response), Date.now() - startedAt);
 
@@ -502,7 +503,7 @@ Return ONLY valid JSON in this exact structure:
   } catch (error) {
     if (isProviderAccountingError(error)) throw error;
     if (!providerResponseReceived) {
-      await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, batchId, providerMetadata },
+      await logFailedProviderAttempt({ operationType: "seo_analysis", provider: "gemini", model, teamId, batchId, providerMetadata },
         { totalTokens: 0 }, Date.now() - providerStartedAt, error);
     }
     console.error("❌ Failed to generate batch SEO context:", error);

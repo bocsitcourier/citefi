@@ -65,6 +65,12 @@ export function runWithTenantContext<T>(
   if (!Number.isInteger(context.teamId) || context.teamId <= 0) {
     throw new Error("Tenant database context requires a positive teamId");
   }
+  if (
+    context.actorType === "web" &&
+    (!Number.isInteger(context.userId) || (context.userId ?? 0) <= 0)
+  ) {
+    throw new Error("Web tenant database context requires a positive userId");
+  }
   return storage.run({ scope: "tenant", ...context }, fn);
 }
 

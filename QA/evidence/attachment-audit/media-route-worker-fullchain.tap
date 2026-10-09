@@ -1,0 +1,141 @@
+TAP version 13
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+# 🔧 OpenAI rate limiter initialized: 15 concurrent requests with Bottleneck
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# 🔧 Gemini rate limiter initialized: 60 requests/minute, max 10 concurrent
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+# Subtest: row 9: owned authenticated repair route persists production DB output
+ok 1 - row 9: owned authenticated repair route persists production DB output
+  ---
+  duration_ms: 50.354193
+  ...
+# 🔄 Regenerating image 811 with image brand lock: "Fixture Media Co"
+# [model-resolver] getModel("geminiImage") before resolution — using static default. This call is in the web process and should be queued (Seam 3 violation).
+# ✅ Gemini image generated, extracting data...
+# 📤 Uploading to storage: public/article-810/images/regenerated-1791491552308.png
+# ✅ Uploaded image: /api/public-objects/private/uploads/image/1791491552309-regenerated-1791491552308.png
+# ✅ Uploaded to permanent storage: /api/public-objects/private/uploads/image/1791491552309-regenerated-1791491552308.png
+# ✅ Image 811 regenerated successfully
+# Subtest: row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+ok 2 - row 10: authenticated identity route runs provider transport, persists bytes, and settles billing
+  ---
+  duration_ms: 322.279115
+  ...
+# 🎬 Queueing video idea generation for ID 815: "Fixture idea video" (creditRunId: debec146-db76-4cc7-9c69-8db6e5e5d75f)
+# ✅ Redis connected (redis://127.0.0.1:16388/0)
+# 🎬 Video idea job queued: video-idea-run-7e8151764481ca39abdcf01c for video 815
+# ✅ Video idea generation job queued: video-idea-run-7e8151764481ca39abdcf01c
+# 🎬 Processing video idea generation job: video-idea-run-7e8151764481ca39abdcf01c
+#    Video Idea ID: 815 (creditRunId: debec146-db76-4cc7-9c69-8db6e5e5d75f)
+# 📋 Video idea found: "Fixture idea video" [cinematic/professional]
+# 🎬 Starting video idea orchestration for ID: 815
+#    Title: "Fixture idea video"
+#    Style: cinematic, Tone: professional
+# ✅ Idea expanded: A concise fixture narrative
+# ✅ Script generated: 2 clips
+# 🎬 Starting standalone Veo AI video generation for Video Idea 815
+# Title: Fixture idea video, Clips: 2
+# 🎙️ Step 1/4: Generating natural voiceover with OpenAI TTS HD...
+#   ✅ Voiceover generated (~6s, voice: fixture)
+# 🎬 Step 2/4: Generating 2 Veo video clips in parallel...
+#   🚀 All clips generated simultaneously for maximum speed
+#   🎬 [Parallel] Starting clip 1/2 (hook)...
+#   🎬 [Parallel] Starting clip 2/2 (hook)...
+#   ✅ Clip 1 done (1/2 complete)
+#   ✅ Clip 2 done (2/2 complete)
+#   ✅ 2/2 Veo clips generated
+# 🔗 Step 3/4: Stitching clips and adding audio...
+# 🔗 Stitching 2 Veo clips with crossfade transitions
+#   🎬 Applying crossfade transition...
+#   ✅ Crossfade stitching complete
+#   🎵 Adding voiceover audio...
+# ✅ Final video created with smooth transitions: /tmp/veo-output/815/with-audio.mp4
+# 📤 Step 4/4: Uploading final video...
+# ✅ Standalone video generation complete!
+# 📹 Video URL: /api/public-objects/video-ideas/815.mp4
+# 🎉 Video idea generation complete: /api/public-objects/video-ideas/815.mp4
+# 📊 Recorded video generation for AI Learning (quality=75)
+# ✅ Video idea generation complete: /api/public-objects/video-ideas/815.mp4
+# [billing] Debited 15 credits for video idea 815
+# No agent found for content type: video
+# Subtest: row 15: idea route -> Redis job -> exported worker persists and debits fixture video
+ok 3 - row 15: idea route -> Redis job -> exported worker persists and debits fixture video
+  ---
+  duration_ms: 4119.777343
+  ...
+# 🎬 Queueing Like Video generation for ID 816: "Fixture like video" (creditRunId: e9d9f1d1-b6c1-458c-8319-206ba8ead610)
+# 🎬 Video idea job queued: video-idea-run-83c0b3d621528cb7b4ce0b77 for video 816
+# ✅ Like Video generation job queued: video-idea-run-83c0b3d621528cb7b4ce0b77
+# 🎬 Processing video idea generation job: video-idea-run-83c0b3d621528cb7b4ce0b77
+#    Video Idea ID: 816 (creditRunId: e9d9f1d1-b6c1-458c-8319-206ba8ead610)
+# 📋 Video idea found: "Fixture like video" [cinematic/professional] (Like Video)
+# 🎬 Starting video idea orchestration for ID: 816
+#    Title: "Fixture like video"
+#    Style: cinematic, Tone: professional
+# ✅ Idea expanded: A concise fixture narrative
+# ✅ Script generated: 2 clips
+# 🎬 Starting standalone Veo AI video generation for Video Idea 816
+# Title: Fixture like video, Clips: 2
+# 🎙️ Step 1/4: Generating natural voiceover with OpenAI TTS HD...
+#   ✅ Voiceover generated (~6s, voice: fixture)
+# 🎬 Step 2/4: Generating 2 Veo video clips in parallel...
+#   🚀 All clips generated simultaneously for maximum speed
+#   🎬 [Parallel] Starting clip 1/2 (hook)...
+#   🎬 [Parallel] Starting clip 2/2 (hook)...
+#   ✅ Clip 2 done (2/2 complete)
+#   ✅ Clip 1 done (2/2 complete)
+#   ✅ 2/2 Veo clips generated
+# 🔗 Step 3/4: Stitching clips and adding audio...
+# 🔗 Stitching 2 Veo clips with crossfade transitions
+#   🎬 Applying crossfade transition...
+#   ✅ Crossfade stitching complete
+#   🎵 Adding voiceover audio...
+# ✅ Final video created with smooth transitions: /tmp/veo-output/816/with-audio.mp4
+# 📤 Step 4/4: Uploading final video...
+# ✅ Standalone video generation complete!
+# 📹 Video URL: /api/public-objects/video-ideas/816.mp4
+# 🎉 Video idea generation complete: /api/public-objects/video-ideas/816.mp4
+# 📊 Recorded video generation for AI Learning (quality=75)
+# ✅ Video idea generation complete: /api/public-objects/video-ideas/816.mp4
+# [billing] Debited 15 credits for video idea 816
+# No agent found for content type: video
+# Subtest: row 16: like-video route -> Redis job -> same exported worker settles reference-led output
+ok 4 - row 16: like-video route -> Redis job -> same exported worker settles reference-led output
+  ---
+  duration_ms: 3027.67332
+  ...
+# 🎙️ Podcast generation job queued: podcast-2df1f3dc991c96e76edd3df06877cd62be89fee844b3391bffd97112e829e209 for article 810
+# [Podcast Worker] Starting podcast generation for article 810
+# [Podcast Worker] Generating script for article 810
+# [Podcast Worker] Script generated with 1 segments
+# ✅ Podcast script brand name validation passed: "Fixture Media Co"
+# [Podcast Worker] Generating audio for article 810
+# [Podcast Worker] Audio generated, size: 240344 bytes
+# [Podcast Worker] Uploading to object storage: private/teams/810/articles/810/podcasts/podcast-article-810-1791491560695.mp3
+# [Podcast Worker] Object storage upload complete
+# [Podcast Worker] Podcast generated successfully for article 810
+# Subtest: row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles
+ok 5 - row 17: podcast route -> Redis job -> exported worker stores measured MP3 and settles
+  ---
+  duration_ms: 1238.045711
+  ...
+# 🛑 BullMQ queues and Redis connection closed
+# 📢 Notification created: [success] Podcast Ready
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 27122.530222

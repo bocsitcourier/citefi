@@ -188,6 +188,25 @@ app.listen(3000);
 | PORT | No | 3000 | Server port |
 | STORAGE_PATH | No | ./uploads | Media storage directory |
 | DEBUG | No | false | Enable debug logging |
+| PUBLISHING_RECEIPT_FENCE_READY | No | false | Opt in only after confirming the private claim volume is persistent and shared by every process serving this site. Enables native receipt capability and irrevocable not-accepted receipts; never set this for independent ephemeral replicas. |
+
+### Publishing outcome receipts
+
+New bound submissions create a durable private operation claim beside the public
+upload directory, in `.publishing-operations`, before publishing effects. Preserve
+this directory when restarting, migrating, or restoring the site. Never remove
+an unknown claim or use absence as evidence that a post was not accepted.
+
+Without `PUBLISHING_RECEIPT_FENCE_READY=true`, an uncertain/rejected bound request
+remains unknown and cannot emit retry-authorizing negative proof. Accepted receipts
+can still be retained. Confirm the durable single/shared volume before advertising
+native proof support. Multi-host replicas with independent disks are unsupported
+for native negative evidence; they require a shared durable CAS store.
+
+The authenticated read-only `/api/v1/publishing/receipts/:jobId` endpoint returns
+an exact signed receipt only for its original `dispatchAttempt`. A `404` is not
+non-acceptance proof. See `docs/publishing-reconciliation-runbook.md` in the engine
+repository for the operator procedure, HMAC wire contract, and offline QA commands.
 
 ## License
 

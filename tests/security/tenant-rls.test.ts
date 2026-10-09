@@ -199,6 +199,23 @@ test("authenticated team context remains active across awaits and is restored af
   assert.equal(getDatabaseExecutionContext(), undefined);
 });
 
+test("application predicates and PostgreSQL RLS deny cross-team reads", async (t) => {
+  if (memberships.length < 2) {
+    t.skip("requires two active teams with an owner/admin/member");
+    return;
+  }
+  const [tenantA, tenantB] = memberships as [MembershipFixture, MembershipFixture];
+  await runWithAuthenticatedTeamContext(tenantA, async () => {
+    const predicateScoped = await db.select({ id: teams.id })
+      .from(teams).where(eq(teams.id, tenantA.teamId));
+    assert.deepEqual(predicateScoped.map((row) => row.id), [tenantA.teamId]);
+    const forgedForeignPredicate = await db.select({ id: teams.id })
+      .from(teams).where(eq(teams.id, tenantB.teamId));
+    assert.deepEqual(forgedForeignPredicate, [],
+      "RLS hides a foreign row even when an application predicate targets it");
+  });
+});
+
 test("tenant role cannot read or update another team's rows", async (t) => {
   if (memberships.length < 2) {
     t.skip("requires two active teams with an owner/admin/member");

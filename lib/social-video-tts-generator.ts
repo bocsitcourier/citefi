@@ -1,7 +1,7 @@
 import { openaiClient, callOpenAI } from "./openai-client";
 import type { VideoScene } from "./gemini-video-script-generator";
 import { objectStorageClient } from "./storage";
-import { TTS_MODEL, TTS_VOICE } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { VoiceHumanizer } from "./voice-humanizer";
 import type { Emotion } from "@/types/video-schema";
 import {
@@ -133,6 +133,7 @@ export async function generateVideoTTS(
   }
 
   const voice = TONE_VOICE_MAP[tone] || TONE_VOICE_MAP["default"] || "coral";
+  const model = await getResolvedModel("tts");
   const emotionInstructions = TONE_INSTRUCTIONS[tone] || TONE_INSTRUCTIONS["default"] || "Speak naturally and conversationally.";
   let paidProviderResultReceived = false;
 
@@ -144,11 +145,11 @@ export async function generateVideoTTS(
     console.log(`  📝 Full narration (${fullNarration.split(/\s+/).length} words):`, fullNarration.slice(0, 200) + "...");
     
     // Use gpt-4o-mini-tts for emotional steering
-    const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
+    const useEmotionalTTS = model.endsWith("-tts");
     
     const mp3 = await callOpenAI(
       (client) => client.audio.speech.create({
-        model: TTS_MODEL,
+        model,
         voice: voice as any,
         input: fullNarration,
         speed: 1.0, // Natural speaking pace
@@ -158,12 +159,12 @@ export async function generateVideoTTS(
       undefined,
       {
         operationType: "video_tts",
-        model: TTS_MODEL,
+        model,
         teamId,
         resourceType: "social_post",
         resourceId: socialPostId,
         usage: { characters: fullNarration.length },
-        request: { model: TTS_MODEL },
+        request: { model },
       }
     );
     paidProviderResultReceived = true;
@@ -278,7 +279,8 @@ export async function generateMultiVoiceTTS(
 
   const audioSegments: AudioSegment[] = [];
   let paidProviderResultReceived = false;
-  const useEmotionalTTS = TTS_MODEL === "gpt-4o-mini-tts";
+  const model = await getResolvedModel("tts");
+  const useEmotionalTTS = model.endsWith("-tts");
 
   for (let i = 0; i < groupedSegments.length; i++) {
     const group = groupedSegments[i];
@@ -309,7 +311,7 @@ export async function generateMultiVoiceTTS(
     try {
       const mp3 = await callOpenAI(
         (client) => client.audio.speech.create({
-          model: TTS_MODEL,
+          model,
           voice: voiceProfile.voice as any,
           input: combinedText,
           speed: 1.0,
@@ -319,13 +321,13 @@ export async function generateMultiVoiceTTS(
         undefined,
         {
           operationType: "video_tts",
-          model: TTS_MODEL,
+          model,
           teamId,
           resourceType: "social_post",
           resourceId: socialPostId,
           providerMetadata: { segmentIndex: i },
           usage: { characters: combinedText.length },
-          request: { model: TTS_MODEL },
+          request: { model },
         }
       );
       paidProviderResultReceived = true;

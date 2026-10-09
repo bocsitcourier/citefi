@@ -1,5 +1,6 @@
 import { openaiClient, callOpenAI } from "./openai-client";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 import { 
   createBrandValidationPrompt, 
   getHashtagStrategy,
@@ -118,16 +119,17 @@ ${location && city ? `- MUST include location-based hashtags (${city}) in the ev
 - Return ONLY valid JSON, nothing else
 - If you return incorrect hashtag count, the response will be rejected`;
 
+  const model = await getResolvedModel("gptMini");
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       response_format: { type: "json_object" },
     }),
     `Social Enhancement: ${platform} for ${companyName || userEmail}`,
     undefined,
-    { request: { model: "gpt-4.1-mini" } },
+    { request: { model } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";
