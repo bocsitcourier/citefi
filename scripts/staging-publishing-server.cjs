@@ -73,6 +73,16 @@ function inspect() {
     existingNginxConfigurationValid: process.getuid() === 0
       ? commandResult('nginx', ['-t']).ok : commandResult('sudo', ['-n', 'nginx', '-t']).ok,
     nodeVersion: process.version,
+    availableMemoryMiB: Math.floor(os.freemem() / 1024 / 1024),
+    dependencyFailures: ['dependency-install.log', 'receiver-dependency-install.log'].flatMap(name => {
+      try {
+        const text = fs.readFileSync(`${QA_ROOT}/${name}`, 'utf8');
+        return [{ stage: name, codes: [...text.matchAll(/^npm (?:error|ERR!) code ([A-Z0-9_]+)/gm)].map(match => match[1]),
+          lockMismatches: text.split('\n').filter(line => /^npm (?:error|ERR!) (?:Missing:|Invalid:)/.test(line))
+            .map(line => line.replace(/[^a-zA-Z0-9@./_:+~^ '=-]/g, '').slice(0, 180)).slice(0, 12),
+        }];
+      } catch { return []; }
+    }),
     productionChanged: false,
   };
 }
