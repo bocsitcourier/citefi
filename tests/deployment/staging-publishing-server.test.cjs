@@ -30,3 +30,17 @@ test('root controller confines writes, drops privileges and isolates host-scoped
   assert.doesNotMatch(source, /pm2\('(?:stop|delete)', 'all'\)/);
   assert.doesNotMatch(source, /'\/var\/www\/citefi\/'/);
 });
+
+test('exported locks normalize both private proxy hosts without changing package integrity', () => {
+  const { normalizeLock } = require('../../scripts/create-staging-publishing-source.cjs');
+  const lock = { packages: {
+    a: { version: '1.0.0', integrity: 'sha512-example', resolved: 'http://package-firewall.replit.internal/npm/a/-/a-1.0.0.tgz' },
+    b: { version: '2.0.0', integrity: 'sha512-example2', resolved: 'http://package-firewall.replit.local/npm/@scope/b/-/b-2.0.0.tgz' },
+  }};
+  assert.equal(normalizeLock(lock), 2);
+  assert.equal(lock.packages.a.resolved, 'https://registry.npmjs.org/a/-/a-1.0.0.tgz');
+  assert.equal(lock.packages.b.resolved, 'https://registry.npmjs.org/@scope/b/-/b-2.0.0.tgz');
+  assert.equal(lock.packages.a.version, '1.0.0');
+  assert.equal(lock.packages.a.integrity, 'sha512-example');
+  assert.throws(() => normalizeLock({ resolved: 'http://package-firewall.replit.internal/npm/a/-/a-1.0.0.tgz' }));
+});
