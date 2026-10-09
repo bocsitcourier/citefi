@@ -8,6 +8,7 @@ const plan = fs.readFileSync(planPath, "utf8");
 if (!/^[a-f0-9]{64}$/.test(expectedHash) ||
     crypto.createHash("sha256").update(plan).digest("hex") !== expectedHash) throw new Error("Plan checksum mismatch");
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
+const refuse = code => { throw Object.assign(new Error("Recovery preflight refused"), { code }); };
 try {
   await client.connect();
   await client.query("BEGIN");
@@ -15,20 +16,20 @@ try {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('citefi-approved-additive-recovery'))");
   const { rows: [identity] } = await client.query(`SELECT current_database() AS database,
     NOT row_security_active('public.teams') AS full_visibility`);
-  if (identity.database !== database || !identity.full_visibility) throw new Error("Unexpected database context");
+  if (identity.database !== database || !identity.full_visibility) refuse("RECOVERY_WRONG_DATABASE_CONTEXT");
   // Never strand historical held money by creating an empty reservation table.
   const { rows: [holds] } = await client.query("SELECT count(*)::int AS count FROM credit_balances WHERE reserved_credits <> 0");
-  if (holds.count) throw new Error("Historical outstanding holds require a separately reviewed backfill");
+  if (holds.count) refuse("RECOVERY_LEGACY_HOLDS_REQUIRE_REVIEW");
   const tables = [...plan.matchAll(/CREATE TABLE "([^"]+)"/g)].map(m => m[1]);
   for (const table of tables) {
     const { rows: [existing] } = await client.query("SELECT to_regclass($1) IS NOT NULL AS present", ["public." + table]);
-    if (existing.present) throw new Error("Schema changed since plan; regenerate and retest");
+    if (existing.present) refuse("RECOVERY_SCHEMA_CHANGED");
   }
   await client.query(plan);
   const { rows: [security] } = await client.query(`SELECT count(*)::int AS count FROM pg_class
     WHERE oid IN ('public.credit_reservations'::regclass,'public.provider_attempt_receipts'::regclass)
     AND relrowsecurity AND relforcerowsecurity`);
-  if (security.count !== 2) throw new Error("New tenant controls missing");
+  if (security.count !== 2) refuse("RECOVERY_TENANT_CONTROLS_MISSING");
   await client.query("COMMIT");
   console.log(JSON.stringify({ additiveRecoveryApplied: true, sha256: expectedHash, database }));
 } catch (error) {
