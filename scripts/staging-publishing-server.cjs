@@ -83,6 +83,9 @@ function inspect() {
         const text = fs.readFileSync(`${directory}/${latest}`, 'utf8');
         return { available: true,
           errorCodes: [...new Set(text.match(/\b(?:EACCES|EPERM|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EINTEGRITY|ENOENT|ENOSPC)\b/g) || [])],
+          failedRegistryHosts: [...new Set(text.split('\n').filter(line => /ENOTFOUND/.test(line))
+            .flatMap(line => [...line.matchAll(/https?:\/\/([^/\s]+)|ENOTFOUND ([a-zA-Z0-9.-]+)/g)]
+              .map(match => ['registry.npmjs.org', 'package-firewall.replit.local'].includes(match[1] || match[2]) ? (match[1] || match[2]) : '[other-host]')))],
           diagnostics: text.split('\n').filter(line => /^\d+ (?:verbose|info|error) /.test(line) && !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
             .map(line => line.replace(/https?:\/\/\S+/g, '[url]').replace(/[A-Za-z0-9_-]{24,}/g, '[opaque]').slice(0, 160)).slice(-12),
         };
@@ -207,13 +210,14 @@ async function setup(expectedHash) {
   run('runuser', ['-u', 'citefi', '--', 'tar', '-xzf', extractionArchive, '--no-same-owner', '--no-same-permissions', '-C', source]);
   fs.unlinkSync(extractionArchive);
   phase = 'install-staging-only-dependencies';
-  if (!fs.existsSync(`${source}/node_modules/next/package.json`)) {
+  if (!fs.existsSync(`${source}/.dependencies-ready`)) {
     run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'ci',
-      '--prefix', source, '--ignore-scripts', '--no-audit', '--no-fund'], 360000, `${QA_ROOT}/dependency-install.log`);
+      '--prefix', source, '--registry=https://registry.npmjs.org', '--ignore-scripts', '--no-audit', '--no-fund'], 360000, `${QA_ROOT}/dependency-install.log`);
+    ownedWrite(`${source}/.dependencies-ready`, expectedHash, account);
   }
   if (!fs.existsSync(`${source}/packages/apex-receiver/node_modules/helmet/package.json`)) {
     run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'install',
-      '--prefix', `${source}/packages/apex-receiver`, '--ignore-scripts', '--no-audit', '--no-fund'],
+      '--prefix', `${source}/packages/apex-receiver`, '--registry=https://registry.npmjs.org', '--ignore-scripts', '--no-audit', '--no-fund'],
     180000, `${QA_ROOT}/receiver-dependency-install.log`);
   }
   phase = 'configure-private-staging-signing';
