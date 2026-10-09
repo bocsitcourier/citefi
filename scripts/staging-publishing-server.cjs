@@ -322,6 +322,11 @@ async function setup(expectedHash) {
   ssl_certificate ${tls.certificate};
   ssl_certificate_key ${tls.certificateKey};
   client_max_body_size 50m;
+  add_header X-Robots-Tag "noindex, nofollow" always;
+  # Acceptance jobs belong to disposable owned PostgreSQL, not this deployed
+  # staging DB. The real receiver still attempts its normal callback; reject
+  # here before importing the worker graph. Callback durability is separate.
+  location = /api/publishing/callbacks { return 404; }
   location / {
     proxy_pass http://127.0.0.1:${upstream};
     proxy_set_header Host $http_host;
