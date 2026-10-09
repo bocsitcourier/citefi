@@ -377,9 +377,10 @@ function verify() {
     operation: 'verify-staging-publishing-server', success: result.status === 0,
     passed: successes, failed: failures, exitCode: result.status,
     startupDiagnostics: `${result.stdout || ''}\n${result.stderr || ''}`.split('\n')
-      .filter(line => /Error:|FATAL|error:|permission denied|not found|owned fixture/i.test(line) &&
-        !/token|password|secret|authorization|bearer|access.?key|credential/i.test(line))
-      .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]').replace(/[A-Za-z0-9_-]{20,}/g, '[opaque]').slice(0, 180)).slice(-10),
+      .filter(line => line.trim())
+      .map(line => line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
+        .replace(/((?:password|secret|token|authorization|access.?key)[^:=\s]*\s*[:=])\s*\S+/gi, '$1 [redacted]')
+        .replace(/[A-Za-z0-9_+/-]{20,}/g, '[opaque]').slice(0, 180)).slice(-10),
     ownedPostgresRedis: true, realProviderReceiver: true,
     sourceSha256: setupInfo.sourceSha256, paidGeneration: false, customerPublication: false,
     productionApplicationDataCredentialsChanged: false,
