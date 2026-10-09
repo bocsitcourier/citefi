@@ -230,6 +230,20 @@ async function setup(expectedHash) {
   run('runuser', ['-u', 'citefi', '--', 'tar', '-xzf', extractionArchive, '--no-same-owner', '--no-same-permissions', '-C', source]);
   fs.unlinkSync(extractionArchive);
   phase = 'install-staging-only-dependencies';
+  // Reuse only completed dependencies from the previously owned pinned release,
+  // and only when the frozen manifests are byte-identical.
+  if (!fs.existsSync(`${source}/node_modules`) && fs.existsSync(`${QA_ROOT}/setup.json`)) {
+    const previous = JSON.parse(fs.readFileSync(`${QA_ROOT}/setup.json`, 'utf8')).source;
+    if (typeof previous === 'string' && previous !== source && /^source-[a-f0-9]{64}$/.test(path.basename(previous)) &&
+        path.dirname(previous) === QA_ROOT && fs.realpathSync(previous) === previous &&
+        fs.existsSync(`${previous}/.dependencies-ready`) &&
+        ['package.json', 'package-lock.json'].every(name =>
+          fs.readFileSync(`${previous}/${name}`).equals(fs.readFileSync(`${source}/${name}`)))) {
+      fs.symlinkSync(`${previous}/node_modules`, `${source}/node_modules`, 'dir');
+      fs.symlinkSync(`${previous}/packages/apex-receiver/node_modules`, `${source}/packages/apex-receiver/node_modules`, 'dir');
+      ownedWrite(`${source}/.dependencies-ready`, expectedHash, account);
+    }
+  }
   if (!fs.existsSync(`${source}/.dependencies-ready`)) {
     run('runuser', ['-u', 'citefi', '--', 'env', '-i', `PATH=${SYSTEM_PATH}`, `HOME=${account.home}`, 'npm', 'ci',
       '--prefix', source, '--registry=https://registry.npmjs.org', '--ignore-scripts', '--no-audit', '--no-fund'], 360000, `${QA_ROOT}/dependency-install.log`);
