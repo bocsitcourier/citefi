@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { PassThrough, Readable } from "stream";
 import { Storage } from "@google-cloud/storage";
@@ -12,6 +13,7 @@ import { articleAssets, articles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { shouldDisableLegacyStorageReads } from "./storage-migration";
+import { REVIEW_KEY, REVIEW_ETAG, type ReviewCopy } from "./publishing/review-retention";
 
 // ── DO Spaces / S3-compatible storage ────────────────────────────────────────
 const DO_SPACES_KEY      = process.env.DO_SPACES_KEY      || "";
@@ -117,6 +119,10 @@ class S3FileShim {
   }
 
   async delete(): Promise<void> {
+    const logicalKey = STORAGE_PREFIX && this.key.startsWith(`${STORAGE_PREFIX}/`)
+      ? this.key.slice(STORAGE_PREFIX.length + 1) : this.key;
+    if (logicalKey.startsWith("private/publishing-reviewed/"))
+      throw new Error("Reviewed publishing copies require governed retention cleanup");
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucketName, Key: this.key })
     );
@@ -231,6 +237,68 @@ export function getStorageReadCandidates(key: string): any[] {
     candidates.push(legacyObjectStorageClient.bucket(LEGACY_REPLIT_BUCKET).file(key));
   }
   return candidates;
+}
+
+/** Reserved content-addressed namespace. Never overwrite a reviewed version.
+ * Readers also verify SHA-256; an operator/storage overwrite cannot send new bytes. */
+export async function saveImmutablePublishingMedia(key: string, data: Buffer, contentType: string): Promise<void> {
+  if (!isStorageConfigured || !/^private\/publishing-reviewed\/[1-9]\d*\/[a-f0-9]{64}\.[a-z0-9]+$/.test(key)) {
+    throw new Error("Versioned publishing storage is unavailable");
+  }
+  try {
+    await s3Client.send(new PutObjectCommand({
+      Bucket: DO_SPACES_BUCKET, Key: storageKey(key), Body: data,
+      ContentType: contentType, IfNoneMatch: "*", CacheControl: "private, no-store",
+    }));
+  } catch (error: any) {
+    if (error?.$metadata?.httpStatusCode !== 412) throw error;
+    // Existing immutable copy must be verified by the caller, not assumed valid.
+  }
+}
+
+/** Non-secret target identity for operator evidence. No legacy fallback/deletion. */
+export function publishingReviewStorageTarget() {
+  if (!isStorageConfigured) throw new Error("Primary publishing storage is unavailable");
+  return { endpoint: DO_SPACES_ENDPOINT, bucket: DO_SPACES_BUCKET, prefix: STORAGE_PREFIX };
+}
+
+export async function inventoryPublishingReviewCopies(): Promise<ReviewCopy[]> {
+  publishingReviewStorageTarget();
+  const copies: ReviewCopy[] = [];
+  let token: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page = await s3Client.send(new ListObjectsV2Command({
+      Bucket: DO_SPACES_BUCKET, Prefix: storageKey("private/publishing-reviewed/"),
+      ContinuationToken: token,
+    }));
+    for (const object of page.Contents ?? []) {
+      if (!object.Key) throw new Error("Incomplete reviewed-media inventory");
+      copies.push({
+        key: STORAGE_PREFIX ? object.Key.slice(STORAGE_PREFIX.length + 1) : object.Key,
+        size: object.Size ?? -1, etag: object.ETag ?? "",
+        lastModified: object.LastModified?.toISOString() ?? "",
+      });
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    if (page.IsTruncated && (!token || seen.has(token))) throw new Error("Incomplete inventory pagination");
+    if (token) seen.add(token);
+  } while (token);
+  return copies;
+}
+
+/** Maintenance only: caller must hold the DB reference/pin barrier and validate
+ * reviewed dry-run evidence. Conditional failures propagate; never fall back to
+ * unconditional removal or remove from the legacy bucket. */
+export async function deletePublishingReviewCopy(copy: ReviewCopy): Promise<void> {
+  publishingReviewStorageTarget();
+  if (!REVIEW_KEY.test(copy.key) || !REVIEW_ETAG.test(copy.etag)) throw new Error("Invalid reviewed-media deletion key");
+  const current = await s3Client.send(new HeadObjectCommand({ Bucket: DO_SPACES_BUCKET, Key: storageKey(copy.key) }));
+  if (current.ETag !== copy.etag || current.ContentLength !== copy.size ||
+      current.LastModified?.toISOString() !== copy.lastModified) throw new Error("Reviewed-media object changed");
+  await s3Client.send(new DeleteObjectCommand({
+    Bucket: DO_SPACES_BUCKET, Key: storageKey(copy.key), IfMatch: copy.etag,
+  }));
 }
 
 // ── Public URL helper ─────────────────────────────────────────────────────────
@@ -357,6 +425,9 @@ export async function deleteFromStorage(key: string): Promise<void> {
     : normalized.startsWith("public/")
       ? normalized
       : `public/${normalized}`;
+  if (objectName.startsWith("private/publishing-reviewed/")) {
+    throw new Error("Reviewed publishing copies require governed retention cleanup");
+  }
   try {
     await objectStorageClient.bucket(DO_SPACES_BUCKET).file(objectName).delete();
     console.log(`🗑️  Deleted from storage: ${key}`);

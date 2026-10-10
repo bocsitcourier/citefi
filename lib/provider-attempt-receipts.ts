@@ -45,6 +45,8 @@ const MAX_FAILURE_MESSAGE = 255;
 const SAFE_RAW_USAGE_KEYS = new Set([
   "promptTokenCount",
   "candidatesTokenCount",
+  "imageOutputTokens",
+  "otherOutputTokens",
   "totalTokenCount",
   "thoughtsTokenCount",
   "cachedContentTokenCount",
@@ -227,6 +229,12 @@ export class ProviderAttemptSubmissionUncertainError extends Error {
     super(message, cause === undefined ? undefined : { cause });
     this.name = "ProviderAttemptSubmissionUncertainError";
   }
+}
+
+/** Adapter-owned proof that validation rejected a request before transport. */
+export class ProviderRequestNotSubmittedError extends Error {
+  readonly code: string = "PROVIDER_REQUEST_NOT_SUBMITTED";
+  readonly retryable = false;
 }
 
 export class ProviderAttemptAlreadySubmittedError extends Error {
@@ -1023,7 +1031,10 @@ const fileSpool: ProviderAttemptReceiptSpool = {
     // directory entry survive a crash.
     let directoryHandle: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      directoryHandle = await open(directory, "r");
+      // This is operator-provided runtime storage, not a source dependency.
+      // Tracing it would package the whole project (and potentially receipts).
+      // Keep the fsync and ownership validation unchanged.
+      directoryHandle = await open(/* turbopackIgnore: true */ directory, "r");
       await directoryHandle.sync();
     } finally {
       await directoryHandle?.close().catch(() => {});
@@ -1277,6 +1288,7 @@ function isAmbiguousSubmissionError(error: unknown): boolean {
     message.includes("timed out") ||
     message.includes("socket hang up") ||
     message.includes("fetch failed") ||
+    code === "provider_attempt_submission_uncertain" ||
     code === "econnreset" ||
     code === "etimedout";
 }
@@ -1296,9 +1308,10 @@ export type ProviderFailureClassification =
  */
 export function classifyProviderFailureCode(error: unknown): ProviderFailureClassification {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
-  const code = error && typeof error === "object" && "code" in error
-    ? String((error as { code?: unknown }).code).toLowerCase()
-    : "";
+  const detail = error && typeof error === "object"
+    ? error as { status?: unknown; statusCode?: unknown; code?: unknown }
+    : {};
+  const code = String(detail.status ?? detail.statusCode ?? detail.code ?? "").toLowerCase();
   if (code === "429" || message.includes("rate limit") || message.includes("too many requests")) {
     return "RATE_LIMITED";
   }
@@ -1310,7 +1323,12 @@ export function classifyProviderFailureCode(error: unknown): ProviderFailureClas
   }
   if (message.includes("quota")) return "QUOTA_EXCEEDED";
   if (isAmbiguousSubmissionError(error)) return "TRANSIENT_PROVIDER_ERROR";
-  return "PROVIDER_REJECTED";
+  if (/^4\d\d$/.test(code) && code !== "408") return "PROVIDER_REJECTED";
+  if (message.includes("provider rejected") || message.includes("request rejected")) {
+    return "PROVIDER_REJECTED";
+  }
+  // Local guards, transport failures and 5xx do not prove zero provider spend.
+  return "TRANSIENT_PROVIDER_ERROR";
 }
 
 export interface ProviderAttemptReceiptDependencies {
@@ -1489,6 +1507,13 @@ export async function runWithProviderAttempt<TResponse>(
       }
       return response;
     } catch (error) {
+      if (!runtime.captured && error instanceof ProviderRequestNotSubmittedError) {
+        await markRuntimeStatus(runtime, "provider_rejected", {
+          code: error.code,
+          message: "local adapter rejected request before physical transport",
+        });
+        throw error;
+      }
       if (
         !runtime.captured &&
         error &&
@@ -1510,7 +1535,9 @@ export async function runWithProviderAttempt<TResponse>(
           error,
         );
       }
-      if (!runtime.captured && isAmbiguousSubmissionError(error)) {
+      if (!runtime.captured && (isAmbiguousSubmissionError(error) ||
+        (!isProviderAttemptTerminalError(error) &&
+          classifyProviderFailureCode(error) === "TRANSIENT_PROVIDER_ERROR"))) {
         await markRuntimeStatus(runtime, "uncertain", {
           code: "PROVIDER_SUBMISSION_UNCERTAIN",
           message: "provider submission outcome is uncertain",
@@ -1826,7 +1853,7 @@ export async function reconcileProviderAttempt(
 
   const usage = capture.usage;
   const recordUsage = deps.recordUsage ?? (recordProviderUsage as (input: ProviderUsageInput) => Promise<unknown>);
-  const ledger = await recordUsage({
+  const primaryUsage: ProviderUsageInput = {
     sourceEventId: receipt.sourceEventId,
     teamId: receipt.teamId,
     campaignId: receipt.campaignId ?? null,
@@ -1851,7 +1878,24 @@ export async function reconcileProviderAttempt(
       ? { ...capture.metadata }
       : null,
     attempt: receipt.attempt,
-  });
+  };
+  const ledger = await recordUsage(primaryUsage);
+  if (receipt.provider === "gemini" && usage.unitType === "images") {
+    const textOutput = (usage.raw?.otherOutputTokens ?? 0) + (usage.raw?.thoughtsTokenCount ?? 0);
+    if (!Number.isSafeInteger(textOutput) || textOutput < 0) {
+      throw new Error("Invalid Gemini non-image output token count");
+    }
+    if (textOutput > 0) {
+      await recordUsage({
+        ...primaryUsage,
+        sourceEventId: `${receipt.sourceEventId}:text-output`,
+        unitType: "tokens",
+        inputUnits: 0,
+        outputUnits: textOutput,
+        unitCount: textOutput,
+      });
+    }
+  }
   return {
     receipt: await finalizeReceiptAccounted(
       receipt,

@@ -1,0 +1,24 @@
+{
+  "number": 4,
+  "kind": "clip",
+  "scene": 5,
+  "sourceEventId": "provider-attempt:d1ce77fd3e3efb995af5e90f5a785501e9e096fffc31bc1b00374f0c77207575",
+  "requestSha256": "5541e9616301b36ab97538c7fd41ecb5fbdd83e95b24eaebc46a307f1ad71e22",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a bright, professional interior of a modern office in Fixture City flooded with natural light from integrated solar windows, camera glides forward, clean minimalist aesthetic, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

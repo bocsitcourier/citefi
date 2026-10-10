@@ -5,7 +5,7 @@
 - [Authentication session policy](auth-session-policy.md) — normal sessions are 24h; explicit “keep signed in” sessions are 90d and do not bypass MFA on a new login.
 - [Learning system design](learning-system-loops.md) — Thompson Sampling, per-content metric weights, archive filtering, and data-maturity priors govern selection.
 - [Optimized content generator](optimized-content-generator.md) — 3-point injection orchestrator; reviewer wired at Stage 1.6 articles + Stage 1.5 social; exemplar retrieval is the last gap.
-- [Authentication test patterns](t004-auth-tests.md) — use the direct-process runner, isolated test IPs, unique JWT IDs, and explicit server readiness.
+- [Authentication test isolation](auth-test-isolation.md) — disposable fixtures, real authorization checks, and separate rate-limit probe traffic.
 - [Public routes config](public-routes.md) — PUBLIC_ROUTES in components/navigation/nav-config.ts controls client-side auth redirect; add every marketing/public page here or it redirects to login.
 - [Journey orchestrator auth](journey-orchestrator-auth.md) — team membership is tenant-scoped; cross-team administrator access needs a separate global-admin check.
 - [Turbopack PostCSS ESM fix](turbopack-postcss-esm.md) — require() in tailwind.config.ts hangs Turbopack's ESM worker; use ESM imports + explicit config path in postcss.config.js.
@@ -21,11 +21,12 @@
 - [Neon null rows](neon-null-rows-shim.md) — normalize zero-row results and route worker failures through the shared error logger.
 - [Neon HTTP socket exhaustion](neon-http-socket-exhaustion.md) — concurrent asynchronous database work must use the pooled TCP client.
 - [BullMQ and Redis](bullmq-redis-replit.md) — override the broken injected Redis URL and use the established local Redis/BullMQ lifecycle.
-- [GitHub push script](github-push-script.md) — main-agent git networking is sandboxed; use the repository's GitHub REST push path.
+- [GitHub networking](github-push-script.md) — REST avoids sandboxed git transport, but protected main requires PR-based sync, not force-ref updates.
 - [DO deploy pitfalls](do-deploy-pitfalls.md) — service-account ownership, Redis, explicit env loading, swap/build safety, and isolated shared-host staging rules.
 - [Daily Marketing Brief](daily-brief-architecture.md) — preserve signup intake, BullMQ scheduling, UTC cadence enforcement, and admin visibility.
 - [Pipeline worker policy](pipeline-worker-policy.md) — all BullMQ workers register via createPipelineWorker; policy (classify/release/fatal) lives there once; budget gates stay in processors.
-- [Model resolver](model-resolver.md) — validate tiered model fallback chains before registering workers; critical tiers fail startup when unavailable.
+- [Model upgrades](model-resolver.md) — automatic adoption is distinct from availability fallback; discovery alone does not authorize a new contract or cost.
+- [Runtime storage bundling](runtime-storage-bundling.md) — runtime receipt data must not become a bundled source dependency through dynamic filesystem tracing.
 - [Node test-runner IPC](node-test-runner-ipc.md) — Node 20 isolation can intermittently corrupt IPC for tsx + real-service suites; use a deterministic direct-process harness.
 - [Reservation state machine](reservation-state-machine.md) — enforce one-way reserve settlement, correct partial release, and job-level idempotency.
 - [PostgreSQL tenant RLS](postgres-tenant-rls.md) — guards return claims only; tenant callbacks and connection-scoped transactions enforce role/GUC context.
@@ -40,4 +41,18 @@
 - [Canonical asset identity](canonical-asset-identity.md) — dedupe is team-scoped by durable object key; legacy source rows remain until generation writers converge.
 - [Post-merge schema reconciliation](post-merge-schema-reconciliation.md) — preserve migration checksums; detect Drizzle’s false-success prompts and reassert database-only controls.
 - [Generation audit contract](generation-audit-contract.md) — require usable end-to-end assets; prioritize duplicate media spend, post-success retries, double clicks, and abandoned jobs.
+- [Runtime configuration verification](provider-config-verification.md) — test actual parser APIs and serialized provider limits; types and fallback success can conceal ignored configuration.
+- [Verification workflow safety](verification-workflow-safety.md) — pin-only workflow tests fail closed on unknown jobs, actions, and expressions rather than guessing their effects.
+- [Auth database context scoping](auth-database-context-scoping.md) — auth bootstrap, tenant work, and admin work require bounded callbacks; never inherit ambient system authority.
 - [Media QA paid stop](media-qa-paid-stop.md) — retain ambiguous reservations; image-only approval does not authorize TTS/video or retroactive application settlement.
+- [Media QA live ledger](media-qa-live-ledger.md) — retained parent lock + child locks + hashed owner permissions; offline tests replay the pinned admission ledger snapshot.
+- [Required deployment check](required-deployment-check.md) — required workflows must report on all PRs; preserve no-bypass enforcement and use PR-based GitHub sync.
+- [Large SDK compiler graphs](large-sdk-compiler-graphs.md) — scoped factories and fresh-cache comparisons resolve declaration-loading hangs without weakening types.
+- [Redis exposure recurrence](redis-exposure-recurrence.md) — verify actual daemon binding and port mapping after restart; an intermediate green gate is not durable.
+- [Owned build IPC](owned-build-ipc.md) — trust captured evaluator argv, not stack-frame identity; grant only nonce-owned build IPC before loading the unchanged offline guard.
+- [Publishing consent policy](publishing-consent-policy.md) — legacy flags never imply exact consent; assignment overrides parent authority; no implicit admin bypass.
+- [Mixed TypeScript loaders](mixed-tsx-loaders.md) — mixed ESM/CommonJS TS graphs require the full tsx preload, not its ESM-only hook.
+- [Publishing reconciliation safety](publishing-reconciliation-safety.md) — negative proof needs an irrevocable native fence; legacy stays blocked; publishing cannot settle paid holds.
+- [Next generated declarations](next-generated-declarations.md) — malformed cached route types can mimic source errors after restart; regenerate the declaration set, not individual files.
+- [Staging source retention](staging-source-retention.md) — preserve intermediate dependency links; disk limits never authorize deletion of evidence or retained media.
+- [DO release expectations](do-deploy-handoff.md) — owner expects agent-run SSH releases from the workspace; verify credential provenance instead of asserting missing access.

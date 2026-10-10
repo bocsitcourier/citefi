@@ -7,12 +7,13 @@
  *
  * Auth tokens are generated directly in the seed (bypassing /api/auth/login)
  * and sent as Authorization: Bearer headers so these tests are not blocked by
- * the pre-existing 404 on the login route.
+ * the application's real session and login authorization.
  *
  * Run:
- *   WORKER_PROCESS=true node --env-file=.env.local --import tsx/esm --test tests/admin/admin-notifications.test.ts
+ *   bash QA/support/with-isolated-database.sh --http -- tests/admin/admin-notifications.test.ts
  *
- * Requires the Next.js dev server to be running (default: http://localhost:5000).
+ * Requires an explicitly owned QA HTTP fixture via QA_HTTP_FIXTURE_URL and
+ * QA_ISOLATED_DATABASE=true.
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -21,10 +22,14 @@ import {
   cleanupNotificationUsers,
   type NotificationSeedResult,
 } from "./seed-notifications.js";
+import { requireHttpFixture } from "../../QA/support/qa-fixtures.mjs";
 
-const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
+const HTTP_FIXTURE = requireHttpFixture("admin-notifications");
+const BASE_URL = HTTP_FIXTURE.baseUrl;
 
 const RUN_ID = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+let adminBearerToken = "";
+let nonAdminBearerToken = "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +38,28 @@ async function apiGet(path: string, bearerToken?: string): Promise<Response> {
   const headers: Record<string, string> = {};
   if (bearerToken) headers.authorization = `Bearer ${bearerToken}`;
   return fetch(`${BASE_URL}${path}`, { headers });
+}
+
+function extractBearerToken(res: Response): string {
+  const raw = res.headers.get("set-cookie") ?? "";
+  const match = raw.match(/(?:^|,\s*)auth_token=([^;,]+)/);
+  assert.ok(match?.[1], "Login response must set an auth_token cookie");
+  return match[1];
+}
+
+async function loginSyntheticAccount(email: string, password: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-forwarded-for": "10.0.0.1, 198.51.100.241",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  assert.equal(res.status, 200, `Synthetic account login must return 200, got ${res.status}`);
+  const body: any = await res.json();
+  assert.equal(body.requiresTwoFactor, undefined, "Synthetic admin login must not require recovery MFA");
+  return extractBearerToken(res);
 }
 
 /**
@@ -70,6 +97,8 @@ let seed!: NotificationSeedResult;
 before(async () => {
   await waitForServer();
   seed = await seedNotificationUsers(RUN_ID);
+  adminBearerToken = await loginSyntheticAccount(seed.teamlessAdmin.email, seed.password);
+  nonAdminBearerToken = await loginSyntheticAccount(seed.teamlessNonAdmin.email, seed.password);
 });
 
 after(async () => {
@@ -80,7 +109,7 @@ after(async () => {
 
 describe("Admin notifications — team-less admin path", { concurrency: 1 }, () => {
   test("GET /api/notifications returns 200 for team-less admin (userId-only auth path)", async () => {
-    const res = await apiGet("/api/notifications", seed.teamlessAdmin.bearerToken);
+    const res = await apiGet("/api/notifications", adminBearerToken);
     assert.equal(
       res.status,
       200,
@@ -89,7 +118,7 @@ describe("Admin notifications — team-less admin path", { concurrency: 1 }, () 
   });
 
   test("GET /api/notifications returns the seeded signup-alert notification for the team-less admin", async () => {
-    const res = await apiGet("/api/notifications", seed.teamlessAdmin.bearerToken);
+    const res = await apiGet("/api/notifications", adminBearerToken);
     assert.equal(res.status, 200);
 
     const body: any = await res.json();
@@ -112,7 +141,7 @@ describe("Admin notifications — team-less admin path", { concurrency: 1 }, () 
   });
 
   test("GET /api/notifications?unread=true includes the unread signup-alert for team-less admin", async () => {
-    const res = await apiGet("/api/notifications?unread=true", seed.teamlessAdmin.bearerToken);
+    const res = await apiGet("/api/notifications?unread=true", adminBearerToken);
     assert.equal(res.status, 200);
 
     const body: any = await res.json();
@@ -131,7 +160,7 @@ describe("Admin notifications — team-less admin path", { concurrency: 1 }, () 
   });
 
   test("GET /api/notifications?count=true returns a positive unread count for team-less admin", async () => {
-    const res = await apiGet("/api/notifications?count=true", seed.teamlessAdmin.bearerToken);
+    const res = await apiGet("/api/notifications?count=true", adminBearerToken);
     assert.equal(res.status, 200);
 
     const body: any = await res.json();
@@ -150,7 +179,7 @@ describe("Admin notifications — team-less admin path", { concurrency: 1 }, () 
   test("Team-less admin notification does NOT appear for a different admin (isolation check)", async () => {
     // A notification scoped to teamlessAdmin.id must not bleed into another user's list.
     // teamlessNonAdmin has no notifications seeded for them, so their list must be empty.
-    const res = await apiGet("/api/notifications", seed.teamlessNonAdmin.bearerToken);
+    const res = await apiGet("/api/notifications", nonAdminBearerToken);
     // Non-admin without team gets 403 — but the point here is: even if they could call
     // the endpoint, the notification must not appear. We verify via the admin path
     // that the notification only shows up for its owner (covered by the assertion above).
@@ -165,7 +194,7 @@ describe("Admin notifications — team-less admin path", { concurrency: 1 }, () 
 
 describe("Admin notifications — non-admin team-less user is blocked", { concurrency: 1 }, () => {
   test("team-less non-admin receives 403 from GET /api/notifications", async () => {
-    const res = await apiGet("/api/notifications", seed.teamlessNonAdmin.bearerToken);
+    const res = await apiGet("/api/notifications", nonAdminBearerToken);
     assert.equal(
       res.status,
       403,

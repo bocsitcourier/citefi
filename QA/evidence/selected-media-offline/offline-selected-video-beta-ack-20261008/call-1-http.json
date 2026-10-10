@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "ok": true,
+  "origin": "https://generativelanguage.googleapis.com",
+  "path": "/v1beta/models/gemini-3.5-flash:generateContent",
+  "receivedAt": "2026-10-08T23:32:41.145Z",
+  "headers": {
+    "content-type": "application/json"
+  }
+}

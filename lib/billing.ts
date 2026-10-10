@@ -13,6 +13,7 @@
 import { eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getTxDb, db } from "./db";
+import { preservesCreditCommitments } from "./billing-adjustment-policy";
 import { creditBalances, creditLedger, creditReservations, teams } from "@/shared/schema";
 import { getCreditCost, getEffectiveCreditCost, type OperationType } from "./credit-menu";
 
@@ -1130,6 +1131,24 @@ export async function adminAdjust(params: {
 
   return txDb.transaction(async (tx) => {
     await ensureBucketRow(teamId, tx);
+
+    // Serialize the policy check with reservations and debits. Otherwise a
+    // negative admin adjustment could remove credits already held for queued
+    // provider work, and settlement would charge a bucket beyond its entitlement.
+    const [balance] = await tx
+      .select()
+      .from(creditBalances)
+      .where(eq(creditBalances.teamId, teamId))
+      .limit(1)
+      .for("update");
+    if (!balance) {
+      throw new Error(`creditBalances row missing for team ${teamId} — ensureBucketRow should prevent this`);
+    }
+    if (!preservesCreditCommitments(balance, bucket, amount)) {
+      throw new Error(
+        `[billing] adjustment would remove credits already used or reserved for team ${teamId}`
+      );
+    }
 
     const col = bucket === "allowance" ? creditBalances.allowanceCredits : creditBalances.purchasedCredits;
     const [updated] = await tx

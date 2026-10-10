@@ -8,6 +8,16 @@ export async function lockPlatformAdminState(tx: any): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(2026090901)`);
 }
 
+// Team membership role changes/removals use a separate lock namespace, keyed
+// by team. The lock serializes last-owner/admin checks for one team without
+// blocking unrelated teams.
+export async function lockTeamAdminMembershipState(
+  tx: any,
+  teamId: number,
+): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(2026090902, ${teamId})`);
+}
+
 export async function countActivePlatformAdmins(tx: any): Promise<number> {
   const [result] = await tx
     .select({ count: count() })

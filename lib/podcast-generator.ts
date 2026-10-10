@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { throttledGeminiRequest } from "./gemini";
 import { logCostTelemetry, extractGeminiUsage, isProviderAccountingError } from "./cost-telemetry";
@@ -195,7 +195,7 @@ Make this podcast MEMORABLE and ENJOYABLE, not just informative!`;
 
   try {
     const _podStart = Date.now();
-    const model = getModel("geminiFlash");
+    const model = await getResolvedModel("geminiFlash");
     const generationRequest = {
       model,
       contents: [

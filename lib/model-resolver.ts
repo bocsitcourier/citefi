@@ -1,370 +1,284 @@
 /**
- * Level 2 model resolver — validates configured model IDs against the live API
- * at worker startup, falls back through a verified chain when a model is gone,
- * and refuses to start if a critical tier has no live option.
- *
- * Design: the resolved map is private. The only way to read a model ID at
- * runtime is getModel(tier). If called before validateAndResolveModels() has
- * run, it throws a PipelineError so the bug surfaces immediately with a stack
- * trace pointing at the offending file — instead of silently returning
- * undefined or a stale import-time capture.
- *
- * Usage (server/worker-process.ts):
- *   await validateAndResolveModels();  // before registerWorkers()
- *
- * Usage (lib/*.ts that call AI APIs):
- *   import { getModel } from "./model-resolver";
- *   model: getModel("geminiFlash")
+ * Shared web/worker model policy. Requests await resolution, then freeze the
+ * selected ID for both submission and its accounting receipt.
  */
-
 import {
-  GEMINI_FLASH_MODEL,
-  GEMINI_ARTICLE_MODEL,
-  GEMINI_PRO_MODEL,
-  GEMINI_CRITIQUE_MODEL,
-  GEMINI_IMAGE_MODEL,
-  VEO_VIDEO_MODEL,
-  GPT_ENHANCEMENT_MODEL,
-  GPT_REVIEW_MODEL,
-  GPT_ADVANCED_MODEL,
-  GPT_HYPERLINK_EXTRACT_MODEL,
-  GPT_HYPERLINK_CORRECTION_MODEL,
-  TTS_MODEL,
-  GEMINI_EXPERIMENTAL_MODEL,
+  GEMINI_FLASH_MODEL, GEMINI_ARTICLE_MODEL, GEMINI_PRO_MODEL,
+  GEMINI_CRITIQUE_MODEL, GEMINI_IMAGE_MODEL, VEO_VIDEO_MODEL,
+  GPT_ENHANCEMENT_MODEL, GPT_REVIEW_MODEL, GPT_ADVANCED_MODEL,
+  GPT_HYPERLINK_EXTRACT_MODEL, GPT_HYPERLINK_CORRECTION_MODEL, TTS_MODEL,
 } from "./ai-config";
 import { PipelineError } from "./errors";
+import { fetchModelCatalog } from "./model-catalog";
+import { approvedModels } from "./model-upgrade-registry";
+import {
+  MODEL_CONTRACTS, modelProvider, selectTierModel, type CatalogModel, type LockedModelRate,
+  type ModelDecision, type ModelTier,
+} from "./model-policy";
+export type { ModelTier } from "./model-policy";
 
-// ── Tier type ─────────────────────────────────────────────────────────────────
+const DEFAULTS: Record<ModelTier, string> = {
+  geminiFlash: GEMINI_FLASH_MODEL, geminiArticle: GEMINI_ARTICLE_MODEL,
+  geminiPro: GEMINI_PRO_MODEL, geminiCritique: GEMINI_CRITIQUE_MODEL,
+  geminiImage: GEMINI_IMAGE_MODEL, veoVideo: VEO_VIDEO_MODEL,
+  gptMini: GPT_ENHANCEMENT_MODEL, gptReview: GPT_REVIEW_MODEL,
+  gptAdvanced: GPT_ADVANCED_MODEL, gptHyperlinkExtract: GPT_HYPERLINK_EXTRACT_MODEL,
+  gptHyperlinkCorrection: GPT_HYPERLINK_CORRECTION_MODEL, tts: TTS_MODEL,
+};
+const ENV_PINS: Record<ModelTier, string> = {
+  geminiFlash: "GEMINI_FLASH_MODEL", geminiArticle: "GEMINI_ARTICLE_MODEL",
+  geminiPro: "GEMINI_PRO_MODEL", geminiCritique: "GEMINI_CRITIQUE_MODEL",
+  geminiImage: "GEMINI_IMAGE_MODEL", veoVideo: "VEO_VIDEO_MODEL",
+  gptMini: "GPT_ENHANCEMENT_MODEL", gptReview: "GPT_REVIEW_MODEL",
+  gptAdvanced: "GPT_ADVANCED_MODEL", gptHyperlinkExtract: "GPT_HYPERLINK_EXTRACT_MODEL",
+  gptHyperlinkCorrection: "GPT_HYPERLINK_CORRECTION_MODEL", tts: "TTS_MODEL",
+};
+const PINS = new Set((Object.keys(ENV_PINS) as ModelTier[])
+  .filter(tier => !!process.env[ENV_PINS[tier]]?.trim()));
+const CRITICAL_TIERS: ModelTier[] = ["geminiFlash", "geminiArticle", "geminiPro", "gptMini", "gptAdvanced"];
+export const MODEL_REFRESH_MS = 30 * 60_000;
+export const MODEL_MAX_STALE_MS = 2 * 60 * 60_000;
+const RETRY_MS = 60_000;
 
-export type ModelTier =
-  | "geminiFlash"
-  | "geminiArticle"
-  | "geminiPro"
-  | "geminiCritique"
-  | "geminiImage"
-  | "veoVideo"
-  | "gptMini"
-  | "gptReview"
-  | "gptAdvanced"
-  | "gptHyperlinkExtract"
-  | "gptHyperlinkCorrection"
-  | "tts";
-
-// ── Private resolved map ──────────────────────────────────────────────────────
-// null = resolver hasn't run yet; getModel() throws in this state.
-
-let _resolved: Record<ModelTier, string> | null = null;
-
-export interface GeminiModelValidationStatus {
-  checked: boolean;
+interface ProviderState {
   available: boolean;
-  configuredModels: string[];
-  unrecognizedModels: string[];
-  checkedAt: string | null;
+  checkedAt: number;
+  lastSuccessAt: number | null;
+  models: CatalogModel[];
   error?: string;
 }
-
-let _geminiValidation: GeminiModelValidationStatus = {
-  checked: false,
-  available: false,
-  configuredModels: [],
-  unrecognizedModels: [],
-  checkedAt: null,
+const providers: Record<"gemini" | "openai", ProviderState> = {
+  gemini: { available: false, checkedAt: 0, lastSuccessAt: null, models: [] },
+  openai: { available: false, checkedAt: 0, lastSuccessAt: null, models: [] },
 };
+let selected: Partial<Record<ModelTier, string>> = {};
+let decisions: Partial<Record<ModelTier, ModelDecision>> = {};
+let flight: Promise<void> | null = null;
+let nextCheckAt = 0;
+let initialized = false;
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let lastChanges: Array<{ tier: ModelTier; from: string | null; to: string | null; at: string }> = [];
+const rejectedUntil = new Map<string, number>();
+let invalidationEpoch = 0;
+let rateReader: ModelResolverDependencies["rates"];
 
-// Defaults initialised from ai-config (env-overridable)
-const DEFAULTS: Record<ModelTier, string> = {
-  geminiFlash:            GEMINI_FLASH_MODEL,
-  geminiArticle:          GEMINI_ARTICLE_MODEL,
-  geminiPro:              GEMINI_PRO_MODEL,
-  geminiCritique:         GEMINI_CRITIQUE_MODEL,
-  geminiImage:            GEMINI_IMAGE_MODEL,
-  veoVideo:               VEO_VIDEO_MODEL,
-  gptMini:                GPT_ENHANCEMENT_MODEL,
-  gptReview:              GPT_REVIEW_MODEL,
-  gptAdvanced:            GPT_ADVANCED_MODEL,
-  gptHyperlinkExtract:    GPT_HYPERLINK_EXTRACT_MODEL,
-  gptHyperlinkCorrection: GPT_HYPERLINK_CORRECTION_MODEL,
-  tts:                    TTS_MODEL,
-};
-
-// ── Public accessor ───────────────────────────────────────────────────────────
-
-/**
- * Get the live-validated model ID for a tier.
- * Throws if called before validateAndResolveModels() has run.
- */
+function usable(tier: ModelTier, now = Date.now()): boolean {
+  const state = providers[modelProvider(tier)];
+  return !!selected[tier] && state.lastSuccessAt != null &&
+    now - state.lastSuccessAt <= MODEL_MAX_STALE_MS;
+}
+/** Synchronous compatibility accessor; generation paths use getResolvedModel. */
 export function getModel(tier: ModelTier): string {
-  if (_resolved !== null) return _resolved[tier];
-  // Pre-resolution fallback: web process routes call AI directly before the
-  // worker resolver has run. Return the static verified default so they keep
-  // working during the SEAM3 migration; log loudly so violations are visible.
-  // The strict "throw" behavior will return once all 15 sync routes are
-  // converted to queued jobs and WORKER_PROCESS enforcement is enabled.
-  console.warn(
-    `[model-resolver] getModel("${tier}") before resolution — using static default. ` +
-    `This call is in the web process and should be queued (Seam 3 violation).`
+  if (!initialized) return DEFAULTS[tier];
+  if (!usable(tier)) throw new PipelineError(
+    `No validated model available for ${tier}`, "MODEL_NOT_FOUND", "fatal", "model-resolution",
   );
-  return DEFAULTS[tier];
+  return selected[tier]!;
 }
-
-/**
- * Returns a snapshot of all resolved model IDs.
- * Returns the defaults if the resolver hasn't run yet (for /api/health).
- */
+export async function getResolvedModel(tier: ModelTier): Promise<string> {
+  await refreshModelResolution();
+  // Revalidate promotions at each operation boundary: a newly effective rate
+  // must not leave a promoted model authorized until the catalog TTL expires.
+  if (usable(tier) && selected[tier] !== DEFAULTS[tier] && !PINS.has(tier)) {
+    let rates: Record<string, LockedModelRate> = {};
+    try {
+      const reader = rateReader ?? (await import("./model-rate-eligibility")).readModelPromotionRates;
+      rates = await reader(tier, [DEFAULTS[tier], ...approvedModels(tier).map(candidate => candidate.id)]);
+    } catch { /* Missing pricing cannot authorize a promotion. */ }
+    const decision = selectTierModel({
+      tier, configured: DEFAULTS[tier], pinned: false,
+      catalog: providers[modelProvider(tier)].models.filter(model =>
+        (rejectedUntil.get(model.id) ?? 0) <= Date.now()),
+      approved: providers[modelProvider(tier)].available ? approvedModels(tier)
+        : approvedModels(tier).filter(candidate => candidate.id === selected[tier] || candidate.id === DEFAULTS[tier]),
+      rates,
+    });
+    if (selected[tier] !== decision.selected) {
+      lastChanges.push({ tier, from: selected[tier] ?? null, to: decision.selected, at: new Date().toISOString() });
+      lastChanges = lastChanges.slice(-100);
+    }
+    if (decision.selected) selected[tier] = decision.selected;
+    else delete selected[tier];
+    decisions[tier] = decision;
+  }
+  return getModel(tier);
+}
 export function getAllModels(): Record<ModelTier, string> {
-  return _resolved ? { ..._resolved } : { ...DEFAULTS };
+  if (!initialized) return { ...DEFAULTS };
+  return Object.fromEntries((Object.keys(DEFAULTS) as ModelTier[])
+    .map(tier => [tier, usable(tier) ? selected[tier] : "unavailable"])) as Record<ModelTier, string>;
 }
-
-/** True once validateAndResolveModels() has completed successfully. */
 export function isResolverReady(): boolean {
-  return _resolved !== null;
+  return initialized && CRITICAL_TIERS.every(tier =>
+    usable(tier) && providers[modelProvider(tier)].available);
 }
-
-/** Cached result of the one-time startup Gemini ListModels check. */
+export interface GeminiModelValidationStatus {
+  checked: boolean; available: boolean; configuredModels: string[];
+  unrecognizedModels: string[]; checkedAt: string | null; error?: string;
+}
 export function getGeminiValidationStatus(): GeminiModelValidationStatus {
+  const state = providers.gemini;
+  const configured = [...new Set((Object.keys(DEFAULTS) as ModelTier[])
+    .filter(tier => modelProvider(tier) === "gemini").map(tier => DEFAULTS[tier]))];
   return {
-    ..._geminiValidation,
-    configuredModels: [..._geminiValidation.configuredModels],
-    unrecognizedModels: [..._geminiValidation.unrecognizedModels],
+    checked: state.checkedAt > 0, available: state.available, configuredModels: configured,
+    unrecognizedModels: state.available ? configured.filter(id => !state.models.some(model => model.id === id)) : [],
+    checkedAt: state.checkedAt ? new Date(state.checkedAt).toISOString() : null,
+    ...(state.error ? { error: state.error } : {}),
+  };
+}
+export function getModelResolutionStatus() {
+  return {
+    scope: process.env.WORKER_PROCESS === "true" ? "worker-process" : "web-process",
+    ready: isResolverReady(), initialized, refreshIntervalMs: MODEL_REFRESH_MS,
+    maxStaleMs: MODEL_MAX_STALE_MS, pins: [...PINS],
+    tiers: (Object.keys(DEFAULTS) as ModelTier[]).map(tier => ({
+      ...decisions[tier], tier, configured: DEFAULTS[tier],
+      selected: usable(tier) ? selected[tier] : null, usable: usable(tier),
+    })),
+    providers: Object.fromEntries(Object.entries(providers).map(([name, state]) => [
+      name, {
+        available: state.available, checkedAt: state.checkedAt ? new Date(state.checkedAt).toISOString() : null,
+        lastSuccessAt: state.lastSuccessAt ? new Date(state.lastSuccessAt).toISOString() : null,
+        modelCount: state.models.length, ...(state.error ? { error: state.error } : {}),
+        unapproved: state.models.filter(model => /^(gpt|gemini|veo|chatgpt)-/.test(model.id) &&
+          !(Object.keys(DEFAULTS) as ModelTier[]).some(tier =>
+            modelProvider(tier) === name && approvedModels(tier).some(candidate => candidate.id === model.id)
+          )).map(model => ({ id: model.id, reason: "Compatibility and locked-pricing certification required" })).slice(0, 100),
+      },
+    ])),
+    changes: lastChanges.map(change => ({ ...change })),
   };
 }
 
-// ── Known shutdown dates ──────────────────────────────────────────────────────
-const KNOWN_SHUTDOWNS: Record<string, string> = {
-  "gemini-2.5-pro": "2026-10-16 (Gemini Developer API — migrate to gemini-3.1-pro-preview)",
-  "gemini-2.0-flash-exp": "2026-06-01",
-  "veo-2.0-generate-001": "removed",
-};
-
-// ── Fallback chains ───────────────────────────────────────────────────────────
-// Verified against live ListModels / /v1/models responses (2026-08).
-
-const GEMINI_CHAINS: Record<ModelTier, string[]> = {
-  geminiFlash:    ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-preview-04-17"],
-  geminiArticle:  ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-preview-04-17"],
-  geminiPro:      ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-3.5-flash"],
-  geminiCritique: ["gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "gemini-3.5-flash"],
-  geminiImage:    ["gemini-2.5-flash-image", "gemini-3.1-flash-image", "gemini-2.5-flash"],
-  // Veo validated separately; keep configured value as-is
-  veoVideo: [],
-  // OpenAI handled below
-  gptMini: [], gptReview: [], gptAdvanced: [],
-  gptHyperlinkExtract: [], gptHyperlinkCorrection: [], tts: [],
-};
-
-const OPENAI_CHAINS: Record<ModelTier, string[]> = {
-  gptMini:                ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
-  gptReview:              ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
-  gptAdvanced:            ["gpt-4.1", "gpt-4.1-2025-04-14", "gpt-4o"],
-  gptHyperlinkExtract:    ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
-  gptHyperlinkCorrection: ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini"],
-  tts:                    ["gpt-4o-mini-tts"],
-  // Not OpenAI
-  geminiFlash: [], geminiArticle: [], geminiPro: [], geminiCritique: [],
-  geminiImage: [], veoVideo: [],
-};
-
-const CRITICAL_TIERS = new Set<ModelTier>([
-  "geminiFlash", "geminiArticle", "geminiPro", "gptMini", "gptAdvanced",
-]);
-
-// ── API helpers ───────────────────────────────────────────────────────────────
-
-async function listGeminiModels(): Promise<Set<string>> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
-    _geminiValidation = {
-      checked: true,
-      available: false,
-      configuredModels: [],
-      unrecognizedModels: [],
-      checkedAt: new Date().toISOString(),
-      error: "GEMINI_API_KEY is not set",
-    };
-    console.warn("⚠️ [model-resolver] GEMINI_API_KEY not set — skipping Gemini validation");
-    return new Set();
-  }
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=200`,
-      { signal: AbortSignal.timeout(10_000) }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { models?: Array<{ name: string }> };
-    const ids = new Set<string>();
-    for (const m of data.models ?? []) {
-      ids.add(m.name.replace(/^models\//, ""));
-    }
-    const configuredModels = [
-      GEMINI_ARTICLE_MODEL,
-      GEMINI_FLASH_MODEL,
-      GEMINI_PRO_MODEL,
-      GEMINI_EXPERIMENTAL_MODEL,
-      GEMINI_CRITIQUE_MODEL,
-      GEMINI_IMAGE_MODEL,
-      VEO_VIDEO_MODEL,
-    ];
-    const unrecognizedModels = [...new Set(configuredModels)].filter((id) => !ids.has(id));
-    _geminiValidation = {
-      checked: true,
-      available: true,
-      configuredModels: [...new Set(configuredModels)],
-      unrecognizedModels,
-      checkedAt: new Date().toISOString(),
-    };
-    for (const modelId of unrecognizedModels) {
-      console.warn(`⚠️ [model-resolver] Gemini model ID "${modelId}" is not present in live ListModels`);
-    }
-    console.log(
-      `🔎 [model-resolver] Gemini startup check: ${configuredModels.length - unrecognizedModels.length}/${configuredModels.length} configured IDs recognized`
-    );
-    return ids;
-  } catch (err) {
-    _geminiValidation = {
-      checked: true,
-      available: false,
-      configuredModels: [
-        ...new Set([
-          GEMINI_ARTICLE_MODEL,
-          GEMINI_FLASH_MODEL,
-          GEMINI_PRO_MODEL,
-          GEMINI_EXPERIMENTAL_MODEL,
-          GEMINI_CRITIQUE_MODEL,
-          GEMINI_IMAGE_MODEL,
-          VEO_VIDEO_MODEL,
-        ]),
-      ],
-      unrecognizedModels: [],
-      checkedAt: new Date().toISOString(),
-      error: (err as Error).message,
-    };
-    console.warn(`⚠️ [model-resolver] Gemini ListModels failed: ${(err as Error).message} — worker will continue`);
-    return new Set();
-  }
+export interface ModelResolverDependencies {
+  catalog?: (provider: "gemini" | "openai", key: string | undefined) => Promise<CatalogModel[]>;
+  rates?: (tier: ModelTier, ids: string[]) => Promise<Record<string, LockedModelRate>>;
+  now?: () => number;
 }
-
-async function listOpenAIModels(): Promise<Set<string>> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    console.warn("⚠️ [model-resolver] OPENAI_API_KEY not set — skipping OpenAI validation");
-    return new Set();
-  }
-  try {
-    const res = await fetch("https://api.openai.com/v1/models", {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(10_000),
+async function refresh(dependencies: ModelResolverDependencies): Promise<void> {
+  const now = dependencies.now?.() ?? Date.now();
+  const epoch = invalidationEpoch;
+  rateReader = dependencies.rates;
+  await Promise.all((["gemini", "openai"] as const).map(async provider => {
+    const state = providers[provider];
+    state.checkedAt = now;
+    try {
+      const models = await (dependencies.catalog ?? fetchModelCatalog)(provider,
+        process.env[provider === "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY"]);
+      if (!models.length) throw new Error("Empty catalog");
+      state.models = models;
+      state.available = true;
+      state.lastSuccessAt = now;
+      delete state.error;
+    } catch {
+      state.available = false;
+      // Never include raw SDK/fetch errors: they can contain credentials.
+      state.error = `${provider} model catalog unavailable; no new promotions permitted`;
+    }
+  }));
+  const next: Partial<Record<ModelTier, string>> = {};
+  const nextDecisions: Partial<Record<ModelTier, ModelDecision>> = {};
+  await Promise.all((Object.keys(DEFAULTS) as ModelTier[]).map(async tier => {
+    const state = providers[modelProvider(tier)];
+    if (!state.available) {
+      if (selected[tier] && state.lastSuccessAt != null && now - state.lastSuccessAt <= MODEL_MAX_STALE_MS)
+        next[tier] = selected[tier];
+      nextDecisions[tier] = {
+        tier, selected: next[tier] ?? null, reason: next[tier] ? "fallback" : "unavailable",
+        blocked: [{ id: DEFAULTS[tier], reason: state.error! }],
+      };
+      return;
+    }
+    const approved = approvedModels(tier);
+    const availableCatalog = state.models.filter(model => (rejectedUntil.get(model.id) ?? 0) <= now);
+    // A pin is not permission to bypass a capability contract.
+    const configuredPriority = approved.find(candidate => candidate.id === DEFAULTS[tier])?.priority ?? 0;
+    const needsRates = !PINS.has(tier) && approved.some(candidate =>
+      candidate.id !== DEFAULTS[tier] && availableCatalog.some(model => model.id === candidate.id) &&
+      (candidate.priority > configuredPriority || !availableCatalog.some(model => model.id === DEFAULTS[tier])));
+    let rates: Record<string, LockedModelRate> = {};
+    let pricingFailed = false;
+    if (needsRates) {
+      try {
+        const reader = dependencies.rates ?? (await import("./model-rate-eligibility")).readModelPromotionRates;
+        rates = await reader(tier, [DEFAULTS[tier], ...approved.map(candidate => candidate.id)]);
+      } catch { pricingFailed = true; }
+    }
+    const decision = selectTierModel({
+      tier, configured: DEFAULTS[tier], pinned: PINS.has(tier),
+      catalog: availableCatalog,
+      approved, rates,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json() as { data?: Array<{ id: string }> };
-    return new Set((data.data ?? []).map((m) => m.id));
-  } catch (err) {
-    console.warn(`⚠️ [model-resolver] OpenAI /v1/models failed: ${(err as Error).message} — skipping OpenAI validation`);
-    return new Set();
-  }
-}
-
-// ── Core resolver ─────────────────────────────────────────────────────────────
-
-function resolveOneTier(
-  tier: ModelTier,
-  current: string,
-  liveModels: Set<string>,
-  chain: string[],
-  working: Record<ModelTier, string>,
-  errors: string[]
-): void {
-  if (chain.length === 0) return;
-
-  if (KNOWN_SHUTDOWNS[current]) {
-    console.warn(`⚠️ [model-resolver] ${tier}: "${current}" has a known shutdown date: ${KNOWN_SHUTDOWNS[current]}`);
-  }
-
-  if (liveModels.size === 0) return; // API call failed — trust configured value
-
-  if (liveModels.has(current)) {
-    console.log(`   ✅ ${tier}: ${current}`);
-    return;
-  }
-
-  const fallback = chain.find((m) => liveModels.has(m));
-  if (fallback) {
-    console.warn(`   ⚠️  ${tier}: "${current}" not in ListModels — falling back to "${fallback}"`);
-    working[tier] = fallback;
-  } else {
-    const msg = `${tier}: "${current}" is gone and no fallback in [${chain.join(", ")}] is live`;
-    if (CRITICAL_TIERS.has(tier)) {
-      errors.push(msg);
-    } else {
-      console.warn(`   ⚠️  [model-resolver] Non-critical ${msg} — using configured value`);
+    if (pricingFailed) decision.blocked.push({ id: DEFAULTS[tier], reason: "Locked pricing lookup unavailable; no promotion permitted" });
+    if (decision.selected) next[tier] = decision.selected;
+    nextDecisions[tier] = decision;
+  }));
+  for (const tier of Object.keys(DEFAULTS) as ModelTier[]) {
+    if (next[tier] && (rejectedUntil.get(next[tier]!) ?? 0) > now) {
+      const rejected = next[tier]!;
+      delete next[tier];
+      nextDecisions[tier] = {
+        tier, selected: null, reason: "unavailable",
+        blocked: [{ id: rejected, reason: "Model rejected while refresh was in flight" }],
+      };
     }
+    if (selected[tier] !== next[tier]) lastChanges.push({
+      tier, from: selected[tier] ?? null, to: next[tier] ?? null, at: new Date(now).toISOString(),
+    });
   }
+  lastChanges = lastChanges.slice(-100);
+  // Commit all decisions together; in-flight operations retain captured IDs.
+  selected = next; decisions = nextDecisions; initialized = true;
+  nextCheckAt = epoch !== invalidationEpoch ? 0 : now +
+    (Object.values(providers).every(state => state.available) ? MODEL_REFRESH_MS : RETRY_MS);
 }
 
-// ── Public entry point ────────────────────────────────────────────────────────
-
-/**
- * Call once at worker startup, before registerWorkers().
- * Populates the private resolved map. Throws if any critical tier has no live model.
- * After this returns, getModel() works.
- */
+/** Single-flight, bounded metadata refresh shared by all callers in this process. */
+export function refreshModelResolution(force = false, dependencies: ModelResolverDependencies = {}): Promise<void> {
+  if (flight) return flight;
+  if (!force && (dependencies.now?.() ?? Date.now()) < nextCheckAt) return Promise.resolve();
+  flight = refresh(dependencies).finally(() => { flight = null; });
+  return flight;
+}
 export async function validateAndResolveModels(): Promise<void> {
-  console.log("🔍 [model-resolver] Validating AI model IDs against live APIs...");
-
-  // Start from defaults; resolver updates working copy then commits atomically
-  const working: Record<ModelTier, string> = { ...DEFAULTS };
-
-  const [geminiLive, openaiLive] = await Promise.all([
-    listGeminiModels(),
-    listOpenAIModels(),
-  ]);
-
-  const errors: string[] = [];
-
-  console.log("   Gemini tiers:");
-  for (const tier of Object.keys(GEMINI_CHAINS) as ModelTier[]) {
-    if (GEMINI_CHAINS[tier].length > 0) {
-      resolveOneTier(tier, working[tier], geminiLive, GEMINI_CHAINS[tier], working, errors);
-    }
-  }
-
-  console.log("   OpenAI tiers:");
-  for (const tier of Object.keys(OPENAI_CHAINS) as ModelTier[]) {
-    if (OPENAI_CHAINS[tier].length > 0) {
-      resolveOneTier(tier, working[tier], openaiLive, OPENAI_CHAINS[tier], working, errors);
-    }
-  }
-
-  console.log(`   ℹ️  veoVideo: ${working.veoVideo} (not validated — Veo uses a separate endpoint)`);
-
-  if (errors.length > 0) {
-    throw new PipelineError(
-      `Critical model tiers have no live model: ${errors.join("; ")}`,
-      "MODEL_NOT_FOUND",
-      "fatal",
-      "startup",
-    );
-  }
-
-  // Atomic commit — getModel() unblocks after this line
-  _resolved = working;
-
-  console.log("✅ [model-resolver] All model tiers resolved. Workers will use:");
-  console.log(`   Gemini flash/article : ${_resolved.geminiFlash}`);
-  console.log(`   Gemini pro           : ${_resolved.geminiPro}`);
-  console.log(`   Gemini critique      : ${_resolved.geminiCritique}`);
-  console.log(`   Gemini image         : ${_resolved.geminiImage}`);
-  console.log(`   Veo video            : ${_resolved.veoVideo}`);
-  console.log(`   GPT mini (16 files)  : ${_resolved.gptMini}`);
-  console.log(`   GPT advanced         : ${_resolved.gptAdvanced}`);
-  console.log(`   TTS                  : ${_resolved.tts}`);
+  await refreshModelResolution(true);
+  if (!isResolverReady()) throw new PipelineError(
+    "Critical model tiers have no fresh verified catalog selection", "MODEL_NOT_FOUND", "fatal", "startup",
+  );
+  console.log("[model-resolver] Selected models:", JSON.stringify(getAllModels()));
 }
-
-/**
- * Call when a model API returns 404/NOT_FOUND mid-flight.
- * Re-runs validation so the next job picks up an updated model.
- */
-export async function reResolveAfterModelNotFound(tier: ModelTier): Promise<void> {
-  console.warn(`🔄 [model-resolver] 404 for ${tier} — re-running resolver`);
-  await validateAndResolveModels();
+/** Refresh only. Never replay a possibly billed provider submission. */
+export async function reResolveAfterModelNotFound(_tier: ModelTier): Promise<void> {
+  if (selected[_tier]) notifyModelNotFound(selected[_tier]!);
+  await refreshModelResolution(true);
+}
+/** Quarantine a confirmed model-specific rejection; never resubmit the attempt. */
+export function notifyModelNotFound(model: string): void {
+  if (!(Object.keys(DEFAULTS) as ModelTier[]).some(tier =>
+    selected[tier] === model || DEFAULTS[tier] === model)) return;
+  rejectedUntil.set(model, Date.now() + MODEL_REFRESH_MS);
+  invalidationEpoch++;
+  for (const tier of Object.keys(DEFAULTS) as ModelTier[]) {
+    if (selected[tier] === model) {
+      delete selected[tier];
+      decisions[tier] = {
+        tier, selected: null, reason: "unavailable",
+        blocked: [{ id: model, reason: "Confirmed model rejection; quarantined pending refresh" }],
+      };
+    }
+  }
+  nextCheckAt = 0;
+}
+export function startModelRefresh(onRefresh?: (ready: boolean) => Promise<unknown>): void {
+  if (refreshTimer) return;
+  refreshTimer = setInterval(() => {
+    void refreshModelResolution().then(() => onRefresh?.(isResolverReady()))
+      .catch(() => { /* Current selection remains bounded by expiry. */ });
+  }, RETRY_MS);
+  refreshTimer.unref();
+}
+export function stopModelRefresh(): void {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
 }

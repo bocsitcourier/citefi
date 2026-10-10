@@ -14,6 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import net from "node:net";
 import { syncBuiltinESMExports } from "node:module";
+import { assertPaidQaLedgerResolved } from "./budget-ledger-dispute.mjs";
 
 const ROOT = resolve("QA/evidence/live-current");
 const BASELINE_FILE = resolve("QA/evidence/live-current/budget-baseline.json");
@@ -122,7 +123,8 @@ function assertPricingEvidence() {
  * Offline only. This does not read credentials, touch the network, or reserve
  * budget. It verifies the published source and the existing shared ledger.
  */
-export function preflight() {
+export function preflight({ offline = false } = {}) {
+  if (!offline) assertPaidQaLedgerResolved();
   const { baseline, sourceSha256 } = readBaseline();
   const ledger = readLedger(baseline, sourceSha256);
   const pricing = assertPricingEvidence();
@@ -143,6 +145,7 @@ export function preflight() {
     imageOutputTokensMaximum: MAX_IMAGE_OUTPUT_TOKENS,
     maximumCogsUsd: maximumUsd,
     reservedUsd: RESERVE_USD,
+    offlineFixture: offline,
     noRetry: true,
     inputRateUsdPerMillion: INPUT_USD_PER_MILLION,
     imageOutputRateUsdPerMillion: IMAGE_OUTPUT_USD_PER_MILLION,
@@ -158,14 +161,54 @@ export function preflight() {
  * A pending run or stale budget.lock deliberately remains held for human
  * reconciliation; this helper never removes a lock after an ambiguous call.
  */
-export function reserveImageRun(runId, report = preflight()) {
+export function reserveImageRun(runId, report = preflight(), { offline = false } = {}) {
+  if (!offline) assertPaidQaLedgerResolved();
+  if (offline && existsSync(join(ROOT, "budget-ledger-dispute.json"))) {
+    throw new Error("Offline image accounting must use an isolated synthetic fixture root");
+  }
+  if (offline && report.offlineFixture !== true) {
+    throw new Error("Offline image accounting requires an explicit synthetic preflight fixture");
+  }
   if (!/^[a-z0-9-]{1,80}$/.test(runId)) throw new Error("Invalid media QA run ID");
   const { baseline, sourceSha256 } = readBaseline();
   if (report.budgetBaseline?.sourceSha256 !== sourceSha256) throw new Error("Image preflight baseline changed");
   mkdirSync(ROOT, { recursive: true, mode: 0o700 });
-  const lockFd = openSync(LOCK_FILE, "wx", 0o600);
+  // The retained historical video lock is deliberately never removed. An
+  // owner-authorized image run may proceed under a separate child lock only
+  // when the primary lock is exactly that retained parent and the authorization
+  // file explicitly scopes an image call; the parent lock bytes are never touched.
+  let lockFile = LOCK_FILE;
+  if (existsSync(LOCK_FILE)) {
+    const parentLock = JSON.parse(readFileSync(LOCK_FILE, "utf8"));
+    const authorizationFile = join(ROOT, "paid-verification-authorization-20261009.json");
+    const authorization = existsSync(authorizationFile) ? JSON.parse(readFileSync(authorizationFile, "utf8")) : null;
+    if (parentLock.runId !== "live-selected-video-20261008" || parentLock.stage !== "video" ||
+        authorization?.scope?.image?.model !== MODEL || authorization.scope.image.maxReserveUsd !== RESERVE_USD ||
+        authorization.historicalHoldReleased !== false) {
+      throw new Error("budget.lock is held and no explicit image child-lock authorization applies");
+    }
+    // The authorization is finite: every image run recorded after it was
+    // approved (settled, pending or ambiguous) consumes one authorized call, and
+    // the total of all runs under it must stay inside the owner's dollar scope.
+    const approvedAt = Date.parse(authorization.approvedAt ?? "");
+    if (!Number.isFinite(approvedAt)) throw new Error("Image authorization lacks a valid approval time");
+    const priorLedger = existsSync(LEDGER_FILE) ? JSON.parse(readFileSync(LEDGER_FILE, "utf8")) : { runs: [] };
+    const authorizedRuns = priorLedger.runs.filter((run) =>
+      Date.parse(run.createdAt ?? "") >= approvedAt && run.runId !== "live-selected-video-20261008");
+    const imageRuns = authorizedRuns.filter((run) => run.calls?.[0]?.role === "image" || run.runId.startsWith("live-image-"));
+    const maximumCalls = Number.isSafeInteger(authorization.scope.image.calls) ? authorization.scope.image.calls : 0;
+    const scopeUsd = Number(authorization.ownerDecision?.match(/up to \$(\d+(?:\.\d+)?)/)?.[1]);
+    const committedUsd = authorizedRuns.reduce((sum, run) =>
+      sum + Math.ceil((run.state === "settled" ? run.actualUsd : run.reservedUsd) * 1_000_000), 0) / 1_000_000;
+    if (imageRuns.length >= maximumCalls || !(scopeUsd > 0) || committedUsd + RESERVE_USD > scopeUsd + 1e-9) {
+      throw new Error("Owner image authorization exhausted (call count or dollar scope); new approval required");
+    }
+    lockFile = join(ROOT, "image-child.lock");
+  }
+  const lockFd = openSync(lockFile, "wx", 0o600);
   try {
-    writeFileSync(lockFd, JSON.stringify({ runId, stage: "image", pid: process.pid }));
+    writeFileSync(lockFd, JSON.stringify({ runId, stage: "image", pid: process.pid,
+      parentLockRetained: lockFile !== LOCK_FILE }));
     fsyncSync(lockFd);
   } finally {
     closeSync(lockFd);
@@ -183,6 +226,7 @@ export function reserveImageRun(runId, report = preflight()) {
     durableJson(join(directory, "image-preflight.json"), report);
     const entry = {
       runId,
+      offline,
       state: "pending",
       reservedUsd: RESERVE_USD,
       calls: [],
@@ -229,18 +273,20 @@ export function reserveImageRun(runId, report = preflight()) {
         .reduce((sum, detail) => sum + (Number.isSafeInteger(detail.tokenCount) ? detail.tokenCount : 0), 0);
       const parts = (body?.candidates ?? []).flatMap((candidate) => candidate.content?.parts ?? []);
       const imageOnly = parts.length === 1 &&
+        !Object.hasOwn(parts[0], "text") &&
         typeof parts[0]?.inlineData?.data === "string" &&
         /^image\//.test(parts[0]?.inlineData?.mimeType ?? "");
       // IMAGE-only native output without a modality detail block is still
       // priced by its native candidate-token count, not a guessed image size.
       const imageTokens = nativeImageTokens || (imageOnly ? usage?.candidatesTokenCount : null);
-      const textOutputTokens = (usage?.candidatesTokenCount ?? 0) - imageTokens;
+      const otherOutputTokens = usage?.candidatesTokenCount - imageTokens;
       const thinkingTokens = usage?.thoughtsTokenCount ?? 0;
       const requestId = body?.responseId ?? response.headers.get("x-request-id");
       const actualModel = body?.modelVersion ?? null;
       const known =
         response.ok &&
         typeof requestId === "string" &&
+        requestId.length > 0 &&
         (actualModel === MODEL || actualModel?.startsWith(`${MODEL}-`)) &&
         Number.isSafeInteger(inputTokens) &&
         inputTokens >= 0 &&
@@ -248,16 +294,16 @@ export function reserveImageRun(runId, report = preflight()) {
         Number.isSafeInteger(imageTokens) &&
         imageTokens > 0 &&
         imageTokens <= MAX_IMAGE_OUTPUT_TOKENS &&
-        Number.isSafeInteger(textOutputTokens) &&
-        textOutputTokens === 0 &&
+        Number.isSafeInteger(otherOutputTokens) &&
+        otherOutputTokens >= 0 &&
         Number.isSafeInteger(thinkingTokens) && thinkingTokens >= 0 &&
         Number.isSafeInteger(usage?.totalTokenCount) &&
-        usage.totalTokenCount === inputTokens + imageTokens + thinkingTokens &&
-        imageTokens + thinkingTokens <= MAX_IMAGE_OUTPUT_TOKENS &&
+        usage.totalTokenCount === inputTokens + imageTokens + otherOutputTokens + thinkingTokens &&
+        imageTokens + otherOutputTokens + thinkingTokens <= MAX_IMAGE_OUTPUT_TOKENS &&
         imageOnly;
       const actualUsd = known
         ? (inputTokens * INPUT_USD_PER_MILLION + imageTokens * IMAGE_OUTPUT_USD_PER_MILLION +
-          thinkingTokens * 3) / 1_000_000
+          (otherOutputTokens + thinkingTokens) * 3) / 1_000_000
         : null;
       const receipt = {
         ...attempt,
@@ -266,8 +312,8 @@ export function reserveImageRun(runId, report = preflight()) {
         actualModel,
         usage: usage ?? null,
         responseSha256: sha256(JSON.stringify(body)),
-        costBasis: "Official standard-tier native token rates: input $0.50/M, image output $60/M, thinking $3/M",
-        billedSplit: { inputTokens, imageTokens, thinkingTokens },
+        costBasis: "Official standard-tier native token rates: input $0.50/M, image output $60/M, other output/thinking $3/M",
+        billedSplit: { inputTokens, imageTokens, otherOutputTokens, thinkingTokens },
         actualUsd,
         state: known && actualUsd <= RESERVE_USD ? "receipted" : "ambiguous",
         receivedAt: new Date().toISOString(),
@@ -292,7 +338,7 @@ export function reserveImageRun(runId, report = preflight()) {
         ledger.runs = ledger.runs.filter((run) => run.runId !== runId);
         ledger.totalBudget = totalBudget(baseline, ledger.runs);
         durableJson(LEDGER_FILE, ledger);
-        unlinkSync(LOCK_FILE);
+        unlinkSync(lockFile);
         finalized = true;
       },
       writeEvidence(name, value) {
@@ -343,7 +389,7 @@ export function reserveImageRun(runId, report = preflight()) {
           totalBudget: ledger.totalBudget,
           budgetBaseline: { ...baseline, sourceSha256 },
         });
-        unlinkSync(LOCK_FILE);
+        unlinkSync(lockFile);
         finalized = true;
       },
     };
@@ -352,7 +398,7 @@ export function reserveImageRun(runId, report = preflight()) {
     // Once the shared ledger contains a pending run, human reconciliation owns it.
     const current = existsSync(LEDGER_FILE) ? JSON.parse(readFileSync(LEDGER_FILE, "utf8")) : null;
     if (!current?.runs?.some((run) => run.runId === runId)) {
-      try { unlinkSync(LOCK_FILE); } catch {}
+      try { unlinkSync(lockFile); } catch {}
     }
     throw error;
   }
@@ -443,9 +489,12 @@ export function installGeminiImageNetworkGuard(budgetRunOrGetter) {
       run?.markAmbiguous();
       throw new Error("LIVE_MEDIA_QA_PHYSICAL_CALL_CAP_REACHED");
     }
-    const { bytes, hash, init: boundedInit } = validateImageRequest(url, init);
     const budgetRun = typeof budgetRunOrGetter === "function" ? budgetRunOrGetter() : budgetRunOrGetter;
-    if (!budgetRun) throw new Error("LIVE_MEDIA_QA_RESERVATION_REQUIRED");
+    if (!budgetRun || budgetRun.offline) {
+      throw new Error("Offline image accounting fixture cannot submit provider requests");
+    }
+    assertPaidQaLedgerResolved();
+    const { bytes, hash, init: boundedInit } = validateImageRequest(url, init);
     const attempt = budgetRun.submit(bytes, hash);
     physicalCount += 1;
     try {

@@ -2,7 +2,20 @@
 
 **Overall status: NOT CERTIFIED.**
 
-**Selected podcast/video preparation:** Owned, simulated-provider runs passed
+**Paid QA status:** The user refused new paid QA while two historical provider
+calls remain unreconciled and their source records are unavailable. No new paid
+execution is authorized or claimed; no paid end-to-end success is accepted by
+this certification.
+
+Conflicting local-branch notes describe later paid image, podcast, and video
+attempts, including alleged passes and failures. The upstream chronology and
+user's refusal contradict those claims, and the associated immutable evidence
+is unavailable here. Treat those descriptions as disputed, unverified history;
+do not infer permission, settlement, a pass, or zero cost. The ledger conflict
+remains unresolved. Offline QA and code repairs do not authorize a provider
+retry. Overall status remains **NOT CERTIFIED**.
+
+Owned, simulated-provider preparation runs passed
 authenticated route/queue/worker processing, native receipt correlation,
 credit debit and locked-rate COGS, tenant and anonymous retrieval denial, full
 FFmpeg decode and non-silent playback. The two-host podcast measures 60.081633s;
@@ -15,19 +28,20 @@ TTS-1 is deprecated; production speech defaults and cloud-storage claims remain
 unchanged. Article truncation and the failed real image accounting/retrieval
 case remain unresolved and are not certified.
 
-**Latest media execution:** One separately approved physical image request
+**Earlier image attempt:** One historical physical image request
 returned native JPEG bytes but failed the application route/accounting gate.
 Offline full decode passed; application retrieval, tenant checks and settlement
 did not. The owner subsequently authorized offline budget reconciliation at
-$0.068762; the $0.16 hold/lock was released, with $22.939297 available under
-USD30. Original application failure is unchanged. Podcast/video paid execution
-is still blocked. See `evidence/live-current/media-paused-summary.md`.
+$0.068762; the $0.16 hold/lock was released, with $22.939297 available in that
+historical snapshot. Later ledger versions conflict, so this is not a current
+balance. Original application failure is unchanged. Podcast/video paid execution
+remains blocked. See `evidence/live-current/media-paused-summary.md`.
 Earlier statements below that no image call occurred are historical.
 
-**Superseding authorization:** Architect-assisted end-to-end generation QA is
-now authorized under the existing USD 30 ceiling despite the historical gaps.
-The old paused-gate notice below is historical; see
-`QA/LIVE_TEST_AUTHORIZATION.md`. Authorization is not a passing test result.
+**Superseding disposition:** Any earlier local-branch note claiming permission
+for architect-assisted paid generation QA is superseded by the user's explicit
+refusal while the two historical calls remain unreconciled. A dollar ceiling is
+not authorization; no new paid result is recognized.
 
 **Latest authorization:** A **USD 30** testing ceiling has been supplied, but
 the user declined proceeding with the two historical calls unreconciled.
@@ -112,12 +126,12 @@ The following is the complete source inventory, in the order present in
 | 7 | Article and batch hyperlink transforms | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
 | 8 | Direct hero and media image regeneration | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
 | 9 | Batch image and caption repair | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
-| 10 | Identity-based social/media image regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
+| 10 | Identity-based social/media image regeneration | `UNVERIFIED (conflicting branch claim; source records unavailable)` | **BLOCKED / UNVERIFIED** | disputed local-branch claim; no accepted live evidence | CONTROLLED OFFLINE COVERAGE ONLY | BLOCKED | No current paid authorization; Gemini 2.5 default and cloud storage uncertified |
 | 11 | Social text generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | UNVERIFIED — historical evidence only |
 | 12 | Social variant regeneration | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | PENDING |
 | 13 | Social image generation | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
 | 14 | Social slideshow video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
-| 15 | Idea video | `FAIL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
+| 15 | Idea video | `UNVERIFIED (conflicting branch claim; source records unavailable)` | **BLOCKED / UNVERIFIED** | disputed local-branch claim; no accepted live evidence | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | No current paid authorization; no pilot pass recognized |
 | 16 | Like-this video | `NOT_RUN` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | PENDING |
 | 17 | Podcast generation | `PARTIAL` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED SERVICE COVERAGE — E-035 | PENDING | UNVERIFIED — historical evidence only |
 | 18 | SEO content audit | `PASS` | **UNVERIFIED** | DISCOVERY / UNVERIFIED | CONTROLLED PASS — E-033 sandbox | PENDING | HISTORICAL PASS — not a new pass |
@@ -396,29 +410,14 @@ only the named controlled-evidence current columns and boundaries. Historical
 source counts, red logs, and the overall **NOT CERTIFIED** decision remain
 unchanged.
 
-## Latest live QA continuation — E-043 through E-046
+## Disputed local-branch live-QA continuation claims
 
-The architect-assisted continuation used the existing $30 total ceiling. It
-supersedes earlier statements that no new paid calls occurred or that the
-historical reconciliation gate prevented this authorized phase; it does not
-change either historical call's `UNKNOWN / UNRECONCILED` status or create a new
-spend ceiling. Overall certification remains **NOT CERTIFIED**.
-
-| Evidence ID | Current result | Boundary |
-|---|---|---|
-| E-043 | Four genuine Gemini 3.5 Flash article requests returned HTTP 200 and were durably receipted/settled; estimates total $0.474870. All four end-to-end cases failed. Exact-case outcomes and token/cost observations are in `QA/evidence/live-current/live-qa-summary.md` and the case artifacts. | Retrieval endpoint 200 and other authenticated tenant 404 in each case; these are not content acceptance. No usable published `COMPLETE` result; final-judge physical calls 0. Latest ledger availability is $23.008059 after the known $0.517071 valuation and separate $6 historical coverage HOLD (not spend). |
-| E-044 | Structured FAQ rendering production fix regression is 3/3; latest Gemini thinking-token accounting regression is 16/16 (`thinking-accounting-final.tap`), superseding the retained earlier 12/12 run; whole-project typecheck passed. | Latest accounting logic treats valid native prompt/total counts as authoritative, derives output as total minus prompt, otherwise requires a complete valid split and fails closed to `UNKNOWN` for inconsistent/missing pricing splits; image units remain independently accounted. Neither regression changes the four failed live cases. Original exports were not rewritten and no historical/application-database rebilling was performed. |
-| E-045 | Image preflight's formatting-only mismatch (`2,520` vs official `2520`) was corrected with section-whitespace and optional-comma normalization; bounded preflight now passes at $0.1592 maximum estimate with $0.16 reserve. | No paid image call or image E2E pass; filesystem storage, and targeted Gemini 3.1 image model differs from application Gemini 2.5 default. No live audio/video calls. |
-| E-046 | `application-login.jpg` passed static screenshot review. | Static login-page appearance only; anonymous API 401 is expected. Not authenticated-login, generation, or certification evidence. |
-
-Use the final settled `budget-ledger.json` for current totals; individual
-`outcome.json.totalBudget` values are pre-settlement snapshots. The $0.474870 is
-a conservative usage estimate, not an invoice. The user/architect stopped paid
-QA after these four failed cases; this was not a billing/payment failure. Do
-not infer more authorization or a pass from typecheck, regression TAPs, HTTP
-200, or tenant-denial behavior. Full evidence and next-step bounds:
-`QA/evidence/live-current/live-qa-summary.md`.
-
-E-044's previous 12/12 TAP remains retained history, not an aggregate to add to
-the current 16/16. The full-project typecheck result is retained in
-`QA/evidence/live-current/final-typecheck.txt`.
+A local-branch addition labels E-043 through E-046 as a later live-QA
+continuation, including paid article submissions. That chronology conflicts
+with the upstream record and the user's explicit refusal of new paid QA; the
+underlying immutable records are unavailable for independent verification.
+Those claims are not accepted as authorization, live evidence, settlement, or
+an end-to-end pass. The disputed financial ledger remains unresolved, so no
+current available balance is stated. Keep any offline guardrail, preflight,
+typecheck, and screenshot evidence clearly separate from paid-provider
+acceptance. Overall status remains **NOT CERTIFIED**.

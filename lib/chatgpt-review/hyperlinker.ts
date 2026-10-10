@@ -2,6 +2,7 @@ import { openaiClient, callOpenAI } from "../openai-client";
 import { isHighQualityAnchor } from "../seo-policy";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface HyperlinkResult {
   keywords: Array<{
@@ -85,10 +86,11 @@ Return a JSON object with a "keywords" array:
 
 CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Return 20-30 total links with good distribution across intro, body, and FAQ.`;
 
+  const model = await getResolvedModel("gptMini");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -99,7 +101,7 @@ CRITICAL: ALL links must have "url": "${targetUrl}" and "type": "internal". Retu
       }),
       `Hyperlinker: ${coreTopic.substring(0, 50)}`,
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 2500 } },
+      { request: { model, maxOutputTokens: 2500 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

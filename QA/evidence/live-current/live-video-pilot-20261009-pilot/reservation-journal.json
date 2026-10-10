@@ -1,0 +1,36 @@
+{
+  "entry": {
+    "runId": "live-video-pilot-20261009-pilot",
+    "stage": "video",
+    "recovery": true,
+    "phase": "pilot",
+    "offline": false,
+    "state": "settled",
+    "reservedUsd": 0.65,
+    "manifestSha256": "462385d8e4200fc4eb6cd67d829bd903a0671e1d64f126878680483339785ce0",
+    "parentRunId": "live-selected-video-20261008",
+    "parentSha256": "ea1dac108709e1e20a03ed1a8470ea8526a0514d0cab0ad95cc8bc4a6f0fe555",
+    "calls": [
+      {
+        "number": 1,
+        "kind": "clip",
+        "scene": 1,
+        "sourceEventId": "provider-attempt:7a2b0e293300f966aee2580cbe752f8dc04f0dcf748db9fde95f9e1d103f352c",
+        "requestSha256": "0763c739e0192d8984bc3ec778529cf52361b9848a9f399231f102c856689b2c",
+        "state": "accepted",
+        "physicalSubmissions": 1,
+        "simulatedSubmissions": 0,
+        "providerRequestId": "models/veo-3.1-fast-generate-preview/operations/yxme2n5ik9f9",
+        "videoSeconds": 6,
+        "operationName": "models/veo-3.1-fast-generate-preview/operations/yxme2n5ik9f9",
+        "polls": 5,
+        "billingBasis": "native completion of requested duration; decoded duration checked separately",
+        "costMicrousd": 600000,
+        "nativeSha256": "c259ddad7e3072035e4203ad8634365641fd1cf66f743f2879977123a7af15e7"
+      }
+    ],
+    "createdAt": "2026-10-09T00:52:55.230Z",
+    "actualUsd": 0.6
+  },
+  "expectedPreviousLedgerSha256": "6c31ff9719e9143fa5418d46f06679242f144a2d0e14d56049ec678693dcdc7d"
+}

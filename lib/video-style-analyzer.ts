@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import ffmpegStatic from "ffmpeg-static";
 import ffprobePath from "@ffprobe-installer/ffprobe";
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { safeFetchWithRedirects, validateExternalUrl } from "./url-validation";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
@@ -473,10 +473,11 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
 }`;
 
   const startedAt = Date.now();
+  const model = await getResolvedModel("geminiFlash");
   let result;
   try {
     const generationRequest = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [
         {
           role: "user",
@@ -500,7 +501,7 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
   } catch (error) {
     await logFailedProviderAttempt(
       {
-        operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        operationType: "video_idea", provider: "gemini", model,
         teamId, attempt: 1,
         providerMetadata: { frameCount: frameContents.length, videoDurationSeconds: metadata.duration },
       },
@@ -510,7 +511,7 @@ Analyze the visual style and respond ONLY with valid JSON (no markdown):
   }
   await logCostTelemetry(
     {
-      operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      operationType: "video_idea", provider: "gemini", model,
       teamId,
       providerRequestId: (result as any).responseId ?? null, attempt: 1,
       providerMetadata: { frameCount: frameContents.length, videoDurationSeconds: metadata.duration },

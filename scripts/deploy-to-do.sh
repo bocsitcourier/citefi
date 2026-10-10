@@ -41,7 +41,7 @@ git -C "$ROOT" diff --quiet && git -C "$ROOT" diff --cached --quiet || {
 git -C "$ROOT" archive "$sha" | tar -x -C "$work"
 (
   cd "$work"
-  sed -i 's|http://package-firewall\.replit\.local/npm|https://registry.npmjs.org|g' package-lock.json
+  node scripts/normalize-release-lockfiles.cjs .
   npm ci --registry https://registry.npmjs.org
   bash -o pipefail -c "$DO_VALIDATION_COMMAND"
   npm run build

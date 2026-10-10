@@ -46,6 +46,48 @@ default replacement and no default-model certification.
 to prove the token-priced default TTS path. The owner approved preparing this
 alternative, not paying for it; official documentation labels TTS-1 deprecated.
 
+The owner declined authorization for any new paid QA. Preparing this alternative
+does not authorize execution. Two historical paid QA calls remain unreconciled;
+their reservations and uncertainty must not be treated as settled or free.
+
+**Why:** The owner could not provide the historical provider records and declined
+resuming paid QA with historical exceptions. Requests to update application
+source do not resolve those financial uncertainties or supply paid-QA permission.
+
 **How to apply:** Preserve the production default. Require fresh official
-pricing, an independently approved bounded execution manifest and separate
-owner paid permission; stop on rejection without model fallback.
+pricing and an independently approved bounded execution manifest before any
+future paid run, plus separate explicit owner authorization; stop on rejection
+without model fallback.
+
+An application `provider_rejected` label does not prove zero provider spend
+when the native acknowledgement was empty, unparsable or rejected by a QA guard.
+
+**Why:** These failures can occur after a physical request, before the application
+has captured an operation ID or usage. A parser exception is not a billing receipt.
+
+**How to apply:** Preserve original outcomes and unknown-spend coverage. Require
+native evidence or an explicit owner disposition before releasing financial holds;
+do not infer free usage or regenerate merely from the application failure label.
+
+Stage watchdogs must be consistent with the advertised per-request, polling
+and download limits for the chosen concurrency, including processing and export.
+
+**Why:** A bounded sequential clip plan can exceed its whole-stage deadline
+even when every clip stays within its own limits. Premature termination then
+creates incomplete paid work and retained uncertainty, not cheaper acceptance.
+
+**How to apply:** Check worst-case deadline arithmetic before seeking paid
+permission. If deliberately using a shorter stage deadline, define and enforce
+the smaller per-clip allocations and partial-stage hold/export behavior. Do
+not promise all per-clip maxima can fit a shorter stage budget.
+
+Bounded multi-phase QA needs both pre-cleanup evidence and post-settlement
+financial evidence retained independently for every phase.
+
+**Why:** A pre-cleanup export can prove that receipts/assets were saved while
+still showing a pending reservation. A later phase's final export cannot prove
+the earlier phase's settlement or preserve its financial closure.
+
+**How to apply:** Treat cleanup permission and financial closure as separate
+audit facts. Preserve both before advancing phases or deleting owned fixtures;
+never substitute a final phase's outcome for a missing earlier settlement.

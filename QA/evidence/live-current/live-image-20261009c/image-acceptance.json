@@ -1,0 +1,214 @@
+{
+  "executionBoundary": "Production direct image regeneration route with runtime-selected Gemini 3.1 Flash Image; not the default 2.5 model certification",
+  "asset": {
+    "storageUrl": "/api/public-objects/private/uploads/image/1791507795110-regenerated-1791507795109.png",
+    "storageBoundary": "durable filesystem QA adapter; not cloud object-storage certification",
+    "bytes": 2676523,
+    "sha256": "b5f92ea501860d6da49fc6d06c950947ba3504f054da582b2ab6fe0b88b763ac",
+    "png": {
+      "width": 1408,
+      "height": 768,
+      "format": "png",
+      "fullPixelDecode": true,
+      "decodedBytes": 3244032,
+      "decodedSha256": "4fc02291092d3a7a55fd077f48fb315eb2dbe66957ba87a202af3bee009dac22"
+    },
+    "httpStatus": 200,
+    "contentType": "image/png"
+  },
+  "tenantRetrieval": {
+    "authorizedStatus": 200,
+    "otherTenantStatus": 401
+  },
+  "accounting": {
+    "productionProviderAttemptReceipt": {
+      "id": 1,
+      "model": "gemini-3.1-flash-image",
+      "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+      "responseUsage": {
+        "raw": {
+          "totalTokenCount": 1751,
+          "promptTokenCount": 172,
+          "imageOutputTokens": 1120,
+          "otherOutputTokens": 459,
+          "candidatesTokenCount": 1579
+        },
+        "known": true,
+        "unitType": "images",
+        "unitCount": 1,
+        "inputUnits": 172,
+        "outputUnits": 1120
+      },
+      "responseMetadata": {
+        "latencyMs": null,
+        "httpStatus": null,
+        "actualModel": "gemini-3.1-flash-image",
+        "operationId": null,
+        "finishReason": null,
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg"
+      },
+      "status": "accounted",
+      "accountedAt": "2026-10-09T01:03:14.979Z"
+    },
+    "productionProviderUsageLedgerCogsEvents": [
+      {
+        "sourceEventId": "provider-attempt:f73f2fd43bb9b3cb2eda9bbbd8bb380fa6bfb2bcff238937593e0a8aafcbfbc6:text-output",
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+        "operationType": "image_generation",
+        "model": "gemini-3.1-flash-image",
+        "unitType": "tokens",
+        "inputUnits": 0,
+        "outputUnits": 459,
+        "unitCount": 459,
+        "costMicrousd": 1377,
+        "rateSnapshot": {
+          "version": "2026-10-09",
+          "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image",
+          "microusdPerUnit": null,
+          "inputMicrousdPerMillion": 500000,
+          "outputMicrousdPerMillion": 3000000
+        }
+      },
+      {
+        "sourceEventId": "provider-attempt:f73f2fd43bb9b3cb2eda9bbbd8bb380fa6bfb2bcff238937593e0a8aafcbfbc6",
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+        "operationType": "image_generation",
+        "model": "gemini-3.1-flash-image",
+        "unitType": "images",
+        "inputUnits": 172,
+        "outputUnits": 1120,
+        "unitCount": 1,
+        "costMicrousd": 67286,
+        "rateSnapshot": {
+          "version": "2026-10-09",
+          "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image",
+          "microusdPerUnit": null,
+          "inputMicrousdPerMillion": 500000,
+          "outputMicrousdPerMillion": 60000000
+        }
+      }
+    ],
+    "cogsMicrousd": 68663,
+    "liveBudgetPricingReceiptFile": "image-receipt.json",
+    "liveBudgetProviderRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg"
+  },
+  "billing": {
+    "reservation": {
+      "id": 1,
+      "teamId": 810,
+      "runId": "direct-image:media_asset:811:a288f472f2f6785d4fb64e4318ee2e56:initial",
+      "operationType": "section_regenerate",
+      "originalAmount": 1,
+      "remainingAmount": 0,
+      "status": "DEBITED",
+      "requestKey": "9c2d6dc4-161e-4133-a840-944e3ff47b14",
+      "reconciliationRequiredAt": "2026-10-09T01:03:05.970Z",
+      "reconciliationReason": "direct_image_provider_entry_or_settlement_pending",
+      "createdAt": "2026-10-09T01:03:05.950Z",
+      "updatedAt": "2026-10-09T01:03:15.143Z"
+    },
+    "ledger": {
+      "id": 2,
+      "teamId": 810,
+      "userId": 811,
+      "adminUserId": null,
+      "amount": -1,
+      "balanceAfter": 499,
+      "eventType": "debit",
+      "bucket": "allowance",
+      "runId": "direct-image:media_asset:811:a288f472f2f6785d4fb64e4318ee2e56:initial",
+      "operationType": "section_regenerate",
+      "productType": null,
+      "sourceType": null,
+      "sourceId": null,
+      "jobId": null,
+      "idempotencyKey": "credit-debit:491265289ad3cfe014ffb662cd79a58b4a52a5959d4a14dfc4a691b8b5d2f2ed",
+      "reason": "Debit 1 credits for section_regenerate (runId: direct-image:media_asset:811:a288f472f2f6785d4fb64e4318ee2e56:initial)",
+      "reversedAt": null,
+      "reversedCredits": 0,
+      "stripeCheckoutSessionId": null,
+      "stripePaymentIntentId": null,
+      "stripeInvoiceId": null,
+      "reservationStatus": null,
+      "createdAt": "2026-10-09T01:03:15.129Z"
+    },
+    "receipt": {
+      "id": 1,
+      "sourceEventId": "provider-attempt:f73f2fd43bb9b3cb2eda9bbbd8bb380fa6bfb2bcff238937593e0a8aafcbfbc6",
+      "teamId": 810,
+      "userId": null,
+      "campaignId": null,
+      "contentId": 810,
+      "resourceType": "media_asset",
+      "resourceId": "811",
+      "runId": null,
+      "jobId": null,
+      "operationType": "image_generation",
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-image",
+      "attempt": 1,
+      "requestMetadata": {
+        "seed": null,
+        "topK": null,
+        "topP": null,
+        "model": "gemini-3.1-flash-image",
+        "imageSize": null,
+        "maxImages": 1,
+        "timeoutMs": null,
+        "requestKey": null,
+        "maxRequests": null,
+        "temperature": null,
+        "maxCharacters": null,
+        "adapterVersion": "google-genai@1.27.0",
+        "candidateCount": null,
+        "maxInputTokens": null,
+        "thinkingBudget": null,
+        "maxOutputTokens": null,
+        "imageAspectRatio": null,
+        "responseMimeType": null,
+        "maxDurationSeconds": null,
+        "responseModalities": [
+          "Image"
+        ]
+      },
+      "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+      "responseUsage": {
+        "raw": {
+          "totalTokenCount": 1751,
+          "promptTokenCount": 172,
+          "imageOutputTokens": 1120,
+          "otherOutputTokens": 459,
+          "candidatesTokenCount": 1579
+        },
+        "known": true,
+        "unitType": "images",
+        "unitCount": 1,
+        "inputUnits": 172,
+        "outputUnits": 1120
+      },
+      "responseMetadata": {
+        "latencyMs": null,
+        "httpStatus": null,
+        "actualModel": "gemini-3.1-flash-image",
+        "operationId": null,
+        "finishReason": null,
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg"
+      },
+      "status": "accounted",
+      "failureCode": null,
+      "failureMessage": null,
+      "preparedAt": "2026-10-09T01:03:05.982Z",
+      "submittedAt": "2026-10-09T01:03:06.002Z",
+      "usageCapturedAt": "2026-10-09T01:03:14.889Z",
+      "accountedAt": "2026-10-09T01:03:14.979Z",
+      "createdAt": "2026-10-09T01:03:05.986Z",
+      "updatedAt": "2026-10-09T01:03:14.979Z"
+    }
+  },
+  "tenantGeneration": {
+    "deniedStatus": 404,
+    "providerCallsBefore": 1,
+    "providerCallsAfter": 1
+  },
+  "modelBoundary": "selected gemini-3.1-flash-image; NOT the default gemini-2.5 image model"
+}

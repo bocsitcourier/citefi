@@ -8,7 +8,7 @@ import {
 import { executePaidMediaBoundary } from "./media-provider-boundary";
 import { redactProviderError } from "./provider-diagnostics";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
-import { TTS_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { mergeMp3Buffers } from "./merge-mp3-segments";
 
 export interface TTSOptions {
@@ -22,12 +22,13 @@ export async function generateSpeech(
   telemetryCtx?: { operationType?: "podcast_tts"; teamId?: number | null; userId?: number | null; articleId?: number | null; jobId?: string | null }
 ): Promise<Buffer> {
   const { voice, speed = 1.0 } = options;
+  const model = await getResolvedModel("tts");
   try {
     return await executePaidMediaBoundary({
       mediaKind: "audio",
       submit: () => callOpenAI(
         (client) => client.audio.speech.create({
-          model: TTS_MODEL,
+          model,
           voice: voice,
           input: text,
           speed: speed,
@@ -36,7 +37,7 @@ export async function generateSpeech(
         undefined,
         {
           operationType: telemetryCtx?.operationType ?? "podcast_tts",
-          model: TTS_MODEL,
+          model,
           teamId: telemetryCtx?.teamId,
           userId: telemetryCtx?.userId,
           articleId: telemetryCtx?.articleId,
@@ -44,7 +45,7 @@ export async function generateSpeech(
           resourceType: telemetryCtx?.articleId != null ? "article" : undefined,
           resourceId: telemetryCtx?.articleId,
           usage: { characters: text.length },
-          request: { model: TTS_MODEL },
+          request: { model },
         }
       ),
       persist: async (mp3Response) => {

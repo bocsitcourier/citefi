@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 /**
  * Phase 1: Intent Consolidation & Outline Generation
  * 
@@ -162,9 +162,10 @@ Generate the JSON outline now:`;
     const startedAt = Date.now();
     const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
     let result;
+    const model = await getResolvedModel("geminiFlash");
     try {
-      const generationRequest = {
-        model: GEMINI_FLASH_MODEL, contents: [{ role: "user", parts: [{ text: prompt }] }],
+    const generationRequest = {
+        model, contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.3, responseMimeType: "application/json" },
       };
       result = await submitGeminiRequest(generationRequest, {
@@ -173,12 +174,12 @@ Generate the JSON outline now:`;
         resourceType: "reddit_intent",
         attempt: 1,
       }, () => genAI.models.generateContent(generationRequest));
-      await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+      await logCostTelemetry({ operationType: "topic_research", provider: "gemini", model, teamId,
         providerRequestId: (result as any).responseId ?? (result as any).id ?? null, providerMetadata },
       extractGeminiUsage(result), Date.now() - startedAt);
     } catch (error) {
       if (isProviderAccountingError(error)) throw error;
-      await logFailedProviderAttempt({ operationType: "topic_research", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, providerMetadata },
+      await logFailedProviderAttempt({ operationType: "topic_research", provider: "gemini", model, teamId, providerMetadata },
         { totalTokens: 0 }, Date.now() - startedAt, error);
       throw error;
     }

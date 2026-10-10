@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { articles } from "@/shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { assertValidArticleOutput } from "@/lib/article-output-safety";
 
@@ -18,7 +18,10 @@ export async function PATCH(
     const articleId = parseInt(resolvedParams.id);
     const body = await request.json();
 
-    const { htmlContent, title, seoTitle, metaDescription, slug, hyperlinkedKeywords, hashtags } = body;
+    const { htmlContent, title, seoTitle, metaDescription, slug, hyperlinkedKeywords, hashtags, expectedUpdatedAt } = body;
+    if (typeof expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(expectedUpdatedAt))) {
+      return NextResponse.json({ error: "Reload the article before saving; a version is required" }, { status: 409 });
+    }
 
     if (!articleId || isNaN(articleId)) {
       return NextResponse.json(
@@ -38,7 +41,9 @@ export async function PATCH(
     }
 
     const updateData: any = {
-      updatedAt: new Date(),
+      updatedAt: new Date(Math.max(Date.now(), Date.parse(expectedUpdatedAt) + 1)),
+      approvalStatus: "draft",
+      approvalReviewedAt: null, approvalReviewedBy: null,
     };
 
     if (htmlContent !== undefined) updateData.finalHtmlContent = htmlContent;
@@ -62,15 +67,17 @@ export async function PATCH(
       .where(
         and(
           eq(articles.id, articleId),
-          eq(articles.teamId, teamId) // TEAM ISOLATION
+          eq(articles.teamId, teamId), // TEAM ISOLATION
+          isNull(articles.deletedAt),
+          sql`date_trunc('milliseconds', ${articles.updatedAt}) = ${new Date(expectedUpdatedAt)}`
         )
       )
       .returning();
 
     if (!updated) {
       return NextResponse.json(
-        { error: "Article not found or access denied" },
-        { status: 404 }
+        { error: "Article changed or is unavailable; reload before saving" },
+        { status: 409 }
       );
     }
 

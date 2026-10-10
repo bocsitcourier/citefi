@@ -1,0 +1,1 @@
+{"requestedMode":"live","resolvedMode":null,"status":"BLOCKED","reason":"A deployed live QA runner with dedicated account, workspace, credit budget and destination approvals is not configured. No silent sandbox fallback.","realProviderCalls":0}

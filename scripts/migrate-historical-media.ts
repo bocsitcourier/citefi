@@ -6,10 +6,9 @@ import { dirname, resolve } from "node:path";
 import { Readable } from "node:stream";
 import {
   migrateHistoricalMedia,
-  type MediaKind,
   type MigrationStore,
-  type StorageOwner,
 } from "../lib/storage-migration";
+import { loadStorageOwners } from "../lib/storage-inventory";
 
 const mode = process.argv.includes("--certify")
   ? "certify"
@@ -109,56 +108,10 @@ function legacyStore(bucketName: string): MigrationStore {
   };
 }
 
-async function loadOwners(pool: Pool): Promise<StorageOwner[]> {
-  const result = await pool.query<{
-    source: string; record_id: string; team_id: number | null; url: string; kind: MediaKind;
-  }>(`
-    SELECT 'article_assets.storage_url' source, aa.id::text record_id,
-           COALESCE(aa.team_id, a.team_id) team_id, aa.storage_url url,
-           CASE aa.asset_type WHEN 'audio' THEN 'audio' WHEN 'video' THEN 'video' ELSE 'image' END kind
-      FROM article_assets aa JOIN articles a ON a.id = aa.article_id
-     WHERE aa.storage_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'articles.podcast_url', a.id::text, a.team_id, a.podcast_url, 'audio'
-      FROM articles a WHERE a.podcast_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'articles.hero_image_url', a.id::text, a.team_id, a.hero_image_url, 'image'
-      FROM articles a WHERE a.hero_image_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'social_post_assets.storage_url', spa.id::text, sp.team_id, spa.storage_url,
-           CASE spa.asset_type WHEN 'video' THEN 'video' ELSE 'image' END
-      FROM social_post_assets spa JOIN social_posts sp ON sp.id = spa.social_post_id
-     WHERE spa.storage_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'social_post_variants.image_url', spv.id::text, sp.team_id, spv.image_url, 'image'
-      FROM social_post_variants spv JOIN social_posts sp ON sp.id = spv.social_post_id
-     WHERE spv.image_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'social_posts.video_url', sp.id::text, sp.team_id, sp.video_url, 'video'
-      FROM social_posts sp WHERE sp.video_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'social_posts.company_logo_url', sp.id::text, sp.team_id, sp.company_logo_url, 'image'
-      FROM social_posts sp WHERE sp.company_logo_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'video_ideas.video_url', vi.id::text, vi.team_id, vi.video_url, 'video'
-      FROM video_ideas vi WHERE vi.video_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'video_ideas.thumbnail_url', vi.id::text, vi.team_id, vi.thumbnail_url, 'image'
-      FROM video_ideas vi WHERE vi.thumbnail_url LIKE '%/api/public-objects/%'
-    UNION ALL
-    SELECT 'video_ideas.company_logo_url', vi.id::text, vi.team_id, vi.company_logo_url, 'image'
-      FROM video_ideas vi WHERE vi.company_logo_url LIKE '%/api/public-objects/%'
-  `);
-  return result.rows.map((row) => ({
-    source: row.source, recordId: row.record_id, teamId: row.team_id,
-    url: row.url, kind: row.kind,
-  }));
-}
-
 async function main() {
   const pool = new Pool({ connectionString: required("DATABASE_URL"), max: 2 });
   try {
-    const owners = await loadOwners(pool);
+    const owners = await loadStorageOwners(pool);
     const client = new S3Client({
       region: "us-east-1", endpoint: required("DO_SPACES_ENDPOINT"),
       credentials: {

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { contentSchedules } from "@/shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
-import cronParser from "cron-parser";
+import { calculateNextRun } from "@/lib/schedule-time";
 
 const createScheduleSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
@@ -25,22 +25,6 @@ const createScheduleSchema = z.object({
   autoPublishEnabled: z.boolean().default(true),
   autoPublishConnectionIds: z.array(z.number()).optional(),
 });
-
-function calculateNextRun(cronExpression: string, timezone: string): Date {
-  try {
-    const options = {
-      currentDate: new Date(),
-      tz: timezone || 'UTC',
-    };
-    const interval = cronParser.parse(cronExpression, options);
-    return interval.next().toDate();
-  } catch (error: any) {
-    console.error(`Failed to parse cron expression "${cronExpression}":`, error);
-    const fallback = new Date();
-    fallback.setHours(fallback.getHours() + 24);
-    return fallback;
-  }
-}
 
 export async function GET(request: NextRequest) {
   try {

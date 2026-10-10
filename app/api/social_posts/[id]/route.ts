@@ -10,6 +10,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { withAuthenticatedTeamContext, requireTeamResource } from "@/lib/api/auth";
+import { scheduleSocialPost } from "@/lib/social-scheduling";
 
 const updateSocialPostSchema = z.object({
   topic: z.string().optional(),
@@ -196,15 +197,7 @@ export async function PATCH(
     }
     requireTeamResource(existingPost.teamId, teamId);
 
-    const [updatedPost] = await db
-      .update(socialPosts)
-      .set({
-        scheduleAt: new Date(validatedData.scheduleAt),
-        status: "SCHEDULED",
-        updatedAt: new Date(),
-      })
-      .where(eq(socialPosts.id, postId))
-      .returning();
+    const updatedPost = await scheduleSocialPost(postId, teamId, validatedData.scheduleAt, existingPost.status);
 
     await db.insert(socialPostLogs).values({
       socialPostId: postId,
@@ -228,7 +221,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(
-      { error: "Failed to schedule social post" },
+      { error: error?.statusCode ? error.message : "Failed to schedule social post" },
       { status: error?.statusCode || 500 }
     );
   }

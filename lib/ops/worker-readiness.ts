@@ -14,6 +14,7 @@ export interface WorkerReadinessState {
   requiredSchedulers: Record<string, boolean>;
   disabledSchedulers: Record<string, string>;
   modelsReady: boolean;
+  modelResolution?: unknown;
   failureReason: string | null;
 }
 
@@ -147,9 +148,10 @@ export function isDevelopmentCanaryOnlyUnready(
     Boolean(state.disabledSchedulers?.canary);
 }
 
-export async function markWorkerModelsReady(redis: Redis): Promise<WorkerReadinessState> {
+export async function markWorkerModelsReady(redis: Redis, ready = true, resolution?: unknown): Promise<WorkerReadinessState> {
   return update(redis, (state) => {
-    state.modelsReady = true;
+    state.modelsReady = ready;
+    if (resolution !== undefined) state.modelResolution = resolution;
   });
 }
 

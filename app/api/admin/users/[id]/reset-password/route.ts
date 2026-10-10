@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { systemDb as db } from "@/lib/db";
-import { users, passwordResets, adminActionLogs } from "@/shared/schema";
+import {
+  users,
+  passwordResets,
+  emailVerificationCodes,
+  adminActionLogs,
+} from "@/shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { requireRecentAdminMfa } from "@/lib/api/auth";
 import { deliverEmail } from "@/lib/email";
@@ -68,6 +73,14 @@ export async function POST(
             eq(passwordResets.status, "pending")
           )
         );
+      await tx
+        .update(emailVerificationCodes)
+        .set({ isUsed: 1 })
+        .where(and(
+          eq(emailVerificationCodes.userId, userId),
+          eq(emailVerificationCodes.purpose, "password_reset"),
+          eq(emailVerificationCodes.isUsed, 0),
+        ));
 
       await tx.insert(passwordResets).values({
         userId,

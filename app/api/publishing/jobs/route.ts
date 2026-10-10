@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { publishingJobs, articles, publishingConnections, videoIdeas, socialPosts } from '@/shared/schema';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
 import { createPublishingJob, getConnectionById } from '@/lib/publishing';
-import { withAuthenticatedTeamContext } from '@/lib/api/auth';
+import { canRetryPublication } from '@/lib/publishing/dispatch-policy';
+import { withAuthenticatedTeamContext, withAuthenticatedClientReviewerContext } from '@/lib/api/auth';
+import { dispatchContract } from '@/lib/publishing/dispatch-policy';
+import { reconciliationOf } from '@/lib/publishing/reconciliation';
+import { clientPublishingSummary } from '@/lib/publishing/client-summary';
 
 const createJobSchema = z.object({
   connectionId: z.number(),
@@ -18,13 +22,17 @@ const batchDeleteSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    return await withAuthenticatedTeamContext(request, async (auth) => {
+    return await withAuthenticatedClientReviewerContext(request, async (auth) => {
       const { teamId } = auth;
 
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status');
     const contentTypeFilter = searchParams.get('contentType');
-    const limit = parseInt(searchParams.get('limit') || '100', 10);
+    const requestedLimit = Number(searchParams.get('limit') || '100');
+    const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(200, requestedLimit)) : 100;
+    if (auth.role === 'client_viewer') {
+      return NextResponse.json({ success: true, data: await clientPublishingSummary(null, statusFilter, contentTypeFilter, limit) });
+    }
 
     // Build conditions
     const conditions = [eq(publishingJobs.teamId, teamId)];
@@ -49,6 +57,7 @@ export async function GET(request: NextRequest) {
         createdAt: publishingJobs.createdAt,
         updatedAt: publishingJobs.updatedAt,
         lastAttemptAt: publishingJobs.lastAttemptAt,
+        errorDetails: publishingJobs.errorDetails,
         nextRetryAt: publishingJobs.nextRetryAt,
         articleTitle: articles.chosenTitle,
         connectionName: publishingConnections.name,
@@ -61,7 +70,23 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(publishingJobs.createdAt))
       .limit(limit);
 
-    return NextResponse.json({ success: true, data: jobs });
+    const operator = ["owner", "admin", "platform_admin"].includes(auth.role);
+    return NextResponse.json({ success: true, data: jobs.map(({ errorDetails, ...job }) => {
+      const retained = reconciliationOf({ errorDetails });
+      const client = auth.role === "client_viewer";
+      return {
+        ...job, ...(client ? { lastError: null, connectionBaseUrl: null } : {}),
+        retryable: !client && canRetryPublication({ ...job, errorDetails }),
+        deletable: !client && ['pending', 'failed'].includes(job.status) && job.lastAttemptAt === null && job.attempts === 0 &&
+          !dispatchContract(errorDetails)?.submissionStarted && !retained.decision &&
+          !(errorDetails as Record<string, unknown> | null)?.replacementOf,
+        canReconcile: operator && (["outcome_unknown", "sent", "processing", "not_accepted"].includes(job.status) || !!retained.decision || !!retained.audit?.length ||
+          (job.status === "failed" && !canRetryPublication({ ...job, errorDetails }))),
+        reconciliationStatus: (errorDetails as Record<string, unknown> | null)?.reconciliationConflict === true
+          ? "conflicting_evidence" : retained.decision?.outcome ?? (job.status === "outcome_unknown" ? "unresolved" : null),
+        replacementJobId: retained.replacementJobId ?? null,
+      };
+    }) });
       });
   } catch (error: any) {
     console.error('Error fetching publishing jobs:', error);
@@ -129,14 +154,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Content not found' }, { status: 404 });
     }
 
-    const job = await createPublishingJob(teamId, connectionId, contentType, contentId);
+    const job = await createPublishingJob(teamId, connectionId, contentType, contentId,
+      { userId: auth.userId, role: auth.role });
 
-    return NextResponse.json({ success: true, data: job, message: 'Publishing job created' });
+    const { errorDetails: _privateDetails, ...visibleJob } = job;
+    return NextResponse.json({ success: true, data: visibleJob, message: 'Publishing operation recorded; identical requests reuse the same job' });
       });
   } catch (error: any) {
     console.error('Error creating publishing job:', error);
     const status = (error as any)?.statusCode ?? 500;
-    return NextResponse.json({ error: 'Failed to create publishing job' }, { status });
+    return NextResponse.json({ error: status < 500 ? error.message : 'Failed to create publishing job' }, { status });
   }
 }
 
@@ -159,12 +186,15 @@ export async function DELETE(request: NextRequest) {
 
     // Only delete jobs that belong to this team and are not currently processing
     const jobsToDelete = await db
-      .select({ id: publishingJobs.id, status: publishingJobs.status })
+      .select({ id: publishingJobs.id, status: publishingJobs.status, lastAttemptAt: publishingJobs.lastAttemptAt,
+        attempts: publishingJobs.attempts, errorDetails: publishingJobs.errorDetails })
       .from(publishingJobs)
       .where(and(eq(publishingJobs.teamId, teamId), inArray(publishingJobs.id, ids)));
 
     const deletableIds = jobsToDelete
-      .filter((j) => j.status !== 'processing')
+      .filter((j) => ['pending', 'failed', 'cancelled'].includes(j.status) && !j.lastAttemptAt &&
+        j.attempts === 0 && !dispatchContract(j.errorDetails)?.submissionStarted && !reconciliationOf(j).decision &&
+        !(j.errorDetails as Record<string, unknown> | null)?.replacementOf)
       .map((j) => j.id);
 
     if (deletableIds.length === 0) {
@@ -174,14 +204,20 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await db
+    const deleted = await db
       .delete(publishingJobs)
-      .where(and(eq(publishingJobs.teamId, teamId), inArray(publishingJobs.id, deletableIds)));
+      .where(and(eq(publishingJobs.teamId, teamId), inArray(publishingJobs.id, deletableIds),
+        inArray(publishingJobs.status, ['pending', 'failed', 'cancelled']),
+        isNull(publishingJobs.lastAttemptAt), eq(publishingJobs.attempts, 0),
+        sql`coalesce(${publishingJobs.errorDetails}->'dispatchContract'->>'submissionStarted', 'false') = 'false'`,
+        sql`${publishingJobs.errorDetails}->'reconciliation' IS NULL`,
+        sql`${publishingJobs.errorDetails}->'replacementOf' IS NULL`))
+      .returning({ id: publishingJobs.id });
 
     return NextResponse.json({
       success: true,
-      deleted: deletableIds.length,
-      skipped: ids.length - deletableIds.length,
+      deleted: deleted.length,
+      skipped: ids.length - deleted.length,
     });
       });
   } catch (error: any) {

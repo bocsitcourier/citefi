@@ -2,7 +2,7 @@ import { factStore, FactPack } from "./fact-store";
 import { GoogleGenAI } from "@google/genai";
 import { antiHallucination, ValidationResult } from "./anti-hallucination";
 import { generateVerifiedContent, VerifiedGenerationResult } from "./verified-content-generator";
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { createHash } from "node:crypto";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
 import { submitGeminiRequest } from "./gemini";
@@ -13,7 +13,7 @@ async function callGeminiWithRetry(prompt: string, options: { teamId: number; mo
   if (!Number.isInteger(options.teamId) || options.teamId <= 0) {
     throw new Error("Fact extraction requires a validated teamId");
   }
-  const model = options?.model || GEMINI_FLASH_MODEL;
+  const model = options?.model || await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
@@ -96,6 +96,7 @@ export async function validateContentWithFacts(
     topic,
     contentId,
   } = options;
+  const model = await getResolvedModel("geminiFlash");
 
   if (!enableFactValidation) {
     console.log(`[FactValidation] Validation disabled for ${contentType}`);
@@ -188,7 +189,7 @@ export async function validateContentWithFacts(
       factPack,
       validationResult,
       [`${contentType}-generator`, "fact-validator"],
-      GEMINI_FLASH_MODEL,
+      model,
       minConfidence
     );
   }
@@ -320,9 +321,10 @@ Return JSON:
 }`;
 
   try {
+    const model = await getResolvedModel("geminiFlash");
     const response = await callGeminiWithRetry(extractionPrompt, {
       teamId,
-      model: GEMINI_FLASH_MODEL,
+      model,
       responseFormat: "json"
     });
 

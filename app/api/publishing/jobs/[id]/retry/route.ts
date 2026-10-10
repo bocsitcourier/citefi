@@ -4,6 +4,7 @@ import { publishingJobs } from '@/shared/schema';
 import { eq, and } from 'drizzle-orm';
 import { addPublishingJob } from '@/lib/queue';
 import { withAuthenticatedTeamContext } from '@/lib/api/auth';
+import { canRetryPublication } from '@/lib/publishing/dispatch-policy';
 
 export async function POST(
   request: NextRequest,
@@ -29,22 +30,23 @@ export async function POST(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    if (job.status === 'sent') {
-      return NextResponse.json({ error: 'Job already sent — no retry needed' }, { status: 400 });
+    if (!canRetryPublication(job)) {
+      return NextResponse.json({ error: 'Only failed, provably unsubmitted jobs can be retried. Dispatched or uncertain operations require reconciliation.' }, { status: 409 });
     }
 
     // Reset the job for re-queuing
-    await db
+    const reset = await db
       .update(publishingJobs)
       .set({
         status: 'pending',
-        attempts: 0,
         lastError: null,
-        errorDetails: null,
         nextRetryAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(publishingJobs.id, jobId));
+      .where(and(eq(publishingJobs.id, jobId), eq(publishingJobs.teamId, teamId),
+        eq(publishingJobs.status, 'failed')))
+      .returning({ id: publishingJobs.id });
+    if (!reset.length) return NextResponse.json({ error: 'Job state changed; retry was not accepted' }, { status: 409 });
 
     // Re-enqueue in pg-boss
     const pgBossJobId = await addPublishingJob({ dbJobId: job.id, teamId: job.teamId });

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { MEDIA, requireSpace } = require('./staging-source-retention.cjs');
 
 const SOURCE_PATHS = [
   'app', 'components', 'lib', 'packages', 'server', 'shared', 'public',
@@ -40,6 +41,7 @@ function run(args) {
 }
 
 function build() {
+  requireSpace(os.tmpdir(), 512 * 1024 * 1024);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'citefi-staging-build-'));
   const tree = path.join(temporary, 'source');
   fs.mkdirSync(tree);
@@ -49,6 +51,7 @@ function build() {
     run(['-czf', intermediate, '--exclude=node_modules', '--exclude=.next',
       '--exclude=.env*', '--exclude=*.log', '--exclude=*.tsbuildinfo', '--exclude=__pycache__', ...SOURCE_PATHS]);
     run(['-xzf', intermediate, '-C', tree]);
+    const media = {};
     function walk(directory) {
       for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
         const filename = path.join(directory, entry.name);
@@ -60,10 +63,15 @@ function build() {
           fs.writeFileSync(filename, JSON.stringify(lock, null, 2) + '\n');
           locks++;
         }
+        else if (MEDIA.test(entry.name)) {
+          media[path.relative(tree, filename)] = require('node:crypto').createHash('sha256')
+            .update(fs.readFileSync(filename)).digest('hex');
+        }
       }
     }
     walk(tree);
-    run(['-czf', '/tmp/citefi-staging-source.tar.gz', '-C', tree, ...SOURCE_PATHS]);
+    fs.writeFileSync(path.join(tree, '.staging-source-media.json'), JSON.stringify(media));
+    run(['-czf', '/tmp/citefi-staging-source.tar.gz', '-C', tree, ...SOURCE_PATHS, '.staging-source-media.json']);
     console.log(JSON.stringify({ operation: 'build-staging-source', lockfiles: locks, normalizedResolutions: replacements, versionsAndIntegrityUnchanged: true }));
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });

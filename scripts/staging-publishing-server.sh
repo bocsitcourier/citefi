@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 case "${STAGING_OPERATION:-inspect}" in
-  inspect|inspect-root|setup|verify) operation="${STAGING_OPERATION:-inspect}" ;;
+  inspect|inspect-root|setup|verify|retention-preview|retention-cleanup) operation="${STAGING_OPERATION:-inspect}" ;;
   *) echo "Unrecognized staging operation" >&2; exit 64 ;;
 esac
 : "${DO_HOST:?DO_HOST is required}"
@@ -11,6 +11,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 chmod 700 "$work"
+node "$SCRIPT_DIR/bundle-staging-publishing-server.cjs" > "$work/server.cjs"
+if [[ "$operation" == retention-cleanup ]]; then
+  [[ "${STAGING_RETENTION_DIGEST:-}" =~ ^[a-f0-9]{64}$ ]] ||
+    { echo "Read-only retention preview digest is required" >&2; exit 64; }
+fi
 export QA_SSH_KEY_PATH="$work/key"
 python3 - <<'PY'
 import os, re
@@ -30,7 +35,7 @@ remote_user="${DO_USER:-citefi}"
 if [[ "$operation" == inspect-root ]]; then
   remote_user=root
   operation=inspect
-elif [[ "$operation" == setup || "$operation" == verify ]]; then
+elif [[ "$operation" == setup || "$operation" == verify || "$operation" == retention-preview || "$operation" == retention-cleanup ]]; then
   remote_user=root
 fi
 if [[ "$operation" == setup ]]; then
@@ -44,7 +49,7 @@ if [[ "$operation" == setup ]]; then
   ssh -i "$work/key" -p "${DO_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/known_hosts" \
     -o ForwardAgent=no -o ClearAllForwardings=yes -T \
-    "$remote_user@${DO_HOST}" "node - prepare" < "$SCRIPT_DIR/staging-publishing-server.cjs"
+    "$remote_user@${DO_HOST}" "node - prepare" < "$work/server.cjs"
   scp -q -i "$work/key" -P "${DO_PORT:-22}" -o BatchMode=yes -o IdentitiesOnly=yes \
     -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$work/known_hosts" \
     -o ForwardAgent=no -o ClearAllForwardings=yes \
@@ -54,4 +59,4 @@ ssh -i "$work/key" -p "${DO_PORT:-22}" \
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile="$work/known_hosts" -o ConnectTimeout=15 \
   -o ForwardAgent=no -o ClearAllForwardings=yes -T \
-  "$remote_user@${DO_HOST}" "node - $operation ${STAGING_SOURCE_SHA256:-}" < "$SCRIPT_DIR/staging-publishing-server.cjs"
+  "$remote_user@${DO_HOST}" "node - $operation $([[ "$operation" == retention-cleanup ]] && printf '%s' "$STAGING_RETENTION_DIGEST" || printf '%s' "${STAGING_SOURCE_SHA256:-}")" < "$work/server.cjs"

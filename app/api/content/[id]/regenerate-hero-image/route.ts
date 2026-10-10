@@ -7,6 +7,7 @@ import { uploadMedia } from "@/lib/storage";
 import { createImageBrandLockPromptSegment } from "@/lib/branding";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
 import { runDirectImageOperation } from "@/lib/direct-image-operation";
+import { getResolvedModel } from "@/lib/model-resolver";
 
 export async function POST(
   request: NextRequest,
@@ -82,6 +83,7 @@ export async function POST(
     }
     
     const businessName = batch.businessName;
+    const model = await getResolvedModel("geminiImage");
     
     // DEFENSIVE: Find the first/hero image for this article with team check
     const heroAsset = await db
@@ -123,6 +125,7 @@ export async function POST(
           articleId,
           resourceType: "article",
           resourceId: articleId,
+          model,
         });
         if (!dataUrl) throw new Error("Gemini rejected image generation before returning a paid result");
         return Buffer.from(dataUrl.replace(/^data:image\/\w+;base64,/, ""), "base64");
@@ -138,7 +141,7 @@ export async function POST(
           metadata: {
             ...(heroAsset[0]?.metadataJson as object | undefined),
             regeneratedAt: new Date().toISOString(),
-            model: "gemini-2.5-flash-image",
+            model,
             originalPrompt: prompt,
           },
         });

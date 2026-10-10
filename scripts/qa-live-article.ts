@@ -8,6 +8,7 @@ import { mkdirSync, openSync, writeFileSync, fsyncSync, closeSync } from "node:f
 import {
   PLAN, ROOT, preflight, reserveRun, installNetworkGuard, durableJson, validateRequest, sha256,
 } from "../QA/support/live-article-budget.mjs";
+import { assertPaidQaLedgerResolved } from "../QA/support/budget-ledger-dispute.mjs";
 import type { ArticleChainFixture, ArticleChainWorkers } from "../QA/support/article-chain-fixture";
 
 function smoke() {
@@ -84,6 +85,7 @@ async function wrongTenantToken(fixture: ArticleChainFixture) {
 }
 
 async function runLive() {
+  assertPaidQaLedgerResolved();
   if (process.env.QA_LIVE_ARTICLE !== "I_AUTHORIZE_BOUNDED_LIVE_ARTICLE") {
     throw new Error("Explicit QA_LIVE_ARTICLE authorization required");
   }
@@ -255,6 +257,7 @@ else if (mode === "--preflight") {
   const report = preflight();
   console.log(JSON.stringify({ evidence: ROOT, maximumUsd: report.maximumUsd, subcapUsd: 2, physicalCallsMaximum: 2 }));
 } else if (mode === "--live") {
+  assertPaidQaLedgerResolved();
   runLive().catch((error) => {
     mkdirSync(ROOT, { recursive: true });
     durableJson(join(ROOT, "harness-failure.json"), {

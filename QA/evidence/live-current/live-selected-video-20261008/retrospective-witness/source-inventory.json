@@ -1,0 +1,34 @@
+{
+  "runId": "live-selected-video-20261008",
+  "witnessAssembledAt": "2026-10-09T00:46:22.589Z",
+  "originalLogAvailable": false,
+  "backgroundDirectoryExists": false,
+  "backgroundFiles": [],
+  "backgroundSearch": {
+    "command": [
+      "grep",
+      "-rl",
+      "--",
+      "live-selected-video-20261008",
+      "/tmp/replit-background-tasks"
+    ],
+    "exitCode": null,
+    "error": "Background task directory is absent",
+    "stdout": "",
+    "stderr": ""
+  },
+  "currentCode": [
+    {
+      "original": "tests/qa/media-route-worker-fullchain.test.ts",
+      "sha256": "95c0f0e7939b36b1b16f4e25f068737829d5816d917275039cad7d134b2bcf6a",
+      "historicalVersionVerified": false
+    },
+    {
+      "original": "scripts/qa-live-selected-media.mjs",
+      "sha256": "e559bd0203e73672d0c5acb7df0125f104755bfe2ab3fb99c75a8dd5ea265590",
+      "historicalVersionVerified": false
+    }
+  ],
+  "currentTeardownFunctionSha256": "d8bbb036850b079f24dcab9b34beb730807c982069314c14e1c9ac1cd8d446e1",
+  "codeVersionQualification": "Current assembly-time snapshots only; historical launch script/version not independently established."
+}

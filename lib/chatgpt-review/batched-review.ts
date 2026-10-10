@@ -3,6 +3,7 @@ import { validateContent, type ContentValidationResult } from "./content-validat
 import { isHighQualityAnchor } from "../seo-policy";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface BatchedReviewResult {
   hyperlinks: {
@@ -285,9 +286,10 @@ ${content}
   // ChatGPT review timeout: 90s default (articles complete in 50-60s, buffer for safety)
   const chatgptReviewTimeout = parseInt(process.env.CHATGPT_REVIEW_TIMEOUT_MS || "90000");
   
+  const model = await getResolvedModel("gptMini");
   const completion = await callOpenAI(
     (client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -298,7 +300,7 @@ ${content}
     }),
     `Batched Review: ${title.substring(0, 50)}`,
     chatgptReviewTimeout, // Pass timeout to callOpenAI wrapper (controls request timeout)
-    { request: { model: "gpt-4.1-mini", maxOutputTokens: 3000 } },
+    { request: { model, maxOutputTokens: 3000 } },
   );
 
   const responseText = completion.choices[0]?.message?.content || "{}";

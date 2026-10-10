@@ -25,6 +25,9 @@ export interface SafeFetchOptions {
   maxBytes?: number;
   /** Request headers sent to the destination host. */
   headers?: Record<string, string>;
+  /** Mutating requests must disable redirects to avoid replaying signed bodies. */
+  method?: "GET" | "HEAD" | "POST";
+  body?: string;
 }
 
 function normalizeAddress(address: string): string {
@@ -283,6 +286,8 @@ async function pinnedRequest(
   url: URL,
   options: Required<Pick<SafeFetchOptions, "timeoutMs" | "maxBytes">> &
     Pick<SafeFetchOptions, "headers"> & {
+      method?: SafeFetchOptions["method"];
+      body?: string;
       signal: AbortSignal;
       deadlineAt: number;
     },
@@ -310,6 +315,7 @@ async function pinnedRequest(
         url,
         {
           headers: options.headers,
+          method: options.method ?? "GET",
           // Honor both forms of Node's lookup callback contract. When `all`
           // is requested, returning a scalar causes public HTTPS requests to
           // fail before TLS on current Node versions.
@@ -333,7 +339,7 @@ async function pinnedRequest(
           }
 
           const declaredLength = Number(res.headers["content-length"]);
-          if (Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
+          if (options.method !== "HEAD" && Number.isFinite(declaredLength) && declaredLength > options.maxBytes) {
             res.resume?.();
             destroyRequest(new Error("Response exceeds safe fetch limit"));
             finish(null);
@@ -355,7 +361,7 @@ async function pinnedRequest(
             chunks.push(buffer);
           });
           res.on("end", () => {
-            finish(new Response(Buffer.concat(chunks), {
+            finish(new Response([204, 205, 304].includes(res.statusCode ?? 500) || options.method === "HEAD" ? null : Buffer.concat(chunks), {
               status: res.statusCode ?? 500,
               headers: responseHeaders(res.headers),
             }));
@@ -396,7 +402,7 @@ async function pinnedRequest(
       req.setTimeout(requestTimeoutMs, () => {
         destroyRequest(new Error("Safe fetch timed out"));
       });
-      req.end();
+      req.end(options.body);
     } catch {
       destroyRequest();
       finish(null);
@@ -430,6 +436,8 @@ export async function safeFetchWithRedirects(
     deadlineMs <= 0 ||
     !Number.isFinite(maxBytes) ||
     maxBytes <= 0
+    || (options.method === "POST" && (maxRedirects !== 0 || typeof options.body !== "string"))
+    || (options.method !== "POST" && options.body !== undefined)
   ) {
     return null;
   }
@@ -457,6 +465,8 @@ export async function safeFetchWithRedirects(
         timeoutMs,
         maxBytes,
         headers,
+        method: options.method,
+        body: options.body,
         signal: deadlineController.signal,
         deadlineAt,
       });

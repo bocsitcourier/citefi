@@ -5,7 +5,7 @@
  * Concurrent cap bypass fix (T005):
  * checkUsageCap atomically inserts a PENDING reservation BEFORE reading the total spend.
  * Subsequent concurrent cap checks will see the reservation in their SUM query, preventing
- * double-booking within the 2-hour stale-reservation expiry window.
+ * double-booking while the holds remain unsettled.
  * Call cancelCapReservation(id) on job failure to release the hold.
  */
 
@@ -145,11 +145,9 @@ export async function checkUsageCap(
 
   const reservationId = reserved.id;
   const periodStart = startOfMonth();
-  // Stale-reservation expiry: only count pending events < 2 hours old.
-  // This ensures a crashed job can't permanently block the cap.
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-
-  // Count completed events + recent pending events (both contribute to the projected spend)
+  // Age is not proof that a queued/ambiguous provider operation is unbillable.
+  // Pending holds count until explicit cancellation or settlement, including
+  // long-running jobs and reconciliation holds. Do not silently expire spend.
   const [spendRow] = await db
     .select({ total: sum(usageEvents.costEstimateCents) })
     .from(usageEvents)
@@ -158,7 +156,7 @@ export async function checkUsageCap(
       gte(usageEvents.createdAt, periodStart),
       or(
         eq(usageEvents.status, "completed"),
-        and(eq(usageEvents.status, "pending"), gte(usageEvents.createdAt, twoHoursAgo))
+        eq(usageEvents.status, "pending")
       )
     ));
 

@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "ok": true,
+  "origin": "https://api.openai.com",
+  "path": "/v1/audio/speech",
+  "receivedAt": "2026-10-08T23:32:41.322Z",
+  "headers": {
+    "content-type": "audio/mpeg",
+    "x-request-id": "offline-tts-2"
+  }
+}

@@ -53,6 +53,20 @@ export function runWithAuthenticatedTeamContext<T>(
   }, fn);
 }
 
+/** Call only with the user ID returned by requireAdmin. */
+export function runWithAuthenticatedAdminContext<T>(
+  adminUserId: number,
+  fn: () => T,
+): T {
+  if (!Number.isInteger(adminUserId) || adminUserId <= 0) {
+    throw new Error("Admin database context requires a positive userId");
+  }
+  return runWithSystemContext(
+    `platform admin request by user ${adminUserId}`,
+    fn,
+  );
+}
+
 export async function withAuthenticatedTeamContext<T>(
   req: NextRequest,
   fn: (auth: TeamAuthResult) => T,
@@ -672,8 +686,8 @@ export async function requireTeamAdmin(req: NextRequest): Promise<TeamAuthResult
     throw error;
   }
 
-  if (teamMembership.role !== "admin") {
-    const error: any = new Error("Access denied: Only team admins can manage this resource");
+  if (!["owner", "admin"].includes(teamMembership.role)) {
+    const error: any = new Error("Access denied: Only team owners and admins can manage this resource");
     error.statusCode = 403;
     throw error;
   }

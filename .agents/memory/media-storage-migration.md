@@ -36,3 +36,15 @@ legacy-only sampling could let an unreadable primary-only podcast certify.
 
 **How to apply:** Keep cutover fail-closed on missing credentials, identity
 mismatch, absent media-kind coverage, or any unreadable referenced object.
+
+Recurring inventory is not a new parity certification. Treat unavailable
+inventories as unknown, never empty, and treat unreferenced totals as observation
+only, never permission to delete.
+
+**Why:** Listing presence cannot prove byte integrity, and owners outside the
+media inventory (including backups) can legitimately contribute to orphan totals.
+A primary-only host cannot establish that legacy-only writes have stopped.
+
+**How to apply:** Preserve the one-time evidence independently. Run cross-provider
+inventory where the legacy credential broker is reachable, and require explicit
+coverage in operational reports before treating a run as healthy.

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { getConfig } from '../config';
 
 const router = Router();
 
@@ -9,6 +10,7 @@ router.get('/ping', (req: Request, res: Response) => {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
+      capabilities: { publishingReceiptV1: getConfig().publishingReceiptFenceReady },
     },
   });
 });

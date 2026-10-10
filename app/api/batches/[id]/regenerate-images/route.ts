@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { articles, jobBatches, ContentType } from "@/shared/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { addImageGenerationJob } from "@/lib/queue";
-import { GEMINI_FLASH_MODEL } from "@/lib/ai-config";
+import { getResolvedModel } from "@/lib/model-resolver";
 import { runGenerationOrchestrator } from "@/lib/generation-orchestrator";
 import { recordContentGenerated } from "@/lib/learning-integration";
 import { extractGeminiUsage, logCostTelemetry } from "@/lib/cost-telemetry";
@@ -55,8 +55,9 @@ Return ONLY valid JSON in this format:
 }`;
 
   const startedAt = Date.now();
+  const model = await getResolvedModel("geminiFlash");
   const request = {
-    model: GEMINI_FLASH_MODEL,
+    model,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       responseMimeType: "application/json",
@@ -91,7 +92,7 @@ Return ONLY valid JSON in this format:
   const usage = extractGeminiUsage(result);
   await logCostTelemetry(
     {
-      operationType: "image_generation", provider: "gemini", model: GEMINI_FLASH_MODEL,
+      operationType: "image_generation", provider: "gemini", model,
       teamId: telemetry?.teamId, batchId: telemetry?.batchId, articleId: telemetry?.articleId,
       resourceType: "article", resourceId: telemetry?.articleId,
       providerRequestId: (result as any).responseId ?? null, attempt: 1,

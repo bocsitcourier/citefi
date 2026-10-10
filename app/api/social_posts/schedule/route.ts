@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { socialPosts, socialPostLogs } from "@/shared/schema";
 import { eq, and } from "drizzle-orm";
 import { withAuthenticatedTeamContext } from "@/lib/api/auth";
+import { scheduleSocialPost } from "@/lib/social-scheduling";
 
 const scheduleSchema = z.object({
   socialPostId: z.number(),
@@ -54,20 +55,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [updatedPost] = await db
-      .update(socialPosts)
-      .set({ 
-        scheduleAt: scheduleDate,
-        status: "SCHEDULED",
-        updatedAt: new Date()
-      })
-      .where(
-        and(
-          eq(socialPosts.id, socialPostId),
-          eq(socialPosts.teamId, teamId) // TEAM ISOLATION
-        )
-      )
-      .returning();
+    const updatedPost = await scheduleSocialPost(socialPostId, teamId, scheduleAt, existingPost.status);
 
     await db.insert(socialPostLogs).values({
       socialPostId,

@@ -1,0 +1,42 @@
+TAP version 13
+# Subtest: owned production-build evaluator network capability
+    # Subtest: seeds only the IPC port passed to an owned generated evaluator
+    ok 1 - seeds only the IPC port passed to an owned generated evaluator
+      ---
+      duration_ms: 12.262323
+      ...
+    # Subtest: missing, forged, and unowned scratch markers do not grant a port
+    ok 2 - missing, forged, and unowned scratch markers do not grant a port
+      ---
+      duration_ms: 9.228629
+      ...
+    # Subtest: ordinary or malformed processes cannot use a valid build marker to widen access
+    ok 3 - ordinary or malformed processes cannot use a valid build marker to widen access
+      ---
+      duration_ms: 4.622997
+      ...
+    1..3
+ok 1 - owned production-build evaluator network capability
+  ---
+  duration_ms: 27.561253
+  type: 'suite'
+  ...
+# Subtest: process liveness explicitly does not certify readiness
+ok 2 - process liveness explicitly does not certify readiness
+  ---
+  duration_ms: 6.224809
+  ...
+# Subtest: dev warmup uses liveness while deployment retains operational health
+ok 3 - dev warmup uses liveness while deployment retains operational health
+  ---
+  duration_ms: 0.614159
+  ...
+1..3
+# tests 5
+# suites 1
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1010.88658

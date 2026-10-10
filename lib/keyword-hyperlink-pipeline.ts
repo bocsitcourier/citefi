@@ -2,7 +2,7 @@ import { callOpenAI } from "./openai-client";
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import { isHighQualityAnchor, isHighQualityAnchorDeterministic } from "./seo-policy";
-import { GPT_HYPERLINK_EXTRACT_MODEL, GPT_HYPERLINK_CORRECTION_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 
@@ -243,10 +243,11 @@ Categories: primary_service, geo_service, long_tail, local_authority, industry_s
 
 CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can't find it with a simple search, it's wrong.`;
 
+  const model = await getResolvedModel("gptHyperlinkExtract");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: GPT_HYPERLINK_EXTRACT_MODEL,
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -257,7 +258,7 @@ CRITICAL: Every keyword MUST be an EXACT match to text in the article. If I can'
       }),
       `Keyword Extraction from Article`,
       120000,
-      { request: { model: GPT_HYPERLINK_EXTRACT_MODEL, maxOutputTokens: 2000 } },
+      { request: { model, maxOutputTokens: 2000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -346,10 +347,11 @@ CRITICAL RULES:
 - NO hallucinated services not listed above
 - NO locations outside the specified area`;
 
+  const model = await getResolvedModel("gptHyperlinkExtract");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: GPT_HYPERLINK_EXTRACT_MODEL,
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -360,7 +362,7 @@ CRITICAL RULES:
       }),
       `Long-Phrase Keyword Extraction`,
       120000,
-      { request: { model: GPT_HYPERLINK_EXTRACT_MODEL, maxOutputTokens: 2000 } },
+      { request: { model, maxOutputTokens: 2000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -656,10 +658,11 @@ Output JSON:
   "corrections": ["inserted 'keyword1' in paragraph 3", "added 'keyword2' to FAQ answer 2"]
 }`;
 
+  const model = await getResolvedModel("gptHyperlinkCorrection");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: GPT_HYPERLINK_CORRECTION_MODEL,
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -673,7 +676,7 @@ Output JSON:
       }),
       `Keyword Validation Pass`,
       300000,
-      { request: { model: GPT_HYPERLINK_CORRECTION_MODEL, maxOutputTokens: 16000 } },
+      { request: { model, maxOutputTokens: 16000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

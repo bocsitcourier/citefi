@@ -1,0 +1,24 @@
+{
+  "number": 9,
+  "kind": "clip",
+  "scene": 10,
+  "sourceEventId": "provider-attempt:b0be3291fe367adf4ee9a275d50ca5aa1557dba82c6a81b1840de7da9c6d6173",
+  "requestSha256": "e779c8906ed7ecfb0f6ebb68167a9af2ce5c5b17f20068c1bfa68a72aedf013c",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a warm, professional handshake between two people in a brightly lit, modern office lobby in Fixture City, camera slowly panning right, professional environment, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

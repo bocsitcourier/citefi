@@ -3,6 +3,7 @@ import { isHighQualityAnchor, isBareGeoAnchor } from "../seo-policy";
 import { GLOBAL_SEO_LAWS } from "../seo-ai-laws";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 /**
  * GPT-4 Intelligent Hyperlinking System for GEO Optimization
@@ -122,10 +123,11 @@ ${articleHtml}
 
 **IMPORTANT**: Scan the entire article from beginning to end, including the FAQ section. Select phrases that appear in PARAGRAPHS, LISTS, and FAQ ANSWERS only — never in H1, H2, or H3 tags. Every anchor text MUST be 4-7 words. Return exactly 5-7 contextual links distributed throughout the article, including at least 2 from the FAQ section.`;
 
+  const model = await getResolvedModel("gptHyperlinkExtract");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -136,7 +138,7 @@ ${articleHtml}
       }),
       `GPT-4o Article Body Hyperlinker`,
       600000,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 2000 } },
+      { request: { model, maxOutputTokens: 2000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";
@@ -242,10 +244,11 @@ ${faqHtml}
 
 **IMPORTANT**: Insert exactly ONE high-quality 4-7 word link per FAQ answer. Return the complete revised FAQ HTML ready for seamless integration into the article.`;
 
+  const model = await getResolvedModel("gptHyperlinkCorrection");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -256,7 +259,7 @@ ${faqHtml}
       }),
       `GPT-4o FAQ Hyperlinker`,
       600000,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 3000 } },
+      { request: { model, maxOutputTokens: 3000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

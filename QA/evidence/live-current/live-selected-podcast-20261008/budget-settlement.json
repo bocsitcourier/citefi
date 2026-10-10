@@ -1,0 +1,13 @@
+{
+  "runId": "live-selected-podcast-20261008",
+  "actualUsd": 0.042284,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 0.585916,
+    "availableUsd": 22.897013
+  }
+}

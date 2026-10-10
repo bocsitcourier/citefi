@@ -1,22 +1,46 @@
 # Selected speech/video QA — preparation, not certification
 
-Status: **NOT CERTIFIED**. No new paid call was made during this preparation.
-The owner's scope choice permits preparing TTS-1 QA only, not paying for it.
+Status: **NOT CERTIFIED**. The user refused new paid QA while two historical
+provider calls remain unreconciled and their source records are unavailable.
+No new paid call or paid end-to-end success is authorized or claimed here.
+
+Conflicting branch documentation describes later selected-media executions,
+including a podcast pass, a failed video attempt, and a video recovery pilot.
+The corresponding ledger histories conflict and supporting immutable records
+are unavailable for this merge. Those descriptions are retained as disputed
+historical claims only; they are not verified results, approvals, settlements,
+or evidence that a paid end-to-end test passed. The shared ledger remains
+unresolved and must not be edited to choose or invent a reconciliation.
+
+`QA/evidence/live-current/budget-ledger.json` is a dispute sentinel, not a
+balance. Both byte-exact source versions are separately hash-bound as
+non-authoritative snapshots in `budget-ledger-dispute.json`; every live paid QA
+entrypoint is blocked until real reconciliation and separate owner permission.
+
 The production speech default is unchanged. The original image-only execution
 permission has been consumed; offline image reconciliation did not authorize
 a retry. The failed article and image cases remain failed.
 
-## Proposed separately approved execution
+The owner subsequently authorized **preparation only** of a separate video
+recovery plan. See `VIDEO_RECOVERY_PLAN.md`: retained script/TTS reuse, a
+separately approved pilot before nine further clips, proposed additional reserve
+$6.10, no release of the old $6.30 hold and no current paid permission.
+The recovery runner and financial exception are not implemented or approved
+for execution by that preparation decision.
+
+## Prepared execution bounds (not paid authorization)
 
 | Stage | Selected native calls | Hard limits | Reserve |
 |---|---|---|---|
 | Podcast | One Gemini 3.5 Flash script; OpenAI TTS-1 segments | ≤40 TTS submissions; ≤30,000 total characters, ≤4,096 each | $0.65 |
 | Video | One Gemini 3.5 Flash script; one TTS-1 narration; Veo 3.1 Fast clips | ≤4,096 narration characters; ≤10 clips, one 6s 720p result each | $6.30 |
 
-Combined reserve: **$6.95**, within the existing shared **USD30** ledger, not a
-new budget. Last preflight: available **$22.939297**, prior known spend
-$0.517071, historical unknown-call hold $6 (coverage, not actual spend), new
-committed native estimates $0.543632.
+Combined reserve: **$6.95**, proposed against the existing shared **USD30**
+ceiling, not a new budget or authorization. The preparation record's last
+preflight snapshot was **$22.939297** available, prior known valuation $0.517071,
+historical unknown-call hold $6 (coverage, not actual spend), and new committed
+estimates $0.543632. Later ledger versions conflict, so that snapshot is not a
+current balance.
 
 Each script permits at most 32,768 UTF-8 request bytes, conservatively 65,536
 input tokens and 8,192 output tokens including thinking. Per-script bound:
@@ -112,7 +136,9 @@ node --test tests/qa/selected-media-budget.test.mjs
 node --import tsx/esm --test tests/merge-mp3-segments.test.ts
 ```
 
-Real execution is blocked until both approvals match the fresh manifest:
+Real execution remains blocked by the user's refusal, unresolved historical
+calls, unavailable source records, retained ambiguous holds, and stale approval
+hashes. The commands below are invocation syntax only, not permission to run:
 
 ```sh
 node scripts/qa-live-selected-media.mjs run podcast <unique-approved-run-id>

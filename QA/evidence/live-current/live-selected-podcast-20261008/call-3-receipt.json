@@ -1,0 +1,19 @@
+{
+  "number": 3,
+  "kind": "tts",
+  "sourceEventId": "provider-attempt:a56ebf569b9a7436b12ed64802a918106cfff47e4ca08e650ff1997ae70e6326",
+  "requestSha256": "dad0d235473ddf684773da92cdc26e8713052ddbee016a18b8f6bafe00b82614",
+  "state": "receipted",
+  "model": "tts-1",
+  "submittedAt": "2026-10-08T23:24:03.265Z",
+  "requestUnits": 92,
+  "physicalSubmissions": 1,
+  "simulatedSubmissions": 0,
+  "providerRequestId": "req_d9c42101e5614356b6a38a8738d9e885",
+  "nativeSha256": "33252ba07ba50af368341e236aed61736185f303978cc4e2c11d5c5e83094fd7",
+  "characters": 92,
+  "billingBasis": "exact request characters; not an invoice",
+  "costMicrousd": 1380,
+  "actualUsd": 0.00138,
+  "receivedAt": "2026-10-08T23:24:06.162Z"
+}

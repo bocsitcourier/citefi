@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { redactProviderError, redactProviderOutput } from "./provider-diagnostics";
@@ -327,11 +327,12 @@ Return ONLY valid JSON in this exact format:
   "targetEmotion": "The primary emotion viewers should feel"
 }`;
 
+  const model = await getResolvedModel("geminiFlash");
   try {
     const genAI = getGeminiClient();
     const _ideaStart = Date.now();
     const generationRequest = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,
@@ -349,7 +350,7 @@ Return ONLY valid JSON in this exact format:
     if (response?.usageMetadata) {
       const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
       await logCostTelemetry(
-        { operationType: "video_idea", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        { operationType: "video_idea", provider: "gemini", model,
           teamId: input.teamId, providerRequestId: (response as any).responseId ?? null },
         extractGeminiUsage(response), Date.now() - _ideaStart, true
       );

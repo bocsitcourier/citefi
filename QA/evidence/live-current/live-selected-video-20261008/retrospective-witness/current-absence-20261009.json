@@ -1,0 +1,18 @@
+{
+  "kind": "current-absence-check",
+  "runId": "live-selected-video-20261008",
+  "observedAt": "2026-10-09T00:52:31.255Z",
+  "commands": [
+    "ps -eo pid,args | grep -E qa_media_acceptance|media-route-worker|live-selected-video-20261008|veo",
+    "find /tmp -maxdepth 1 -name media-route-worker-* -o -name veo-clips -o -name veo-output",
+    "tcp connect probes 54329 6380 6381 54330"
+  ],
+  "matchingProcesses": [],
+  "matchingProcessCount": 0,
+  "ownedRoots": [],
+  "ownedRootCount": 0,
+  "listeningOwnedPorts": 0,
+  "substitute": true,
+  "priorLeftover": "/tmp/veo-output/{815,816} from the 2026-10-09 00:47 offline fixture run (not historical) was removed before this check",
+  "note": "Owner-accepted substitute for lost original shutdown log; not witnessed historical shutdown."
+}

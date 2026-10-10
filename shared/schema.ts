@@ -2393,6 +2393,7 @@ export const publishingConnections = pgTable("publishing_connections", {
     images?: boolean;
     videos?: boolean;
     podcasts?: boolean;
+    publishingReceiptV1?: boolean;
   }>().default({ articles: true, images: true }),
   
   // Health Monitoring
@@ -3094,6 +3095,7 @@ export const providerRates = pgTable("provider_rates", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   versionModelUnitUnique: uniqueIndex("provider_rates_version_model_unit_unique").on(t.rateVersionId, t.provider, t.model, t.unitType),
+  pricingShapeCheck: check("provider_rates_pricing_shape_check", sql`(${t.unitType} IN ('tokens', 'images') AND ${t.inputMicrousdPerMillion} IS NOT NULL AND ${t.outputMicrousdPerMillion} IS NOT NULL) OR (${t.unitType} <> 'tokens' AND ${t.microusdPerUnit} IS NOT NULL)`),
   lookupIdx: index("provider_rates_lookup_idx").on(t.provider, t.model, t.unitType, t.effectiveFrom),
 })).enableRLS();
 

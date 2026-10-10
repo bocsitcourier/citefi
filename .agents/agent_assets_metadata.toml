@@ -232,3 +232,87 @@ mtime_ms = 1791490317943
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/c32eb681-a106-4e6b-8d58-23b20d3311a3/e9519d0c-1f1a-4496-9034-ad090696499d"
 storage_version_token = "1791490354777743"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "sxGcqq3glIjbtrQf4pqJS"
+uri = "file://QA/evidence/attachment-audit/part-17-audit-report.md"
+type = "text"
+title = "Architect audit — findings, tests, and release readiness"
+description = "Attachment sections A–K: source findings, 204 test outcomes, deployed public-browser evidence, blockers, and cleanup inventory. Verdict: NO-GO."
+logical_id = "c8bbce32-2c6f-48d4-82e8-ae539de5dd76"
+content_hash = "sha256:9b7b98e33bcd36c9147ff47fe39daa0a6dc112e8e7cb5731a456579d82324125"
+size = 53521
+mtime_ms = 1791495056350
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/c8bbce32-2c6f-48d4-82e8-ae539de5dd76/0c463904-ff9e-4577-8acc-9a7aa6ca59ee"
+storage_version_token = "1791495139162453"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "ep3BuRprQ7t6m6YR9s6s_"
+uri = "file://QA/evidence/attachment-audit/source-coverage.md"
+type = "text"
+title = "Line-by-line review coverage and evidence"
+description = "736 scoped production files, exact reviewed ranges and hashes, batch-aided method, exclusions, and test commands. Source review is distinct from runtime verification."
+logical_id = "4290e7f8-7c4d-451f-8d82-22b0cbcda86b"
+content_hash = "sha256:009fda36c7429997561c9e60267b66b94d405599ee38bb042cc702f848b74032"
+size = 34049
+mtime_ms = 1791495038042
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/4290e7f8-7c4d-451f-8d82-22b0cbcda86b/d52e6415-ab56-4dd3-811b-38bf2ac18720"
+storage_version_token = "1791495139847166"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "oyL9P9FnoLvgfya8g7Lqi"
+uri = "file://QA/evidence/hardening/hardening-results.md"
+type = "text"
+title = "Hardening results and remaining blockers"
+description = "Implemented safeguards, 98 passing checks across distinct suites, and explicit limits on production certification."
+logical_id = "4c45d9c1-2c05-417c-a9dd-9183161fe52b"
+content_hash = "sha256:122b718595be2fa55240699235616bdeaaae9ac1e45b4d329c7ee6d36ab8c833"
+size = 7551
+mtime_ms = 1791499825960
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/4c45d9c1-2c05-417c-a9dd-9183161fe52b/89ea9ab9-9d13-4f00-aef1-61e9b8472ee5"
+storage_version_token = "1791499834298590"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "l1qhZb2sP2_eHXxJrBRUN"
+uri = "file://QA/evidence/hardening/architect-future-scenarios.md"
+type = "text"
+title = "Architect future-scenario review"
+description = "Role and failure-scenario matrix; use the results report for findings fixed after this review."
+logical_id = "1c062042-ffe2-437e-b011-40a4d3ef19cd"
+content_hash = "sha256:9589a43367a7f67bda9cece0897cf8cfe110ba77bd807308f41962e7f5d1dbc6"
+size = 19229
+mtime_ms = 1791497965477
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/1c062042-ffe2-437e-b011-40a4d3ef19cd/8f0ee93a-b2db-4ef1-b4b8-3348e3bc7de1"
+storage_version_token = "1791499835028987"
+content_type = "text/markdown"
+
+[[outputs]]
+id = "35SiJpXCNvUk9M3Cwcdj5"
+uri = "file://QA/evidence/live-current/live-selected-podcast-20261008/delivered-podcast.mp3"
+type = "audio"
+title = "Real podcast QA output — TTS-1"
+description = "82-second real-provider output, authenticated retrieval and full FFmpeg decode passed. Owned test content; selected deprecated TTS-1, not default-model or cloud certification."
+logical_id = "d2bb5f86-deca-4e52-ab60-08589ba7e000"
+content_hash = "sha256:56ff20d53fcdccd60e16826c953d0f40098d10598189494ff2189189fa2671d1"
+size = 1314476
+mtime_ms = 1791501865387
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/d2bb5f86-deca-4e52-ab60-08589ba7e000/c97defca-beb4-4e74-a1a1-00498afafffd"
+storage_version_token = "1791501909819573"
+content_type = "audio/mpeg"
+
+[[outputs]]
+id = "TY47-WJGij9wPaHZ0xW1h"
+uri = "file://QA/evidence/platinum-master/persistence-results.html"
+type = "html"
+title = "Release remediation: production build now passes"
+description = "Parallel specialist findings, verified build and liveness fixes, and the remaining port preference and operational readiness prerequisites."
+logical_id = "865175fb-dac0-4fa9-a6c2-65f1b39b1db4"
+content_hash = "sha256:0f921b8e5b7072c8b2e53e501c15544ba30e9c46e7c9ef70c9b440eef9ffdf6f"
+size = 4249
+mtime_ms = 1791517780353
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:7a698c91-2724-4ff4-a1ee-1551dc49efbb/865175fb-dac0-4fa9-a6c2-65f1b39b1db4/d5830939-e2ac-46d6-8cb8-2c1edccfb231"
+storage_version_token = "1791517781071303"
+content_type = "text/html"

@@ -1,105 +1,130 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { articles, activityLogs } from "@/shared/schema";
+import { articles, activityLogs, publishingConnections, teams } from "@/shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { withAuthenticatedClientReviewerContext } from "@/lib/api/auth";
+import { runWithSystemContext } from "@/lib/tenant-context";
+import { assertCurrentActor, assertReviewAssignment, buildReviewManifest, persistReview, getApprovalSnapshot, reviewMediaPayload, REVIEW_POLICY } from "@/lib/publishing/review-binding";
 import { z } from "zod";
 
 const approveSchema = z.object({
   action: z.enum(["approved", "changes_requested", "in_review"]),
   feedback: z.string().max(2000).optional(),
+  connectionId: z.number().int().positive().optional(),
+  contentType: z.enum(["article", "podcast"]).default("article"),
+  reviewDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  expectedUpdatedAt: z.string().datetime().optional(),
+  approvalTeamId: z.number().int().positive().nullable().optional(),
 });
+type Params = { params: Promise<{ id: string }> };
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+function failure(error: any) {
+  const status = error?.statusCode ?? 500;
+  if (status >= 500) console.error("[content/exact-review]", error);
+  return NextResponse.json({ error: status < 500 ? error.message : "Review could not be completed" }, { status });
+}
+function reject(message: string, statusCode = 409): never { throw Object.assign(new Error(message), { statusCode }); }
+
+export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const { id } = await params;
-    const articleId = Number(id);
-    if (isNaN(articleId)) return NextResponse.json({ error: "Invalid article ID" }, { status: 400 });
-
-    return await withAuthenticatedClientReviewerContext(req, async ({ userId, teamId, role }) => {
-
-      if (role === "client_viewer" && (await getApprovalAction(req)) === "in_review") {
-        return NextResponse.json({ error: "Client reviewers cannot request reviews; only approve or request changes" }, { status: 403 });
-      }
-
-      const body = await req.json();
-      const parsed = approveSchema.safeParse(body);
-      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
-      const { action, feedback } = parsed.data;
-
-      if (role === "client_viewer" && action === "in_review") {
-        return NextResponse.json({ error: "Client reviewers cannot set status to in_review" }, { status: 403 });
-      }
-
-      const [article] = await db
-        .select({ id: articles.id, teamId: articles.teamId, approvalTeamId: articles.approvalTeamId, chosenTitle: articles.chosenTitle })
-        .from(articles)
-        .where(and(eq(articles.id, articleId), isNull(articles.deletedAt)))
-        .limit(1);
-
-      if (!article) return NextResponse.json({ error: "Article not found" }, { status: 404 });
-
-    // A client_viewer can only act on articles explicitly scoped to their team via approvalTeamId.
-    // The article.teamId fallback is intentionally removed — a client_viewer must never
-    // be able to act just because they happen to belong to the content-owning team.
-      if (role === "client_viewer") {
-        if (article.approvalTeamId !== teamId) {
-          return NextResponse.json({ error: "Article not found" }, { status: 404 });
-        }
-      } else {
-        // Admin/member must own the article's parent team
-        if (article.teamId !== teamId) {
-          return NextResponse.json({ error: "Article not found" }, { status: 404 });
-        }
-      }
-
-      const now = new Date();
-      const isReview = action === "approved" || action === "changes_requested";
-
-    // Include the same ownership predicate used during the auth read to prevent
-    // TOCTOU: if the article is reassigned between the read and write, this
-    // UPDATE returns 0 rows and we 404 rather than mutate the wrong article.
-      const ownershipWhere =
-        role === "client_viewer"
-          ? and(eq(articles.id, articleId), eq(articles.approvalTeamId, teamId), isNull(articles.deletedAt))
-          : and(eq(articles.id, articleId), eq(articles.teamId, teamId), isNull(articles.deletedAt));
-
-      const updated = await db
-        .update(articles)
-        .set({
-          approvalStatus: action,
-          approvalRequestedAt: action === "in_review" ? now : undefined,
-          approvalReviewedAt: isReview ? now : undefined,
-          approvalReviewedBy: isReview ? userId : undefined,
-          approvalFeedback: feedback ?? null,
-          updatedAt: now,
-        })
-        .where(ownershipWhere)
-        .returning({ id: articles.id });
-
-      if (!updated.length) return NextResponse.json({ error: "Article not found" }, { status: 404 });
-
-      await db.insert(activityLogs).values({
-        userId,
-        action: `article_approval_${action}`,
-        resource: "articles",
-        resourceId: articleId,
-        details: feedback ? `Feedback: ${feedback.substring(0, 200)}` : `Status set to ${action}`,
-      }).catch(() => {});
-
-      return NextResponse.json({ success: true, approvalStatus: action });
-    });
-  } catch (err: any) {
-    const status = err?.statusCode ?? err?.status;
-    if (status === 401 || status === 403 || status === 404) {
-      return NextResponse.json({ error: err.message }, { status });
-    }
-    console.error("[content/approve]", err);
-    return NextResponse.json({ error: "Failed to update approval status" }, { status: 500 });
-  }
+    const id = Number((await params).id);
+    if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: "Invalid article ID" }, { status: 400 });
+    return await withAuthenticatedClientReviewerContext(req, actor =>
+      // Assigned client reviews require parent-owned assets/connections. This
+      // bounded callback checks the locked assignment BEFORE reading that data.
+      runWithSystemContext("assigned exact publishing review preview", () => db.transaction(async tx => {
+        await assertCurrentActor(tx, actor, ["owner", "admin", "member", "client_viewer"]);
+        const [article] = await tx.select().from(articles).where(and(eq(articles.id, id), isNull(articles.deletedAt))).for("share");
+        if (!article || (article.teamId !== actor.teamId && article.approvalTeamId !== actor.teamId)) reject("Article not found", 404);
+        const canReview = (article.approvalTeamId ?? article.teamId) === actor.teamId &&
+          (actor.role !== "client_viewer" || article.approvalTeamId === actor.teamId);
+        const connections = await tx.select({
+          id: publishingConnections.id, name: publishingConnections.name,
+          channel: publishingConnections.channel, baseUrl: publishingConnections.baseUrl,
+        }).from(publishingConnections).where(and(
+          eq(publishingConnections.teamId, article.teamId!), eq(publishingConnections.status, "active"), isNull(publishingConnections.deletedAt),
+        ));
+        const assignmentTeams = article.teamId === actor.teamId && ["owner", "admin"].includes(actor.role)
+          ? await tx.select({ id: teams.id, name: teams.name }).from(teams).where(and(
+              eq(teams.parentTeamId, actor.teamId), eq(teams.clientStatus, "active"), isNull(teams.deletedAt),
+            )) : [];
+        const base = { connections, policy: REVIEW_POLICY, canReview, canAssign: article.teamId === actor.teamId && ["owner", "admin"].includes(actor.role),
+          assignmentTeams, assignmentTeamId: article.approvalTeamId, updatedAt: article.updatedAt.toISOString() };
+        const connectionId = Number(req.nextUrl.searchParams.get("connectionId"));
+        if (!connectionId) return NextResponse.json(base);
+        assertReviewAssignment(article, actor);
+        const kind = req.nextUrl.searchParams.get("contentType") ?? "article";
+        if (!["article", "podcast"].includes(kind)) reject("Unsupported review content type", 400);
+        const [connection] = await tx.select().from(publishingConnections).where(and(
+          eq(publishingConnections.id, connectionId), eq(publishingConnections.teamId, article.teamId!),
+        )).for("share");
+        if (!connection) reject("Destination not found", 404);
+        const review = await buildReviewManifest(tx, article, connection, kind as "article" | "podcast", undefined, true);
+        return NextResponse.json({ ...base, review: { ...review, formatted: reviewMediaPayload(review) } }, { headers: { "Cache-Control": "no-store" } });
+      })));
+  } catch (error) { return failure(error); }
 }
 
-async function getApprovalAction(req: NextRequest): Promise<string> {
-  try { const b = await req.clone().json(); return b.action ?? ""; } catch { return ""; }
+export async function POST(req: NextRequest, { params }: Params) {
+  try {
+    const id = Number((await params).id);
+    if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: "Invalid article ID" }, { status: 400 });
+    return await withAuthenticatedClientReviewerContext(req, async actor => {
+      const parsed = approveSchema.safeParse(await req.json());
+      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      const input = parsed.data;
+      return runWithSystemContext("assigned exact publishing review decision", () => db.transaction(async tx => {
+        await assertCurrentActor(tx, actor, ["owner", "admin", "member", "client_viewer"]);
+        const [article] = await tx.select().from(articles).where(and(eq(articles.id, id), isNull(articles.deletedAt))).for("update");
+        if (!article) reject("Article not found", 404);
+        if (input.action === "in_review") {
+          if (article.teamId !== actor.teamId || actor.role === "client_viewer") reject("Only the owning content team can request review", 403);
+          if (!input.expectedUpdatedAt || article.updatedAt.toISOString() !== input.expectedUpdatedAt) reject("Content changed; reload before requesting review");
+          if (input.approvalTeamId !== undefined) {
+            if (!["owner", "admin"].includes(actor.role)) reject("Only the team owner/admin can change review assignment", 403);
+            if (input.approvalTeamId !== null) {
+              const [target] = await tx.select().from(teams).where(and(eq(teams.id, input.approvalTeamId),
+                eq(teams.parentTeamId, actor.teamId), isNull(teams.deletedAt), eq(teams.clientStatus, "active"))).for("share");
+              if (!target) reject("Assigned client team not found", 404);
+            }
+          }
+        } else {
+          if (input.approvalTeamId !== undefined) reject("Assignment changes require a fresh review request", 403);
+          assertReviewAssignment(article, actor);
+          if (article.approvalStatus !== "in_review") reject("Request a fresh review before making a decision");
+        }
+        let manifest;
+        if (input.reviewDigest) {
+          if (!input.connectionId) reject("Select the reviewed destination");
+          const [connection] = await tx.select().from(publishingConnections).where(and(
+            eq(publishingConnections.id, input.connectionId), eq(publishingConnections.teamId, article.teamId!),
+          )).for("share");
+          if (!connection) reject("Destination not found", 404);
+          manifest = await buildReviewManifest(tx, article, connection, input.contentType);
+          if (manifest.digest !== input.reviewDigest) reject("Content, media, assignment or destination changed; reload the exact review");
+        } else if (input.action === "approved") reject("Load and confirm the exact destination and asset review");
+        else if (!input.expectedUpdatedAt || article.updatedAt.toISOString() !== input.expectedUpdatedAt) reject("Review changed; reload before saving");
+
+        if (input.action === "approved") {
+          await persistReview(tx, article, manifest!, actor, input.feedback);
+        } else {
+          const now = new Date(Math.max(Date.now(), article.updatedAt.getTime() + 1));
+          const previousSnapshot = await getApprovalSnapshot(tx, article);
+          await tx.update(articles).set({
+            approvalStatus: input.action, approvalRequestedAt: input.action === "in_review" ? now : undefined,
+            approvalReviewedAt: input.action === "changes_requested" ? now : null,
+            approvalReviewedBy: input.action === "changes_requested" ? actor.userId : null,
+            approvalFeedback: input.feedback ?? null,
+            approvalTeamId: input.approvalTeamId === undefined ? undefined : input.approvalTeamId,
+            // Clearing current consent never deletes historical audit manifests.
+            updatedAt: now,
+          }).where(eq(articles.id, article.id));
+          await tx.insert(activityLogs).values({ userId: actor.userId, teamId: article.teamId, action: `article_approval_${input.action}`, resource: "articles",
+            resourceId: article.id, details: { previousReviewId: previousSnapshot?.reviewId ?? null,
+              previousAssignment: article.approvalTeamId, assignment: input.approvalTeamId === undefined ? article.approvalTeamId : input.approvalTeamId, feedback: input.feedback ?? null } });
+        }
+        return NextResponse.json({ success: true, approvalStatus: input.action });
+      }));
+    });
+  } catch (error) { return failure(error); }
 }

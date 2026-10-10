@@ -12,7 +12,7 @@
  * competitor voice/catchphrases. Only transferable mechanics via Brave Search.
  */
 
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { PATTERN_DIMENSION } from "./pattern-dimension-map";
 import { extractGeminiUsage, isProviderAccountingError, logCostTelemetry, logFailedProviderAttempt } from "./cost-telemetry";
@@ -325,10 +325,11 @@ Format:
 
 Return ONLY valid JSON array, no markdown, no explanations.`;
 
+    const model = await getResolvedModel("geminiFlash");
     const startedAt = Date.now();
     try {
       const generationRequest = {
-        model: GEMINI_FLASH_MODEL,
+        model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.3, maxOutputTokens: 2048 },
       };
@@ -338,7 +339,7 @@ Return ONLY valid JSON array, no markdown, no explanations.`;
         attempt: 1,
       }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry(
-        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+        { operationType: "competitive_intelligence", provider: "gemini", model, teamId,
           attempt: 1, providerRequestId: (response as any).responseId ?? null },
         extractGeminiUsage(response), Date.now() - startedAt, true
       );
@@ -368,7 +369,7 @@ Return ONLY valid JSON array, no markdown, no explanations.`;
     } catch (err) {
       if (isProviderAccountingError(err)) throw err;
       await logFailedProviderAttempt(
-        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1 },
+        { operationType: "competitive_intelligence", provider: "gemini", model, teamId, attempt: 1 },
         { totalTokens: 0 }, Date.now() - startedAt, err
       );
       console.warn("[CompetitiveIntel] Pattern extraction failed:", (err as Error).message);
@@ -420,10 +421,11 @@ Return JSON array only:
 
 Return ONLY valid JSON, no markdown.`;
 
+    const model = await getResolvedModel("geminiFlash");
     const startedAt = Date.now();
     try {
       const generationRequest = {
-        model: GEMINI_FLASH_MODEL,
+        model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { temperature: 0.5, maxOutputTokens: 1536 },
       };
@@ -433,7 +435,7 @@ Return ONLY valid JSON, no markdown.`;
         attempt: 1,
       }, () => genAI.models.generateContent(generationRequest));
       await logCostTelemetry(
-        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId,
+        { operationType: "competitive_intelligence", provider: "gemini", model, teamId,
           attempt: 1, providerRequestId: (response as any).responseId ?? null },
         extractGeminiUsage(response), Date.now() - startedAt, true
       );
@@ -458,7 +460,7 @@ Return ONLY valid JSON, no markdown.`;
     } catch (err) {
       if (isProviderAccountingError(err)) throw err;
       await logFailedProviderAttempt(
-        { operationType: "competitive_intelligence", provider: "gemini", model: GEMINI_FLASH_MODEL, teamId, attempt: 1 },
+        { operationType: "competitive_intelligence", provider: "gemini", model, teamId, attempt: 1 },
         { totalTokens: 0 }, Date.now() - startedAt, err
       );
       console.warn("[CompetitiveIntel] Gap analysis failed:", (err as Error).message);
