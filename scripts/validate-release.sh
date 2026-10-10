@@ -4,6 +4,7 @@
 set -euo pipefail
 
 npm run check
+node --import tsx tests/public-article-trial.test.ts
 node --test tests/deployment/release-lockfile-normalization.test.cjs
 node --test tests/deployment/release-build-environment.test.cjs
 node --test tests/deployment/production-runtime-config.test.cjs

@@ -7,6 +7,17 @@ import {
 } from "../lib/trial/contracts";
 
 const text = "Useful customer guidance. ".repeat(300);
+test("trial security repair is forward-only, enforced and release-verified", () => {
+  const repair = readFileSync("migrations/0039_public_article_trial_forced_rls.sql", "utf8");
+  const runner = readFileSync("scripts/run-versioned-migrations.ts", "utf8");
+  for (const table of ["public_trial_documents", "public_trial_sponsor"]) {
+    assert.match(repair, new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`));
+    assert.match(repair, new RegExp(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`));
+    assert.match(runner, new RegExp(`AS ${table}_rls`));
+  }
+  assert.match(runner, /"0038_public_article_trial.sql",\s*"0039_public_article_trial_forced_rls.sql"/);
+  assert.doesNotMatch(repair, /\b(?:GRANT|DROP|DELETE|UPDATE|INSERT)\b/);
+});
 const anonymous = { status: "ready", title: "Helpful article", fullText: text,
   preview: excerpt(text), ownerUserId: null };
 test("anonymous DTO never contains full text, including unknown/failed payment", () => {
