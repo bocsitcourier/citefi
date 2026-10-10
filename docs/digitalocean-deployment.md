@@ -57,6 +57,44 @@ application deployment or proof that SSH authentication works today.
 
 ## Supporting runbooks
 
+### Successful production release — October 10, 2026
+
+- Active application source: `3f85ef0ef9b0156f0f392f8eba20e1fcf79d6886`.
+- [Successful release run](https://github.com/bocsitcourier/citefi/actions/runs/38010933244).
+- Owner approved the one-time preservation migration. The prior legacy build
+  was retained at `releases/bootstrap-a7b06342527f8481b08a9e04ac99e70cd673663d`;
+  preservation itself did not run migrations or restart processes.
+- Active release:
+  `/var/www/citefi/releases/3f85ef0ef9b0156f0f392f8eba20e1fcf79d6886-a754b8cf49f55f7c`.
+- Versioned migrations completed and schema controls were verified. Both named
+  production processes started using `scripts/process-bootstrap.ts`. No
+  staging processes were reloaded.
+- The separately approved recovery configuration is loaded before the shared
+  `.env.local`; application secrets were not copied or replaced.
+- External full health returned HTTP 200 and `ok: true`: database, Redis,
+  worker/queues, canary, storage, models, backup, restore verification, and
+  deployment all passed. The public login page rendered correctly.
+
+### Production release attempt — October 10, 2026
+
+- Public target verified from DNS, the server certificate, and the application
+  response: `https://citefi.co`. The repository's public release health-check
+  variable now points to `https://citefi.co/api/health?full=1`.
+- Candidate source: `3852a1c4d5e1285285ad53772462cc9d6c519d80`.
+- [Release run](https://github.com/bocsitcourier/citefi/actions/runs/38009891866):
+  pinned host verification and release validation succeeded. The transport's
+  isolated validation, production build, packaging, and SSH transfer completed.
+- Host activation was refused because `/var/www/citefi/current` is not a
+  symlink to a preserved built release. The host stopped in layout validation,
+  before migrations, candidate unpacking, symlink cutover, or PM2 reload.
+- No new production release was activated. The existing public health endpoint
+  still reports degraded status with a missing worker heartbeat and missing
+  configured backup-status file.
+- Next prerequisite: the approved-window, service-account-only
+  **one-time host migration** in the production readiness runbook. Verify and
+  preserve the existing built artifact; do not bypass the rollback-layout gate,
+  substitute an empty directory, or declare the degraded baseline healthy.
+
 ### Historical SSH review — October 9, 2026
 
 Read-only GitHub job metadata confirms that SSH deployment was established:

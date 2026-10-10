@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Inspect only, or explicitly approved preservation of the legacy build
+        description: Inspect, preserve the legacy build, or save a verified successful release
         type: choice
-        options: [inspect, prepare]
+        options: [inspect, prepare, finalize]
         default: inspect
         required: true
 
