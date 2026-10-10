@@ -49,15 +49,24 @@ test('the exact release tar command archives outside its source tree and exclude
   const tarCommand = transport.match(/^tar -C "\$work"[\s\S]*? -czf "\$artifact" \.$/m)?.[0];
   assert.ok(tarCommand, 'Expected the real transport archive command');
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'release-tar-test-'));
+  // The transport validates a git archive, which deliberately has no .git.
+  // Own the metadata fixture instead of depending on the checkout's history.
+  const metadataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'release-tar-metadata-'));
   const artifact = `${work}.tar.gz`;
   try {
     fs.mkdirSync(path.join(work, '.next'));
     fs.writeFileSync(path.join(work, '.next/BUILD_ID'), 'test-build');
     fs.writeFileSync(path.join(work, '.release-sha'), 'test-source');
     fs.writeFileSync(path.join(work, '.env.local'), 'DO_NOT_PACKAGE=test');
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    const git = (args) => execFileSync('git', args, {
+      cwd: metadataRoot, env: { PATH: process.env.PATH }, encoding: 'utf8',
+    });
+    git(['init', '-q']);
+    git(['-c', 'user.name=Release fixture', '-c', 'user.email=release-fixture@example.invalid',
+      'commit', '--allow-empty', '-q', '-m', 'Archive timestamp fixture']);
+    const sha = git(['rev-parse', 'HEAD']).trim();
     execFileSync('bash', ['-eu', '-c', tarCommand], {
-      env: { PATH: process.env.PATH, work, artifact, ROOT: root, sha },
+      env: { PATH: process.env.PATH, work, artifact, ROOT: metadataRoot, sha },
       encoding: 'utf8',
     });
     const listing = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' });
@@ -67,6 +76,7 @@ test('the exact release tar command archives outside its source tree and exclude
     assert.doesNotMatch(listing, /release-tar-test/);
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
+    fs.rmSync(metadataRoot, { recursive: true, force: true });
     fs.rmSync(artifact, { force: true });
   }
 });
