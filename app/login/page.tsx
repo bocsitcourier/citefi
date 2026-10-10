@@ -10,7 +10,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff, Sparkles, Target, Share2 } from "lucide-react";
 import Link from "next/link";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-mark";
+import { readMarketingPlanIntent, savedMarketingPricingPath, planSignupPath, type MarketingPlanIntent } from "@/lib/marketing/plan-intent";
+import { safeSignInReturn } from "@/lib/auth-return-path";
 
 function LoginForm() {
   const router = useRouter();
@@ -22,12 +24,14 @@ function LoginForm() {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [savedPlan, setSavedPlan] = useState<MarketingPlanIntent>();
+  useEffect(() => { setSavedPlan(readMarketingPlanIntent()); }, []);
 
   // If already logged in, do a full-page redirect to bust the Next.js router cache
   useEffect(() => {
     if (user) {
       const redirect = searchParams.get("redirect");
-      const dest = redirect && redirect.startsWith("/") ? redirect : "/home";
+      const dest = safeSignInReturn(redirect) || savedMarketingPricingPath() || "/home";
       window.location.href = dest;
     }
   }, [user, searchParams]);
@@ -40,7 +44,8 @@ function LoginForm() {
       const result = await login(email, password, rememberMe);
 
       if (result.requiresTwoFactor) {
-        router.replace(`/verify-2fa?method=${result.twoFactorMethod}`);
+        const returnTo = safeSignInReturn(searchParams.get("redirect")) || savedMarketingPricingPath();
+        router.replace(`/verify-2fa?method=${result.twoFactorMethod}${returnTo ? `&redirect=${encodeURIComponent(returnTo)}` : ""}`);
       } else {
         toast({
           title: "Welcome back!",
@@ -49,9 +54,7 @@ function LoginForm() {
         // Full-page navigation clears the Next.js router cache so the
         // middleware sees the fresh auth cookie on the very next request.
         const redirect = searchParams.get("redirect");
-        const dest = redirect && redirect.startsWith("/")
-          ? redirect
-          : result.role === "admin" ? "/admin" : "/home";
+        const dest = safeSignInReturn(redirect) || savedMarketingPricingPath() || (result.role === "admin" ? "/admin" : "/home");
         window.location.href = dest;
       }
     } catch (error: any) {
@@ -72,9 +75,8 @@ function LoginForm() {
         <div className="w-full max-w-md space-y-8">
           {/* Logo */}
           <div>
-            <Link href="/" className="inline-flex items-center gap-3 font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
-              <BrandMark decorative />
-              citefi.co
+            <Link href="/" aria-label="Citefi home" className="inline-flex items-center hover:opacity-80 transition-opacity">
+              <BrandLogo decorative className="h-10 w-auto" />
             </Link>
           </div>
 
@@ -84,7 +86,7 @@ function LoginForm() {
               Welcome Back
             </h1>
             <p className="text-muted-foreground">
-              Let's login to access powerful AI content generation
+              Sign in to continue your content and client work.
             </p>
           </div>
 
@@ -183,7 +185,7 @@ function LoginForm() {
             <p className="text-center text-sm text-muted-foreground">
               Don't have an account?{" "}
               <Link
-                href="/signup"
+                href={planSignupPath(searchParams.get("redirect"), savedPlan)}
                 className="font-medium text-foreground hover:underline"
                 data-testid="link-signup"
               >
@@ -202,10 +204,10 @@ function LoginForm() {
           <div className="absolute inset-0 flex items-center justify-center p-12">
             <div className="text-center space-y-6 text-white">
               <h2 className="text-5xl font-bold leading-tight">
-                Dual-AI Content Factory
+                Pick up where your marketing left off
               </h2>
               <p className="text-xl opacity-90">
-                Generate enterprise-grade SEO content with advanced AI
+                Your business context, drafts and review decisions—all in one workspace.
               </p>
               <div className="pt-8 space-y-4">
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
@@ -214,7 +216,7 @@ function LoginForm() {
                   </div>
                   <div className="text-left">
                     <h3 className="font-semibold">AI-Powered Generation</h3>
-                    <p className="text-sm opacity-80">Create 50+ articles in minutes</p>
+                    <p className="text-sm opacity-80">Prepare drafts around the questions your customers ask</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
@@ -222,8 +224,8 @@ function LoginForm() {
                     <Target className="w-6 h-6 text-white" />
                   </div>
                   <div className="text-left">
-                    <h3 className="font-semibold">SEO Optimized</h3>
-                    <p className="text-sm opacity-80">Full keyword research & optimization</p>
+                    <h3 className="font-semibold">Useful, customer-focused content</h3>
+                    <p className="text-sm opacity-80">Explain your services and give readers a clear next step</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4">
@@ -232,7 +234,7 @@ function LoginForm() {
                   </div>
                   <div className="text-left">
                     <h3 className="font-semibold">Social Media AI</h3>
-                    <p className="text-sm opacity-80">Auto-generate posts & videos</p>
+                    <p className="text-sm opacity-80">Prepare social content for your team to review</p>
                   </div>
                 </div>
               </div>

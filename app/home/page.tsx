@@ -102,7 +102,7 @@ export default function Home() {
             Citefi
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-page-description">
-            Enterprise-grade dual-AI SEO content factory powered by advanced AI
+            Your business context, content drafts and customer journeys—in one workspace.
           </p>
         </div>
 

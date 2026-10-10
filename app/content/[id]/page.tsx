@@ -141,7 +141,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [viewMode, setViewMode] = useState<'preview' | 'html'>('preview');
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [showRegenerateDialog, setShowRegenerateDialog] = useState(false);
   const [customInstructions, setCustomInstructions] = useState("");
   const [editingPromptId, setEditingPromptId] = useState<number | null>(null);
@@ -1382,18 +1382,24 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                   data-testid="hero-image-container"
                   role="button"
                   tabIndex={0}
-                  onClick={() => setLightboxImage(article.heroImageUrl)}
+                  onClick={() => setLightboxImage({
+                    src: article.heroImageUrl!,
+                    alt: assets.find((asset) => asset.url === article.heroImageUrl)?.altText?.trim() || `Featured image for ${article.title}`,
+                  })}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      setLightboxImage(article.heroImageUrl);
+                      setLightboxImage({
+                        src: article.heroImageUrl!,
+                        alt: assets.find((asset) => asset.url === article.heroImageUrl)?.altText?.trim() || `Featured image for ${article.title}`,
+                      });
                     }
                   }}
                   aria-label="Click to view hero image in full size"
                 >
                   <img
                     src={article.heroImageUrl}
-                    alt={article.title}
+                    alt={assets.find((asset) => asset.url === article.heroImageUrl)?.altText?.trim() || `Featured image for ${article.title}`}
                     className="w-full h-auto object-cover max-h-[500px]"
                     data-testid="hero-image-display"
                   />
@@ -2625,6 +2631,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                       ? injectAudioPlayer(article.finalHtmlContent || article.htmlContent || '', article.podcastUrl, podcastDurationSeconds, podcastDurationSource)
                       : article.finalHtmlContent || article.htmlContent || ''
                   }}
+                  data-article-image-context={article.title}
                   data-testid="content-html"
                 />
               )}
@@ -2780,18 +2787,24 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                       role="button"
                       tabIndex={0}
                       className="w-full cursor-pointer"
-                      onClick={() => setLightboxImage(asset.url)}
+                      onClick={() => setLightboxImage({
+                        src: asset.url,
+                        alt: asset.altText?.trim() || `Image for ${article.title}`,
+                      })}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          setLightboxImage(asset.url);
+                          setLightboxImage({
+                            src: asset.url,
+                            alt: asset.altText?.trim() || `Image for ${article.title}`,
+                          });
                         }
                       }}
-                      aria-label={`Click to view ${asset.altText || `Image ${index + 1}`} in full size`}
+                        aria-label={`Click to view ${asset.altText?.trim() || `image for ${article.title}`} in full size`}
                     >
                       <img
                         src={asset.url}
-                        alt={asset.altText || `Image ${index + 1}`}
+                        alt={asset.altText?.trim() || `Image for ${article.title}`}
                         className="w-full rounded-lg border shadow-md hover-elevate transition-transform"
                         data-testid={`img-preview-${index}`}
                       />
@@ -2886,7 +2899,7 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
                 <div key={asset.id} className="space-y-2" data-testid={`legacy-image-item-${index}`}>
                   <img
                     src={asset.url}
-                    alt={asset.altText}
+                    alt={asset.altText?.trim() || `Image for ${article.title}`}
                     className="w-full rounded-lg border"
                   />
                   <p className="text-xs text-muted-foreground">{asset.altText}</p>
@@ -2905,8 +2918,8 @@ export default function ArticleDetail({ params }: { params: Promise<{ id: string
             {/* Only render img when lightboxImage exists to prevent empty src errors */}
             {lightboxImage && (
               <img
-                src={lightboxImage}
-                alt="Full size preview"
+                src={lightboxImage.src}
+                alt={lightboxImage.alt}
                 className="max-w-full max-h-full object-contain rounded-lg"
                 data-testid="lightbox-image"
               />

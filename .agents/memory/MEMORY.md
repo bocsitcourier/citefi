@@ -56,3 +56,6 @@
 - [Next generated declarations](next-generated-declarations.md) — malformed cached route types can mimic source errors after restart; regenerate the declaration set, not individual files.
 - [Staging source retention](staging-source-retention.md) — preserve intermediate dependency links; disk limits never authorize deletion of evidence or retained media.
 - [DO release expectations](do-deploy-handoff.md) — owner expects agent-run SSH releases from the workspace; verify credential provenance instead of asserting missing access.
+- [Free article product policy](trial-product-policy.md) — signup unlocks full watermarked reading; approval remains separate, and website screenshot prevention is not a promise.
+- [City marketing evidence](city-evidence-policy.md) — genuine reviews and consented portraits only; match complete Census place/state names, never prefix aliases.
+- [Full-platform marketing](marketing-positioning.md) — free article is an entry offer; selling pages must explain multi-format value and answer small-business buying questions.

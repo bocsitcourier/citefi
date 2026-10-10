@@ -2,6 +2,8 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { savedMarketingPricingPath } from "@/lib/marketing/plan-intent";
+import { safeSignInReturn } from "@/lib/auth-return-path";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +58,7 @@ function Verify2FAContent() {
         title: "Verification successful!",
         description: "You have been securely authenticated.",
       });
-      router.push("/home");
+      router.push(safeSignInReturn(searchParams.get("redirect")) || savedMarketingPricingPath() || "/home");
     } catch (error: any) {
       toast({
         variant: "destructive",

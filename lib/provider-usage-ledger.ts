@@ -5,7 +5,7 @@ import { getDatabaseExecutionContext } from "./tenant-context";
 import {
   campaigns, providerInvoiceReconciliations, providerRates, providerRateVersions,
   providerUsageLedger, teams, teamMembers, articles, articleAssets, jobBatches,
-  socialPosts, socialPostAssets, videoIdeas, clientBrandProfiles,
+  socialPosts, socialPostAssets, videoIdeas, clientBrandProfiles, publicTrialDocuments,
 } from "@/shared/schema";
 
 export type ProviderUsageEventType = "usage" | "correction" | "refund";
@@ -75,6 +75,7 @@ export const PROVIDER_USAGE_RESOURCE_TYPES = [
   "incident",
   "media_asset",
   "podcast",
+  "public_trial",
   "reddit_intent",
   "seo_analysis",
   "social_post",
@@ -265,6 +266,10 @@ async function assertOwnedResource(
       // Canary resources are ephemeral health-check stages.  Their validated
       // accountingTeamId is their ownership boundary; there is no tenant row
       // to query for the stage name itself.
+      return;
+    case "public_trial":
+      await assertOwnedRow(tx, publicTrialDocuments, "public_trial_documents",
+        numericResourceId(resourceType, resourceId), teamId);
       return;
     case "video_scene":
       // Scenes are ephemeral children of a team-owned video and currently

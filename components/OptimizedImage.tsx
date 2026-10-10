@@ -17,6 +17,8 @@ export interface OptimizedImageProps {
   
   // SEO/GEO Enhancement Props
   geoLocation?: string;
+  /** True only when provenance establishes the photograph's location, not just the page's market. */
+  geoLocationVerified?: boolean;
   keywords?: string[];
   caption?: string;
   author?: string;
@@ -41,7 +43,7 @@ export interface OptimizedImageProps {
  * Features:
  * - Automatic lazy loading with blur placeholder
  * - Responsive image sizing with Next.js Image optimization
- * - SEO-optimized alt text with location keywords
+ * - Descriptive alt text without keyword stuffing or assumed locations
  * - Optional JSON-LD schema markup (ImageObject)
  * - Accessibility compliant (ARIA labels, roles)
  * - Progressive enhancement with loading states
@@ -71,6 +73,7 @@ export function OptimizedImage({
   fill = false,
   objectFit = "cover",
   geoLocation,
+  geoLocationVerified = false,
   keywords = [],
   caption,
   author,
@@ -85,14 +88,12 @@ export function OptimizedImage({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
-  // Enhanced alt text with location keywords
-  const enhancedAlt = geoLocation && !alt.toLowerCase().includes(geoLocation.toLowerCase())
-    ? `${alt} - ${geoLocation}`
-    : alt;
+  // Empty alt intentionally denotes decorative imagery. A page's city is not proof of image location.
+  const enhancedAlt = alt;
 
   // Generate schema.org ImageObject JSON-LD
   const generateImageSchema = () => {
-    if (!includeSchema) return null;
+    if (!includeSchema || !alt.trim()) return null;
 
     const schema = {
       "@context": "https://schema.org",
@@ -102,11 +103,11 @@ export function OptimizedImage({
       name: alt,
       description: caption || alt,
       ...(width && height && {
-        width: `${width}px`,
-        height: `${height}px`,
+        width,
+        height,
       }),
       ...(author && { author: { "@type": "Person", name: author } }),
-      ...(geoLocation && {
+      ...(geoLocation && geoLocationVerified && {
         contentLocation: {
           "@type": "Place",
           name: geoLocation,
@@ -118,7 +119,7 @@ export function OptimizedImage({
     return (
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, "\\u003c") }}
       />
     );
   };
@@ -248,14 +249,14 @@ export function OptimizedImageGallery({
   const gallerySchema = includeSchema ? {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    itemListElement: images.map((img, index) => ({
+    itemListElement: images.filter(img => img.alt.trim()).map((img, index) => ({
       "@type": "ListItem",
       position: index + 1,
       item: {
         "@type": "ImageObject",
         contentUrl: img.contentUrl || img.src,
         name: img.alt,
-        ...(img.geoLocation && {
+        ...(img.geoLocation && img.geoLocationVerified && {
           contentLocation: {
             "@type": "Place",
             name: img.geoLocation,
@@ -270,7 +271,7 @@ export function OptimizedImageGallery({
       {gallerySchema && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(gallerySchema) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(gallerySchema).replace(/</g, "\\u003c") }}
         />
       )}
       <div className={cn("grid", gridCols[columns], gridGap[gap], className)}>

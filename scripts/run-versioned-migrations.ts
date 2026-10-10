@@ -32,6 +32,7 @@ const files = [
   "0035_provider_attempt_receipt_state_hardening.sql",
   "0036_gemini31_image_native_rates.sql",
   "0037_publishing_client_summary.sql",
+  "0038_public_article_trial.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");

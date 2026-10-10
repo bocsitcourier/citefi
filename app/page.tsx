@@ -1,126 +1,104 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
-import { BILLING_PLANS, PUBLIC_PRICING_PLAN_IDS } from "@/lib/billing/plans";
-import { Button } from "@/components/ui/button";
-import { BrandMark } from "@/components/brand-mark";
-import {
-  ArrowRight, BarChart3, Check, ChevronDown, ClipboardCheck, FileText,
-  Globe2, Layers3, MapPin, Menu, Quote, ShieldCheck, Sparkles, X,
-} from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CircleHelp, FileText } from "lucide-react";
+import { articleBriefHref, businessSolutions } from "@/lib/marketing/solutions";
+import { marketingMetadata } from "@/lib/marketing/metadata";
+import { MarketingFrame } from "@/components/marketing/site";
+import { MarketingQuestions } from "@/components/marketing/questions";
+import { MarketingImage } from "@/components/marketing/marketing-image";
 
-const plans = PUBLIC_PRICING_PLAN_IDS.map((id) => BILLING_PLANS[id]);
-const enterprisePlan = BILLING_PLANS.enterprise;
-const navItems: Array<[string, string]> = [["Approach", "approach"], ["Workflow", "workflow"], ["For teams", "teams"], ["Pricing", "pricing"], ["FAQ", "faq"]];
-const questions: Array<[string, string]> = [
-  ["What is Citefi?", "Citefi is a local marketing campaign engine for agencies and local businesses. It brings business context, content creation, review, and export preparation into one governed workspace."],
-  ["Does Citefi publish ads or spend budget?", "No. Direct ad publishing and autonomous spend are disabled. Any future certified Ads export will remain subject to this boundary: Manual review and platform upload required."],
-  ["What does the Free plan include?", "Free includes 30 one-time credits, one seat, article generation, social posts, and basic SEO tools. Credits do not refresh."],
-  ["Can I use Citefi for multiple clients?", "The Agency plan includes up to 25 client workspaces with separate balances. Citefi does not pool credits, calculate markups, or invoice your clients; agencies manage client billing externally."],
-  ["How are results represented?", "Citefi is designed around sourced evidence, approvals, and durable snapshots. It does not promise rankings, citations, return on ad spend, or other outcomes before the underlying evidence exists."],
-];
+export const metadata: Metadata = marketingMetadata("Citefi — articles, images, social, podcasts and video", "A marketing workspace for small businesses and agencies: create articles, images, social content, podcasts and video, then connect campaigns, customer journeys and review.", "/");
+
+const homeServices = businessSolutions[0]!;
+const homeHref = articleBriefHref({ topic: homeServices.topic, audience: homeServices.audience });
 
 export default function MarketingPage() {
-  const router = useRouter();
-  const { user, isLoading } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
-  useEffect(() => { if (!isLoading && user) router.replace("/home"); }, [isLoading, user, router]);
-  const jump = (id: string) => { document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }); setMenuOpen(false); };
-
-  return (
-    <div className="marketing-page min-h-[100dvh] overflow-x-hidden bg-background text-foreground">
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-foreground/10 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8">
-          <Link href="/" className="flex min-h-11 items-center gap-2" aria-label="Citefi home">
-            <BrandMark decorative className="h-8 w-5" />
-            <span className="font-serif text-2xl tracking-tight">citefi</span><span className="eyebrow !text-[9px]">local intelligence</span>
-          </Link>
-          <nav className="hidden items-center gap-7 lg:flex" aria-label="Main navigation">
-            {navItems.map(([label, id]) =>
-              <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id); }} className="flex min-h-11 items-center text-sm text-muted-foreground transition-colors hover:text-foreground">{label}</a>
-            )}
-          </nav>
-          <div className="hidden items-center gap-2 lg:flex">
-            <Link href="/login" className="flex min-h-11 items-center px-3 text-sm font-medium hover:text-accent">Log in</Link>
-             <Button asChild className="min-h-11 rounded-full px-5"><Link href="/signup">Start with Citefi <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
-          </div>
-          <button className="grid h-11 w-11 place-items-center rounded-full lg:hidden" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-controls="mobile-navigation" aria-label={menuOpen ? "Close navigation" : "Open navigation"}>
-            {menuOpen ? <X /> : <Menu />}
-          </button>
+  return <MarketingFrame>
+    <main className="home-page">
+      <section className="home-hero">
+        <div className="hero-copy">
+          <div className="eyebrow"><span className="eyebrow-mark" />For the people doing the work</div>
+          <h1>Your marketing,<br /><em>working together.</em></h1>
+          <p className="hero-intro">Articles, AI images, social posts, podcasts and video—organized around your business, your customers and the action you want them to take. Develop the message, connect the campaign and keep the review in your hands, without starting every format from a blank page.</p>
+          <div className="hero-actions"><Link className="button-primary" href="/free-article">Make my free article <ArrowRight size={17} /></Link><Link className="button-text" href="/pricing#plans">Compare paid plans <ArrowDownRight size={16} /></Link></div>
+          <div className="hero-proofline"><span><Check size={14} /> One article to start</span><span><Check size={14} /> You review before use</span><span>No card for the article</span></div>
         </div>
-        {menuOpen && <nav id="mobile-navigation" className="border-t border-foreground/10 bg-background px-5 pb-5 pt-2 lg:hidden" aria-label="Mobile navigation">
-          {navItems.map(([label, id]) =>
-            <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id); }} className="flex min-h-12 items-center border-b border-foreground/10 text-base">{label}</a>
-          )}
-           <div className="flex gap-2 pt-4"><Button asChild variant="outline" className="min-h-11 flex-1 rounded-full"><Link href="/login">Log in</Link></Button><Button asChild className="min-h-11 flex-1 rounded-full"><Link href="/signup">Get started</Link></Button></div>
-        </nav>}
-      </header>
-
-      <main>
-        <section className="relative overflow-hidden px-5 pb-20 pt-36 sm:px-8 sm:pb-28 sm:pt-44">
-          <div className="pointer-events-none absolute -right-24 top-24 h-80 w-80 rounded-full bg-accent/20 blur-3xl" />
-          <div className="mx-auto grid max-w-7xl items-end gap-14 lg:grid-cols-[1.15fr_.85fr]">
-            <div className="max-w-4xl">
-              <div className="eyebrow mb-7 flex items-center gap-3"><span className="h-px w-8 bg-accent" />Local marketing, with receipts</div>
-              <h1 className="display-serif text-[clamp(3.3rem,9vw,8.2rem)] leading-[.9] tracking-[-.055em]">Make local work<br /><em className="text-accent not-italic">matter more.</em></h1>
-              <p className="mt-9 max-w-xl text-lg leading-8 text-muted-foreground sm:text-xl">Citefi turns a verified business identity into thoughtful, reviewable campaign work—grounded in the places, people, and policies your audience actually knows.</p>
-               <div className="mt-9 flex flex-col gap-3 sm:flex-row"><Button asChild size="lg" className="min-h-12 rounded-full px-7"><Link href="/signup">Create with Citefi <ArrowRight className="ml-2 h-4 w-4" /></Link></Button><button onClick={() => jump("workflow")} className="min-h-12 rounded-full border border-foreground/20 px-7 text-sm font-semibold transition-colors hover:bg-secondary">See the workflow</button></div>
-              <p className="mt-5 text-xs text-muted-foreground">Start free with 30 one-time credits. External action remains separate.</p>
-            </div>
-            <div className="relative mx-auto w-full max-w-md lg:pb-3">
-              <div className="relative aspect-[4/5] overflow-hidden rounded-[45%_45%_8%_8%] bg-primary p-7 text-primary-foreground shadow-2xl shadow-primary/15">
-                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(120deg, transparent 48%, hsl(var(--accent) / .5) 49%, transparent 51%), linear-gradient(30deg, transparent 48%, hsl(var(--accent) / .35) 49%, transparent 51%)", backgroundSize: "130px 130px" }} />
-                <div className="relative flex h-full flex-col justify-between">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-[.2em] text-primary-foreground/65"><span>Campaign brief</span><span>01 / 04</span></div>
-                  <div><MapPin className="on-dark-accent mb-6 h-9 w-9" /><p className="display-serif text-4xl leading-tight">A clearer<br />picture of<br /><span className="on-dark-accent">your place.</span></p></div>
-                  <div className="border-t border-primary-foreground/20 pt-4 text-xs leading-5 text-primary-foreground/65">Business facts · local entities<br />approved assets · next decision</div>
-                </div>
-              </div>
-               <div className="absolute -bottom-5 -left-5 rounded-2xl border border-foreground/10 bg-card p-4 shadow-xl"><div className="mb-1 flex items-center gap-2 text-xs font-semibold"><ShieldCheck className="h-4 w-4 text-accent" />Context captured</div><div className="text-xs text-muted-foreground">Ready for inspection</div></div>
-            </div>
+        <div className="hero-proof">
+          <div className="hero-index"><span>THE QUESTION FILE</span><span>FIELD NOTE 01</span></div>
+          <div className="question-paper">
+            <div className="paper-rule"><span>01</span><span>What a homeowner needs to know</span></div>
+            <h2>What should I ask<br />before booking a<br /><em>plumbing repair?</em></h2>
+            <p>A practical first draft, built around a question people ask before they decide.</p>
+            <div className="paper-footer"><span>ILLUSTRATIVE ARTICLE BRIEF</span><span>REVIEW BEFORE USE</span></div>
           </div>
-        </section>
+          <div className="proof-note"><FileText size={17} /><span><b>A real starting point.</b><small>Not a live result or customer story.</small></span></div>
+          <div className="hero-scribble" aria-hidden="true">useful<br />before<br />beautiful</div>
+        </div>
+        <div className="hero-side-label">A LOCAL BUSINESS CONTENT WORKSPACE <span>·</span> MADE FOR REVIEW</div>
+      </section>
 
-        <section id="approach" className="border-y border-foreground/10 bg-secondary/50 px-5 py-16 sm:px-8 sm:py-20">
-          <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[.8fr_1.2fr]">
-            <div><div className="eyebrow mb-4">The point of view</div><h2 className="display-serif max-w-md text-4xl leading-tight sm:text-5xl">Good local marketing starts with attention.</h2></div>
-            <div className="grid gap-8 sm:grid-cols-3">
-              {[["01", "Know the ground", "Start with a business identity, locations, services, and the evidence that makes a claim worth using."], ["02", "Make the work", "Create articles, social posts, video scripts, and podcasts from one coherent brief."], ["03", "Keep the say", "Inspect each version and collect feedback before any separate external action."]].map(([num, title, text]) => <div key={num} className="editorial-rule pt-4"><div className="font-mono text-xs text-accent">{num}</div><h3 className="mt-5 text-lg font-semibold">{title}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{text}</p></div>)}
-            </div>
+      <section className="friction-section">
+        <div className="section-heading">
+          <div><div className="eyebrow">The gap is not more words</div><h2>Generic pages answer<br />the wrong question.</h2></div>
+          <p>A city name dropped into a template will not explain why someone should book you. A good answer starts with the actual decision your customer is making—and what your business can truthfully say about it.</p>
+        </div>
+        <div className="contrast-board">
+          <article className="contrast-card old"><div className="contrast-label">A familiar dead end</div><h3>“The leading choice in [City].”</h3><p>Broad promise. No buyer context. No reason to trust it.</p><span className="cross-mark">×</span></article>
+          <div className="contrast-arrow"><ArrowRight /></div>
+          <article className="contrast-card new"><div className="contrast-label">A question with a job to do</div><h3>“What happens during a repair visit—and how is the estimate made?”</h3><p>Specific to the decision. Easy for the owner to check. Useful even before a customer is ready to call.</p><span className="check-mark"><Check size={17} /></span></article>
+        </div>
+      </section>
+
+      <section className="sample-section">
+        <div className="sample-intro"><div className="eyebrow">Look inside the work</div><h2>Not another empty<br />document.</h2><p>Start with one question, shape it into a clear article outline, then inspect what needs your expertise before the draft goes anywhere.</p><Link href={homeHref} className="text-link">Try this example as your brief <ArrowUpRight size={15} /></Link></div>
+        <article className="sample-article">
+          <div className="sample-toolbar"><span><i /> ARTICLE DRAFT / SAMPLE OUTPUT</span><span>NOT A CUSTOMER STORY</span></div>
+          <div className="sample-content">
+            <div className="article-kicker">HOME SERVICES · BUYER PREPARATION</div>
+            <h3>Before you book a plumbing repair: questions worth asking</h3>
+            <p className="article-deck">A useful first conversation starts with the problem, the visit and what you need to know about the estimate.</p>
+            <div className="sample-paragraph"><span>01</span><p><b>What should I tell the plumber?</b><br />Describe what you have noticed, when it began and whether anything has changed. If you are unsure, say so rather than guessing at the cause.</p></div>
+            <div className="sample-paragraph"><span>02</span><p><b>What does the visit include?</b><br />Ask how the business assesses the issue, explains options and shares an estimate. The exact process depends on the provider—confirm it directly.</p></div>
+            <div className="inspection-note"><CircleHelp size={17} /><span><b>Owner check</b> Add your actual service area, visit process and estimate policy before publishing.</span></div>
           </div>
-        </section>
+          <div className="sample-caption">Illustrative sample text — not a published article, result or endorsement.</div>
+        </article>
+      </section>
 
-        <section id="workflow" className="px-5 py-20 sm:px-8 sm:py-28">
-          <div className="mx-auto max-w-7xl"><div className="max-w-2xl"><div className="eyebrow mb-5">A considered workflow</div><h2 className="display-serif text-5xl leading-[.98] sm:text-6xl">From context<br />to next decision.</h2><p className="mt-6 text-muted-foreground">The workflow keeps business context and generated work visible while external action remains separate.</p></div>
-            <div className="mt-16 grid gap-px overflow-hidden rounded-3xl border border-foreground/10 bg-foreground/10 md:grid-cols-2 lg:grid-cols-4">
-              {([
-                 ["Discover", "01", Globe2, "Document the business, its locations, and the context behind a grounded Brand Intelligence brief."],
-                ["Plan", "02", BarChart3, "Choose locations, audiences, channels, and a campaign cadence that fits the team."],
-                ["Create", "03", Layers3, "Generate local content and channel-ready assets with unified credits and clear limits."],
-                ["Inspect", "04", ClipboardCheck, "Compare versions, capture feedback, and keep external action separate from generation."],
-              ] as const).map(([title, num, Icon, text]) => <div key={title} className="bg-card p-6 sm:p-7"><div className="flex items-center justify-between"><Icon className="h-6 w-6 text-accent" /><span className="font-mono text-xs text-muted-foreground">{num}</span></div><h3 className="mt-16 text-xl font-semibold">{title}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{text}</p></div>)}
-            </div>
-          </div>
-        </section>
+      <section className="journey-section">
+        <div className="journey-top"><div><div className="eyebrow">One question opens a journey</div><h2>Help at the moment<br />they need it.</h2></div><p>People do not go from stranger to customer in a single search. Build a useful sequence around what they need to understand next—from first concern to confident follow-up.</p></div>
+        <div className="journey-track">
+          {homeServices.journey.map((step, i) => <article className="journey-stop" key={step.stage}><div className="journey-node"><span>0{i + 1}</span></div><small>{step.stage}</small><h3>{step.question}</h3><p>{step.content}</p><div className="journey-next"><b>Next step</b><span>{step.nextStep}</span></div></article>)}
+        </div>
+        <p className="journey-caption">Illustrative planning example. Business-specific facts and actions need owner review.</p>
+      </section>
 
-        <section id="teams" className="bg-primary px-5 py-20 text-primary-foreground sm:px-8 sm:py-28">
-          <div className="mx-auto grid max-w-7xl gap-14 lg:grid-cols-[.9fr_1.1fr]"><div><div className="eyebrow !text-primary-foreground/60">For the people doing the work</div><h2 className="display-serif mt-5 text-5xl leading-none sm:text-6xl">Less handoff.<br /><span className="on-dark-accent">More judgment.</span></h2><p className="mt-7 max-w-md leading-7 text-primary-foreground/70">Give operators a calm place to move campaigns forward, and give owners the context they need to assess the work.</p></div>
-            <div className="grid gap-8 sm:grid-cols-2"><div className="border-t border-primary-foreground/20 pt-5"><Sparkles className="on-dark-accent h-5 w-5" /><h3 className="mt-5 text-xl font-semibold">For agencies</h3><p className="mt-3 text-sm leading-6 text-primary-foreground/65">Separate client workspaces, shared campaign context, and client-safe views without pretending the platform bills your clients.</p></div><div className="border-t border-primary-foreground/20 pt-5"><FileText className="on-dark-accent h-5 w-5" /><h3 className="mt-5 text-xl font-semibold">For local teams</h3><p className="mt-3 text-sm leading-6 text-primary-foreground/65">Turn what you know about your service area into useful content while keeping external uploads under your control.</p></div></div>
-          </div>
-        </section>
+      <section className="industry-section">
+        <div className="section-heading compact"><div><div className="eyebrow">Different work. Different questions.</div><h2>Made for the way<br />your business sells.</h2></div><Link href="/solutions" className="text-link">Explore all six use cases <ArrowRight size={15} /></Link></div>
+        <div className="industry-feature">
+          <div className="industry-photo"><MarketingImage src={homeServices.image} alt={homeServices.imageAlt} pagePath="/" /><div className="photo-caption">Representative stock photo · not a Citefi customer</div></div>
+          <div className="industry-copy"><div className="industry-number">01 / SERVICE BUSINESS</div><h3>From the job site<br />to the next booking.</h3><p>Turn the questions homeowners ask into practical explanations of your process, services and next steps. No generic “best in town” filler.</p><Link href="/solutions/home-services" className="text-link">See the home services example <ArrowUpRight size={15} /></Link></div>
+        </div>
+        <div className="industry-list">{businessSolutions.slice(1).map((solution, i) => <Link key={solution.slug} href={`/solutions/${solution.slug}`} className="industry-row"><span>0{i + 2}</span><b>{solution.name}</b><span>{solution.topic}</span><ArrowUpRight size={16} /></Link>)}</div>
+      </section>
 
-         <section className="px-5 py-20 sm:px-8 sm:py-28"><div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1fr_1fr]"><div className="rounded-3xl border border-foreground/10 bg-secondary/60 p-7 sm:p-10"><Quote className="h-8 w-8 text-accent" /><p className="display-serif mt-10 text-3xl leading-tight sm:text-4xl">“The useful part is not more copy. It is knowing why this version is ready.”</p><div className="mt-10 flex items-center gap-3 text-sm"><span className="grid h-9 w-9 place-items-center rounded-full bg-accent text-sm font-bold">C</span><span><b className="block">The Citefi principle</b><span className="text-muted-foreground">Evidence before confidence</span></span></div></div><div><div className="eyebrow mb-5">Trust needs boundaries</div><h2 className="display-serif text-5xl leading-tight">A capable engine<br />without invented certainty.</h2><ul className="mt-8 space-y-4 text-sm">{["Campaign context captured for inspection", "Feedback kept alongside campaign work", "Direct ad publishing and autonomous spend disabled", "Honest results states when evidence is unavailable"].map((x) => <li key={x} className="flex items-start gap-3"><Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" />{x}</li>)}</ul></div></div></section>
+      <section className="review-section">
+        <div className="review-mark">REVIEW<br />IS THE<br />FEATURE.</div>
+        <div className="review-copy"><div className="eyebrow">The human part stays central</div><h2>Make the work.<br /><em>Keep the judgment.</em></h2><p>Citefi helps move from context to draft. Your team checks the facts, tone and fit. Drafting does not publish anything: supported connected publishing is a separate action you authorize. Ads stay export-only, without autonomous placement or spend.</p><div className="review-checks"><span><Check size={15} /> Confirm details and claims</span><span><Check size={15} /> Review every channel draft</span><span><Check size={15} /> Decide what is ready to use</span></div><Link href="/approach" className="button-light">Our approach <ArrowRight size={16} /></Link></div>
+      </section>
 
-         <section id="pricing" className="border-t border-foreground/10 bg-secondary/45 px-5 py-20 sm:px-8 sm:py-28"><div className="mx-auto max-w-7xl"><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><div className="eyebrow mb-4">Pricing from the live catalog</div><h2 className="display-serif text-5xl">Start where the work is.</h2></div><p className="max-w-xs text-sm leading-6 text-muted-foreground">Annual billing charges ten monthly prices for twelve months of service. No automatic overage.</p></div><div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-4">{plans.map((plan) => <div key={plan.id} className={`flex flex-col rounded-2xl border p-6 ${plan.id === "growth" ? "border-accent bg-card shadow-lg shadow-accent/10" : "border-foreground/10 bg-background/50"}`}><div className="flex items-center justify-between"><h3 className="text-lg font-semibold">{plan.name}</h3>{plan.id === "growth" && <span className="rounded-full bg-accent/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-foreground">Popular</span>}</div><div className="mt-7"><span className="display-serif text-4xl">${plan.priceUsd}</span><span className="text-sm text-muted-foreground">{plan.oneTime ? " one time" : " / month"}</span></div><p className="mt-3 min-h-10 text-sm text-muted-foreground">{plan.monthlyCredits.toLocaleString()} {plan.oneTime ? "one-time" : "monthly"} credits</p><ul className="mt-5 flex-1 space-y-3 border-t border-foreground/10 pt-5 text-sm">{plan.features.slice(0, 5).map((feature) => <li key={feature} className="flex gap-2"><Check className="h-4 w-4 shrink-0 text-accent" />{feature}</li>)}</ul><Button asChild variant={plan.id === "growth" ? "default" : "outline"} className="mt-7 min-h-11 w-full rounded-full"><Link href="/signup">{plan.id === "free" ? "Start free" : `Start ${plan.name}`}</Link></Button></div>)}</div><div className="mt-4 rounded-2xl border border-foreground/10 bg-background/50 p-5 text-sm"><b>{enterprisePlan.name}</b> · ${enterprisePlan.priceUsd}/month · {enterprisePlan.monthlyCredits.toLocaleString()} monthly credits · unlimited seats and client workspaces · <a className="font-semibold underline underline-offset-4" href="mailto:hello@citefi.co">Talk to sales</a> <span className="text-muted-foreground">(sales-assisted)</span></div></div></section>
+      <section className="path-section">
+        <div><div className="eyebrow">Room to grow, not pressure to upgrade</div><h2>One article is a start.<br />The workspace is next.</h2><p>Try the offer on its own. If ongoing work is a fit, paid plans add monthly credits and workspace features—at a clear price.</p><Link href="/pricing" className="text-link">Compare plans and costs <ArrowRight size={15} /></Link></div>
+        <div className="path-steps"><article><span>01</span><div><b>Write a real question</b><small>No credit bundle or plan required for the one-article offer.</small></div></article><article><span>02</span><div><b>Inspect the excerpt</b><small>Sign up to read that same full draft with a watermark.</small></div></article><article><span>03</span><div><b>Choose whether to continue</b><small>Normal workspace access follows account approval. Copy and download require paid access.</small></div></article></div>
+      </section>
 
-         <section id="faq" className="px-5 py-20 sm:px-8 sm:py-28"><div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[.8fr_1.2fr]"><div><div className="eyebrow mb-4">Questions worth answering</div><h2 className="display-serif text-5xl leading-tight">No fog.<br />Just the terms.</h2></div><div className="border-t border-foreground/15">{questions.map(([q, a], i) => <div key={q} className="border-b border-foreground/15"><button id={`faq-question-${i}`} className="flex min-h-16 w-full items-center justify-between gap-4 text-left font-semibold" onClick={() => setOpenFaq(openFaq === i ? null : i)} aria-expanded={openFaq === i} aria-controls={`faq-answer-${i}`}><span>{q}</span><ChevronDown className={`h-5 w-5 shrink-0 transition-transform ${openFaq === i ? "rotate-180 text-accent" : ""}`} /></button><div id={`faq-answer-${i}`} role="region" aria-labelledby={`faq-question-${i}`} hidden={openFaq !== i} className="pb-5 pr-8 text-sm leading-6 text-muted-foreground">{a}</div></div>)}</div></div></section>
-        <section className="px-5 pb-24 sm:px-8 sm:pb-32"><div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 rounded-3xl bg-accent p-8 text-white sm:p-12 lg:flex-row lg:items-end"><div><div className="eyebrow !text-white">A better brief is a better beginning</div><h2 className="display-serif mt-4 max-w-xl text-5xl leading-none">Bring the local part back into marketing.</h2></div><Button asChild size="lg" className="min-h-12 rounded-full bg-primary px-7 text-primary-foreground hover:bg-primary/90"><Link href="/signup">Start free <ArrowRight className="ml-2 h-4 w-4" /></Link></Button></div></section>
-      </main>
-      <footer className="border-t border-foreground/10 px-5 py-8 sm:px-8"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 text-xs text-muted-foreground sm:flex-row"><span>© {new Date().getFullYear()} Citefi. Local marketing campaign engine.</span><div className="flex flex-wrap gap-5"><Link href="/privacy" className="hover:text-foreground">Privacy</Link><Link href="/terms" className="hover:text-foreground">Terms</Link><Link href="/login" className="hover:text-foreground">Log in</Link><Link href="/signup" className="hover:text-foreground">Sign up</Link><a href="mailto:hello@citefi.co" className="hover:text-foreground">Contact</a></div></div></footer>
-    </div>
-  );
+      <section className="home-questions"><MarketingQuestions questions={[
+        { question: "What does one free article mean?", answer: "One generated article, separate from monthly credits. Read an excerpt before signup, then the same full article in a watermarked reading view after signup. It is not an ongoing free plan." },
+        { question: "Will creating a draft publish it?", answer: "No. Supported website receiver publishing is separately configured and authorized. Direct social-network publishing connections are currently disabled, and ads remain reviewed exports without autonomous placement or spend." },
+        { question: "Can I use it for my agency clients?", answer: "The Agency plan supports up to 25 child client workspaces with separate balances. Client context and approvals remain part of the team's work; Citefi does not invoice your clients." },
+      ]} /></section>
+
+      <section className="final-cta"><div className="eyebrow">You already know the question</div><h2>Put it to work.</h2><p>Start with one customer question. Leave the blank page behind.</p><Link className="button-primary" href="/free-article">Make my free article <ArrowRight size={17} /></Link><small>One article · no credit bundle · review before use</small></section>
+    </main>
+  </MarketingFrame>;
 }

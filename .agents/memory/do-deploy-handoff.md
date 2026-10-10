@@ -5,9 +5,12 @@ description: Owner expects agent-run releases from the workspace; verify credent
 The owner expects DigitalOcean production releases to be initiated from this
 workspace through established SSH access, as previous deployments were. Sending
 the owner manual GitHub merge and workflow instructions does not meet that request.
+Reuse saved deployment targets and consult the complete operations runbook
+before asking the owner to supply an address or configuration already recorded.
 
 **Why:** The owner repeatedly stated that previous deployments used credentials
 in Secrets and that they have never performed the proposed GitHub handoff steps.
+The owner also explicitly reiterated that the deployment information is already saved.
 
 **How to apply:** Consult the current deployment runbook and the permissions
 actually applicable to the session. Distinguish source submission, host-pin

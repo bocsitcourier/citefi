@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" role="img" aria-labelledby="title desc">
+  <title id="title">Local business context illustration</title>
+  <desc id="desc">Abstract map lines and a source card illustrate using verified place and business context without implying a real neighborhood or customer.</desc>
+  <rect width="800" height="520" rx="32" fill="#e8ece3"/>
+  <path d="M0 112h800M0 220h800M0 328h800M0 436h800M116 0v520M252 0v520M388 0v520M524 0v520M660 0v520" stroke="#c6d0c4" stroke-width="2"/>
+  <path d="M76 390c118-18 159-77 261-100 114-27 138-106 270-111" fill="none" stroke="#bd714b" stroke-width="5" stroke-linecap="round" stroke-dasharray="4 13"/>
+  <circle cx="610" cy="179" r="18" fill="#bd714b"/><circle cx="610" cy="179" r="37" fill="none" stroke="#bd714b" stroke-opacity=".36" stroke-width="2"/>
+  <rect x="91" y="78" width="276" height="176" rx="18" fill="#f8f5ed" stroke="#214344" stroke-width="2"/>
+  <text x="120" y="116" fill="#bd714b" font-family="sans-serif" font-size="12" font-weight="700" letter-spacing="2">SOURCE NOTE</text>
+  <path d="M120 145h204M120 173h163M120 201h184" stroke="#87988a" stroke-width="5" stroke-linecap="round"/>
+  <rect x="455" y="314" width="254" height="124" rx="18" fill="#214344"/>
+  <text x="482" y="352" fill="#e7b58b" font-family="sans-serif" font-size="12" font-weight="700" letter-spacing="2">LOCAL BRIEF</text>
+  <text x="482" y="385" fill="#f8f5ed" font-family="sans-serif" font-size="17">Verify before you claim.</text>
+  <text x="482" y="411" fill="#d6ded5" font-family="sans-serif" font-size="12">Illustrative map, not real geography</text>
+</svg>

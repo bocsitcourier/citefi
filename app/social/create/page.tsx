@@ -625,7 +625,7 @@ function CreateSocialPost() {
                         <div className="w-32 h-32 border-2 border-dashed border-border rounded-lg overflow-hidden bg-muted flex items-center justify-center">
                           <img 
                             src={logoPreview} 
-                            alt="Logo preview" 
+                            alt={`${form.watch("companyName")?.trim() || "Company"} logo preview`}
                             className="max-w-full max-h-full object-contain"
                           />
                         </div>

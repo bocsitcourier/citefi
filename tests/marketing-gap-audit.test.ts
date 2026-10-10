@@ -1,0 +1,64 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { productFeatures, getProductFeature } from "../lib/marketing/features";
+import { marketingPlan, planPricingPath, planLoginPath, marketingPricingReturn, planSignupPath, readMarketingPlanIntent, saveMarketingPlanIntent } from "../lib/marketing/plan-intent";
+import { safeSignInReturn } from "../lib/auth-return-path";
+import { marketingMetadata } from "../lib/marketing/metadata";
+import { CREDIT_MENU } from "../lib/credit-menu";
+import sitemap from "../app/sitemap";
+
+const expected = ["articles", "images", "podcasts", "social-media", "video", "seo-geo", "brand-intelligence", "campaigns", "customer-journeys", "publishing", "learning-monitoring", "agency-reports", "ads-exports"];
+assert.equal(new Set(productFeatures.map(item => item.slug)).size, productFeatures.length, "No duplicate product destinations");
+for (const slug of expected) assert.ok(getProductFeature(slug), `Missing product scope: ${slug}`);
+const urls = new Set(sitemap().map(item => item.url));
+for (const item of productFeatures) {
+  assert.ok(item.pain.length > 50 && item.summary.length > 35 && item.audience.length > 35, `${item.slug}: weak buyer context`);
+  assert.ok(item.inputs.length >= 3 && item.outputs.length >= 3, `${item.slug}: inputs/deliverables gap`);
+  assert.equal(item.steps.length, 4, `${item.slug}: missing workflow/review/next action`);
+  assert.ok(item.example.goal && item.example.deliverables.length >= 3, `${item.slug}: no inspectable application`);
+  assert.ok(item.faqs.length >= 7 && item.boundary.length > 80, `${item.slug}: FAQ/setup gap`);
+  assert.ok(item.faqs.some(q => q.question.includes("budget")) && item.faqs.some(q => q.question.includes("free article")));
+  for (const related of item.related) assert.ok(getProductFeature(related), `${item.slug}: broken adjacent-product link`);
+  for (const source of item.evidence) assert.ok(existsSync(source), `${item.slug}: evidence file missing: ${source}`);
+  if (item.creditOperation) assert.ok(CREDIT_MENU[item.creditOperation] > 0);
+  const path = `/features/${item.slug}`;
+  assert.ok(urls.has(`https://citefi.co${path}`), `Not discoverable in sitemap: ${path}`);
+  const meta = marketingMetadata(item.name, item.summary, path);
+  assert.equal(meta.alternates?.canonical, `https://citefi.co${path}`);
+  assert.equal((meta.openGraph as { url: string }).url, meta.alternates?.canonical);
+}
+assert.ok(urls.has("https://citefi.co/features"));
+assert.match(readFileSync("components/navigation/nav-config.ts", "utf8"), /"\/features"/);
+assert.match(readFileSync("components/marketing/site.tsx", "utf8"), /<BuyerGuide/);
+assert.match(readFileSync("lib/marketing/features.ts", "utf8"), /from "@\/lib\/credit-menu-defaults"/);
+assert.doesNotMatch(readFileSync("lib/credit-menu-defaults.ts", "utf8"), /import\s|import\(|require\(/, "Public defaults must not resolve server database dependencies");
+assert.match(readFileSync("app/cities/[slug]/page.tsx", "utf8"), /comprehensive=\{\{ city:/);
+assert.match(readFileSync("app/solutions/[slug]/page.tsx", "utf8"), /comprehensive=\{\{ solution/);
+assert.match(readFileSync("app/pricing/page.tsx", "utf8"), /id="plans"/);
+assert.match(getProductFeature("social-media")!.boundary, /currently disabled/);
+assert.match(getProductFeature("ads-exports")!.boundary, /export-only/);
+assert.match(getProductFeature("podcasts")!.boundary, /Voice cloning/);
+assert.equal(marketingPlan("starter"), "starter");
+for (const bad of [null, "", "free", "enterprise", "STARTER", "//evil.test", "starter&admin=true"]) assert.equal(marketingPlan(bad), undefined);
+for (const plan of ["starter", "growth", "agency"]) {
+  const path = planPricingPath(plan);
+  assert.equal(marketingPricingReturn(path), path);
+  assert.equal(decodeURIComponent(planLoginPath(plan).split("redirect=")[1]!), path);
+}
+for (const bad of ["/admin", "//evil.test", "https://evil.test/pricing?plan=starter", "/pricing?plan=enterprise", "/pricing?plan=free"]) assert.equal(marketingPricingReturn(bad), undefined);
+assert.equal(marketingPricingReturn("/pricing?plan=starter&next=https://evil.test"), "/pricing?plan=starter#plans");
+assert.match(readFileSync("app/verify-2fa/page.tsx", "utf8"), /safeSignInReturn\(searchParams.get\("redirect"\)\)/);
+assert.equal(planSignupPath("/pricing?plan=agency&interval=annual"), "/signup?plan=agency&interval=annual");
+assert.equal(marketingPricingReturn("/pricing?plan=growth&interval=annual"), "/pricing?plan=growth&interval=annual#plans");
+assert.equal(safeSignInReturn("/content/123?tab=review"), "/content/123?tab=review");
+for (const bad of ["//evil.test", "/\\evil.test", "/%2fevil.test", "/pricing%5c//evil.test", "https://evil.test", "/api/billing/checkout", "/login", "/pricing\n//evil.test", "/%ZZ"]) assert.equal(safeSignInReturn(bad), undefined);
+const values = new Map<string, string>();
+const store = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
+saveMarketingPlanIntent("agency", true, store, 1000);
+assert.deepEqual(readMarketingPlanIntent(store, 2000), { plan: "agency", annual: true, savedAt: 1000 });
+assert.equal(readMarketingPlanIntent(store, 15 * 24 * 60 * 60 * 1000), undefined);
+assert.equal(values.size, 0, "Expired preferences are removed");
+saveMarketingPlanIntent("enterprise", true, store, 1000);
+assert.equal(values.size, 0, "No sales-assisted checkout preference");
+assert.match(readFileSync("components/marketing/checkout-button.tsx", "utf8"), /JSON.stringify\(\{ kind: "subscription", planId, annual \}\)/);
+console.log(`Marketing gap audit passed: ${productFeatures.length} capabilities, evidence, buyer questions, metadata, sitemap and safe paid-plan return paths.`);

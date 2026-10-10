@@ -454,7 +454,7 @@ function SelectTitlesContent({ paramsPromise }: { paramsPromise: Promise<{ id: s
                     <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
                       <img 
                         src={companyLogoUrl} 
-                        alt="Logo preview" 
+                        alt={`${businessName.trim() || "Company"} logo`}
                         className="h-8 w-8 object-contain rounded"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />

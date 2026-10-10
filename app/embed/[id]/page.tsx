@@ -99,6 +99,7 @@ export default function EmbedArticle({ params }: { params: Promise<{ id: string 
               [&_.hashtag-link]:border [&_.hashtag-link]:border-primary [&_.hashtag-link]:rounded-md
               [&_.hashtag-link]:no-underline [&_.hashtag-link:hover]:bg-primary [&_.hashtag-link:hover]:text-primary-foreground
               [&_.hashtag-link]:transition-colors"
+            data-article-image-context={article.title}
             dangerouslySetInnerHTML={{ __html: article.htmlContent }}
           />
         )}
