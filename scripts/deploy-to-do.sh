@@ -33,7 +33,8 @@ DO_VALIDATION_COMMAND="${DO_VALIDATION_COMMAND:-npm run validate:release}"
 # The host never installs dependencies or builds.  Work in an isolated export so
 # local untracked files and credentials cannot enter the release.
 work="$(mktemp -d "${TMPDIR:-/tmp}/citefi-release.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+artifact="${work}.tar.gz"
+trap 'rm -rf "$work"; rm -f "$artifact"' EXIT
 sha="$(git -C "$ROOT" rev-parse HEAD)"
 git -C "$ROOT" diff --quiet && git -C "$ROOT" diff --cached --quiet || {
   echo "ERROR: refusing to build a deployment artifact from a dirty checkout." >&2; exit 65;
@@ -50,7 +51,8 @@ git -C "$ROOT" archive "$sha" | tar -x -C "$work"
   printf '%s\n' "$sha" > .release-sha
   printf '%s\n' "$(cat .next/BUILD_ID)" > .release-build-id
 )
-artifact="$work/citefi-${sha}.tar.gz"
+# Keep the output outside the source tree: creating it inside changes the
+# directory while tar reads it, causing a fatal "file changed as we read it".
 tar -C "$work" --exclude="./$(basename "$artifact")" --exclude='./.env*' \
   --sort=name --mtime="@$(git -C "$ROOT" show -s --format=%ct "$sha")" \
   --owner=0 --group=0 --numeric-owner -czf "$artifact" .
