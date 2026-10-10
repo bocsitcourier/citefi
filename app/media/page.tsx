@@ -57,6 +57,12 @@ export default function MediaLibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const getImageAlt = (asset: MediaAsset) =>
+    asset.altText?.trim() ||
+    (asset.articleTitle ? `Image for ${asset.articleTitle}` : "") ||
+    (asset.metadataJson?.companyName ? `Image for ${asset.metadataJson.companyName}` : "") ||
+    "Image from your media library";
+
   const {
     data: mediaData,
     isLoading,
@@ -291,7 +297,7 @@ export default function MediaLibraryPage() {
           >
             <img 
               src={asset.storageUrl} 
-              alt={asset.altText || 'Media asset'} 
+              alt={getImageAlt(asset)}
               className="w-full h-48 object-cover rounded-t-lg"
             />
             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-t-lg">
@@ -641,7 +647,7 @@ export default function MediaLibraryPage() {
                 <div className="space-y-2">
                   <img 
                     src={editingAsset.storageUrl} 
-                    alt={editingAsset.altText || ''} 
+                    alt={getImageAlt(editingAsset)}
                     className="w-full rounded-lg border"
                   />
                 </div>
@@ -698,7 +704,7 @@ export default function MediaLibraryPage() {
                     <Label>Current Image</Label>
                     <img 
                       src={redoingAsset.storageUrl} 
-                      alt={redoingAsset.altText || ''} 
+                      alt={getImageAlt(redoingAsset)}
                       className="w-full rounded-lg border"
                     />
                   </div>
@@ -779,7 +785,7 @@ export default function MediaLibraryPage() {
             {fullscreenImage && (
               <img
                 src={fullscreenImage.storageUrl}
-                alt={fullscreenImage.altText || 'Fullscreen preview'}
+                alt={getImageAlt(fullscreenImage)}
                 className="max-w-full max-h-full object-contain"
                 data-testid="fullscreen-image"
               />

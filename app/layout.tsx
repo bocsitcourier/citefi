@@ -4,6 +4,8 @@ import "./globals.css";
 import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/navigation/app-shell";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { BRAND, brandStructuredData } from "@/lib/brand";
+import { ArticleImageAccessibility } from "@/components/article-image-accessibility";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-marketing" });
@@ -14,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 // statically pre-render pages during `next build`, which OOMs the 2 GB droplet.
 export const dynamic = "force-dynamic";
 
-const APP_URL = "https://citefi.co";
+const APP_URL = BRAND.url;
 
 export const viewport: Viewport = {
   themeColor: "#1C2B2D",
@@ -23,11 +25,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "Citefi — Local marketing, with receipts",
+    default: "Citefi — articles, images, social, podcasts and video",
     template: "%s | Citefi",
   },
   description:
-    "Citefi is a local marketing campaign engine for agencies and local businesses—grounded in business context, reviewable work, and clearly separated external action.",
+    "A marketing workspace for small businesses and agencies: articles, images, social media, podcasts, video, SEO/GEO, campaigns, customer journeys and review.",
   keywords: [
     "local SEO",
     "AI content generation",
@@ -51,31 +53,28 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon.png",
     shortcut: "/icon.png",
-    apple: "/icon.png",
+    apple: "/apple-icon.png",
   },
   openGraph: {
-    title: "Citefi — Local marketing, with receipts",
+    title: "Citefi — articles, images, social, podcasts and video",
     description:
-      "A local marketing campaign engine for agencies and local businesses. Create reviewable, grounded campaign work with Citefi.",
+      "Create useful marketing across formats. Connect your business context, customer questions, campaigns, review and next steps.",
     siteName: "Citefi",
     url: APP_URL,
     type: "website",
     locale: "en_US",
     images: [
       {
-        url: "/icon.png",
-        width: 512,
-        height: 512,
-        alt: "Citefi — Local marketing campaign engine",
+        ...BRAND.socialImage,
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Citefi — Local marketing, with receipts",
+    title: "Citefi — articles, images, social, podcasts and video",
     description:
-      "Create locally informed marketing work while keeping external action separate from generation.",
-    images: ["/icon.png"],
+      "Articles, images, social media, podcasts and video in a connected marketing workspace for small businesses and agencies.",
+    images: [{ url: BRAND.socialImage.url, alt: BRAND.socialImage.alt }],
   },
 };
 
@@ -87,9 +86,15 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${dmSans.variable} ${fraunces.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+        <script
+          id="citefi-brand-structured-data"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(brandStructuredData).replace(/</g, "\\u003c") }}
+        />
         <Providers>
           <AppShell>{children}</AppShell>
           <UpgradeModal />
+          <ArticleImageAccessibility />
         </Providers>
       </body>
     </html>

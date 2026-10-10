@@ -1,248 +1,52 @@
-import { CheckCircle2, Zap, Rocket, TrendingUp, ArrowRight } from "lucide-react";
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { PlanSelectionNotice } from "@/components/marketing/plan-selection-notice";
 import Link from "next/link";
-import {
-  BILLING_PLANS,
-  getAnnualPriceUsd,
-  PUBLIC_PRICING_PLAN_IDS,
-  TOP_UPS,
-} from "@/lib/billing/plans";
-import { CREDIT_MENU as CREDIT_COSTS } from "@/lib/credit-menu";
+import { MarketingQuestions } from "@/components/marketing/questions";
+import { CheckoutButton } from "@/components/marketing/checkout-button";
+import { ArrowRight, Check, ExternalLink } from "lucide-react";
+import { BILLING_PLANS, getAnnualPriceUsd, PUBLIC_PRICING_PLAN_IDS, TOP_UPS } from "@/lib/billing/plans";
+import { CREDIT_MENU } from "@/lib/credit-menu-defaults";
+import { Breadcrumbs, MarketingFrame } from "@/components/marketing/site";
+import { marketingMetadata } from "@/lib/marketing/metadata";
 
-const PLAN_PRESENTATION: Record<(typeof PUBLIC_PRICING_PLAN_IDS)[number], {
-  icon: typeof Zap;
-  cta: string;
-  ctaHref: string;
-  highlight: boolean;
-  badge?: string;
-}> = {
-  free: { icon: Zap, cta: "Get started free", ctaHref: "/register", highlight: false },
-  starter: { icon: Rocket, cta: "Start Starter", ctaHref: "/settings/billing", highlight: false },
-  growth: { icon: TrendingUp, cta: "Go Growth", ctaHref: "/settings/billing", highlight: true, badge: "Most Popular" },
-  agency: { icon: Rocket, cta: "Start Agency", ctaHref: "/settings/billing", highlight: false },
-};
-const PLANS = PUBLIC_PRICING_PLAN_IDS.map((id) => ({
-  ...BILLING_PLANS[id],
-  annualPriceUsd: getAnnualPriceUsd(BILLING_PLANS[id]),
-  ...PLAN_PRESENTATION[id],
-}));
-
-const CREDIT_MENU_ITEMS = [
-  { operation: "Article", credits: CREDIT_COSTS.article, description: "Full SEO article with hyperlinking, schema, images" },
-  { operation: "Podcast", credits: CREDIT_COSTS.podcast, description: "Two-voice AI podcast from any article" },
-  { operation: "Video", credits: CREDIT_COSTS.video, description: "60-second social video with TTS narration" },
-  { operation: "Social post batch", credits: CREDIT_COSTS.social_batch, description: "Platform-optimised posts for 3–5 channels" },
+export const metadata: Metadata = marketingMetadata("Pricing", "Compare Citefi subscription plans, real credit costs, and account limits. The free offer is one article, not a credit bundle.", "/pricing");
+const plans = PUBLIC_PRICING_PLAN_IDS.map((id) => ({ ...BILLING_PLANS[id], annualPrice: getAnnualPriceUsd(BILLING_PLANS[id]) }));
+const operations = [
+  ["Article", CREDIT_MENU.article, "A locally informed article draft"],
+  ["Podcast", CREDIT_MENU.podcast, "Two-voice audio from an article"],
+  ["Video", CREDIT_MENU.video, "A short video with narration"],
+  ["Social post batch", CREDIT_MENU.social_batch, "Posts prepared for multiple channels"],
+] as const;
+const starterPlan = BILLING_PLANS.starter;
+const growthPlan = BILLING_PLANS.growth;
+const agencyPlan = BILLING_PLANS.agency;
+const pricingQuestions = [
+  { question: "Does the free article include monthly credits?", answer: "No. The free offer is one article, not a monthly plan or credit bundle. Existing credit balances are not changed." },
+  { question: "Which plan fits an owner who creates content regularly?", answer: `${starterPlan.name} includes ${starterPlan.monthlyCredits} monthly credits at $${starterPlan.priceUsd} per month with up to ${starterPlan.maxSeats} seats. ${growthPlan.name} includes ${growthPlan.monthlyCredits} monthly credits at $${growthPlan.priceUsd} per month with up to ${growthPlan.maxSeats} seats and its additional features shown above.` },
+  { question: "What does an agency subscription include?", answer: `${agencyPlan.name} is $${agencyPlan.priceUsd} per month and includes ${agencyPlan.monthlyCredits.toLocaleString()} monthly credits, up to ${agencyPlan.maxSeats} seats, and up to ${agencyPlan.maxClientWorkspaces} child client workspaces with separate balances.` },
+  { question: "How does annual billing work?", answer: "Annual subscriptions charge ten monthly prices up front for twelve months of service. Credits continue to refresh monthly. The annual amount for each plan is shown with that plan above." },
+  { question: "Can I buy extra credits?", answer: "One-time top-ups are available to signed-in accounts through billing. Top-up credits do not expire; current credit pack prices and amounts are listed above." },
 ];
-
-export const metadata = {
-  title: "Pricing — Citefi",
-  description: "Simple, credit-based pricing. Generate SEO articles, podcasts, videos, and social posts. Pay only for what you use.",
-};
-
 export default function PricingPage() {
-  return (
-    <div className="min-h-screen bg-background">
-
-      {/* Hero */}
-      <section className="px-4 py-20 text-center">
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-          Simple, credit-based pricing
-        </h1>
-        <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
-          Buy credits once. Use them for articles, podcasts, videos, or social posts.
-          Clear seat limits by plan. No per-word pricing. No surprise overages.
-        </p>
-      </section>
-
-      {/* Annual banner */}
-      <div className="max-w-6xl mx-auto px-4 mb-6">
-        <div className="rounded-md bg-primary/8 border border-primary/20 px-4 py-3 text-center text-sm">
-          <span className="font-semibold text-primary">Save 17% with annual billing</span>
-          <span className="text-muted-foreground ml-2">— pay for 10 months, get 12.</span>
-        </div>
-      </div>
-
-      {/* Plans */}
-      <section className="max-w-6xl mx-auto px-4 pb-20">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-          {PLANS.map((plan) => {
-            const Icon = plan.icon;
-            const annualMonthly = plan.annualPriceUsd > 0
-              ? (plan.annualPriceUsd / 12).toFixed(2)
-              : null;
-            return (
-              <div
-                key={plan.id}
-                className={`relative rounded-md border bg-card p-6 flex flex-col gap-4 ${
-                  plan.highlight ? "border-primary ring-1 ring-primary" : "border-border"
-                }`}
-                data-testid={`card-plan-${plan.id}`}
-              >
-                {plan.badge && plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-md">
-                      {plan.badge}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <Icon className="w-5 h-5 text-muted-foreground" />
-                  <h2 className="font-semibold text-lg">{plan.name}</h2>
-                </div>
-
-                <div>
-                  <span className="text-3xl font-bold">
-                    {plan.priceUsd === 0 ? "Free" : `$${plan.priceUsd}`}
-                  </span>
-                  {plan.priceUsd > 0 && (
-                    <span className="text-muted-foreground text-sm">/month</span>
-                  )}
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {plan.monthlyCredits.toLocaleString()} credits
-                    {plan.id === "free" ? " (one-time)" : "/month"}
-                  </p>
-                  {annualMonthly && (
-                    <p className="text-xs text-primary mt-0.5">
-                      ${annualMonthly}/mo billed annually (${plan.annualPriceUsd}/yr)
-                    </p>
-                  )}
-                </div>
-
-                <ul className="space-y-2 flex-1">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <Link
-                  href={plan.ctaHref}
-                  className={`flex items-center justify-center gap-1.5 text-sm font-medium rounded-md px-4 py-2 transition-colors ${
-                    plan.highlight
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : "border border-border hover:bg-muted"
-                  }`}
-                  data-testid={`link-plan-cta-${plan.id}`}
-                >
-                  {plan.cta}
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Credit Menu */}
-      <section className="bg-muted/40 border-y border-border py-16 px-4">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-2">Credit Menu</h2>
-          <p className="text-muted-foreground text-center mb-8">
-            Fixed cost per operation — no surprise charges.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {CREDIT_MENU_ITEMS.map((item) => (
-              <div
-                key={item.operation}
-                className="bg-card border border-border rounded-md p-4 flex items-start gap-3"
-                data-testid={`card-credit-${item.operation.toLowerCase().replace(/\s/g, "-")}`}
-              >
-                <div className="flex items-center justify-center rounded-md bg-primary/10 text-primary font-bold text-sm min-w-[48px] h-10 tabular-nums">
-                  {item.credits} cr
-                </div>
-                <div>
-                  <p className="font-medium">{item.operation}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Top-Ups */}
-      <section className="max-w-4xl mx-auto px-4 py-16">
-        <h2 className="text-2xl font-bold text-center mb-2">Credit Top-Ups</h2>
-        <p className="text-muted-foreground text-center mb-8">
-          One-time purchases that never expire — stack them on any plan.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {TOP_UPS.map((t) => {
-            const cpp = (t.priceUsd / t.credits).toFixed(2);
-            return (
-              <div
-                key={t.id}
-                className="bg-card border border-border rounded-md p-4 text-center flex flex-col gap-2"
-                data-testid={`card-topup-${t.id}`}
-              >
-                <p className="text-xs font-medium text-muted-foreground">{t.label}</p>
-                <p className="text-2xl font-bold tabular-nums">{t.credits}</p>
-                <p className="text-xs text-muted-foreground -mt-1">credits</p>
-                <div className="border-t border-border" />
-                <p className="text-lg font-semibold">${t.priceUsd}</p>
-                <p className="text-[10px] text-muted-foreground -mt-1">${cpp}/credit</p>
-                <Link
-                  href="/settings/billing"
-                  className="block w-full text-xs font-medium text-center rounded-md border border-border py-1.5 hover:bg-muted transition-colors"
-                  data-testid={`link-topup-cta-${t.id}`}
-                >
-                  Buy now
-                </Link>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section className="bg-muted/40 border-t border-border py-16 px-4">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <h2 className="text-2xl font-bold text-center mb-8">Common questions</h2>
-          {[
-            {
-              q: "Do credits roll over?",
-              a: "Monthly plan credits reset each billing cycle. Top-up credits never expire and carry over indefinitely.",
-            },
-            {
-              q: "What happens when I run out?",
-              a: "Generation is paused at zero — you are never charged for failed runs. Buy a top-up or upgrade your plan to continue.",
-            },
-            {
-              q: "Can I switch plans mid-cycle?",
-              a: "Yes. Upgrade immediately via the billing portal. Credits from your new plan are granted on the next billing date.",
-            },
-            {
-              q: "Is there a free trial?",
-              a: "The Free plan gives one workspace 30 one-time credits to try core content generation with no credit card required.",
-            },
-            {
-              q: "How does annual billing work?",
-              a: "Pay for 10 months upfront and get 12 months of access — saving 17%. Credits still refresh monthly.",
-            },
-          ].map(({ q, a }) => (
-            <div key={q} className="space-y-1">
-              <p className="font-medium">{q}</p>
-              <p className="text-sm text-muted-foreground">{a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Bottom CTA */}
-      <section className="py-16 px-4 text-center">
-        <h2 className="text-2xl font-bold mb-3">Ready to generate at scale?</h2>
-        <p className="text-muted-foreground mb-6">Start free — no credit card needed.</p>
-        <Link
-          href="/register"
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-md hover:bg-primary/90 transition-colors"
-          data-testid="link-bottom-cta"
-        >
-          Create free account
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </section>
-    </div>
-  );
+  return <MarketingFrame><main className="longform pricing-page">
+    <Breadcrumbs items={[{ label: "Pricing" }]} />
+    <section className="longform-hero"><div className="eyebrow">Plans from the live catalog</div><h1>Pay for the work<br /><em>you actually need.</em></h1><p>Clear monthly credit amounts and seat limits. The one-article free offer is separate from credits and never replaces or alters an existing balance.</p></section>
+    <div className="annual-note"><b>Annual billing:</b> ten monthly prices are charged upfront for twelve months of service. Credits still refresh monthly.</div>
+    <Suspense fallback={null}><PlanSelectionNotice /></Suspense>
+    <section className="plans-grid" id="plans">{plans.map((plan, i) => <article className={`plan-panel ${plan.id === "growth" ? "featured" : ""}`} key={plan.id}>
+      {plan.id === "growth" && <div className="plan-stamp">More room to grow</div>}
+      <div className="plan-kicker">0{i + 1} / {plan.id === "free" ? "Try it" : "Subscription"}</div><h2>{plan.name}</h2>
+      <div className="plan-price">{plan.priceUsd ? `$${plan.priceUsd}` : "No charge"}<small>{plan.priceUsd ? " / month" : " one article"}</small></div>
+      {plan.priceUsd > 0 && <div className="annual-price">${plan.annualPrice} billed annually · effective ${(plan.annualPrice / 12).toFixed(2)}/month</div>}
+      <p className="plan-credits">{plan.id === "free" ? "One free article · no credit bundle" : `${plan.monthlyCredits.toLocaleString()} credits each month`}{plan.maxSeats ? ` · up to ${plan.maxSeats} seats` : ""}</p>
+      <ul>{plan.features.map((feature) => <li key={feature}><Check size={15} />{feature}</li>)}</ul>
+      {plan.id === "free" ? <Link className="plan-action" href="/free-article">Try one article<ArrowRight size={16} /></Link> : <CheckoutButton planId={plan.id} />}
+    </article>)}</section>
+    <section className="pricing-explainer"><div><div className="eyebrow">Credit menu</div><h2>Know the cost before you make the draft.</h2><p>Credit costs come from the current operation menu. Your plan and balance determine access.</p></div><div className="operation-list">{operations.map(([name, cost, desc]) => <div key={name}><span><b>{name}</b><small>{desc}</small></span><strong>{cost} <small>credits</small></strong></div>)}</div></section>
+    <section className="topup-strip"><div><div className="eyebrow">One-time top-ups</div><h2>Keep extra credits on hand.</h2><p>Top-up credits do not expire. Purchase is available to signed-in accounts through billing.</p></div><div className="topup-options">{TOP_UPS.map((item) => <article key={item.id}><small>{item.label}</small><b>{item.credits} credits</b><span>${item.priceUsd}</span><Link href="/settings/billing">Buy in billing <ArrowRight size={13} /></Link></article>)}</div></section>
+    <section className="enterprise-note"><div><div className="eyebrow">Sales-assisted</div><h2>{BILLING_PLANS.enterprise.name}</h2><p>${BILLING_PLANS.enterprise.priceUsd}/month · {BILLING_PLANS.enterprise.monthlyCredits.toLocaleString()} monthly credits · unlimited seats and client workspaces. Sales-assisted and not available through self-serve checkout.</p></div><a href="mailto:hello@citefi.co">Contact sales <ExternalLink size={14} /></a></section>
+    <section className="pricing-disclaimer"><b>One article means one article.</b><p>It does not include free monthly credits, an added balance, or an automatic plan upgrade. Existing credits and balances are not affected by trying the article preview.</p><Link href="/faq">See pricing and free-offer FAQs <ArrowRight size={14} /></Link></section>
+    <MarketingQuestions questions={pricingQuestions} />
+  </main></MarketingFrame>;
 }

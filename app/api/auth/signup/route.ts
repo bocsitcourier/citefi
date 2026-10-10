@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "node:crypto";
 import { getTxDb } from "@/lib/db";
 import { users, activityLogs, signupCompetitorIntake } from "@/shared/schema";
 import { hashPassword, validatePassword } from "@/lib/auth";
@@ -9,6 +10,7 @@ import { buildApprovalUrls, getBaseUrl } from "@/lib/approval-token";
 import { notifyAdminsNewSignup } from "@/lib/notification-service";
 import { addSignupCompetitorIntakeJob } from "@/lib/queue";
 import { enterSystemContext } from "@/lib/tenant-context";
+import { claimDuringSignup } from "@/lib/trial/server";
 
 export async function POST(req: Request) {
   enterSystemContext("public signup bootstrap");
@@ -76,8 +78,7 @@ export async function POST(req: Request) {
     const passwordHash = await hashPassword(password);
 
     // Generate email verification token
-    const crypto = require('crypto');
-    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationToken = randomBytes(32).toString('hex');
     const emailVerificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     const userCount = await txDb.select({ id: users.id }).from(users).limit(1);
@@ -115,6 +116,7 @@ export async function POST(req: Request) {
         severity: "info",
       });
 
+      await claimDuringSignup(tx, req, createdUser!.id);
       return createdUser!;
     });
 
@@ -215,6 +217,9 @@ export async function POST(req: Request) {
     }, { status: 201 });
 
   } catch (error) {
+    if ((error as { statusCode?: number }).statusCode === 409) {
+      return NextResponse.json({ error: "This article already belongs to another account." }, { status: 409 });
+    }
     console.error("Signup error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

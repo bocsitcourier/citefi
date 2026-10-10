@@ -1237,7 +1237,7 @@ export default function SocialPostDetailPage() {
                       <div className="relative aspect-video rounded-lg overflow-hidden bg-muted">
                         <img
                           src={variant.imageUrl}
-                          alt={`${variant.platform} image`}
+                          alt={`Image for ${post.title}${post.topic ? `: ${post.topic}` : ""}`}
                           className="w-full h-full object-cover"
                           data-testid={`variant-image-${variant.id}`}
                         />
@@ -1614,7 +1614,7 @@ export default function SocialPostDetailPage() {
                       <div className="w-32 h-32 border-2 border-dashed border-border rounded-lg overflow-hidden bg-muted flex items-center justify-center">
                         <img 
                           src={editLogoPreview || post?.companyLogoUrl || ""} 
-                          alt="Logo preview" 
+                          alt={`${post?.companyName?.trim() || "Company"} logo preview`}
                           className="max-w-full max-h-full object-contain"
                         />
                       </div>

@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "NODE_ENV=production tsx server/production.ts",
     "check": "tsc",
+    "audit:marketing": "node --import tsx tests/marketing-gap-audit.test.ts",
     "db:push": "drizzle-kit push",
     "test": "npm run test:runner-safety && npm run test:ops",
     "test:runner-safety": "bash QA/support/run-offline.sh -- tests/qa/qa-support.test.mjs tests/qa/runner-environment.test.mjs tests/helpers/isolated-redis.test.ts",

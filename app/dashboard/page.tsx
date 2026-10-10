@@ -112,12 +112,14 @@ function StepBar({ current }: { current: number }) {
 
 function LogoDropzone({
   url,
+  companyName,
   busy,
   onFile,
   onClear,
   onError,
 }: {
   url: string;
+  companyName: string;
   busy: boolean;
   onFile: (file: File) => void;
   onClear: () => void;
@@ -183,7 +185,7 @@ function LogoDropzone({
 
       {!busy && url && (
         <div className="flex items-center gap-3">
-          <img src={url} alt="Company logo" className="h-12 w-12 object-contain rounded border bg-white p-0.5" />
+          <img src={url} alt={`${companyName.trim() || "Company"} logo`} className="h-12 w-12 object-contain rounded border bg-white p-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-green-700 dark:text-green-400 flex items-center gap-1">
               <BadgeCheck className="w-4 h-4 shrink-0" /> Logo uploaded
@@ -1118,6 +1120,7 @@ export default function Dashboard() {
               <CardContent>
                 <LogoDropzone
                   url={companyLogoUrl}
+                  companyName={businessName}
                   busy={uploadingLogo}
                   onFile={handleLogoFile}
                   onClear={() => setCompanyLogoUrl("")}

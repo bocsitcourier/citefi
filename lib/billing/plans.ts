@@ -26,17 +26,17 @@ export const BILLING_PLANS: Record<PlanId, BillingPlan> = {
   free: {
     id: "free",
     name: "Free",
-    monthlyCredits: 30,
+    monthlyCredits: 0,
     priceUsd: 0,
     stripePriceEnvKey: "",
     oneTime: true,
     maxSeats: 1,
     maxClientWorkspaces: 0,
     features: [
-      "30 one-time credits",
-      "Article generation",
-      "Social posts",
-      "Basic SEO tools",
+      "One free article",
+      "Preview before signup",
+      "Watermarked full reading after signup",
+      "Copy, download and export unlock with a paid subscription",
     ],
   },
   starter: {

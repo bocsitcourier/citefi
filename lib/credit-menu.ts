@@ -8,39 +8,8 @@
  * CANONICAL OPERATION NAMES — do not rename without updating all generators.
  */
 
-export const CREDIT_MENU = {
-  /** Full 4-stage article pipeline (per article) */
-  article: 10,
-  /** Deep research report */
-  deep_research: 5,
-  /** Social post batch — all platforms in one run */
-  social_batch: 4,
-  /** Single social post */
-  social_single: 1,
-  /** Podcast script + audio */
-  podcast: 8,
-  /** 60-second AI video */
-  video: 15,
-  /** Content audit */
-  content_audit: 2,
-  /** Section regenerate (hero image, single section rewrite) */
-  section_regenerate: 1,
-  /** Internal link pass */
-  internal_link: 2,
-  /** Google RSA + Meta creative pack generation (export-only) */
-  ads_export_pack: 5,
-} as const;
-
-export type OperationType = keyof typeof CREDIT_MENU;
-
-/**
- * Synchronous static lookup — compile-time fallback.
- * Returns null if the operation type is not found (unknown / unmetered).
- */
-export function getCreditCost(operationType: string): number | null {
-  const cost = CREDIT_MENU[operationType as OperationType];
-  return cost !== undefined ? cost : null;
-}
+import { CREDIT_MENU, getCreditCost, type OperationType } from "./credit-menu-defaults";
+export { CREDIT_MENU, getCreditCost, type OperationType } from "./credit-menu-defaults";
 
 /**
  * Async DB-backed lookup — checks credit_menu_overrides table first.

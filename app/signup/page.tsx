@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,9 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-mark";
+import { BILLING_PLANS } from "@/lib/billing/plans";
+import { marketingPlan, planLoginPath, planPricingPath, saveMarketingPlanIntent } from "@/lib/marketing/plan-intent";
 
 function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
   return (
@@ -37,6 +39,7 @@ function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
 
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signup, user } = useAuth();
   const { toast } = useToast();
 
@@ -49,10 +52,17 @@ export default function SignupPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [duplicateEmail, setDuplicateEmail] = useState(false);
+  const trialSignup = searchParams.get("trial") === "1";
+  const selectedPlan = trialSignup ? undefined : marketingPlan(searchParams.get("plan"));
+  const selectedAnnual = searchParams.get("interval") === "annual";
+  useEffect(() => {
+    if (selectedPlan) saveMarketingPlanIntent(selectedPlan, selectedAnnual);
+  }, [selectedPlan, selectedAnnual]);
 
   useEffect(() => {
-    if (user) router.replace("/home");
-  }, [user, router]);
+    if (user) router.replace(selectedPlan ? planPricingPath(selectedPlan, selectedAnnual) : "/home");
+  }, [user, router, selectedPlan, selectedAnnual]);
 
   const reqs = {
     minLength: password.length >= 8,
@@ -76,13 +86,22 @@ export default function SignupPage() {
     }
     setIsLoading(true);
     try {
-      await signup(email, password, fullName, teamName || undefined);
-      setSubmitted(true);
+      const trialToken = trialSignup && process.env.NODE_ENV === "development"
+        ? sessionStorage.getItem("citefi-trial-dev") || undefined
+        : undefined;
+      await signup(email, password, fullName, teamName || undefined, trialToken);
+      if (trialSignup) {
+        router.replace("/free-article");
+      } else {
+        setSubmitted(true);
+      }
     } catch (error: any) {
+      const message = error.message || "Failed to create account. Please try again.";
+      setDuplicateEmail(/already exists|already registered|email.*(taken|in use)|duplicate/i.test(message));
       toast({
         variant: "destructive",
-        title: "Signup failed",
-        description: error.message || "Failed to create account. Please try again.",
+        title: /already exists|already registered|email.*(taken|in use)|duplicate/i.test(message) ? "This email already has an account" : "Signup failed",
+        description: message,
       });
     } finally {
       setIsLoading(false);
@@ -100,10 +119,11 @@ export default function SignupPage() {
             <h1 className="text-2xl font-bold" data-testid="text-signup-success">Account requested</h1>
             <p className="text-muted-foreground text-sm leading-relaxed">
               We&apos;ve received your registration for <strong>{email}</strong>.
-              An admin will review and approve your account — you&apos;ll be ready to log in shortly.
+              An admin will review your account. You can log in to your workspace after approval.
             </p>
           </div>
-          <Link href="/login">
+          {selectedPlan && <p className="text-sm text-muted-foreground">Your selected plan is {BILLING_PLANS[selectedPlan].name}. After approval, sign in to review the current price and complete checkout. Registration does not start a paid subscription.</p>}
+          <Link href={planLoginPath(selectedPlan, selectedAnnual)}>
             <Button className="w-full" data-testid="button-go-to-login">
               Back to login
             </Button>
@@ -120,24 +140,24 @@ export default function SignupPage() {
         <div className="w-full max-w-md space-y-8 py-8">
           {/* Logo */}
           <div>
-            <Link href="/" className="inline-flex items-center gap-3 font-bold text-2xl text-foreground tracking-tight hover:opacity-80 transition-opacity">
-              <BrandMark decorative />
-              citefi.co
+            <Link href="/" aria-label="Citefi home" className="inline-flex items-center hover:opacity-80 transition-opacity">
+              <BrandLogo decorative className="h-10 w-auto" />
             </Link>
           </div>
 
           {/* Heading */}
           <div className="space-y-2">
             <h1 className="text-4xl font-bold" data-testid="text-signup-heading">
-              Create Account
+              {trialSignup ? "Read your full article" : "Create your Citefi account"}
             </h1>
             <p className="text-muted-foreground">
-              Start generating AI-powered local SEO content
+              {trialSignup ? "Your draft is ready. Create an account to read the same full article with a watermark. Workspace access follows account approval." : "Create articles, images, social content, podcasts and video in a connected marketing workspace. Account approval is required before workspace access and paid checkout."}
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {duplicateEmail && <div role="alert" className="rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm leading-6"><b>This email is already registered.</b><p className="mt-1 text-muted-foreground">Sign in with that account to continue to your article. After a successful login, open the trial reader to claim the article if the account is active.</p><Link className="mt-2 inline-flex font-semibold underline underline-offset-4" href="/login?redirect=%2Ffree-article">Sign in and return to the article</Link></div>}
             {/* Full Name */}
             <div className="space-y-2">
               <Label htmlFor="fullName" className="text-sm text-muted-foreground">
@@ -286,7 +306,7 @@ export default function SignupPage() {
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
               <Link
-                href="/login"
+                href={planLoginPath(selectedPlan, selectedAnnual)}
                 className="font-medium text-foreground hover:underline"
                 data-testid="link-login"
               >
@@ -311,10 +331,10 @@ export default function SignupPage() {
           <div className="absolute inset-0 flex items-center justify-center p-12">
             <div className="text-center space-y-6 text-white">
               <h2 className="text-4xl font-bold leading-tight">
-                Your Local SEO Command Center
+                Marketing starts with your customers
               </h2>
               <p className="text-lg opacity-90">
-                Dual-AI content generation. Real ZIP-code intelligence. Zero guesswork.
+                Help people understand your business before they call, book or buy.
               </p>
               <div className="pt-6 space-y-4">
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4 text-left">
@@ -322,8 +342,8 @@ export default function SignupPage() {
                     <MapPin className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">Deep Local Intelligence</h3>
-                    <p className="text-sm opacity-80">ZIP codes, neighborhoods, and authority entities baked in</p>
+                    <h3 className="font-semibold">Write for the people you serve</h3>
+                    <p className="text-sm opacity-80">Start with your real services, audience and service area</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4 text-left">
@@ -331,8 +351,8 @@ export default function SignupPage() {
                     <Brain className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">AI That Learns From You</h3>
-                    <p className="text-sm opacity-80">Brand Intelligence adapts to your audience over time</p>
+                    <h3 className="font-semibold">Make your expertise easier to see</h3>
+                    <p className="text-sm opacity-80">Turn common customer questions into useful content drafts</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-lg p-4 text-left">
@@ -340,8 +360,8 @@ export default function SignupPage() {
                     <Zap className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-semibold">50+ Articles in Minutes</h3>
-                    <p className="text-sm opacity-80">4-stage pipeline: Gemini → ChatGPT → GPT-4 → Published</p>
+                    <h3 className="font-semibold">Stay in control of the final word</h3>
+                    <p className="text-sm opacity-80">Review facts and claims before using your content</p>
                   </div>
                 </div>
               </div>

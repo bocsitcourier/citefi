@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { NAV_SECTIONS } from "./nav-config";
 import { NotificationBell } from "@/components/NotificationBell";
 import { CreditMeter } from "@/components/credit-meter";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo, BrandMark } from "@/components/brand-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -48,10 +48,9 @@ export function AppSidebar() {
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="flex items-center gap-2 px-2 py-1">
-            <BrandMark decorative={!isCollapsed} className="h-8 w-5" />
-            {!isCollapsed && (
-              <span className="font-bold text-lg text-foreground tracking-tight">citefi.co</span>
-            )}
+            {isCollapsed
+              ? <BrandMark className="sidebar-brand-image h-8 w-auto" />
+              : <BrandLogo className="sidebar-brand-image h-8 w-auto" />}
           </div>
         </SidebarHeader>
 

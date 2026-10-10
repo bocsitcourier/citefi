@@ -2,7 +2,7 @@
  * Image Optimization Utilities
  * 
  * Provides utility functions for SEO/GEO-optimized image handling:
- * - Alt text generation with location keywords
+ * - Descriptive alt text without keyword stuffing
  * - Responsive srcset generation
  * - Image metadata extraction
  * - Schema.org markup helpers
@@ -13,17 +13,18 @@ export interface ImageMetadata {
   title?: string;
   caption?: string;
   geoLocation?: string;
+  geoLocationVerified?: boolean;
   keywords?: string[];
   author?: string;
 }
 
 /**
- * Generate SEO-optimized alt text with location keywords
+ * Preserve descriptive alt text. Locations and keywords belong in verified metadata, not automatically in alt.
  * 
  * @param baseAlt - Base alt text
- * @param location - Geographic location (city, state)
- * @param keywords - Additional SEO keywords
- * @returns Enhanced alt text with location and keywords
+ * @param _location - Retained for call compatibility; not appended to the image description
+ * @param _keywords - Retained for call compatibility; not appended to the image description
+ * @returns The trimmed original description
  * 
  * @example
  * ```ts
@@ -32,36 +33,17 @@ export interface ImageMetadata {
  *   "Boston, Massachusetts",
  *   ["same-day delivery", "legal documents"]
  * )
- * // Returns: "Professional courier delivering documents in Boston, Massachusetts - same-day delivery, legal documents"
+ * // Returns: "Professional courier delivering documents"
  * ```
  */
 export function generateSEOAltText(
   baseAlt: string,
-  location?: string,
-  keywords: string[] = []
+  _location?: string,
+  _keywords: string[] = []
 ): string {
-  let altText = baseAlt.trim();
-  
-  // Add location if not already present
-  if (location && !altText.toLowerCase().includes(location.toLowerCase())) {
-    altText = `${altText} in ${location}`;
-  }
-  
-  // Add keywords if provided
-  if (keywords.length > 0) {
-    const keywordString = keywords.join(", ");
-    altText = `${altText} - ${keywordString}`;
-  }
-  
-  // Ensure first character is capitalized
-  altText = altText.charAt(0).toUpperCase() + altText.slice(1);
-  
-  // Limit to 125 characters for optimal SEO (Google's recommended max)
-  if (altText.length > 125) {
-    altText = altText.substring(0, 122) + "...";
-  }
-  
-  return altText;
+  // Keep the call signature for compatibility, but never turn alt into SEO keywords
+  // or infer an image's location from the page targeting it.
+  return baseAlt.trim();
 }
 
 /**
@@ -187,8 +169,8 @@ export function generateImageSchema(
     name: metadata.title || metadata.alt,
     description: metadata.caption || metadata.alt,
     ...(width && height && {
-      width: `${width}px`,
-      height: `${height}px`,
+      width,
+      height,
     }),
     ...(metadata.author && {
       author: {
@@ -196,7 +178,7 @@ export function generateImageSchema(
         name: metadata.author,
       },
     }),
-    ...(metadata.geoLocation && {
+    ...(metadata.geoLocation && metadata.geoLocationVerified && {
       contentLocation: {
         "@type": "Place",
         name: metadata.geoLocation,

@@ -74,6 +74,9 @@ application deployment or proof that SSH authentication works today.
 - External full health returned HTTP 200 and `ok: true`: database, Redis,
   worker/queues, canary, storage, models, backup, restore verification, and
   deployment all passed. The public login page rendered correctly.
+- [Post-release persistence verification](https://github.com/bocsitcourier/citefi/actions/runs/38011701354)
+  confirmed both named processes use the exact active bootstrap release and
+  full health remained ready, then saved PM2 state without another reload.
 
 ### Production release attempt — October 10, 2026
 

@@ -20,7 +20,7 @@ interface AuthContextType {
   login: (email: string, password: string, rememberMe?: boolean) => Promise<{ requiresTwoFactor: boolean; twoFactorMethod?: string; role?: User["role"] }>;
   verify2FA: (code: string) => Promise<void>;
   logout: () => Promise<void>;
-  signup: (email: string, password: string, fullName?: string, teamName?: string) => Promise<void>;
+  signup: (email: string, password: string, fullName?: string, teamName?: string, trialToken?: string) => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
@@ -98,9 +98,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   };
 
-  const signup = async (email: string, password: string, fullName?: string, teamName?: string) => {
+  const signup = async (email: string, password: string, fullName?: string, teamName?: string, trialToken?: string) => {
     const response = await apiRequest("/api/auth/signup", {
       method: "POST",
+      headers: trialToken ? { "X-Trial-Token": trialToken } : undefined,
       body: JSON.stringify({ email, password, fullName, teamName }),
     });
     return response;

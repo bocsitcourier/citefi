@@ -1,0 +1,2727 @@
+{
+  "vintage": 2025,
+  "source": "https://www2.census.gov/programs-surveys/popest/datasets/2020-2025/cities/totals/sub-est2025.csv",
+  "methodology": "https://www.census.gov/data/datasets/time-series/demo/popest/2020s-total-cities-and-towns.html",
+  "cities": [
+    {
+      "name": "Birmingham",
+      "state": "Alabama",
+      "slug": "birmingham-alabama",
+      "population": 195893,
+      "previousPopulation": 196789,
+      "rank": 132,
+      "capital": false,
+      "censusName": "Birmingham city"
+    },
+    {
+      "name": "Huntsville",
+      "state": "Alabama",
+      "slug": "huntsville-alabama",
+      "population": 233627,
+      "previousPopulation": 230347,
+      "rank": 100,
+      "capital": false,
+      "censusName": "Huntsville city"
+    },
+    {
+      "name": "Mobile",
+      "state": "Alabama",
+      "slug": "mobile-alabama",
+      "population": 200824,
+      "previousPopulation": 201612,
+      "rank": 129,
+      "capital": false,
+      "censusName": "Mobile city"
+    },
+    {
+      "name": "Montgomery",
+      "state": "Alabama",
+      "slug": "montgomery-alabama",
+      "population": 195300,
+      "previousPopulation": 195872,
+      "rank": 134,
+      "capital": true,
+      "censusName": "Montgomery city"
+    },
+    {
+      "name": "Anchorage",
+      "state": "Alaska",
+      "slug": "anchorage-alaska",
+      "population": 287155,
+      "previousPopulation": 287369,
+      "rank": 76,
+      "capital": false,
+      "censusName": "Anchorage municipality"
+    },
+    {
+      "name": "Juneau",
+      "state": "Alaska",
+      "slug": "juneau-alaska",
+      "population": 31609,
+      "previousPopulation": 31586,
+      "rank": 1311,
+      "capital": true,
+      "censusName": "Juneau city and borough"
+    },
+    {
+      "name": "Buckeye",
+      "state": "Arizona",
+      "slug": "buckeye-arizona",
+      "population": 125445,
+      "previousPopulation": 118893,
+      "rank": 234,
+      "capital": false,
+      "censusName": "Buckeye city"
+    },
+    {
+      "name": "Chandler",
+      "state": "Arizona",
+      "slug": "chandler-arizona",
+      "population": 278748,
+      "previousPopulation": 280014,
+      "rank": 79,
+      "capital": false,
+      "censusName": "Chandler city"
+    },
+    {
+      "name": "Gilbert",
+      "state": "Arizona",
+      "slug": "gilbert-arizona",
+      "population": 287285,
+      "previousPopulation": 287133,
+      "rank": 75,
+      "capital": false,
+      "censusName": "Gilbert town"
+    },
+    {
+      "name": "Glendale",
+      "state": "Arizona",
+      "slug": "glendale-arizona",
+      "population": 260572,
+      "previousPopulation": 256776,
+      "rank": 89,
+      "capital": false,
+      "censusName": "Glendale city"
+    },
+    {
+      "name": "Goodyear",
+      "state": "Arizona",
+      "slug": "goodyear-arizona",
+      "population": 125359,
+      "previousPopulation": 117669,
+      "rank": 235,
+      "capital": false,
+      "censusName": "Goodyear city"
+    },
+    {
+      "name": "Mesa",
+      "state": "Arizona",
+      "slug": "mesa-arizona",
+      "population": 513656,
+      "previousPopulation": 514789,
+      "rank": 38,
+      "capital": false,
+      "censusName": "Mesa city"
+    },
+    {
+      "name": "Peoria",
+      "state": "Arizona",
+      "slug": "peoria-arizona",
+      "population": 200881,
+      "previousPopulation": 198735,
+      "rank": 128,
+      "capital": false,
+      "censusName": "Peoria city"
+    },
+    {
+      "name": "Phoenix",
+      "state": "Arizona",
+      "slug": "phoenix-arizona",
+      "population": 1665481,
+      "previousPopulation": 1662324,
+      "rank": 5,
+      "capital": true,
+      "censusName": "Phoenix city"
+    },
+    {
+      "name": "Scottsdale",
+      "state": "Arizona",
+      "slug": "scottsdale-arizona",
+      "population": 243006,
+      "previousPopulation": 244686,
+      "rank": 94,
+      "capital": false,
+      "censusName": "Scottsdale city"
+    },
+    {
+      "name": "Surprise",
+      "state": "Arizona",
+      "slug": "surprise-arizona",
+      "population": 175304,
+      "previousPopulation": 167602,
+      "rank": 154,
+      "capital": false,
+      "censusName": "Surprise city"
+    },
+    {
+      "name": "Tempe",
+      "state": "Arizona",
+      "slug": "tempe-arizona",
+      "population": 190571,
+      "previousPopulation": 189376,
+      "rank": 138,
+      "capital": false,
+      "censusName": "Tempe city"
+    },
+    {
+      "name": "Tucson",
+      "state": "Arizona",
+      "slug": "tucson-arizona",
+      "population": 548371,
+      "previousPopulation": 550633,
+      "rank": 34,
+      "capital": false,
+      "censusName": "Tucson city"
+    },
+    {
+      "name": "Little Rock",
+      "state": "Arkansas",
+      "slug": "little-rock-arkansas",
+      "population": 206427,
+      "previousPopulation": 206014,
+      "rank": 119,
+      "capital": true,
+      "censusName": "Little Rock city"
+    },
+    {
+      "name": "Anaheim",
+      "state": "California",
+      "slug": "anaheim-california",
+      "population": 341008,
+      "previousPopulation": 342688,
+      "rank": 57,
+      "capital": false,
+      "censusName": "Anaheim city"
+    },
+    {
+      "name": "Bakersfield",
+      "state": "California",
+      "slug": "bakersfield-california",
+      "population": 422165,
+      "previousPopulation": 419344,
+      "rank": 47,
+      "capital": false,
+      "censusName": "Bakersfield city"
+    },
+    {
+      "name": "Berkeley",
+      "state": "California",
+      "slug": "berkeley-california",
+      "population": 121911,
+      "previousPopulation": 120665,
+      "rank": 250,
+      "capital": false,
+      "censusName": "Berkeley city"
+    },
+    {
+      "name": "Chula Vista",
+      "state": "California",
+      "slug": "chula-vista-california",
+      "population": 275533,
+      "previousPopulation": 276747,
+      "rank": 81,
+      "capital": false,
+      "censusName": "Chula Vista city"
+    },
+    {
+      "name": "Clovis",
+      "state": "California",
+      "slug": "clovis-california",
+      "population": 129347,
+      "previousPopulation": 128886,
+      "rank": 225,
+      "capital": false,
+      "censusName": "Clovis city"
+    },
+    {
+      "name": "Concord",
+      "state": "California",
+      "slug": "concord-california",
+      "population": 123261,
+      "previousPopulation": 123596,
+      "rank": 241,
+      "capital": false,
+      "censusName": "Concord city"
+    },
+    {
+      "name": "Corona",
+      "state": "California",
+      "slug": "corona-california",
+      "population": 161734,
+      "previousPopulation": 161579,
+      "rank": 166,
+      "capital": false,
+      "censusName": "Corona city"
+    },
+    {
+      "name": "Elk Grove",
+      "state": "California",
+      "slug": "elk-grove-california",
+      "population": 185007,
+      "previousPopulation": 182771,
+      "rank": 144,
+      "capital": false,
+      "censusName": "Elk Grove city"
+    },
+    {
+      "name": "Escondido",
+      "state": "California",
+      "slug": "escondido-california",
+      "population": 146030,
+      "previousPopulation": 147858,
+      "rank": 195,
+      "capital": false,
+      "censusName": "Escondido city"
+    },
+    {
+      "name": "Fairfield",
+      "state": "California",
+      "slug": "fairfield-california",
+      "population": 122489,
+      "previousPopulation": 122313,
+      "rank": 246,
+      "capital": false,
+      "censusName": "Fairfield city"
+    },
+    {
+      "name": "Fontana",
+      "state": "California",
+      "slug": "fontana-california",
+      "population": 221223,
+      "previousPopulation": 219359,
+      "rank": 109,
+      "capital": false,
+      "censusName": "Fontana city"
+    },
+    {
+      "name": "Fremont",
+      "state": "California",
+      "slug": "fremont-california",
+      "population": 226442,
+      "previousPopulation": 226738,
+      "rank": 106,
+      "capital": false,
+      "censusName": "Fremont city"
+    },
+    {
+      "name": "Fresno",
+      "state": "California",
+      "slug": "fresno-california",
+      "population": 555549,
+      "previousPopulation": 555075,
+      "rank": 33,
+      "capital": false,
+      "censusName": "Fresno city"
+    },
+    {
+      "name": "Fullerton",
+      "state": "California",
+      "slug": "fullerton-california",
+      "population": 138675,
+      "previousPopulation": 139612,
+      "rank": 207,
+      "capital": false,
+      "censusName": "Fullerton city"
+    },
+    {
+      "name": "Garden Grove",
+      "state": "California",
+      "slug": "garden-grove-california",
+      "population": 170455,
+      "previousPopulation": 170926,
+      "rank": 158,
+      "capital": false,
+      "censusName": "Garden Grove city"
+    },
+    {
+      "name": "Glendale",
+      "state": "California",
+      "slug": "glendale-california",
+      "population": 187160,
+      "previousPopulation": 187947,
+      "rank": 142,
+      "capital": false,
+      "censusName": "Glendale city"
+    },
+    {
+      "name": "Hayward",
+      "state": "California",
+      "slug": "hayward-california",
+      "population": 157113,
+      "previousPopulation": 157150,
+      "rank": 172,
+      "capital": false,
+      "censusName": "Hayward city"
+    },
+    {
+      "name": "Huntington Beach",
+      "state": "California",
+      "slug": "huntington-beach-california",
+      "population": 191451,
+      "previousPopulation": 192619,
+      "rank": 137,
+      "capital": false,
+      "censusName": "Huntington Beach city"
+    },
+    {
+      "name": "Irvine",
+      "state": "California",
+      "slug": "irvine-california",
+      "population": 318764,
+      "previousPopulation": 317865,
+      "rank": 63,
+      "capital": false,
+      "censusName": "Irvine city"
+    },
+    {
+      "name": "Lancaster",
+      "state": "California",
+      "slug": "lancaster-california",
+      "population": 170084,
+      "previousPopulation": 168929,
+      "rank": 159,
+      "capital": false,
+      "censusName": "Lancaster city"
+    },
+    {
+      "name": "Long Beach",
+      "state": "California",
+      "slug": "long-beach-california",
+      "population": 450469,
+      "previousPopulation": 451575,
+      "rank": 44,
+      "capital": false,
+      "censusName": "Long Beach city"
+    },
+    {
+      "name": "Los Angeles",
+      "state": "California",
+      "slug": "los-angeles-california",
+      "population": 3869089,
+      "previousPopulation": 3872710,
+      "rank": 2,
+      "capital": false,
+      "censusName": "Los Angeles city"
+    },
+    {
+      "name": "Modesto",
+      "state": "California",
+      "slug": "modesto-california",
+      "population": 219652,
+      "previousPopulation": 220315,
+      "rank": 110,
+      "capital": false,
+      "censusName": "Modesto city"
+    },
+    {
+      "name": "Moreno Valley",
+      "state": "California",
+      "slug": "moreno-valley-california",
+      "population": 214263,
+      "previousPopulation": 213976,
+      "rank": 112,
+      "capital": false,
+      "censusName": "Moreno Valley city"
+    },
+    {
+      "name": "Oakland",
+      "state": "California",
+      "slug": "oakland-california",
+      "population": 440838,
+      "previousPopulation": 440173,
+      "rank": 45,
+      "capital": false,
+      "censusName": "Oakland city"
+    },
+    {
+      "name": "Oceanside",
+      "state": "California",
+      "slug": "oceanside-california",
+      "population": 170483,
+      "previousPopulation": 170796,
+      "rank": 157,
+      "capital": false,
+      "censusName": "Oceanside city"
+    },
+    {
+      "name": "Ontario",
+      "state": "California",
+      "slug": "ontario-california",
+      "population": 187013,
+      "previousPopulation": 185669,
+      "rank": 143,
+      "capital": false,
+      "censusName": "Ontario city"
+    },
+    {
+      "name": "Orange",
+      "state": "California",
+      "slug": "orange-california",
+      "population": 138365,
+      "previousPopulation": 138324,
+      "rank": 209,
+      "capital": false,
+      "censusName": "Orange city"
+    },
+    {
+      "name": "Oxnard",
+      "state": "California",
+      "slug": "oxnard-california",
+      "population": 199651,
+      "previousPopulation": 200087,
+      "rank": 131,
+      "capital": false,
+      "censusName": "Oxnard city"
+    },
+    {
+      "name": "Palmdale",
+      "state": "California",
+      "slug": "palmdale-california",
+      "population": 161845,
+      "previousPopulation": 162490,
+      "rank": 164,
+      "capital": false,
+      "censusName": "Palmdale city"
+    },
+    {
+      "name": "Pasadena",
+      "state": "California",
+      "slug": "pasadena-california",
+      "population": 135804,
+      "previousPopulation": 136398,
+      "rank": 216,
+      "capital": false,
+      "censusName": "Pasadena city"
+    },
+    {
+      "name": "Pomona",
+      "state": "California",
+      "slug": "pomona-california",
+      "population": 147807,
+      "previousPopulation": 147712,
+      "rank": 188,
+      "capital": false,
+      "censusName": "Pomona city"
+    },
+    {
+      "name": "Rancho Cucamonga",
+      "state": "California",
+      "slug": "rancho-cucamonga-california",
+      "population": 177856,
+      "previousPopulation": 177002,
+      "rank": 151,
+      "capital": false,
+      "censusName": "Rancho Cucamonga city"
+    },
+    {
+      "name": "Riverside",
+      "state": "California",
+      "slug": "riverside-california",
+      "population": 323057,
+      "previousPopulation": 323379,
+      "rank": 62,
+      "capital": false,
+      "censusName": "Riverside city"
+    },
+    {
+      "name": "Roseville",
+      "state": "California",
+      "slug": "roseville-california",
+      "population": 167302,
+      "previousPopulation": 163543,
+      "rank": 162,
+      "capital": false,
+      "censusName": "Roseville city"
+    },
+    {
+      "name": "Sacramento",
+      "state": "California",
+      "slug": "sacramento-california",
+      "population": 536449,
+      "previousPopulation": 534834,
+      "rank": 35,
+      "capital": true,
+      "censusName": "Sacramento city"
+    },
+    {
+      "name": "Salinas",
+      "state": "California",
+      "slug": "salinas-california",
+      "population": 159134,
+      "previousPopulation": 159794,
+      "rank": 169,
+      "capital": false,
+      "censusName": "Salinas city"
+    },
+    {
+      "name": "San Bernardino",
+      "state": "California",
+      "slug": "san-bernardino-california",
+      "population": 222044,
+      "previousPopulation": 222163,
+      "rank": 108,
+      "capital": false,
+      "censusName": "San Bernardino city"
+    },
+    {
+      "name": "San Diego",
+      "state": "California",
+      "slug": "san-diego-california",
+      "population": 1406106,
+      "previousPopulation": 1400232,
+      "rank": 8,
+      "capital": false,
+      "censusName": "San Diego city"
+    },
+    {
+      "name": "San Francisco",
+      "state": "California",
+      "slug": "san-francisco-california",
+      "population": 826079,
+      "previousPopulation": 820945,
+      "rank": 17,
+      "capital": false,
+      "censusName": "San Francisco city"
+    },
+    {
+      "name": "San Jose",
+      "state": "California",
+      "slug": "san-jose-california",
+      "population": 989814,
+      "previousPopulation": 987831,
+      "rank": 13,
+      "capital": false,
+      "censusName": "San Jose city"
+    },
+    {
+      "name": "Santa Ana",
+      "state": "California",
+      "slug": "santa-ana-california",
+      "population": 315586,
+      "previousPopulation": 314799,
+      "rank": 65,
+      "capital": false,
+      "censusName": "Santa Ana city"
+    },
+    {
+      "name": "Santa Clara",
+      "state": "California",
+      "slug": "santa-clara-california",
+      "population": 133446,
+      "previousPopulation": 132377,
+      "rank": 220,
+      "capital": false,
+      "censusName": "Santa Clara city"
+    },
+    {
+      "name": "Santa Clarita",
+      "state": "California",
+      "slug": "santa-clarita-california",
+      "population": 228430,
+      "previousPopulation": 229361,
+      "rank": 105,
+      "capital": false,
+      "censusName": "Santa Clarita city"
+    },
+    {
+      "name": "Santa Rosa",
+      "state": "California",
+      "slug": "santa-rosa-california",
+      "population": 179437,
+      "previousPopulation": 177940,
+      "rank": 149,
+      "capital": false,
+      "censusName": "Santa Rosa city"
+    },
+    {
+      "name": "Simi Valley",
+      "state": "California",
+      "slug": "simi-valley-california",
+      "population": 124861,
+      "previousPopulation": 125349,
+      "rank": 237,
+      "capital": false,
+      "censusName": "Simi Valley city"
+    },
+    {
+      "name": "Stockton",
+      "state": "California",
+      "slug": "stockton-california",
+      "population": 324597,
+      "previousPopulation": 324643,
+      "rank": 60,
+      "capital": false,
+      "censusName": "Stockton city"
+    },
+    {
+      "name": "Sunnyvale",
+      "state": "California",
+      "slug": "sunnyvale-california",
+      "population": 156577,
+      "previousPopulation": 155422,
+      "rank": 175,
+      "capital": false,
+      "censusName": "Sunnyvale city"
+    },
+    {
+      "name": "Thousand Oaks",
+      "state": "California",
+      "slug": "thousand-oaks-california",
+      "population": 122230,
+      "previousPopulation": 123617,
+      "rank": 248,
+      "capital": false,
+      "censusName": "Thousand Oaks city"
+    },
+    {
+      "name": "Torrance",
+      "state": "California",
+      "slug": "torrance-california",
+      "population": 138391,
+      "previousPopulation": 139489,
+      "rank": 208,
+      "capital": false,
+      "censusName": "Torrance city"
+    },
+    {
+      "name": "Vallejo",
+      "state": "California",
+      "slug": "vallejo-california",
+      "population": 123287,
+      "previousPopulation": 123611,
+      "rank": 240,
+      "capital": false,
+      "censusName": "Vallejo city"
+    },
+    {
+      "name": "Victorville",
+      "state": "California",
+      "slug": "victorville-california",
+      "population": 141395,
+      "previousPopulation": 141038,
+      "rank": 200,
+      "capital": false,
+      "censusName": "Victorville city"
+    },
+    {
+      "name": "Visalia",
+      "state": "California",
+      "slug": "visalia-california",
+      "population": 146541,
+      "previousPopulation": 146260,
+      "rank": 194,
+      "capital": false,
+      "censusName": "Visalia city"
+    },
+    {
+      "name": "Arvada",
+      "state": "Colorado",
+      "slug": "arvada-colorado",
+      "population": 122901,
+      "previousPopulation": 122310,
+      "rank": 242,
+      "capital": false,
+      "censusName": "Arvada city"
+    },
+    {
+      "name": "Aurora",
+      "state": "Colorado",
+      "slug": "aurora-colorado",
+      "population": 410053,
+      "previousPopulation": 408325,
+      "rank": 50,
+      "capital": false,
+      "censusName": "Aurora city"
+    },
+    {
+      "name": "Colorado Springs",
+      "state": "Colorado",
+      "slug": "colorado-springs-colorado",
+      "population": 494743,
+      "previousPopulation": 492455,
+      "rank": 40,
+      "capital": false,
+      "censusName": "Colorado Springs city"
+    },
+    {
+      "name": "Denver",
+      "state": "Colorado",
+      "slug": "denver-colorado",
+      "population": 740613,
+      "previousPopulation": 741591,
+      "rank": 19,
+      "capital": true,
+      "censusName": "Denver city"
+    },
+    {
+      "name": "Fort Collins",
+      "state": "Colorado",
+      "slug": "fort-collins-colorado",
+      "population": 171500,
+      "previousPopulation": 170727,
+      "rank": 155,
+      "capital": false,
+      "censusName": "Fort Collins city"
+    },
+    {
+      "name": "Lakewood",
+      "state": "Colorado",
+      "slug": "lakewood-colorado",
+      "population": 156927,
+      "previousPopulation": 157395,
+      "rank": 174,
+      "capital": false,
+      "censusName": "Lakewood city"
+    },
+    {
+      "name": "Thornton",
+      "state": "Colorado",
+      "slug": "thornton-colorado",
+      "population": 147766,
+      "previousPopulation": 148370,
+      "rank": 190,
+      "capital": false,
+      "censusName": "Thornton city"
+    },
+    {
+      "name": "Bridgeport",
+      "state": "Connecticut",
+      "slug": "bridgeport-connecticut",
+      "population": 152273,
+      "previousPopulation": 151415,
+      "rank": 179,
+      "capital": false,
+      "censusName": "Bridgeport city"
+    },
+    {
+      "name": "Hartford",
+      "state": "Connecticut",
+      "slug": "hartford-connecticut",
+      "population": 121981,
+      "previousPopulation": 121841,
+      "rank": 249,
+      "capital": true,
+      "censusName": "Hartford city"
+    },
+    {
+      "name": "New Haven",
+      "state": "Connecticut",
+      "slug": "new-haven-connecticut",
+      "population": 138774,
+      "previousPopulation": 137888,
+      "rank": 206,
+      "capital": false,
+      "censusName": "New Haven city"
+    },
+    {
+      "name": "Stamford",
+      "state": "Connecticut",
+      "slug": "stamford-connecticut",
+      "population": 139535,
+      "previousPopulation": 139344,
+      "rank": 203,
+      "capital": false,
+      "censusName": "Stamford city"
+    },
+    {
+      "name": "Dover",
+      "state": "Delaware",
+      "slug": "dover-delaware",
+      "population": 40592,
+      "previousPopulation": 40311,
+      "rank": 1026,
+      "capital": true,
+      "censusName": "Dover city"
+    },
+    {
+      "name": "Washington",
+      "state": "District of Columbia",
+      "slug": "washington-district-of-columbia",
+      "population": 693645,
+      "previousPopulation": 691310,
+      "rank": 22,
+      "capital": false,
+      "censusName": "Washington city"
+    },
+    {
+      "name": "Cape Coral",
+      "state": "Florida",
+      "slug": "cape-coral-florida",
+      "population": 236264,
+      "previousPopulation": 233108,
+      "rank": 98,
+      "capital": false,
+      "censusName": "Cape Coral city"
+    },
+    {
+      "name": "Coral Springs",
+      "state": "Florida",
+      "slug": "coral-springs-florida",
+      "population": 138783,
+      "previousPopulation": 139020,
+      "rank": 205,
+      "capital": false,
+      "censusName": "Coral Springs city"
+    },
+    {
+      "name": "Fort Lauderdale",
+      "state": "Florida",
+      "slug": "fort-lauderdale-florida",
+      "population": 188677,
+      "previousPopulation": 188692,
+      "rank": 141,
+      "capital": false,
+      "censusName": "Fort Lauderdale city"
+    },
+    {
+      "name": "Gainesville",
+      "state": "Florida",
+      "slug": "gainesville-florida",
+      "population": 148671,
+      "previousPopulation": 147890,
+      "rank": 185,
+      "capital": false,
+      "censusName": "Gainesville city"
+    },
+    {
+      "name": "Hialeah",
+      "state": "Florida",
+      "slug": "hialeah-florida",
+      "population": 230968,
+      "previousPopulation": 233178,
+      "rank": 102,
+      "capital": false,
+      "censusName": "Hialeah city"
+    },
+    {
+      "name": "Hollywood",
+      "state": "Florida",
+      "slug": "hollywood-florida",
+      "population": 157019,
+      "previousPopulation": 157387,
+      "rank": 173,
+      "capital": false,
+      "censusName": "Hollywood city"
+    },
+    {
+      "name": "Jacksonville",
+      "state": "Florida",
+      "slug": "jacksonville-florida",
+      "population": 1017689,
+      "previousPopulation": 1009370,
+      "rank": 11,
+      "capital": false,
+      "censusName": "Jacksonville city"
+    },
+    {
+      "name": "Lakeland",
+      "state": "Florida",
+      "slug": "lakeland-florida",
+      "population": 125520,
+      "previousPopulation": 124889,
+      "rank": 233,
+      "capital": false,
+      "censusName": "Lakeland city"
+    },
+    {
+      "name": "Miami",
+      "state": "Florida",
+      "slug": "miami-florida",
+      "population": 489812,
+      "previousPopulation": 483419,
+      "rank": 41,
+      "capital": false,
+      "censusName": "Miami city"
+    },
+    {
+      "name": "Miramar",
+      "state": "Florida",
+      "slug": "miramar-florida",
+      "population": 142570,
+      "previousPopulation": 141432,
+      "rank": 198,
+      "capital": false,
+      "censusName": "Miramar city"
+    },
+    {
+      "name": "Orlando",
+      "state": "Florida",
+      "slug": "orlando-florida",
+      "population": 333888,
+      "previousPopulation": 332655,
+      "rank": 58,
+      "capital": false,
+      "censusName": "Orlando city"
+    },
+    {
+      "name": "Palm Bay",
+      "state": "Florida",
+      "slug": "palm-bay-florida",
+      "population": 148092,
+      "previousPopulation": 141351,
+      "rank": 187,
+      "capital": false,
+      "censusName": "Palm Bay city"
+    },
+    {
+      "name": "Pembroke Pines",
+      "state": "Florida",
+      "slug": "pembroke-pines-florida",
+      "population": 176714,
+      "previousPopulation": 177015,
+      "rank": 152,
+      "capital": false,
+      "censusName": "Pembroke Pines city"
+    },
+    {
+      "name": "Port St. Lucie",
+      "state": "Florida",
+      "slug": "port-st-lucie-florida",
+      "population": 268062,
+      "previousPopulation": 258931,
+      "rank": 86,
+      "capital": false,
+      "censusName": "Port St. Lucie city"
+    },
+    {
+      "name": "St. Petersburg",
+      "state": "Florida",
+      "slug": "st-petersburg-florida",
+      "population": 264033,
+      "previousPopulation": 265855,
+      "rank": 87,
+      "capital": false,
+      "censusName": "St. Petersburg city"
+    },
+    {
+      "name": "Tallahassee",
+      "state": "Florida",
+      "slug": "tallahassee-florida",
+      "population": 204902,
+      "previousPopulation": 204025,
+      "rank": 122,
+      "capital": true,
+      "censusName": "Tallahassee city"
+    },
+    {
+      "name": "Tampa",
+      "state": "Florida",
+      "slug": "tampa-florida",
+      "population": 413554,
+      "previousPopulation": 412981,
+      "rank": 49,
+      "capital": false,
+      "censusName": "Tampa city"
+    },
+    {
+      "name": "West Palm Beach",
+      "state": "Florida",
+      "slug": "west-palm-beach-florida",
+      "population": 127189,
+      "previousPopulation": 127364,
+      "rank": 229,
+      "capital": false,
+      "censusName": "West Palm Beach city"
+    },
+    {
+      "name": "Athens-Clarke County unified government (balance)",
+      "state": "Georgia",
+      "slug": "athens-clarke-county-unified-government-balance-georgia",
+      "population": 128612,
+      "previousPopulation": 129429,
+      "rank": 227,
+      "capital": false,
+      "censusName": "Athens-Clarke County unified government (balance)"
+    },
+    {
+      "name": "Atlanta",
+      "state": "Georgia",
+      "slug": "atlanta-georgia",
+      "population": 529110,
+      "previousPopulation": 520760,
+      "rank": 36,
+      "capital": true,
+      "censusName": "Atlanta city"
+    },
+    {
+      "name": "Augusta-Richmond County consolidated government (balance)",
+      "state": "Georgia",
+      "slug": "augusta-richmond-county-consolidated-government-balance-georgia",
+      "population": 201999,
+      "previousPopulation": 201979,
+      "rank": 126,
+      "capital": false,
+      "censusName": "Augusta-Richmond County consolidated government (balance)"
+    },
+    {
+      "name": "Columbus",
+      "state": "Georgia",
+      "slug": "columbus-georgia",
+      "population": 202171,
+      "previousPopulation": 202072,
+      "rank": 124,
+      "capital": false,
+      "censusName": "Columbus city"
+    },
+    {
+      "name": "Macon-Bibb County",
+      "state": "Georgia",
+      "slug": "macon-bibb-county-georgia",
+      "population": 157556,
+      "previousPopulation": 157360,
+      "rank": 171,
+      "capital": false,
+      "censusName": "Macon-Bibb County"
+    },
+    {
+      "name": "Savannah",
+      "state": "Georgia",
+      "slug": "savannah-georgia",
+      "population": 149440,
+      "previousPopulation": 150080,
+      "rank": 184,
+      "capital": false,
+      "censusName": "Savannah city"
+    },
+    {
+      "name": "Honolulu",
+      "state": "Hawaii",
+      "slug": "honolulu-hawaii",
+      "population": null,
+      "previousPopulation": null,
+      "rank": null,
+      "capital": true,
+      "censusName": null
+    },
+    {
+      "name": "Urban Honolulu CDP",
+      "state": "Hawaii",
+      "slug": "urban-honolulu-cdp-hawaii",
+      "population": 341868,
+      "previousPopulation": 342391,
+      "rank": 56,
+      "capital": false,
+      "censusName": "Urban Honolulu CDP"
+    },
+    {
+      "name": "Boise",
+      "state": "Idaho",
+      "slug": "boise-idaho",
+      "population": 238429,
+      "previousPopulation": 237730,
+      "rank": 95,
+      "capital": true,
+      "censusName": "Boise City city"
+    },
+    {
+      "name": "Meridian",
+      "state": "Idaho",
+      "slug": "meridian-idaho",
+      "population": 142988,
+      "previousPopulation": 139593,
+      "rank": 197,
+      "capital": false,
+      "censusName": "Meridian city"
+    },
+    {
+      "name": "Aurora",
+      "state": "Illinois",
+      "slug": "aurora-illinois",
+      "population": 181505,
+      "previousPopulation": 180910,
+      "rank": 148,
+      "capital": false,
+      "censusName": "Aurora city"
+    },
+    {
+      "name": "Chicago",
+      "state": "Illinois",
+      "slug": "chicago-illinois",
+      "population": 2731585,
+      "previousPopulation": 2726332,
+      "rank": 3,
+      "capital": false,
+      "censusName": "Chicago city"
+    },
+    {
+      "name": "Joliet",
+      "state": "Illinois",
+      "slug": "joliet-illinois",
+      "population": 152241,
+      "previousPopulation": 151904,
+      "rank": 180,
+      "capital": false,
+      "censusName": "Joliet city"
+    },
+    {
+      "name": "Naperville",
+      "state": "Illinois",
+      "slug": "naperville-illinois",
+      "population": 153114,
+      "previousPopulation": 152548,
+      "rank": 178,
+      "capital": false,
+      "censusName": "Naperville city"
+    },
+    {
+      "name": "Rockford",
+      "state": "Illinois",
+      "slug": "rockford-illinois",
+      "population": 147384,
+      "previousPopulation": 147098,
+      "rank": 192,
+      "capital": false,
+      "censusName": "Rockford city"
+    },
+    {
+      "name": "Springfield",
+      "state": "Illinois",
+      "slug": "springfield-illinois",
+      "population": 112989,
+      "previousPopulation": 112996,
+      "rank": 283,
+      "capital": true,
+      "censusName": "Springfield city"
+    },
+    {
+      "name": "Fort Wayne",
+      "state": "Indiana",
+      "slug": "fort-wayne-indiana",
+      "population": 275203,
+      "previousPopulation": 273030,
+      "rank": 82,
+      "capital": false,
+      "censusName": "Fort Wayne city"
+    },
+    {
+      "name": "Indianapolis",
+      "state": "Indiana",
+      "slug": "indianapolis-indiana",
+      "population": 901116,
+      "previousPopulation": 899274,
+      "rank": 16,
+      "capital": true,
+      "censusName": "Indianapolis city (balance)"
+    },
+    {
+      "name": "Cedar Rapids",
+      "state": "Iowa",
+      "slug": "cedar-rapids-iowa",
+      "population": 137935,
+      "previousPopulation": 137022,
+      "rank": 210,
+      "capital": false,
+      "censusName": "Cedar Rapids city"
+    },
+    {
+      "name": "Des Moines",
+      "state": "Iowa",
+      "slug": "des-moines-iowa",
+      "population": 212086,
+      "previousPopulation": 212277,
+      "rank": 116,
+      "capital": true,
+      "censusName": "Des Moines city"
+    },
+    {
+      "name": "Kansas City",
+      "state": "Kansas",
+      "slug": "kansas-city-kansas",
+      "population": 157805,
+      "previousPopulation": 157195,
+      "rank": 170,
+      "capital": false,
+      "censusName": "Kansas City city"
+    },
+    {
+      "name": "Olathe",
+      "state": "Kansas",
+      "slug": "olathe-kansas",
+      "population": 150025,
+      "previousPopulation": 148664,
+      "rank": 183,
+      "capital": false,
+      "censusName": "Olathe city"
+    },
+    {
+      "name": "Overland Park",
+      "state": "Kansas",
+      "slug": "overland-park-kansas",
+      "population": 203677,
+      "previousPopulation": 202402,
+      "rank": 123,
+      "capital": false,
+      "censusName": "Overland Park city"
+    },
+    {
+      "name": "Topeka",
+      "state": "Kansas",
+      "slug": "topeka-kansas",
+      "population": 125795,
+      "previousPopulation": 125677,
+      "rank": 232,
+      "capital": true,
+      "censusName": "Topeka city"
+    },
+    {
+      "name": "Wichita",
+      "state": "Kansas",
+      "slug": "wichita-kansas",
+      "population": 400987,
+      "previousPopulation": 399763,
+      "rank": 52,
+      "capital": false,
+      "censusName": "Wichita city"
+    },
+    {
+      "name": "Frankfort",
+      "state": "Kentucky",
+      "slug": "frankfort-kentucky",
+      "population": 28657,
+      "previousPopulation": 28648,
+      "rank": 1409,
+      "capital": true,
+      "censusName": "Frankfort city"
+    },
+    {
+      "name": "Lexington",
+      "state": "Kentucky",
+      "slug": "lexington-kentucky",
+      "population": 329751,
+      "previousPopulation": 327071,
+      "rank": 59,
+      "capital": false,
+      "censusName": "Lexington-Fayette urban county"
+    },
+    {
+      "name": "Louisville",
+      "state": "Kentucky",
+      "slug": "louisville-kentucky",
+      "population": 641962,
+      "previousPopulation": 641189,
+      "rank": 27,
+      "capital": false,
+      "censusName": "Louisville/Jefferson County metro government (balance)"
+    },
+    {
+      "name": "Baton Rouge",
+      "state": "Louisiana",
+      "slug": "baton-rouge-louisiana",
+      "population": 222795,
+      "previousPopulation": 221540,
+      "rank": 107,
+      "capital": true,
+      "censusName": "Baton Rouge city"
+    },
+    {
+      "name": "Lafayette",
+      "state": "Louisiana",
+      "slug": "lafayette-louisiana",
+      "population": 123311,
+      "previousPopulation": 122688,
+      "rank": 239,
+      "capital": false,
+      "censusName": "Lafayette city"
+    },
+    {
+      "name": "New Orleans",
+      "state": "Louisiana",
+      "slug": "new-orleans-louisiana",
+      "population": 362154,
+      "previousPopulation": 363477,
+      "rank": 54,
+      "capital": false,
+      "censusName": "New Orleans city"
+    },
+    {
+      "name": "Shreveport",
+      "state": "Louisiana",
+      "slug": "shreveport-louisiana",
+      "population": 175902,
+      "previousPopulation": 176960,
+      "rank": 153,
+      "capital": false,
+      "censusName": "Shreveport city"
+    },
+    {
+      "name": "Augusta",
+      "state": "Maine",
+      "slug": "augusta-maine",
+      "population": 19155,
+      "previousPopulation": 19180,
+      "rank": 2011,
+      "capital": true,
+      "censusName": "Augusta city"
+    },
+    {
+      "name": "Annapolis",
+      "state": "Maryland",
+      "slug": "annapolis-maryland",
+      "population": 40634,
+      "previousPopulation": 40492,
+      "rank": 1024,
+      "capital": true,
+      "censusName": "Annapolis city"
+    },
+    {
+      "name": "Baltimore",
+      "state": "Maryland",
+      "slug": "baltimore-maryland",
+      "population": 569997,
+      "previousPopulation": 570053,
+      "rank": 30,
+      "capital": false,
+      "censusName": "Baltimore city"
+    },
+    {
+      "name": "Boston",
+      "state": "Massachusetts",
+      "slug": "boston-massachusetts",
+      "population": 672973,
+      "previousPopulation": 674311,
+      "rank": 25,
+      "capital": true,
+      "censusName": "Boston city"
+    },
+    {
+      "name": "Cambridge",
+      "state": "Massachusetts",
+      "slug": "cambridge-massachusetts",
+      "population": 122588,
+      "previousPopulation": 121837,
+      "rank": 244,
+      "capital": false,
+      "censusName": "Cambridge city"
+    },
+    {
+      "name": "Springfield",
+      "state": "Massachusetts",
+      "slug": "springfield-massachusetts",
+      "population": 154702,
+      "previousPopulation": 154390,
+      "rank": 176,
+      "capital": false,
+      "censusName": "Springfield city"
+    },
+    {
+      "name": "Worcester",
+      "state": "Massachusetts",
+      "slug": "worcester-massachusetts",
+      "population": 213862,
+      "previousPopulation": 211946,
+      "rank": 113,
+      "capital": false,
+      "censusName": "Worcester city"
+    },
+    {
+      "name": "Ann Arbor",
+      "state": "Michigan",
+      "slug": "ann-arbor-michigan",
+      "population": 122233,
+      "previousPopulation": 121447,
+      "rank": 247,
+      "capital": false,
+      "censusName": "Ann Arbor city"
+    },
+    {
+      "name": "Detroit",
+      "state": "Michigan",
+      "slug": "detroit-michigan",
+      "population": 649095,
+      "previousPopulation": 644035,
+      "rank": 26,
+      "capital": false,
+      "censusName": "Detroit city"
+    },
+    {
+      "name": "Grand Rapids",
+      "state": "Michigan",
+      "slug": "grand-rapids-michigan",
+      "population": 201183,
+      "previousPopulation": 199388,
+      "rank": 127,
+      "capital": false,
+      "censusName": "Grand Rapids city"
+    },
+    {
+      "name": "Lansing",
+      "state": "Michigan",
+      "slug": "lansing-michigan",
+      "population": 113884,
+      "previousPopulation": 113125,
+      "rank": 278,
+      "capital": true,
+      "censusName": "Lansing city"
+    },
+    {
+      "name": "Sterling Heights",
+      "state": "Michigan",
+      "slug": "sterling-heights-michigan",
+      "population": 133931,
+      "previousPopulation": 133788,
+      "rank": 219,
+      "capital": false,
+      "censusName": "Sterling Heights city"
+    },
+    {
+      "name": "Warren",
+      "state": "Michigan",
+      "slug": "warren-michigan",
+      "population": 137138,
+      "previousPopulation": 137132,
+      "rank": 213,
+      "capital": false,
+      "censusName": "Warren city"
+    },
+    {
+      "name": "Minneapolis",
+      "state": "Minnesota",
+      "slug": "minneapolis-minnesota",
+      "population": 430324,
+      "previousPopulation": 430125,
+      "rank": 46,
+      "capital": false,
+      "censusName": "Minneapolis city"
+    },
+    {
+      "name": "Rochester",
+      "state": "Minnesota",
+      "slug": "rochester-minnesota",
+      "population": 124292,
+      "previousPopulation": 123209,
+      "rank": 238,
+      "capital": false,
+      "censusName": "Rochester city"
+    },
+    {
+      "name": "Saint Paul",
+      "state": "Minnesota",
+      "slug": "saint-paul-minnesota",
+      "population": 306684,
+      "previousPopulation": 306760,
+      "rank": 69,
+      "capital": true,
+      "censusName": "St. Paul city"
+    },
+    {
+      "name": "Jackson",
+      "state": "Mississippi",
+      "slug": "jackson-mississippi",
+      "population": 141196,
+      "previousPopulation": 142042,
+      "rank": 202,
+      "capital": true,
+      "censusName": "Jackson city"
+    },
+    {
+      "name": "Columbia",
+      "state": "Missouri",
+      "slug": "columbia-missouri",
+      "population": 130851,
+      "previousPopulation": 130077,
+      "rank": 223,
+      "capital": false,
+      "censusName": "Columbia city"
+    },
+    {
+      "name": "Jefferson City",
+      "state": "Missouri",
+      "slug": "jefferson-city-missouri",
+      "population": 42489,
+      "previousPopulation": 42690,
+      "rank": 978,
+      "capital": true,
+      "censusName": "Jefferson City city"
+    },
+    {
+      "name": "Kansas City",
+      "state": "Missouri",
+      "slug": "kansas-city-missouri",
+      "population": 521220,
+      "previousPopulation": 516539,
+      "rank": 37,
+      "capital": false,
+      "censusName": "Kansas City city"
+    },
+    {
+      "name": "Springfield",
+      "state": "Missouri",
+      "slug": "springfield-missouri",
+      "population": 169847,
+      "previousPopulation": 170233,
+      "rank": 160,
+      "capital": false,
+      "censusName": "Springfield city"
+    },
+    {
+      "name": "St. Louis",
+      "state": "Missouri",
+      "slug": "st-louis-missouri",
+      "population": 278144,
+      "previousPopulation": 280445,
+      "rank": 80,
+      "capital": false,
+      "censusName": "St. Louis city"
+    },
+    {
+      "name": "Helena",
+      "state": "Montana",
+      "slug": "helena-montana",
+      "population": 35138,
+      "previousPopulation": 34686,
+      "rank": 1181,
+      "capital": true,
+      "censusName": "Helena city"
+    },
+    {
+      "name": "Lincoln",
+      "state": "Nebraska",
+      "slug": "lincoln-nebraska",
+      "population": 301522,
+      "previousPopulation": 299265,
+      "rank": 72,
+      "capital": true,
+      "censusName": "Lincoln city"
+    },
+    {
+      "name": "Omaha",
+      "state": "Nebraska",
+      "slug": "omaha-nebraska",
+      "population": 488797,
+      "previousPopulation": 489247,
+      "rank": 42,
+      "capital": false,
+      "censusName": "Omaha city"
+    },
+    {
+      "name": "Carson City",
+      "state": "Nevada",
+      "slug": "carson-city-nevada",
+      "population": 58571,
+      "previousPopulation": 58300,
+      "rank": 700,
+      "capital": true,
+      "censusName": "Carson City"
+    },
+    {
+      "name": "Henderson",
+      "state": "Nevada",
+      "slug": "henderson-nevada",
+      "population": 353289,
+      "previousPopulation": 347910,
+      "rank": 55,
+      "capital": false,
+      "censusName": "Henderson city"
+    },
+    {
+      "name": "Las Vegas",
+      "state": "Nevada",
+      "slug": "las-vegas-nevada",
+      "population": 679817,
+      "previousPopulation": 675152,
+      "rank": 24,
+      "capital": false,
+      "censusName": "Las Vegas city"
+    },
+    {
+      "name": "North Las Vegas",
+      "state": "Nevada",
+      "slug": "north-las-vegas-nevada",
+      "population": 296653,
+      "previousPopulation": 292321,
+      "rank": 73,
+      "capital": false,
+      "censusName": "North Las Vegas city"
+    },
+    {
+      "name": "Reno",
+      "state": "Nevada",
+      "slug": "reno-nevada",
+      "population": 283621,
+      "previousPopulation": 280646,
+      "rank": 78,
+      "capital": false,
+      "censusName": "Reno city"
+    },
+    {
+      "name": "Concord",
+      "state": "New Hampshire",
+      "slug": "concord-new-hampshire",
+      "population": 44597,
+      "previousPopulation": 44573,
+      "rank": 932,
+      "capital": true,
+      "censusName": "Concord city"
+    },
+    {
+      "name": "Elizabeth",
+      "state": "New Jersey",
+      "slug": "elizabeth-new-jersey",
+      "population": 141675,
+      "previousPopulation": 141555,
+      "rank": 199,
+      "capital": false,
+      "censusName": "Elizabeth city"
+    },
+    {
+      "name": "Jersey City",
+      "state": "New Jersey",
+      "slug": "jersey-city-new-jersey",
+      "population": 302013,
+      "previousPopulation": 300723,
+      "rank": 71,
+      "capital": false,
+      "censusName": "Jersey City city"
+    },
+    {
+      "name": "Newark",
+      "state": "New Jersey",
+      "slug": "newark-new-jersey",
+      "population": 323808,
+      "previousPopulation": 320162,
+      "rank": 61,
+      "capital": false,
+      "censusName": "Newark city"
+    },
+    {
+      "name": "Paterson",
+      "state": "New Jersey",
+      "slug": "paterson-new-jersey",
+      "population": 161793,
+      "previousPopulation": 161737,
+      "rank": 165,
+      "capital": false,
+      "censusName": "Paterson city"
+    },
+    {
+      "name": "Trenton",
+      "state": "New Jersey",
+      "slug": "trenton-new-jersey",
+      "population": 91506,
+      "previousPopulation": 91310,
+      "rank": 383,
+      "capital": true,
+      "censusName": "Trenton city"
+    },
+    {
+      "name": "Albuquerque",
+      "state": "New Mexico",
+      "slug": "albuquerque-new-mexico",
+      "population": 556588,
+      "previousPopulation": 558878,
+      "rank": 32,
+      "capital": false,
+      "censusName": "Albuquerque city"
+    },
+    {
+      "name": "Santa Fe",
+      "state": "New Mexico",
+      "slug": "santa-fe-new-mexico",
+      "population": 89837,
+      "previousPopulation": 90265,
+      "rank": 398,
+      "capital": true,
+      "censusName": "Santa Fe city"
+    },
+    {
+      "name": "Albany",
+      "state": "New York",
+      "slug": "albany-new-york",
+      "population": 101698,
+      "previousPopulation": 101295,
+      "rank": 333,
+      "capital": true,
+      "censusName": "Albany city"
+    },
+    {
+      "name": "Buffalo",
+      "state": "New York",
+      "slug": "buffalo-new-york",
+      "population": 274613,
+      "previousPopulation": 275322,
+      "rank": 83,
+      "capital": false,
+      "censusName": "Buffalo city"
+    },
+    {
+      "name": "New York",
+      "state": "New York",
+      "slug": "new-york-new-york",
+      "population": 8584629,
+      "previousPopulation": 8596825,
+      "rank": 1,
+      "capital": false,
+      "censusName": "New York city"
+    },
+    {
+      "name": "Rochester",
+      "state": "New York",
+      "slug": "rochester-new-york",
+      "population": 206108,
+      "previousPopulation": 206080,
+      "rank": 120,
+      "capital": false,
+      "censusName": "Rochester city"
+    },
+    {
+      "name": "Syracuse",
+      "state": "New York",
+      "slug": "syracuse-new-york",
+      "population": 144896,
+      "previousPopulation": 145402,
+      "rank": 196,
+      "capital": false,
+      "censusName": "Syracuse city"
+    },
+    {
+      "name": "Yonkers",
+      "state": "New York",
+      "slug": "yonkers-new-york",
+      "population": 212603,
+      "previousPopulation": 211546,
+      "rank": 115,
+      "capital": false,
+      "censusName": "Yonkers city"
+    },
+    {
+      "name": "Cary",
+      "state": "North Carolina",
+      "slug": "cary-north-carolina",
+      "population": 183582,
+      "previousPopulation": 182173,
+      "rank": 145,
+      "capital": false,
+      "censusName": "Cary town"
+    },
+    {
+      "name": "Charlotte",
+      "state": "North Carolina",
+      "slug": "charlotte-north-carolina",
+      "population": 964784,
+      "previousPopulation": 944053,
+      "rank": 14,
+      "capital": false,
+      "censusName": "Charlotte city"
+    },
+    {
+      "name": "Durham",
+      "state": "North Carolina",
+      "slug": "durham-north-carolina",
+      "population": 305561,
+      "previousPopulation": 300834,
+      "rank": 70,
+      "capital": false,
+      "censusName": "Durham city"
+    },
+    {
+      "name": "Fayetteville",
+      "state": "North Carolina",
+      "slug": "fayetteville-north-carolina",
+      "population": 209120,
+      "previousPopulation": 209047,
+      "rank": 118,
+      "capital": false,
+      "censusName": "Fayetteville city"
+    },
+    {
+      "name": "Greensboro",
+      "state": "North Carolina",
+      "slug": "greensboro-north-carolina",
+      "population": 308667,
+      "previousPopulation": 306355,
+      "rank": 67,
+      "capital": false,
+      "censusName": "Greensboro city"
+    },
+    {
+      "name": "Raleigh",
+      "state": "North Carolina",
+      "slug": "raleigh-north-carolina",
+      "population": 506306,
+      "previousPopulation": 499017,
+      "rank": 39,
+      "capital": true,
+      "censusName": "Raleigh city"
+    },
+    {
+      "name": "Wilmington",
+      "state": "North Carolina",
+      "slug": "wilmington-north-carolina",
+      "population": 126809,
+      "previousPopulation": 125438,
+      "rank": 230,
+      "capital": false,
+      "censusName": "Wilmington city"
+    },
+    {
+      "name": "Winston-Salem",
+      "state": "North Carolina",
+      "slug": "winston-salem-north-carolina",
+      "population": 257271,
+      "previousPopulation": 255646,
+      "rank": 90,
+      "capital": false,
+      "censusName": "Winston-Salem city"
+    },
+    {
+      "name": "Bismarck",
+      "state": "North Dakota",
+      "slug": "bismarck-north-dakota",
+      "population": 77963,
+      "previousPopulation": 77284,
+      "rank": 484,
+      "capital": true,
+      "censusName": "Bismarck city"
+    },
+    {
+      "name": "Fargo",
+      "state": "North Dakota",
+      "slug": "fargo-north-dakota",
+      "population": 136275,
+      "previousPopulation": 135187,
+      "rank": 215,
+      "capital": false,
+      "censusName": "Fargo city"
+    },
+    {
+      "name": "Akron",
+      "state": "Ohio",
+      "slug": "akron-ohio",
+      "population": 189691,
+      "previousPopulation": 189332,
+      "rank": 139,
+      "capital": false,
+      "censusName": "Akron city"
+    },
+    {
+      "name": "Cincinnati",
+      "state": "Ohio",
+      "slug": "cincinnati-ohio",
+      "population": 314367,
+      "previousPopulation": 314855,
+      "rank": 66,
+      "capital": false,
+      "censusName": "Cincinnati city"
+    },
+    {
+      "name": "Cleveland",
+      "state": "Ohio",
+      "slug": "cleveland-ohio",
+      "population": 363608,
+      "previousPopulation": 363336,
+      "rank": 53,
+      "capital": false,
+      "censusName": "Cleveland city"
+    },
+    {
+      "name": "Columbus",
+      "state": "Ohio",
+      "slug": "columbus-ohio",
+      "population": 938396,
+      "previousPopulation": 930700,
+      "rank": 15,
+      "capital": true,
+      "censusName": "Columbus city"
+    },
+    {
+      "name": "Dayton",
+      "state": "Ohio",
+      "slug": "dayton-ohio",
+      "population": 136688,
+      "previousPopulation": 136224,
+      "rank": 214,
+      "capital": false,
+      "censusName": "Dayton city"
+    },
+    {
+      "name": "Toledo",
+      "state": "Ohio",
+      "slug": "toledo-ohio",
+      "population": 263423,
+      "previousPopulation": 264385,
+      "rank": 88,
+      "capital": false,
+      "censusName": "Toledo city"
+    },
+    {
+      "name": "Broken Arrow",
+      "state": "Oklahoma",
+      "slug": "broken-arrow-oklahoma",
+      "population": 124991,
+      "previousPopulation": 122778,
+      "rank": 236,
+      "capital": false,
+      "censusName": "Broken Arrow city"
+    },
+    {
+      "name": "Norman",
+      "state": "Oklahoma",
+      "slug": "norman-oklahoma",
+      "population": 130943,
+      "previousPopulation": 130863,
+      "rank": 222,
+      "capital": false,
+      "censusName": "Norman city"
+    },
+    {
+      "name": "Oklahoma City",
+      "state": "Oklahoma",
+      "slug": "oklahoma-city-oklahoma",
+      "population": 719849,
+      "previousPopulation": 713745,
+      "rank": 21,
+      "capital": true,
+      "censusName": "Oklahoma City city"
+    },
+    {
+      "name": "Tulsa",
+      "state": "Oklahoma",
+      "slug": "tulsa-oklahoma",
+      "population": 416209,
+      "previousPopulation": 416182,
+      "rank": 48,
+      "capital": false,
+      "censusName": "Tulsa city"
+    },
+    {
+      "name": "Eugene",
+      "state": "Oregon",
+      "slug": "eugene-oregon",
+      "population": 178618,
+      "previousPopulation": 178772,
+      "rank": 150,
+      "capital": false,
+      "censusName": "Eugene city"
+    },
+    {
+      "name": "Portland",
+      "state": "Oregon",
+      "slug": "portland-oregon",
+      "population": 635109,
+      "previousPopulation": 634402,
+      "rank": 28,
+      "capital": false,
+      "censusName": "Portland city"
+    },
+    {
+      "name": "Salem",
+      "state": "Oregon",
+      "slug": "salem-oregon",
+      "population": 181779,
+      "previousPopulation": 180479,
+      "rank": 147,
+      "capital": true,
+      "censusName": "Salem city"
+    },
+    {
+      "name": "Allentown",
+      "state": "Pennsylvania",
+      "slug": "allentown-pennsylvania",
+      "population": 126044,
+      "previousPopulation": 125808,
+      "rank": 231,
+      "capital": false,
+      "censusName": "Allentown city"
+    },
+    {
+      "name": "Harrisburg",
+      "state": "Pennsylvania",
+      "slug": "harrisburg-pennsylvania",
+      "population": 50522,
+      "previousPopulation": 50559,
+      "rank": 813,
+      "capital": true,
+      "censusName": "Harrisburg city"
+    },
+    {
+      "name": "Philadelphia",
+      "state": "Pennsylvania",
+      "slug": "philadelphia-pennsylvania",
+      "population": 1574281,
+      "previousPopulation": 1572735,
+      "rank": 6,
+      "capital": false,
+      "censusName": "Philadelphia city"
+    },
+    {
+      "name": "Pittsburgh",
+      "state": "Pennsylvania",
+      "slug": "pittsburgh-pennsylvania",
+      "population": 307632,
+      "previousPopulation": 306719,
+      "rank": 68,
+      "capital": false,
+      "censusName": "Pittsburgh city"
+    },
+    {
+      "name": "Providence",
+      "state": "Rhode Island",
+      "slug": "providence-rhode-island",
+      "population": 195310,
+      "previousPopulation": 194242,
+      "rank": 133,
+      "capital": true,
+      "censusName": "Providence city"
+    },
+    {
+      "name": "Charleston",
+      "state": "South Carolina",
+      "slug": "charleston-south-carolina",
+      "population": 159423,
+      "previousPopulation": 158791,
+      "rank": 168,
+      "capital": false,
+      "censusName": "Charleston city"
+    },
+    {
+      "name": "Columbia",
+      "state": "South Carolina",
+      "slug": "columbia-south-carolina",
+      "population": 147035,
+      "previousPopulation": 144133,
+      "rank": 193,
+      "capital": true,
+      "censusName": "Columbia city"
+    },
+    {
+      "name": "North Charleston",
+      "state": "South Carolina",
+      "slug": "north-charleston-south-carolina",
+      "population": 129245,
+      "previousPopulation": 126551,
+      "rank": 226,
+      "capital": false,
+      "censusName": "North Charleston city"
+    },
+    {
+      "name": "Pierre",
+      "state": "South Dakota",
+      "slug": "pierre-south-dakota",
+      "population": 13848,
+      "previousPopulation": 13815,
+      "rank": 2551,
+      "capital": true,
+      "censusName": "Pierre city"
+    },
+    {
+      "name": "Sioux Falls",
+      "state": "South Dakota",
+      "slug": "sioux-falls-south-dakota",
+      "population": 213748,
+      "previousPopulation": 209886,
+      "rank": 114,
+      "capital": false,
+      "censusName": "Sioux Falls city"
+    },
+    {
+      "name": "Chattanooga",
+      "state": "Tennessee",
+      "slug": "chattanooga-tennessee",
+      "population": 194144,
+      "previousPopulation": 192010,
+      "rank": 135,
+      "capital": false,
+      "censusName": "Chattanooga city"
+    },
+    {
+      "name": "Clarksville",
+      "state": "Tennessee",
+      "slug": "clarksville-tennessee",
+      "population": 188829,
+      "previousPopulation": 185811,
+      "rank": 140,
+      "capital": false,
+      "censusName": "Clarksville city"
+    },
+    {
+      "name": "Knoxville",
+      "state": "Tennessee",
+      "slug": "knoxville-tennessee",
+      "population": 202021,
+      "previousPopulation": 199084,
+      "rank": 125,
+      "capital": false,
+      "censusName": "Knoxville city"
+    },
+    {
+      "name": "Memphis",
+      "state": "Tennessee",
+      "slug": "memphis-tennessee",
+      "population": 609647,
+      "previousPopulation": 614222,
+      "rank": 29,
+      "capital": false,
+      "censusName": "Memphis city"
+    },
+    {
+      "name": "Murfreesboro",
+      "state": "Tennessee",
+      "slug": "murfreesboro-tennessee",
+      "population": 171178,
+      "previousPopulation": 169752,
+      "rank": 156,
+      "capital": false,
+      "censusName": "Murfreesboro city"
+    },
+    {
+      "name": "Nashville",
+      "state": "Tennessee",
+      "slug": "nashville-tennessee",
+      "population": 721074,
+      "previousPopulation": 711830,
+      "rank": 20,
+      "capital": true,
+      "censusName": "Nashville-Davidson metropolitan government (balance)"
+    },
+    {
+      "name": "Abilene",
+      "state": "Texas",
+      "slug": "abilene-texas",
+      "population": 131588,
+      "previousPopulation": 130136,
+      "rank": 221,
+      "capital": false,
+      "censusName": "Abilene city"
+    },
+    {
+      "name": "Amarillo",
+      "state": "Texas",
+      "slug": "amarillo-texas",
+      "population": 205130,
+      "previousPopulation": 203513,
+      "rank": 121,
+      "capital": false,
+      "censusName": "Amarillo city"
+    },
+    {
+      "name": "Arlington",
+      "state": "Texas",
+      "slug": "arlington-texas",
+      "population": 402134,
+      "previousPopulation": 403348,
+      "rank": 51,
+      "capital": false,
+      "censusName": "Arlington city"
+    },
+    {
+      "name": "Austin",
+      "state": "Texas",
+      "slug": "austin-texas",
+      "population": 1002632,
+      "previousPopulation": 998607,
+      "rank": 12,
+      "capital": true,
+      "censusName": "Austin city"
+    },
+    {
+      "name": "Brownsville",
+      "state": "Texas",
+      "slug": "brownsville-texas",
+      "population": 192957,
+      "previousPopulation": 192417,
+      "rank": 136,
+      "capital": false,
+      "censusName": "Brownsville city"
+    },
+    {
+      "name": "Carrollton",
+      "state": "Texas",
+      "slug": "carrollton-texas",
+      "population": 134562,
+      "previousPopulation": 135781,
+      "rank": 218,
+      "capital": false,
+      "censusName": "Carrollton city"
+    },
+    {
+      "name": "College Station",
+      "state": "Texas",
+      "slug": "college-station-texas",
+      "population": 127472,
+      "previousPopulation": 127208,
+      "rank": 228,
+      "capital": false,
+      "censusName": "College Station city"
+    },
+    {
+      "name": "Corpus Christi",
+      "state": "Texas",
+      "slug": "corpus-christi-texas",
+      "population": 317247,
+      "previousPopulation": 317147,
+      "rank": 64,
+      "capital": false,
+      "censusName": "Corpus Christi city"
+    },
+    {
+      "name": "Dallas",
+      "state": "Texas",
+      "slug": "dallas-texas",
+      "population": 1329491,
+      "previousPopulation": 1331299,
+      "rank": 9,
+      "capital": false,
+      "censusName": "Dallas city"
+    },
+    {
+      "name": "Denton",
+      "state": "Texas",
+      "slug": "denton-texas",
+      "population": 169431,
+      "previousPopulation": 166235,
+      "rank": 161,
+      "capital": false,
+      "censusName": "Denton city"
+    },
+    {
+      "name": "El Paso",
+      "state": "Texas",
+      "slug": "el-paso-texas",
+      "population": 683012,
+      "previousPopulation": 685231,
+      "rank": 23,
+      "capital": false,
+      "censusName": "El Paso city"
+    },
+    {
+      "name": "Fort Worth",
+      "state": "Texas",
+      "slug": "fort-worth-texas",
+      "population": 1028117,
+      "previousPopulation": 1008605,
+      "rank": 10,
+      "capital": false,
+      "censusName": "Fort Worth city"
+    },
+    {
+      "name": "Frisco",
+      "state": "Texas",
+      "slug": "frisco-texas",
+      "population": 236955,
+      "previousPopulation": 235159,
+      "rank": 97,
+      "capital": false,
+      "censusName": "Frisco city"
+    },
+    {
+      "name": "Garland",
+      "state": "Texas",
+      "slug": "garland-texas",
+      "population": 249625,
+      "previousPopulation": 251034,
+      "rank": 93,
+      "capital": false,
+      "censusName": "Garland city"
+    },
+    {
+      "name": "Grand Prairie",
+      "state": "Texas",
+      "slug": "grand-prairie-texas",
+      "population": 209434,
+      "previousPopulation": 207515,
+      "rank": 117,
+      "capital": false,
+      "censusName": "Grand Prairie city"
+    },
+    {
+      "name": "Houston",
+      "state": "Texas",
+      "slug": "houston-texas",
+      "population": 2397315,
+      "previousPopulation": 2385800,
+      "rank": 4,
+      "capital": false,
+      "censusName": "Houston city"
+    },
+    {
+      "name": "Irving",
+      "state": "Texas",
+      "slug": "irving-texas",
+      "population": 257076,
+      "previousPopulation": 258637,
+      "rank": 91,
+      "capital": false,
+      "censusName": "Irving city"
+    },
+    {
+      "name": "Killeen",
+      "state": "Texas",
+      "slug": "killeen-texas",
+      "population": 161883,
+      "previousPopulation": 160388,
+      "rank": 163,
+      "capital": false,
+      "censusName": "Killeen city"
+    },
+    {
+      "name": "Laredo",
+      "state": "Texas",
+      "slug": "laredo-texas",
+      "population": 269515,
+      "previousPopulation": 268740,
+      "rank": 85,
+      "capital": false,
+      "censusName": "Laredo city"
+    },
+    {
+      "name": "Lewisville",
+      "state": "Texas",
+      "slug": "lewisville-texas",
+      "population": 139006,
+      "previousPopulation": 136050,
+      "rank": 204,
+      "capital": false,
+      "censusName": "Lewisville city"
+    },
+    {
+      "name": "Lubbock",
+      "state": "Texas",
+      "slug": "lubbock-texas",
+      "population": 273071,
+      "previousPopulation": 270226,
+      "rank": 84,
+      "capital": false,
+      "censusName": "Lubbock city"
+    },
+    {
+      "name": "McAllen",
+      "state": "Texas",
+      "slug": "mcallen-texas",
+      "population": 150640,
+      "previousPopulation": 148655,
+      "rank": 182,
+      "capital": false,
+      "censusName": "McAllen city"
+    },
+    {
+      "name": "McKinney",
+      "state": "Texas",
+      "slug": "mckinney-texas",
+      "population": 236001,
+      "previousPopulation": 227497,
+      "rank": 99,
+      "capital": false,
+      "censusName": "McKinney city"
+    },
+    {
+      "name": "Mesquite",
+      "state": "Texas",
+      "slug": "mesquite-texas",
+      "population": 150693,
+      "previousPopulation": 150461,
+      "rank": 181,
+      "capital": false,
+      "censusName": "Mesquite city"
+    },
+    {
+      "name": "Midland",
+      "state": "Texas",
+      "slug": "midland-texas",
+      "population": 147615,
+      "previousPopulation": 144194,
+      "rank": 191,
+      "capital": false,
+      "censusName": "Midland city"
+    },
+    {
+      "name": "New Braunfels",
+      "state": "Texas",
+      "slug": "new-braunfels-texas",
+      "population": 122492,
+      "previousPopulation": 116523,
+      "rank": 245,
+      "capital": false,
+      "censusName": "New Braunfels city"
+    },
+    {
+      "name": "Odessa",
+      "state": "Texas",
+      "slug": "odessa-texas",
+      "population": 122707,
+      "previousPopulation": 120189,
+      "rank": 243,
+      "capital": false,
+      "censusName": "Odessa city"
+    },
+    {
+      "name": "Pasadena",
+      "state": "Texas",
+      "slug": "pasadena-texas",
+      "population": 148539,
+      "previousPopulation": 149276,
+      "rank": 186,
+      "capital": false,
+      "censusName": "Pasadena city"
+    },
+    {
+      "name": "Pearland",
+      "state": "Texas",
+      "slug": "pearland-texas",
+      "population": 129930,
+      "previousPopulation": 130789,
+      "rank": 224,
+      "capital": false,
+      "censusName": "Pearland city"
+    },
+    {
+      "name": "Plano",
+      "state": "Texas",
+      "slug": "plano-texas",
+      "population": 293028,
+      "previousPopulation": 293395,
+      "rank": 74,
+      "capital": false,
+      "censusName": "Plano city"
+    },
+    {
+      "name": "Round Rock",
+      "state": "Texas",
+      "slug": "round-rock-texas",
+      "population": 141282,
+      "previousPopulation": 135621,
+      "rank": 201,
+      "capital": false,
+      "censusName": "Round Rock city"
+    },
+    {
+      "name": "San Antonio",
+      "state": "Texas",
+      "slug": "san-antonio-texas",
+      "population": 1548422,
+      "previousPopulation": 1534063,
+      "rank": 7,
+      "capital": false,
+      "censusName": "San Antonio city"
+    },
+    {
+      "name": "Waco",
+      "state": "Texas",
+      "slug": "waco-texas",
+      "population": 147788,
+      "previousPopulation": 146790,
+      "rank": 189,
+      "capital": false,
+      "censusName": "Waco city"
+    },
+    {
+      "name": "Salt Lake City",
+      "state": "Utah",
+      "slug": "salt-lake-city-utah",
+      "population": 218428,
+      "previousPopulation": 217834,
+      "rank": 111,
+      "capital": true,
+      "censusName": "Salt Lake City city"
+    },
+    {
+      "name": "West Valley City",
+      "state": "Utah",
+      "slug": "west-valley-city-utah",
+      "population": 137491,
+      "previousPopulation": 138254,
+      "rank": 211,
+      "capital": false,
+      "censusName": "West Valley City city"
+    },
+    {
+      "name": "Montpelier",
+      "state": "Vermont",
+      "slug": "montpelier-vermont",
+      "population": 7823,
+      "previousPopulation": 7894,
+      "rank": 3802,
+      "capital": true,
+      "censusName": "Montpelier city"
+    },
+    {
+      "name": "Alexandria",
+      "state": "Virginia",
+      "slug": "alexandria-virginia",
+      "population": 160662,
+      "previousPopulation": 159367,
+      "rank": 167,
+      "capital": false,
+      "censusName": "Alexandria city"
+    },
+    {
+      "name": "Chesapeake",
+      "state": "Virginia",
+      "slug": "chesapeake-virginia",
+      "population": 255332,
+      "previousPopulation": 254770,
+      "rank": 92,
+      "capital": false,
+      "censusName": "Chesapeake city"
+    },
+    {
+      "name": "Hampton",
+      "state": "Virginia",
+      "slug": "hampton-virginia",
+      "population": 137315,
+      "previousPopulation": 137399,
+      "rank": 212,
+      "capital": false,
+      "censusName": "Hampton city"
+    },
+    {
+      "name": "Newport News",
+      "state": "Virginia",
+      "slug": "newport-news-virginia",
+      "population": 183230,
+      "previousPopulation": 183401,
+      "rank": 146,
+      "capital": false,
+      "censusName": "Newport News city"
+    },
+    {
+      "name": "Norfolk",
+      "state": "Virginia",
+      "slug": "norfolk-virginia",
+      "population": 231013,
+      "previousPopulation": 231105,
+      "rank": 101,
+      "capital": false,
+      "censusName": "Norfolk city"
+    },
+    {
+      "name": "Richmond",
+      "state": "Virginia",
+      "slug": "richmond-virginia",
+      "population": 237257,
+      "previousPopulation": 234807,
+      "rank": 96,
+      "capital": true,
+      "censusName": "Richmond city"
+    },
+    {
+      "name": "Virginia Beach",
+      "state": "Virginia",
+      "slug": "virginia-beach-virginia",
+      "population": 453737,
+      "previousPopulation": 453763,
+      "rank": 43,
+      "capital": false,
+      "censusName": "Virginia Beach city"
+    },
+    {
+      "name": "Bellevue",
+      "state": "Washington",
+      "slug": "bellevue-washington",
+      "population": 154193,
+      "previousPopulation": 152958,
+      "rank": 177,
+      "capital": false,
+      "censusName": "Bellevue city"
+    },
+    {
+      "name": "Kent",
+      "state": "Washington",
+      "slug": "kent-washington",
+      "population": 134871,
+      "previousPopulation": 134138,
+      "rank": 217,
+      "capital": false,
+      "censusName": "Kent city"
+    },
+    {
+      "name": "Olympia",
+      "state": "Washington",
+      "slug": "olympia-washington",
+      "population": 56724,
+      "previousPopulation": 56118,
+      "rank": 731,
+      "capital": true,
+      "censusName": "Olympia city"
+    },
+    {
+      "name": "Seattle",
+      "state": "Washington",
+      "slug": "seattle-washington",
+      "population": 784777,
+      "previousPopulation": 773205,
+      "rank": 18,
+      "capital": false,
+      "censusName": "Seattle city"
+    },
+    {
+      "name": "Spokane",
+      "state": "Washington",
+      "slug": "spokane-washington",
+      "population": 230783,
+      "previousPopulation": 230288,
+      "rank": 103,
+      "capital": false,
+      "censusName": "Spokane city"
+    },
+    {
+      "name": "Tacoma",
+      "state": "Washington",
+      "slug": "tacoma-washington",
+      "population": 229816,
+      "previousPopulation": 227909,
+      "rank": 104,
+      "capital": false,
+      "censusName": "Tacoma city"
+    },
+    {
+      "name": "Vancouver",
+      "state": "Washington",
+      "slug": "vancouver-washington",
+      "population": 199698,
+      "previousPopulation": 198595,
+      "rank": 130,
+      "capital": false,
+      "censusName": "Vancouver city"
+    },
+    {
+      "name": "Charleston",
+      "state": "West Virginia",
+      "slug": "charleston-west-virginia",
+      "population": 46117,
+      "previousPopulation": 46431,
+      "rank": 892,
+      "capital": true,
+      "censusName": "Charleston city"
+    },
+    {
+      "name": "Madison",
+      "state": "Wisconsin",
+      "slug": "madison-wisconsin",
+      "population": 286233,
+      "previousPopulation": 284278,
+      "rank": 77,
+      "capital": true,
+      "censusName": "Madison city"
+    },
+    {
+      "name": "Milwaukee",
+      "state": "Wisconsin",
+      "slug": "milwaukee-wisconsin",
+      "population": 562407,
+      "previousPopulation": 563322,
+      "rank": 31,
+      "capital": false,
+      "censusName": "Milwaukee city"
+    },
+    {
+      "name": "Cheyenne",
+      "state": "Wyoming",
+      "slug": "cheyenne-wyoming",
+      "population": 66507,
+      "previousPopulation": 65773,
+      "rank": 595,
+      "capital": true,
+      "censusName": "Cheyenne city"
+    }
+  ]
+}

@@ -1,11 +1,9 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-mark";
+import { marketingMetadata } from "@/lib/marketing/metadata";
 
-export const metadata: Metadata = {
-  title: "Privacy Policy — Citefi",
-  description: "How Citefi collects, uses, and protects your information.",
-};
+export const metadata: Metadata = marketingMetadata("Privacy policy", "How Citefi collects, uses, and protects your information.", "/privacy");
 
 const EFFECTIVE_DATE = "June 23, 2026";
 const ADDRESS = "3 Cabot Pl, Stoughton, MA 02072";
@@ -17,9 +15,8 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-white">
       <header className="border-b border-slate-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <Link href="/" className="inline-flex items-center gap-3">
-            <BrandMark decorative className="h-8 w-5" />
-            <span className="font-bold text-xl text-slate-900 tracking-tight">citefi.co</span>
+          <Link href="/" aria-label="Citefi home" className="inline-flex items-center">
+            <BrandLogo decorative className="h-8 w-auto" />
           </Link>
         </div>
       </header>

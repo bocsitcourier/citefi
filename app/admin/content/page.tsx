@@ -233,7 +233,7 @@ export default function AdminGeneratedContentPage() {
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                   {items.map((item) => (
                     <Card key={item.assetId || item.id} className="overflow-hidden">
-                      {type === "images" && item.url ? <img src={item.url} alt={item.altText || item.title || "Generated image"} className="h-48 w-full object-cover" />
+                      {type === "images" && item.url ? <img src={item.url} alt={item.altText?.trim() || (item.title ? `Image for ${item.title}` : "Generated image")} className="h-48 w-full object-cover" />
                         : type === "videos" && item.url ? <video src={item.url} controls preload="metadata" className="h-48 w-full bg-black object-contain" />
                         : type === "podcasts" && item.url ? <div className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 p-6"><Music className="mx-auto mb-4 h-10 w-10 text-purple-600" /><audio src={item.url} controls preload="metadata" className="w-full" /></div>
                         : <div className="flex h-48 items-center justify-center bg-muted text-muted-foreground">Preview unavailable</div>}

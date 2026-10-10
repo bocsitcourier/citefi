@@ -1,11 +1,9 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-mark";
+import { marketingMetadata } from "@/lib/marketing/metadata";
 
-export const metadata: Metadata = {
-  title: "Terms of Use — Citefi",
-  description: "The terms and conditions governing your use of the Citefi platform.",
-};
+export const metadata: Metadata = marketingMetadata("Terms of use", "The terms and conditions governing your use of the Citefi platform.", "/terms");
 
 const EFFECTIVE_DATE = "June 23, 2026";
 const ADDRESS = "3 Cabot Pl, Stoughton, MA 02072";
@@ -17,9 +15,8 @@ export default function TermsPage() {
     <div className="min-h-screen bg-white">
       <header className="border-b border-slate-200 px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          <Link href="/" className="inline-flex items-center gap-3">
-            <BrandMark decorative className="h-8 w-5" />
-            <span className="font-bold text-xl text-slate-900 tracking-tight">citefi.co</span>
+          <Link href="/" aria-label="Citefi home" className="inline-flex items-center">
+            <BrandLogo decorative className="h-8 w-auto" />
           </Link>
         </div>
       </header>
@@ -66,6 +63,7 @@ export default function TermsPage() {
             <h2 className="text-xl font-bold text-slate-900 mb-3">4. Subscriptions, Fees, and Billing</h2>
             <div className="space-y-4">
               <p><strong>a) Plans and Fees.</strong> Access to paid features requires a subscription. Fees, plan inclusions, usage allowances, and any usage-based or metered components are described at the point of purchase or on our pricing page.</p>
+              <p><strong>One-Article Offer.</strong> The free offer covers one article: an excerpt before signup and a full watermarked reading view after signup. Application copy, download and export require paid access. The offer is not a monthly credit allowance. Workspace access and checkout require account approval and sign-in. Browser controls and watermarks are deterrents, not a guarantee against screenshots or all copying.</p>
               <p><strong>b) Payment Processor.</strong> Payments are processed by <strong>Stripe</strong>. By providing payment information, you authorize us and Stripe to charge the applicable fees and any taxes. You agree to Stripe's terms as part of payment processing.</p>
               <p><strong>c) Usage-Based Charges.</strong> Where the Services include metered or usage-based components, you authorize charges for usage above included allowances at the rates disclosed to you. Subject to applicable law, charges for usage already consumed are non-refundable.</p>
               <p><strong>d) Renewals.</strong> Subscriptions automatically renew for successive periods unless cancelled before the renewal date. You can cancel by contacting <a href={`mailto:${EMAIL}`} className="text-primary underline">{EMAIL}</a>; cancellation takes effect at the end of the current billing period.</p>

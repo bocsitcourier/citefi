@@ -192,3 +192,13 @@ Backup and deployment status must remain at stable shared paths across symlink s
 Real provider-backed canaries must use an explicit accounting team and must fail closed when the provider account cannot execute.
 **Why:** Picking an arbitrary customer would corrupt immutable COGS attribution; a depleted provider account otherwise looks like release readiness.
 **How to apply:** Give staging a synthetic-only accounting team, production an approved system owner, and never seed a fake success to bypass a provider-capacity failure.
+
+### 22. Release validation must work without checkout metadata
+The release gates must run against an exported source tree, not only a Git
+checkout. Tests that need commit metadata must own a disposable metadata fixture.
+
+**Why:** A checkout-only regression test passed CI but failed the transport's
+second validation because the source export intentionally excludes `.git`.
+
+**How to apply:** Verify new release-gate tests in a no-Git source directory.
+Do not copy repository metadata or credentials into artifacts to make tests pass.

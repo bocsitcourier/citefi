@@ -102,7 +102,7 @@ function safePreviewUrl(raw: string) {
   }
 }
 
-function MediaPreview({ media }: { media: MediaToUpload }) {
+function MediaPreview({ media, contextLabel }: { media: MediaToUpload; contextLabel: string }) {
   const url = safePreviewUrl(media.sourceUrl);
   if (!url) return <p className="text-xs text-destructive">Preview unavailable: invalid media URL.</p>;
   const kind = media.type.toLowerCase();
@@ -110,7 +110,7 @@ function MediaPreview({ media }: { media: MediaToUpload }) {
     <div className="space-y-2">
       {kind.includes("image") || media.mimeType.startsWith("image/") ? (
         // URL is server-provided signed media, guarded to http(s) above.
-        <img src={url} alt={media.altText || media.filename} className="max-h-72 w-auto rounded-md border bg-muted object-contain" />
+        <img src={url} alt={media.altText?.trim() || `Image attached to ${contextLabel}`} className="max-h-72 w-auto rounded-md border bg-muted object-contain" />
       ) : kind.includes("audio") || media.mimeType.startsWith("audio/") ? (
         <audio controls preload="metadata" className="w-full" src={url}>Audio preview unavailable.</audio>
       ) : kind.includes("video") || media.mimeType.startsWith("video/") ? (
@@ -356,7 +356,7 @@ function ArticleReviewCard({ article, onAction, busy }: {
                               <p><span className="text-muted-foreground">Type</span> · {media.type} ({media.mimeType})</p>
                               <p className="sm:col-span-2"><span className="text-muted-foreground">Alt text</span> · {media.altText || "None"}</p>
                             </div>
-                            <MediaPreview media={media} />
+                            <MediaPreview media={media} contextLabel={article.chosenTitle} />
                           </div>
                         ))}
                     </div>

@@ -9,6 +9,27 @@ import { z } from "zod";
 // ============================================================================
 
 // Teams table - organizational units for user isolation
+export const publicTrialSponsor = pgTable("public_trial_sponsor", {
+  singleton: boolean("singleton").primaryKey().notNull().default(true),
+  teamId: integer("team_id").notNull().unique().references((): AnyPgColumn => teams.id),
+}).enableRLS();
+export const publicTrialDocuments = pgTable("public_trial_documents", {
+  id: serial("id").primaryKey(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  ipHash: varchar("ip_hash", { length: 64 }).notNull(),
+  teamId: integer("team_id").references((): AnyPgColumn => teams.id),
+  ownerUserId: integer("owner_user_id").unique().references((): AnyPgColumn => users.id),
+  status: varchar("status", { length: 20 }).notNull().default("created"),
+  input: jsonb("input"),
+  title: text("title"),
+  preview: text("preview"),
+  fullText: text("full_text"),
+  reserveMicrousd: integer("reserve_microusd").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+}).enableRLS();
+
 export const teams = pgTable("teams", {
   id: serial("id").primaryKey(),
   publicId: uuid("public_id").notNull().unique().defaultRandom(),
