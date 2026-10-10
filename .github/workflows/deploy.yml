@@ -63,6 +63,10 @@ jobs:
       - run: npm ci --registry https://registry.npmjs.org
       - run: npm run validate:release
       - run: npm run build
+        # Compile without customer databases or paid provider credentials.
+        # Only this step and its child processes receive the inert values.
+        env:
+          NODE_OPTIONS: --import=./QA/support/qa-fixtures.mjs
 
   deploy:
     name: SSH deploy to droplet
