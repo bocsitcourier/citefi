@@ -44,7 +44,8 @@ git -C "$ROOT" archive "$sha" | tar -x -C "$work"
   node scripts/normalize-release-lockfiles.cjs .
   npm ci --registry https://registry.npmjs.org
   bash -o pipefail -c "$DO_VALIDATION_COMMAND"
-  npm run build
+  # Build-only inert configuration; never exported to the host or PM2.
+  NODE_OPTIONS="${NODE_OPTIONS:-} --import=$(pwd)/QA/support/qa-fixtures.mjs" npm run build
   test -s .next/BUILD_ID
   printf '%s\n' "$sha" > .release-sha
   printf '%s\n' "$(cat .next/BUILD_ID)" > .release-build-id

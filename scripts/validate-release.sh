@@ -5,5 +5,6 @@ set -euo pipefail
 
 npm run check
 node --test tests/deployment/release-lockfile-normalization.test.cjs
+node --test tests/deployment/release-build-environment.test.cjs
 npm run test:deploy-contract
 npm run test:ops
