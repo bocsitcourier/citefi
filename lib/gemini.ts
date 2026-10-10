@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { articleThinkingOptions, articleLengthInstruction } from "./article-request-policy";
 import { AsyncResource } from "node:async_hooks";
 import {
   normalizeArticleTargetUrls,
@@ -6,7 +7,7 @@ import {
 } from "./article-output-safety";
 import { renderArticleMarkdown } from "./article-markdown";
 import Bottleneck from "bottleneck";
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { createBrandLockPromptSegment } from "./branding";
 import { smartResearch, SmartResearchResult } from "./smart-topic-research";
 import { getContentOptimizationContext, ContentOptimizationContext } from "./persona-content-integration";
@@ -15,6 +16,7 @@ import { buildShadowRunPromptPreamble } from "./article-shadow-run";
 import { validateContentWithFacts, FactValidationOptions } from "./fact-validated-generators";
 import { humanizeArticle } from "./deterministic-humanizer";
 import { isProviderAccountingError, throwIfProviderAccountingFailed } from "./cost-telemetry";
+import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import {
   submitGeminiWithReceipt,
   type GeminiAttemptReceiptContext,
@@ -344,7 +346,7 @@ export async function trackedGeminiRequest<T extends { usageMetadata?: { promptT
     }
     return result;
   } catch (error) {
-    if (isProviderAccountingError(error)) throw error;
+    if (isProviderAccountingError(error) || isProviderAttemptTerminalError(error)) throw error;
     const latencyMs = Date.now() - startTime;
     await logFailedProviderAttempt(
       attributedContext,
@@ -630,7 +632,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
 ✓ ZERO company names, business names, provider names, or competitor names in any title — titles are about the TOPIC only`;
 
   console.log(`🤖 Calling Gemini API for ${numTitles} titles...`);
-  const titleModel = getModel("geminiFlash");
+  const titleModel = await getResolvedModel("geminiFlash");
   const titleRequest = {
     model: titleModel,
     contents: [
@@ -700,7 +702,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
   if (result?.usageMetadata) {
     const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
     await logCostTelemetry(
-      { operationType: "article_title_pool", provider: "gemini", model: getModel("geminiFlash"),
+      { operationType: "article_title_pool", provider: "gemini", model: titleModel,
         teamId, providerRequestId: (result as any).responseId ?? null },
       extractGeminiUsage(result), 0, true
     );
@@ -848,7 +850,7 @@ Return ONLY valid JSON with enhanced coverage mapping:
       console.log(`🧠 Critique complete: ${critiqueResult.removedCount} removed, ${critiqueResult.refinedCount} refined`);
       
     } catch (critiqueError) {
-      if (isProviderAccountingError(critiqueError)) throw critiqueError;
+      if (isProviderAccountingError(critiqueError) || isProviderAttemptTerminalError(critiqueError)) throw critiqueError;
       console.warn('⚠️ Critique failed, using scores only:', (critiqueError as Error).message);
       
       // Fallback: Calculate uniqueness scores without critique
@@ -1321,6 +1323,7 @@ ${trustSignals.length > 0 ? `- Trust Signals: ${trustSignals.join(", ")}` : ''}
 Article Title: ${title}
 Target URL for Internal Linking: ${targetUrl}
 Word Count Range: ${wordCountMin}-${wordCountMax} words${geographicContext}${audienceContext}${toneContext}${customContext}${serpFeatureContext}
+${articleLengthInstruction(wordCountMin, wordCountMax)}
 ${brandLockContext}${batchSeoContext}${personaContext}${guardianWarningsContext}${shadowRunContext}
 
 **CRITICAL CONTENT FOCUS - THIS IS EDUCATIONAL CONTENT, NOT AN ADVERTISEMENT:**
@@ -1755,6 +1758,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       // Set explicit ceiling so Gemini never truncates a long article.
       // gemini-2.5-flash supports up to 65536 output tokens.
       maxOutputTokens: requestLimits?.maxOutputTokens ?? 65536,
+      ...articleThinkingOptions(model),
       responseMimeType: "application/json",
       responseSchema: {
         type: "object",
@@ -1970,7 +1974,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
       console.log(`✅ Article critique complete: Quality score ${critiqueResult.qualityScore}/100`);
       
     } catch (critiqueError) {
-      if (isProviderAccountingError(critiqueError)) throw critiqueError;
+      if (isProviderAccountingError(critiqueError) || isProviderAttemptTerminalError(critiqueError)) throw critiqueError;
       console.warn('⚠️ Article critique skipped:', (critiqueError as Error).message);
     }
   }
@@ -2021,7 +2025,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
         console.warn(`⚠️ [Anti-Hallucination] Insufficient facts: ${factValidationResult.gapReport.missing.join(', ')}`);
       }
     } catch (factValidationError) {
-      if (isProviderAccountingError(factValidationError)) throw factValidationError;
+      if (isProviderAccountingError(factValidationError) || isProviderAttemptTerminalError(factValidationError)) throw factValidationError;
       console.warn('⚠️ Fact validation skipped:', (factValidationError as Error).message);
       parsed.factValidation = {
         enabled: false,

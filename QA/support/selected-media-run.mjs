@@ -1,8 +1,9 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync,
-  unlinkSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+  realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { EVIDENCE_ROOT, hash, selectedMediaManifest, sharedBudget,
   assertPaidMediaPermission } from "./selected-media-plan.mjs";
+import { assertPaidQaLedgerResolved } from "./budget-ledger-dispute.mjs";
 
 export function durableWrite(path, bytes, exclusive = false) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -16,9 +17,18 @@ export function durableWrite(path, bytes, exclusive = false) {
 const json = (path, data, exclusive = false) => durableWrite(path, `${JSON.stringify(data, null, 2)}\n`, exclusive);
 
 export function reserveSelectedMediaRun(stage, runId, options = {}) {
-  const root = resolve(options.root ?? EVIDENCE_ROOT);
   const offline = options.offline === true;
-  if (offline && root === EVIDENCE_ROOT) throw new Error("Offline QA must not mutate the retained ledger");
+  if (!offline) assertPaidQaLedgerResolved();
+  const root = resolve(options.root ?? EVIDENCE_ROOT);
+  if (offline) {
+    const actual = realpathSync(root);
+    const retained = realpathSync(EVIDENCE_ROOT);
+    if (actual !== root || actual === retained || actual.startsWith(retained + sep) ||
+        retained.startsWith(actual + sep)) {
+      throw new Error("Offline QA requires a canonical synthetic ledger root isolated from retained evidence");
+    }
+  }
+  if (!offline && root !== EVIDENCE_ROOT) throw new Error("Live QA requires the native owner ledger");
   const manifest = selectedMediaManifest();
   const limits = manifest.stages[stage];
   if (!limits || !/^[a-z0-9-]{1,80}$/.test(runId)) throw new Error("Invalid stage/run ID");

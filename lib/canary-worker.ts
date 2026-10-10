@@ -309,7 +309,7 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       // arbitrary customer owner.
       const accountingTeamId = requireCanaryAccountingTeamId(deps?.accountingTeamId);
       const { GoogleGenAI } = await import("@google/genai");
-      const { getModel } = await import("./model-resolver");
+      const { getResolvedModel } = await import("./model-resolver");
        const { throttledGeminiRequest } = await import("./gemini");
       const {
         extractGeminiUsage,
@@ -319,7 +319,7 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       } = await import("./cost-telemetry");
 
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const textModel = getModel("geminiArticle");
+      const textModel = await getResolvedModel("geminiArticle");
       const attemptId = `${deps?.attemptId ?? `canary:${start}`}:text`;
       const attemptStartedAt = Date.now();
       let providerSubmitted = false;
@@ -438,7 +438,7 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
     } else {
       const accountingTeamId = requireCanaryAccountingTeamId(deps?.accountingTeamId);
       const { GoogleGenAI } = await import("@google/genai");
-      const { getModel } = await import("./model-resolver");
+      const { getResolvedModel } = await import("./model-resolver");
        const { throttledGeminiRequest } = await import("./gemini");
       const {
         isProviderAccountingError,
@@ -450,7 +450,7 @@ export async function runCanary(deps?: CanaryDeps): Promise<void> {
       } = await import("./provider-attempt-receipts");
 
       const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const imageModel = getModel("geminiImage");
+      const imageModel = await getResolvedModel("geminiImage");
       const attemptId = `${deps?.attemptId ?? `canary:${start}`}:image`;
       const attemptStartedAt = Date.now();
       let providerSubmitted = false;

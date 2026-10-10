@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { systemDb as db } from "@/lib/db";
-import { users, emailVerificationCodes, activityLogs } from "@/shared/schema";
+import {
+  users,
+  emailVerificationCodes,
+  passwordResets,
+  activityLogs,
+} from "@/shared/schema";
 import { generateEmailCode } from "@/lib/auth";
 import { rateLimitDb, getClientIp } from "@/lib/db-rate-limit";
 import { deliverEmail, hasConfiguredEmailDelivery } from "@/lib/email";
@@ -70,6 +75,16 @@ export async function POST(req: Request) {
           and(
             eq(emailVerificationCodes.userId, user.id),
             eq(emailVerificationCodes.purpose, "password_reset")
+          )
+        );
+
+      await tx
+        .update(passwordResets)
+        .set({ status: "cancelled" })
+        .where(
+          and(
+            eq(passwordResets.userId, user.id),
+            eq(passwordResets.status, "pending"),
           )
         );
 

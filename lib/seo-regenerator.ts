@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { cleanMetaDescription, cleanSeoTitle, cleanFaqAnswers } from "./content-cleaner";
 import { createHash } from "node:crypto";
@@ -14,7 +14,7 @@ async function generateSeoField(prompt: string, teamId: number) {
   if (!Number.isInteger(teamId) || teamId <= 0) {
     throw new Error("SEO regeneration requires a validated teamId");
   }
-  const model = getModel("geminiFlash"), startedAt = Date.now();
+  const model = await getResolvedModel("geminiFlash"), startedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   try {
     const generationRequest = {

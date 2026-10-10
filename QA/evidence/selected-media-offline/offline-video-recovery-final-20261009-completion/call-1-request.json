@@ -1,0 +1,24 @@
+{
+  "number": 1,
+  "kind": "clip",
+  "scene": 2,
+  "sourceEventId": "provider-attempt:807284956fcb0df945adc7e2b85304c1e32ce45dc1a6cb4b269c1b94b52477a6",
+  "requestSha256": "e65acde4d3d9ac99c59809020348f707af3e48768c43d368b81a3194ce61cbe6",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a modern, sleek solar kinetic fixture on a residential roof tilting towards the morning sun, camera dolly forward, warm golden hour lighting, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import { validateContentWithFacts } from "./fact-validated-generators";
@@ -528,7 +528,7 @@ CRITICAL: Return ONLY valid JSON. No markdown formatting, no explanations, just 
 
   try {
     const startedAt = Date.now();
-    const model = getModel("geminiFlash");
+    const model = await getResolvedModel("geminiFlash");
     const generationRequest = {
       model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],

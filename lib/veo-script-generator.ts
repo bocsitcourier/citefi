@@ -1,4 +1,4 @@
-import { GEMINI_FLASH_MODEL } from "./ai-config";
+import { getResolvedModel } from "./model-resolver";
 import { GoogleGenAI } from "@google/genai";
 import { createBrandLockPromptSegment, validateBrandInOutput } from "./branding";
 import type { VeoClipPrompt, VeoVideoScript } from "./veo-video-generator";
@@ -242,10 +242,11 @@ OUTPUT FORMAT:
 
 CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUST end with the no-text disclaimer.`;
 
+  const model = await getResolvedModel("geminiFlash");
   try {
     const _veoStart = Date.now();
     const generationRequest = {
-      model: GEMINI_FLASH_MODEL,
+      model,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.8,
@@ -264,7 +265,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no explanations. Every prompt MUS
     if (response?.usageMetadata) {
       const { logCostTelemetry, extractGeminiUsage } = await import("./cost-telemetry");
       await logCostTelemetry(
-        { operationType: "video_script", provider: "gemini", model: GEMINI_FLASH_MODEL,
+        { operationType: "video_script", provider: "gemini", model,
           teamId, providerRequestId: (response as any).responseId ?? null },
         extractGeminiUsage(response), Date.now() - _veoStart, true
       );

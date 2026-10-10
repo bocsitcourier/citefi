@@ -1,11 +1,12 @@
 /**
  * T004 Auth API Integration Tests
  * =================================
- * Tests login, rate limiting, auth guards, and admin authorization against the
- * live server at localhost:5000. Requires the server to be running.
+ * Tests login, rate limiting, auth guards, and admin authorization against
+ * an explicitly owned QA HTTP fixture. Requires QA_HTTP_FIXTURE_URL (or the
+ * non-legacy TEST_BASE_URL alias) and QA_ISOLATED_DATABASE=true.
  *
  * Run:
- *   node --env-file=.env.local --import tsx/esm --test tests/auth/auth-api.test.ts
+ *   bash QA/support/with-isolated-database.sh --http -- tests/auth/auth-api.test.ts
  */
 import { describe, test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -24,8 +25,10 @@ import {
 } from "../../shared/schema.js";
 import { eq, and, isNull, count, desc } from "drizzle-orm";
 import { hashPassword, hashToken, verifyTOTPSetupToken } from "../../lib/auth.js";
+import { requireHttpFixture } from "../../QA/support/qa-fixtures.mjs";
 
-const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:5000";
+const HTTP_FIXTURE = requireHttpFixture("auth-api");
+const BASE_URL = HTTP_FIXTURE.baseUrl;
 const COOKIE_NAME = "auth_token";
 
 // Unique per run — prevents test-data and rate-limit-bucket collisions.

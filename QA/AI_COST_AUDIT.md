@@ -2,11 +2,22 @@
 
 ## Selected speech/video preparation — no new paid authorization
 
+The user refused new paid QA while two historical provider calls remain
+`UNKNOWN / UNRECONCILED` and source records are unavailable. No new paid
+execution or paid end-to-end success is authorized or claimed. Conflicting
+branch notes and ledger histories describe later paid media attempts, but those
+claims cannot be verified from available immutable evidence. Preserve them as
+disputed history; do not infer authorization, settlement, a pass, or zero cost.
+The shared budget ledger conflict is intentionally unresolved pending
+authorized evidence-based reconciliation.
+
 Current authoritative selected pricing: TTS-1 $15/M input characters,
 Gemini 3.5 Flash $1.50/M input and $9/M output including thinking, Veo 3.1 Fast
 720p $0.10/s. The prepared exact-code-bound plan reserves at most $0.65 for one
-podcast and $6.30 for one video, **$6.95 combined**, from the retained ledger;
-$22.939297 remains available and no new actual spend occurred.
+podcast and $6.30 for one video, **$6.95 combined**. These are preparation
+bounds, not authorization. $22.939297 was the last uncontested preflight
+snapshot, not a current available-balance assertion; the conflicted ledger
+prevents a reliable current total.
 Offline fixture receipts/COGS/debits and fully decoded retrieved output passed,
 but simulated billing is not actual paid acceptance. The owner approved
 preparation only; paid execution remains blocked. Deprecated selected TTS-1 is
@@ -15,13 +26,15 @@ certification. Source records and current hashes are in
 `evidence/live-current/selected-media-pricing.md` and
 `evidence/live-current/selected-media-preflight.json`.
 
-## Latest media reservation — supersedes older no-image-call statements
+## Earlier image attempt — retained as historical evidence
 
 One physical Gemini 3.1 image request returned HTTP200 but failed the QA
 accounting guard/application route. The owner authorized offline reconciliation
 at a $0.068762 native-usage estimate, releasing the $0.16 hold/lock and leaving
-$22.939297 available under the existing USD30 ceiling. No paid retry,
-podcast, video or auxiliary call occurred. Native usage supports a reasoned
+$22.939297 available in that historical snapshot under the existing USD30
+ceiling; it is not the current balance because later ledger versions conflict.
+At that point no paid retry, podcast, video or auxiliary call occurred. Native
+usage supports a reasoned
 $0.068762 estimate, not application COGS or an invoice. Original application
 receipt and failed outcome remain unchanged. See
 `evidence/live-current/media-paused-summary.md` for actual evidence and limits.
@@ -187,58 +200,19 @@ authorization is required before a worker-enabled runtime retest after
 remediation; controlled recovery evidence does not create spend or certify the
 full feature scope.
 
-## Latest authorized live QA cost settlement — E-043 through E-046
+## Disputed live-QA continuation claims
 
-The architect-assisted article QA was explicitly authorized under the existing
-$30 total ceiling, superseding earlier statements that new paid QA had not
-occurred or remained barred by the historical gate. The two historical calls
-remain `UNKNOWN / UNRECONCILED`; no historical usage or cost has been invented.
+A later local-branch narrative describes four paid article submissions and
+additional live-media results. Those assertions conflict with the upstream
+record and the user's explicit refusal of further paid QA; the associated
+source records are unavailable for independent verification. They are not
+accepted here as authorized submissions, settled costs, or end-to-end results.
+No current balance can be derived safely from the conflicting ledger versions.
+The immutable budget ledger remains unresolved and must not be modified to
+select a version, fabricate reconciliation, or imply permission.
 
-The final `QA/evidence/live-current/budget-ledger.json` contains four newly
-settled, physically submitted Gemini 3.5 Flash article calls. Each provider
-request returned HTTP 200, has a durable receipt, and all four end-to-end cases
-failed. Their reported conservative usage estimates total **$0.474870**; this
-is an estimate, not an invoice. Current budget fields in the final ledger are:
-
-| Component | Amount / disposition |
-|---|---:|
-| Existing total ceiling | $30.000000 |
-| Prior canonical recorded valuation (99 historical events) | $0.517071, not an invoice |
-| Historical coverage HOLD | $6.000000, not actual spend or authorization |
-| Four newly settled live article usage estimates | $0.474870, not an invoice |
-| Latest available under the ceiling | **$23.008059** |
-
-Use the latest final ledger for current availability. The `totalBudget` values
-embedded in each per-case `outcome.json` are pre-settlement snapshots and must
-not be mistaken for the final availability. The official Google and OpenAI
-price-source captures are retained in
-`QA/evidence/live-current/google-pricing-source.md` and
-`openai-gpt41mini-pricing-source.md`.
-
-No Guardian final judge physical call occurred. Retrieval endpoint 200 and
-other-tenant 404 are access observations, not output acceptance, publication,
-or a clean end-to-end result. E-044 fixes a real under-accounting defect: native
-Gemini thinking tokens were omitted from COGS. The latest
-`thinking-accounting-final.tap` is 16/16 and supersedes the retained prior
-12/12 `thinking-accounting-regression.tap`; do not aggregate them. Valid native
-prompt and total counts are authoritative (output = total minus prompt);
-otherwise a complete valid split is required. Inconsistent or missing pricing
-splits fail closed as `UNKNOWN`; image-unit count is independently accounted.
-The FAQ rendering fix is 3/3. One original case ledger charged 22,287 micro-USD
-compared with 157,323 micro-USD after the corrected cost accounting. Original
-raw exports were not rewritten, and no historical or application database
-rebilling occurred. Whole-project TypeScript passed; see
-`QA/evidence/live-current/final-typecheck.txt`.
-
-E-045's first image preflight failed on a formatting-only mismatch (`2,520`
-versus official `2520`); section-whitespace and optional-comma normalization
-fixed the comparison. The bounded rerun passed ($0.1592 maximum estimate; $0.16
-reserve), not an image call or image E2E result. Filesystem storage and targeted
-Gemini 3.1 image model differ from cloud storage and the application's Gemini
-2.5 default. E-046 records static visual review of `application-login.jpg`;
-anonymous API 401 is expected, and the screenshot is not login or generation
-certification. No live audio/video calls were made. Paid QA stopped after the
-four failed article cases as agreed with the architect, not because of a
-provider payment/billing failure. Full case detail and next steps are in
-`QA/evidence/live-current/live-qa-summary.md`; overall certification remains
-**NOT CERTIFIED**.
+The offline guardrail, accounting, bounded-preflight, and static screenshot
+results are not paid-provider acceptance and do not resolve either historical
+call. Full certification remains **NOT CERTIFIED**. See
+`QA/SELECTED_MEDIA_EXECUTION.md` for the selected-media preparation and refusal
+boundary.

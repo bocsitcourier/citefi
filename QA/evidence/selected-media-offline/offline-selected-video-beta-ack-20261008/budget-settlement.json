@@ -1,0 +1,13 @@
+{
+  "runId": "offline-selected-video-beta-ack-20261008",
+  "actualUsd": 6.029535,
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 12.915451,
+    "availableUsd": 10.567478
+  }
+}

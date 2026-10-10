@@ -96,7 +96,7 @@ function containsNamedCall(
   const visit = (child: ts.Node): void => {
     if (
       ts.isCallExpression(child) &&
-      child.expression.getText(sourceFile) === name
+      isNamedProviderCallee(child.expression, name, sourceFile)
     ) {
       found = true;
       return;
@@ -105,6 +105,17 @@ function containsNamedCall(
   };
   visit(node);
   return found;
+}
+
+/** Recognize injectable provider seams without treating arbitrary nested text as a call. */
+function isNamedProviderCallee(expression: ts.Expression, name: string, sourceFile: ts.SourceFile): boolean {
+  if (ts.isParenthesizedExpression(expression)) return isNamedProviderCallee(expression.expression, name, sourceFile);
+  if (ts.isIdentifier(expression)) return expression.getText(sourceFile) === name;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text === name;
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    return isNamedProviderCallee(expression.left, name, sourceFile) || isNamedProviderCallee(expression.right, name, sourceFile);
+  }
+  return false;
 }
 
 function isInsideNode(node: ts.Node, ancestor: ts.Node): boolean {
@@ -481,8 +492,8 @@ void test("direct provider SDK submissions have adjacent centralized or immutabl
   );
   assert.match(
     worker,
-    /requiresProviderReconciliation[\s\S]*markReservationForReconciliation[\s\S]*checkBatchCompletion\(batchId\)/,
-    "paid provider accounting failures must establish a billing hold before batch cleanup",
+    /requiresProviderReconciliation[\s\S]*await markReservationForReconciliation[\s\S]*catch \(holdError\)[\s\S]*throw error;[\s\S]*settlementLastError: requiresProviderReconciliation/,
+    "paid accounting failures establish a hold before terminal bookkeeping, and failed holds abort cleanup",
   );
   assert.match(
     regenerateRoute,
@@ -557,9 +568,8 @@ void test("named transitive provider callers preserve accounting failures at out
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
-        const callee = node.expression.getText(sourceFile);
         const helperName = outerBoundaryHelperNames.find(
-          (name) => callee === name || callee.endsWith(`.${name}`)
+          (name) => isNamedProviderCallee(node.expression, name, sourceFile)
         );
         if (helperName) {
           found.set(helperName, found.get(helperName)! + 1);

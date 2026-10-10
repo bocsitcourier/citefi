@@ -12,12 +12,29 @@ console.log('🚀 Starting Citefi (Next.js)...\n');
 // only when a developer explicitly opts in.
 try {
   execFileSync('redis-cli', ['ping'], { stdio: 'pipe' });
+  if (process.env.NODE_ENV === 'development' && process.env.LOCAL_DEV_REDIS === 'true') {
+    // A daemon from an older bootstrap can still listen on every interface.
+    // Rebind this explicitly opted-in local service in place; never flush or
+    // restart it, so queued jobs and reservations remain intact.
+    try {
+      for (const [setting, value] of [['bind', '127.0.0.1'], ['protected-mode', 'yes']]) {
+      const result = execFileSync('redis-cli', ['-h', '127.0.0.1', '-p', '6379', '--raw', 'CONFIG', 'SET', setting!, value!], { encoding: 'utf8' });
+      if (result.trim() !== 'OK') {
+        console.error(`Local Redis safety configuration failed for ${setting}; refusing startup`);
+        process.exit(1);
+      }
+      }
+    } catch {
+      console.error('Local Redis could not be made private; refusing startup');
+      process.exit(1);
+    }
+  }
   console.log('✅ Redis already running');
 } catch {
   if (process.env.NODE_ENV === 'development' && process.env.LOCAL_DEV_REDIS === 'true') {
     console.log('🔧 Starting explicitly enabled local Redis server...');
     try {
-      execFileSync('redis-server', ['--daemonize', 'yes', '--loglevel', 'warning', '--port', '6379'], { stdio: 'pipe' });
+      execFileSync('redis-server', ['--daemonize', 'yes', '--loglevel', 'warning', '--bind', '127.0.0.1', '--protected-mode', 'yes', '--port', '6379'], { stdio: 'pipe' });
       console.log('✅ Redis started');
     } catch (redisErr) {
       console.warn('⚠️  Could not start local Redis:', (redisErr as Error).message);
@@ -106,7 +123,11 @@ const PAGES_TO_WARM = [
 async function waitForServer(maxAttempts = 30): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const res = await fetch(`${BASE_URL}/api/health`);
+      // A deliberately disabled paid canary or missing restore evidence must
+      // remain a readiness failure, but should not prevent dev page compilation.
+      const res = await fetch(`${BASE_URL}/api/health/live`, {
+        signal: AbortSignal.timeout(3000),
+      });
       if (res.ok) return true;
     } catch {
       // not ready yet

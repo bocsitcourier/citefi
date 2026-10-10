@@ -1,0 +1,143 @@
+{
+  "kind": "observed-owned-process-tree-stopped",
+  "runId": "live-selected-video-20261008",
+  "observedAt": "unknown",
+  "ownedProcessesStopped": false,
+  "witness": "launcher-and-owned-process-teardown",
+  "retrospective": true,
+  "witnessAssembledAt": "2026-10-09T00:46:22.589Z",
+  "currentAbsenceCheck": {
+    "at": "2026-10-09T00:46:22.594Z",
+    "commands": [
+      [
+        "ps",
+        "-eo",
+        "pid=,ppid=,comm=,args="
+      ],
+      [
+        "ss",
+        "-ltnp"
+      ],
+      [
+        "find",
+        "/tmp",
+        "-maxdepth",
+        "1",
+        "-name",
+        "media-route-worker-*"
+      ]
+    ],
+    "results": {
+      "ps": {
+        "command": [
+          "ps",
+          "-eo",
+          "pid=,ppid=,comm=,args="
+        ],
+        "exitCode": 0,
+        "error": null,
+        "stdout": "    564     554 node            /nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin/node QA/evidence/live-current/live-selected-video-20261008/retrospective-witness/assemble.mjs",
+        "stderr": ""
+      },
+      "ss": {
+        "command": [
+          "ss",
+          "-ltnp"
+        ],
+        "exitCode": null,
+        "error": "spawnSync ss ENOENT",
+        "stdout": "",
+        "stderr": ""
+      },
+      "ownedTempRoots": {
+        "command": [
+          "find",
+          "/tmp",
+          "-maxdepth",
+          "1",
+          "-name",
+          "media-route-worker-*"
+        ],
+        "exitCode": 0,
+        "error": null,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    "matchingProcessesAbsent": false,
+    "anyMatchingTempRootExists": false,
+    "historicalOwnedTempRootIdentityKnown": false
+  },
+  "sources": [
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/stop.json",
+      "sha256": "7e29d5c3009ee8d36e3aeb351f59471857f20f51b9bac7856d079afbfab315bd",
+      "original": "/home/runner/workspace/QA/evidence/live-current/live-selected-video-20261008/stop.json"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/export-before-cleanup.json",
+      "sha256": "71ebea69b1971b397d22b7e578c36d7f8fcce7bce2f667ac8b2bb700efd61dc5",
+      "original": "/home/runner/workspace/QA/evidence/live-current/live-selected-video-20261008/export-before-cleanup.json"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/outcome.json",
+      "sha256": "43c0daa6d6355e35b113d98dbad9ee2aed50d7016709b9438ddcaa7cf23279e4",
+      "original": "/home/runner/workspace/QA/evidence/live-current/live-selected-video-20261008/outcome.json"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/architect-decision.md",
+      "sha256": "11db3af654d94fc81aac4562bc7159ab822e3822adcbeb0d9459221ae818ec46",
+      "original": "/home/runner/workspace/QA/evidence/live-current/video-recovery-live-pilot-decision.md"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/media-route-worker-fullchain.test.ts",
+      "sha256": "95c0f0e7939b36b1b16f4e25f068737829d5816d917275039cad7d134b2bcf6a",
+      "original": "tests/qa/media-route-worker-fullchain.test.ts"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/qa-live-selected-media.mjs",
+      "sha256": "e559bd0203e73672d0c5acb7df0125f104755bfe2ab3fb99c75a8dd5ea265590",
+      "original": "scripts/qa-live-selected-media.mjs"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/stopOwnedInfrastructure.txt",
+      "sha256": "d8bbb036850b079f24dcab9b34beb730807c982069314c14e1c9ac1cd8d446e1"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/assembler-source.mjs",
+      "sha256": "88d1840c6e6317821338b01618d382cb766d36eaa68199041377a9fea70dfc9d"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/source-inventory.json",
+      "sha256": "588d1c2ac48be3990ecd68d6c0c111fa9a3230851b30386eaa59efc89500729f"
+    },
+    {
+      "file": "live-selected-video-20261008/retrospective-witness/current-absence-check.json",
+      "sha256": "237d0cc22eb3c2ee1609f31c03260a8ec01ac6e7943bd8dea14b647eb05b38fb"
+    }
+  ],
+  "qualification": {
+    "firstPartyEvidenced": [
+      "Retained historical stop.json reports Unexpected end of JSON input and noRetry:true.",
+      "Retained export-before-cleanup.json reports completed evidence export and cleanupPermitted:true, not completed teardown.",
+      "Timestamped current local command results, including unavailable-command errors, are retained.",
+      "Current test/launcher source snapshots and function hashes are retained."
+    ],
+    "reportedNotIndependentlyEvidenced": [
+      "Architect memo reports launcher KRlz7fYo exit 1 and completed teardown."
+    ],
+    "inferred": [
+      "Owned ports 55488/16388 and temporary-root naming convention come from current code, not an original launcher log."
+    ]
+  },
+  "gaps": [
+    "Source unavailable at assembly: /tmp/live-selected-video-20261008.log",
+    "No retained original launcher/controller terminal receipt establishes task KRlz7fYo exit 1; that exit is reported only in the architect memo.",
+    "No retained original log establishes completed test.after/stopOwnedInfrastructure without hook failure.",
+    "Original shutdown event times and the exact historical owned temporary root are unknown.",
+    "Current code snapshots show intended awaited teardown, not the historical executed code version or successful execution.",
+    "export-before-cleanup.json proves an export/cleanup permission at 2026-10-08T23:25:20.306Z, not cleanup completion.",
+    "Current absence cannot establish historical shutdown.",
+    "ss current port check unavailable; matchingProcessesAbsent is conservatively false."
+  ]
+}

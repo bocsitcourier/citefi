@@ -1,0 +1,24 @@
+{
+  "number": 7,
+  "kind": "clip",
+  "scene": 8,
+  "sourceEventId": "provider-attempt:7700ca97244bc5e908dbb7143c127d083c612f3a046a0f9b1b388b5d096f5949",
+  "requestSha256": "b9f5bdb4249a6a87df9123126df41848d78e6acd4d32836bdafea0e56e49e3bd",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a professional woman in a modern office smiling confidently and nodding at the camera, camera slowly dollying in, warm optimistic lighting, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

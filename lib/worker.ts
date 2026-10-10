@@ -51,7 +51,7 @@ import {
 } from "@/lib/queue";
 import { cancelCapReservation } from "@/lib/usage-caps";
 import { db, getTxDb, systemDb } from "./db";
-import { jobBatches, articles, articleRuns, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users } from "@/shared/schema";
+import { jobBatches, articles, articleRuns, seoLogs, socialPosts, socialPostLogs, userQuotas, creditLedger, dailyBriefPreferences, dailyBriefs, dailyBriefDeliveries, signupCompetitorIntake, users, teamMembers } from "@/shared/schema";
 import { eq, and, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   claimArticleImageStage,
@@ -6245,7 +6245,12 @@ async function cleanupLogs(data: CleanupJobData, retentionDays: number) {
   let consecutiveEmptyBatches = 0;
 
   while (itemsProcessed < MAX_PER_RUN) {
-    const conditions = [lt(activityLogs.createdAt, cutoffDate)];
+    // Approval manifests and legacy approval history are consent evidence,
+    // not disposable operational logs. A separate retention policy must
+    // authorize removing them; never silently age out a delayed approval.
+    const conditions = [lt(activityLogs.createdAt, cutoffDate),
+      sql`${activityLogs.action} NOT LIKE 'article_approval_%'`,
+      sql`${activityLogs.action} <> 'article_exact_review_approved'`];
     
     if (data.teamId) {
       conditions.push(eq(activityLogs.teamId, data.teamId));
@@ -6754,7 +6759,13 @@ async function triggerAutoPublishing(batchId: number, completedArticles: typeof 
     for (const article of publishableArticles) {
       for (const connection of usableConnections) {
         try {
-          await createPublishingJob(batch.teamId, connection.id, "article", article.id);
+          // Auto-publishing retains the batch creator's current authority; it
+          // cannot create a system-only bypass of the exact human review.
+          const [publisherMembership] = await db.select({ role: teamMembers.role }).from(teamMembers)
+            .where(and(eq(teamMembers.teamId, batch.teamId), eq(teamMembers.userId, batch.userId))).limit(1);
+          if (!publisherMembership) throw new Error("Auto-publishing creator no longer belongs to the workspace");
+          await createPublishingJob(batch.teamId, connection.id, "article", article.id,
+            { userId: batch.userId, role: publisherMembership.role });
           console.log(`📤 Auto-publish queued: Article ${article.id} → "${connection.name}"`);
           queued++;
         } catch (insertError) {

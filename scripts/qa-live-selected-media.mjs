@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { assertPaidMediaPermission, selectedMediaPreflight, LIMITS } from "../QA/support/selected-media-plan.mjs";
+import { assertPaidMediaPermission, selectedMediaManifest, selectedMediaPreflight,
+  LIMITS } from "../QA/support/selected-media-plan.mjs";
+import { assertPaidQaLedgerResolved } from "../QA/support/budget-ledger-dispute.mjs";
 
 const [mode = "preflight", stage, runId] = process.argv.slice(2);
 if (mode === "preflight") {
@@ -12,6 +14,7 @@ if (mode === "preflight") {
     throw new Error("Usage: node scripts/qa-live-selected-media.mjs preflight [podcast|video] | offline|run <stage> <unique-id>");
   }
   if (mode === "run") {
+    assertPaidQaLedgerResolved();
     assertPaidMediaPermission(stage);
     // Presence only; credentials are runtime-injected, never read from env files.
     if (!process.env.GEMINI_API_KEY || !process.env.OPENAI_API_KEY ||
@@ -19,7 +22,11 @@ if (mode === "preflight") {
       throw new Error("Live media requires runtime-injected provider keys");
     }
   }
-  console.log(JSON.stringify(selectedMediaPreflight(stage), null, 2));
+  const report = mode === "offline"
+    ? { manifest: selectedMediaManifest(), paidExecutionAuthorized: false,
+      note: "Offline synthetic fixture only; no historical shared-ledger balance is read or inferred" }
+    : selectedMediaPreflight(stage);
+  console.log(JSON.stringify(report, null, 2));
   const child = spawn(process.execPath, ["--import", "tsx/esm", "--test",
     "--test-name-pattern=selected bounded media",
     "tests/qa/media-route-worker-fullchain.test.ts"], {

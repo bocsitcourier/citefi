@@ -3,6 +3,7 @@ import path from 'path';
 import { load as cheerioLoad } from 'cheerio';
 import { StorageAdapter, StorageResult, UpsertResult } from './index';
 import { getConfig } from '../config';
+import { REVIEWED_MEDIA_DOWNLOAD_TIMEOUT_MS, REVIEWED_MEDIA_MAX_BYTES, verifyReviewedMedia } from '../services/reviewed-media';
 import { logger } from '../utils/logger';
 import { createSafeSlug, resolvePathWithin } from '../utils/safePaths';
 import type { ArticlePayload } from '../types/payloads';
@@ -96,21 +97,42 @@ export class LocalFilesystemAdapter implements StorageAdapter {
 
   async downloadAndStore(
     sourceUrl: string,
-    targetPath: string
+    targetPath: string,
+    expectedDigest?: string
   ): Promise<StorageResult> {
-    logger.info('Downloading file', { sourceUrl, targetPath });
+    logger.info('Downloading file', { targetPath, versionPinned: !!expectedDigest });
     
-    const response = await fetch(sourceUrl);
+    const response = await fetch(sourceUrl, expectedDigest ? {
+      signal: AbortSignal.timeout(REVIEWED_MEDIA_DOWNLOAD_TIMEOUT_MS), redirect: 'error',
+    } : undefined);
     if (!response.ok) {
       throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
     }
     
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer: Buffer;
+    if (expectedDigest) {
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Reviewed media has no response body');
+      const chunks: Buffer[] = [];
+      let size = 0;
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          size += chunk.value.length;
+          if (size > REVIEWED_MEDIA_MAX_BYTES) throw new Error('Reviewed media exceeds receiver byte limit');
+          chunks.push(Buffer.from(chunk.value));
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      buffer = Buffer.concat(chunks);
+      verifyReviewedMedia(buffer, expectedDigest);
+    } else {
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
     const localPath = await this.saveFile(targetPath, buffer);
     const publicUrl = this.getFileUrl(targetPath);
     
     logger.info('File downloaded and stored', { 
-      sourceUrl, 
       localPath, 
       publicUrl,
       size: buffer.length 

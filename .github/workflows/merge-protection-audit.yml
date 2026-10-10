@@ -1,0 +1,29 @@
+name: Merge protection audit
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit live main merge protections
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read effective rules and report protection drift
+        env:
+          # Dedicated GitHub audit identity only; never production credentials.
+          # A missing credential produces an explicit unverifiable result if
+          # GitHub hides bypass_actors. Never infer [] from a missing field.
+          MERGE_PROTECTION_AUDIT_TOKEN: ${{ secrets.MERGE_PROTECTION_AUDIT_TOKEN }}
+        run: node scripts/audit-merge-protection.mjs

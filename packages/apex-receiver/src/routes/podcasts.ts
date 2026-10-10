@@ -8,6 +8,7 @@ import { getConfig } from '../config';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import { createSafeSlug, resolvePathWithin } from '../utils/safePaths';
+import { claimSubmission, finishSubmission, submissionBinding } from '../services/publishing-receipts';
 
 const router = Router();
 
@@ -18,8 +19,14 @@ interface PodcastRequest extends PodcastPayload {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const podcast = req.body as PodcastRequest;
+    const binding = submissionBinding(req.body, getConfig());
+    if (binding && !(await claimSubmission(binding, getConfig()))) {
+      res.status(409).json({ success: false, error: 'Operation already claimed; read its retained receipt', errorCode: 'OPERATION_FENCED' });
+      return;
+    }
     
     if (!podcast.id || !podcast.title || !podcast.audioUrl) {
+      if (binding) await finishSubmission(binding, 'not_accepted', getConfig());
       res.status(400).json({
         success: false,
         error: 'Missing required fields: id, title, audioUrl',
@@ -49,6 +56,7 @@ router.post('/', async (req: Request, res: Response) => {
     await fs.writeFile(pagePath, pageHtml, 'utf-8');
     
     const pageUrl = `${getConfig().baseUrl}/podcasts/${slug}`;
+    if (binding) await finishSubmission(binding, 'accepted', getConfig(), pageUrl);
     
     logger.info('Podcast processed', {
       id: podcast.id,

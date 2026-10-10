@@ -1,6 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface HashtagResult {
   hashtags: string[];
@@ -60,10 +61,11 @@ Return ONLY this JSON structure:
 
 Generate 10-20 total hashtags.`;
 
+  const model = await getResolvedModel("gptMini");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -74,7 +76,7 @@ Generate 10-20 total hashtags.`;
       }),
       `Hashtag Generator: ${title.substring(0, 50)}`,
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 800 } },
+      { request: { model, maxOutputTokens: 800 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

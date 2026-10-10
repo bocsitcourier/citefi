@@ -2,6 +2,7 @@ import { matchTopicToPages } from "./site-crawler";
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 
 export interface AnchorMapping {
   phrase: string;
@@ -76,10 +77,11 @@ RULES:
 - Distribute across at least 3 different URLs when possible
 - 60% service/solution phrases, 40% location/authority phrases`;
 
+  const model = await getResolvedModel("gptHyperlinkExtract");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -90,7 +92,7 @@ RULES:
       }),
       `Contextual Anchor Generation: ${articleTopic.substring(0, 40)}`,
       120000,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 3000 } },
+      { request: { model, maxOutputTokens: 3000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

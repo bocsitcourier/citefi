@@ -31,6 +31,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { format, formatDistanceToNow } from "date-fns";
+import { ReconciliationDialog } from "@/components/publishing/reconciliation-dialog";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,11 @@ interface PublishingJob {
   updatedAt: string;
   lastAttemptAt: string | null;
   nextRetryAt: string | null;
+  retryable?: boolean;
+  canReconcile?: boolean;
+  deletable?: boolean;
+  reconciliationStatus?: "unresolved" | "accepted" | "not_accepted" | "conflicting_evidence" | null;
+  replacementJobId?: number | null;
   articleTitle: string | null;
   connectionName: string | null;
   connectionBaseUrl: string | null;
@@ -94,7 +100,15 @@ const STATUS_LABELS: Record<string, string> = {
   sent: "Sent",
   delivered: "Delivered",
   failed: "Failed",
+  outcome_unknown: "Needs reconciliation",
   cancelled: "Cancelled",
+};
+
+const RECONCILIATION_LABELS: Record<string, string> = {
+  unresolved: "Outcome unresolved",
+  accepted: "Accepted",
+  not_accepted: "Proven not accepted",
+  conflicting_evidence: "Conflicting evidence — investigate",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -119,6 +133,8 @@ function StatusBadge({ status }: { status: string }) {
       return <Badge className="gap-1 bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-300"><CheckCircle2 className="w-3 h-3" />Delivered</Badge>;
     case "failed":
       return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Failed</Badge>;
+    case "outcome_unknown":
+      return <Badge variant="outline" className="gap-1"><Clock className="w-3 h-3" />Needs reconciliation</Badge>;
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
@@ -426,11 +442,16 @@ export default function PublishingDashboard() {
     });
   };
 
+  const deletableJobs = jobs.filter((job) => job.deletable === true);
+
+  const allDeletableSelected = deletableJobs.length > 0 && deletableJobs.every((job) => selectedJobIds.has(job.id));
+  const selectedDeletableIds = Array.from(selectedJobIds).filter((id) => deletableJobs.some((job) => job.id === id));
+
   const toggleSelectAll = () => {
-    if (selectedJobIds.size === jobs.length) {
+    if (allDeletableSelected) {
       setSelectedJobIds(new Set());
     } else {
-      setSelectedJobIds(new Set(jobs.map((j) => j.id)));
+      setSelectedJobIds(new Set(deletableJobs.map((j) => j.id)));
     }
   };
 
@@ -464,8 +485,12 @@ export default function PublishingDashboard() {
     }
   };
 
-  const canRetry = (job: PublishingJob) => job.status !== "delivered" && job.status !== "processing";
-  const canDelete = (job: PublishingJob) => job.status !== "processing";
+  const canRetry = (job: PublishingJob) =>
+    job.retryable === true &&
+    job.status !== "outcome_unknown" &&
+    job.reconciliationStatus !== "unresolved" &&
+    job.reconciliationStatus !== "not_accepted";
+  const canDelete = (job: PublishingJob) => job.deletable === true;
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -542,7 +567,7 @@ export default function PublishingDashboard() {
               </Select>
             </div>
             <div className="flex items-center gap-2 ml-auto">
-              {selectedJobIds.size > 0 && (
+              {selectedDeletableIds.length > 0 && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -557,7 +582,7 @@ export default function PublishingDashboard() {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete {selectedJobIds.size} jobs?</AlertDialogTitle>
+                      <AlertDialogTitle>Delete {selectedDeletableIds.length} jobs?</AlertDialogTitle>
                       <AlertDialogDescription>
                         This will permanently delete the selected publishing jobs. Jobs currently processing cannot be deleted.
                       </AlertDialogDescription>
@@ -565,7 +590,7 @@ export default function PublishingDashboard() {
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => batchDeleteMutation.mutate(Array.from(selectedJobIds))}
+                        onClick={() => batchDeleteMutation.mutate(selectedDeletableIds)}
                         className="bg-destructive hover:bg-destructive/90"
                         data-testid="button-confirm-bulk-delete"
                       >
@@ -620,18 +645,20 @@ export default function PublishingDashboard() {
               {/* Select All */}
               <div className="flex items-center gap-2 px-1 pb-1">
                 <Checkbox
-                  checked={jobs.length > 0 && selectedJobIds.size === jobs.length}
+                  checked={allDeletableSelected}
                   onCheckedChange={toggleSelectAll}
+                  disabled={deletableJobs.length === 0}
                   data-testid="checkbox-select-all"
                 />
                 <span className="text-xs text-muted-foreground">
-                  {selectedJobIds.size > 0 ? `${selectedJobIds.size} of ${jobs.length} selected` : "Select all"}
+                  {selectedDeletableIds.length > 0 ? `${selectedDeletableIds.length} selected` : "Select deletable jobs"}
                 </span>
               </div>
 
               {jobs.map((job) => (
                 <Card
                   key={job.id}
+                  id={`job-${job.id}`}
                   className={selectedJobIds.has(job.id) ? "border-primary/50 bg-primary/5" : ""}
                   data-testid={`job-card-${job.id}`}
                 >
@@ -642,6 +669,7 @@ export default function PublishingDashboard() {
                         <Checkbox
                           checked={selectedJobIds.has(job.id)}
                           onCheckedChange={() => toggleJobSelection(job.id)}
+                          disabled={!canDelete(job)}
                           data-testid={`checkbox-job-${job.id}`}
                         />
                       </div>
@@ -662,6 +690,11 @@ export default function PublishingDashboard() {
                             {job.articleTitle || `${job.contentType} #${job.articleId || job.videoIdeaId || job.id}`}
                           </span>
                           <StatusBadge status={job.status} />
+                          {job.reconciliationStatus && (
+                            <Badge variant={job.reconciliationStatus === "not_accepted" ? "secondary" : "outline"}>
+                              {RECONCILIATION_LABELS[job.reconciliationStatus]}
+                            </Badge>
+                          )}
                           <Badge variant="outline" className="text-xs capitalize">
                             {job.contentType.replace("_", " ")}
                           </Badge>
@@ -710,6 +743,14 @@ export default function PublishingDashboard() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {job.canReconcile === true && (
+                          <ReconciliationDialog job={job} />
+                        )}
+                        {job.replacementJobId != null && (
+                          <a href={`#job-${job.replacementJobId}`} className="px-2 text-xs text-primary underline" aria-label={`Go to replacement job ${job.replacementJobId}`}>
+                            Replacement #{job.replacementJobId}
+                          </a>
+                        )}
                         {job.publishedUrl && (
                           <Button
                             size="icon"

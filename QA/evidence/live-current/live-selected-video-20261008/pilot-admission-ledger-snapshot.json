@@ -1,0 +1,685 @@
+{
+  "version": 2,
+  "ceilingUsd": 30,
+  "budgetBaseline": {
+    "version": 1,
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "knownPriorSource": "QA/AI_COST_AUDIT.md#controlled-execution-continuation",
+    "knownPriorBasis": "Canonical retained provider-ledger valuation across 99 unique events; not an invoice.",
+    "historicalHoldUsd": 6,
+    "historicalHoldSource": "QA/PROVIDER_RECONCILIATION.md",
+    "historicalHoldBasis": "Conservative budget coverage HOLD only; not actual spend, a provider ledger event, or reconciliation.",
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "authorizationSource": "QA/LIVE_TEST_AUTHORIZATION.md",
+    "sourceFile": "QA/evidence/live-current/budget-baseline.json",
+    "sourceSha256": "57a29be323b21e421003df98f6b99798865e670c4ba4c41b9f139c1ecb1c80f5"
+  },
+  "runs": [
+    {
+      "runId": "first-article-v1",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "83de775ae7ff5d1298deb020c35ba4aa2a6dd763523935515904eef8f2b16c12",
+          "inputBytes": 31169,
+          "maxInputTokens": 39361,
+          "maxOutputTokens": 8192,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.1327695,
+          "submittedAt": "2026-10-08T19:44:38.041Z",
+          "status": 200,
+          "providerRequestId": "pvLHat6gEbrM_PUP7-DFkAE",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 1808,
+            "totalTokenCount": 14851,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "thoughtsTokenCount": 6369,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "a8c845d57425aaa3d767d7771b33463aef71b8a672739b49802e1351001fb53f",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.083604,
+          "receivedAt": "2026-10-08T19:45:08.046Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:44:04.785Z",
+      "actualUsd": 0.083604
+    },
+    {
+      "runId": "live-article-output16384",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "5f9213f92e086a6f1e6f57bc7520f3ab94b2585b9392fbd829828dc757f8124a",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:46:51.053Z",
+          "status": 200,
+          "providerRequestId": "K_PHarOwDuTQ_uMP3YyVoAc",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 2452,
+            "totalTokenCount": 18174,
+            "cachedContentTokenCount": 3741,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "cacheTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 3741
+              }
+            ],
+            "thoughtsTokenCount": 9048,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "fc42ad38934c6f219e5fd020bc68b0ce133986f5f295792c8e4f5e6a25b1231c",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.113511,
+          "receivedAt": "2026-10-08T19:47:32.343Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:46:34.202Z",
+      "actualUsd": 0.113511
+    },
+    {
+      "runId": "live-article-faq-assembly",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "5f9213f92e086a6f1e6f57bc7520f3ab94b2585b9392fbd829828dc757f8124a",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:53:38.096Z",
+          "status": 200,
+          "providerRequestId": "wvTHarq4EqbO_uMPqonB8Ak",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 2552,
+            "totalTokenCount": 18943,
+            "cachedContentTokenCount": 3741,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "cacheTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 3741
+              }
+            ],
+            "thoughtsTokenCount": 9717,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "0621d6caf9906a72699b29d74e285ae156c0e8180f5f21a4d85fb7721c5d3652",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.120432,
+          "receivedAt": "2026-10-08T19:54:20.518Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:53:12.813Z",
+      "actualUsd": 0.120432
+    },
+    {
+      "runId": "live-article-faq-assembly-max2000",
+      "state": "settled",
+      "reservedUsd": 2,
+      "calls": [
+        {
+          "role": "article",
+          "provider": "gemini",
+          "model": "gemini-3.5-flash",
+          "requestSha256": "40265a01c8d3104dda4884f99ff08512e6c202cb7607b1589d033b92e8aa0ca7",
+          "inputBytes": 31170,
+          "maxInputTokens": 39362,
+          "maxOutputTokens": 16384,
+          "physicalCount": 1,
+          "state": "receipted",
+          "inputUsdPerMillion": 1.5,
+          "outputUsdPerMillion": 9,
+          "maximumUsd": 0.206499,
+          "submittedAt": "2026-10-08T19:57:27.397Z",
+          "status": 200,
+          "providerRequestId": "p_XHaoSZI4Cc_uMPpJGtsAE",
+          "actualModel": "gemini-3.5-flash",
+          "usage": {
+            "promptTokenCount": 6674,
+            "candidatesTokenCount": 1364,
+            "totalTokenCount": 23042,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 6674
+              }
+            ],
+            "thoughtsTokenCount": 15004,
+            "serviceTier": "standard"
+          },
+          "responseSha256": "44422fde7b7c1cd6d113adf0e58399eb3c6cef8456055d7cc90fe1567557e40d",
+          "costBasis": "Conservative standard-rate usage estimate, not provider billing reconciliation; cached tokens charged at full input rate",
+          "actualUsd": 0.157323,
+          "receivedAt": "2026-10-08T19:58:29.460Z"
+        }
+      ],
+      "createdAt": "2026-10-08T19:57:12.778Z",
+      "actualUsd": 0.157323
+    },
+    {
+      "runId": "live-media-image-20261008",
+      "state": "settled",
+      "reservedUsd": 0.16,
+      "calls": [
+        {
+          "role": "image",
+          "provider": "gemini",
+          "model": "gemini-3.1-flash-image",
+          "requestSha256": "7e8c5cf0c3de6fb95c08c936b9d09cb84a6c6104a0f39c8d4c266508dc76beb6",
+          "inputBytes": 917,
+          "physicalCount": 1,
+          "state": "ambiguous",
+          "maximumUsd": 0.1592,
+          "submittedAt": "2026-10-08T20:17:39.480Z",
+          "status": 200,
+          "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+          "actualModel": "gemini-3.1-flash-image",
+          "usage": {
+            "promptTokenCount": 172,
+            "candidatesTokenCount": 1612,
+            "totalTokenCount": 1784,
+            "promptTokensDetails": [
+              {
+                "modality": "TEXT",
+                "tokenCount": 172
+              }
+            ],
+            "candidatesTokensDetails": [
+              {
+                "modality": "IMAGE",
+                "tokenCount": 1120
+              }
+            ],
+            "serviceTier": "standard"
+          },
+          "responseSha256": "850088de73d3e55481a4d4ea03f292e650ff3494ea622801a5c5bdf5e8a2981b",
+          "costBasis": "Official standard-tier native token rates: input $0.50/M, image output $60/M, thinking $3/M",
+          "billedSplit": {
+            "inputTokens": 172,
+            "imageTokens": 1120,
+            "thinkingTokens": 0
+          },
+          "actualUsd": null,
+          "receivedAt": "2026-10-08T20:17:49.752Z"
+        }
+      ],
+      "createdAt": "2026-10-08T20:17:39.083Z",
+      "actualUsd": 0.068762,
+      "reconciliation": {
+        "kind": "owner-approved-offline-native-usage",
+        "runId": "live-media-image-20261008",
+        "reconciledAt": "2026-10-08T21:09:37.771Z",
+        "ownerApprovalSha256": "45ec7ffc01b4e97c9d84505e6aaf1e01ae63d1e47e41c018aaa7a9c46883e4a8",
+        "pricingSha256": "a703d6e0d895539b01139d913bdceea3d28ec104311284aee3b2497f714dfbd3",
+        "nativeResponseSha256": "850088de73d3e55481a4d4ea03f292e650ff3494ea622801a5c5bdf5e8a2981b",
+        "originalReceiptSha256": "1998ee76a4a63868be181045bda417ee8c9817c95126c978b918553680eacb12",
+        "originalFailedOutcomeSha256": "aad4138e6b2ac7e2369ebd75b4ff6d3041bea2be9bff3770a44d8780fec920e8",
+        "originalLedgerSha256": "e40ad50aafdd33eaa33581ce1be1d5b85f957fb26cd133b23a71b372a1e4c14d",
+        "providerRequestId": "Y_rHavq6KbKa_uMPlIKM8Qk",
+        "inputTokens": 172,
+        "imageTokens": 1120,
+        "nonImageOutputTokens": 492,
+        "explicitThinkingTokens": null,
+        "textThinkingSplitKnown": false,
+        "inputUsdPerMillion": 0.5,
+        "imageOutputUsdPerMillion": 60,
+        "nonImageOutputUsdPerMillion": 3,
+        "costMicrousd": 68762,
+        "usageEstimateUsd": 0.068762,
+        "basis": "Retained native token counts and official standard rates; not an invoice or application COGS",
+        "originalApplicationEndToEndPass": false,
+        "applicationReceiptsOrCreditsModified": false,
+        "customerDatabaseAccessed": false,
+        "newPhysicalSubmissions": 0,
+        "historicalCalls": "UNKNOWN / UNRECONCILED",
+        "certification": "NOT CERTIFIED",
+        "totalBudget": {
+          "ceilingUsd": 30,
+          "knownPriorUsd": 0.517071,
+          "historicalHoldUsd": 6,
+          "historicalHoldIsActualSpend": false,
+          "historicalCalls": "UNKNOWN / UNRECONCILED",
+          "newCommittedUsd": 0.543632,
+          "availableUsd": 22.939297
+        }
+      }
+    },
+    {
+      "runId": "live-selected-podcast-20261008",
+      "stage": "podcast",
+      "offline": false,
+      "state": "settled",
+      "reservedUsd": 0.65,
+      "manifestSha256": "ee5871d2968ccada3b97cf1dc8285012d417cd3387408a429eec789e9f5dde2e",
+      "calls": [
+        {
+          "number": 1,
+          "kind": "script",
+          "sourceEventId": "provider-attempt:8b05ef9eda5ed51895c6b1fb946bd5cd63dc76409cf6a4a14f5ef946def74a1c",
+          "requestSha256": "d24a7591ea381de24da742a190836bceb18805e18ed9b54250dc81abf231a7d4",
+          "state": "receipted",
+          "model": "gemini-3.5-flash",
+          "submittedAt": "2026-10-08T23:23:50.100Z",
+          "requestUnits": null,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "BibIarv6EJ75-8YP9Mbx6Ag",
+          "nativeSha256": "28e7eaaf01b8d3d613275589c5393879038c14899a5e67fae9453e8748df707e",
+          "inputTokens": 1077,
+          "outputTokensIncludingThinking": 2272,
+          "costMicrousd": 22064,
+          "actualUsd": 0.022064,
+          "receivedAt": "2026-10-08T23:23:59.798Z"
+        },
+        {
+          "number": 2,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:2a60bb5e9db6f8b10db159055971194c7f208b0be788ce2f7056f854a72ebe72",
+          "requestSha256": "6b742a5594ba12f5a3c912e2391843bb3615eceb9fa4282e479f9f00bc2802d4",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:23:59.967Z",
+          "requestUnits": 180,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_72e51788fe694229ab00782954ceb425",
+          "nativeSha256": "e1c9a96c2fdb0394968db7ccbadc4b4b9d975f305e6c1a1071d4ca2b06050502",
+          "characters": 180,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 2700,
+          "actualUsd": 0.0027,
+          "receivedAt": "2026-10-08T23:24:03.062Z"
+        },
+        {
+          "number": 3,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:a56ebf569b9a7436b12ed64802a918106cfff47e4ca08e650ff1997ae70e6326",
+          "requestSha256": "dad0d235473ddf684773da92cdc26e8713052ddbee016a18b8f6bafe00b82614",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:03.265Z",
+          "requestUnits": 92,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_d9c42101e5614356b6a38a8738d9e885",
+          "nativeSha256": "33252ba07ba50af368341e236aed61736185f303978cc4e2c11d5c5e83094fd7",
+          "characters": 92,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 1380,
+          "actualUsd": 0.00138,
+          "receivedAt": "2026-10-08T23:24:06.162Z"
+        },
+        {
+          "number": 4,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:9053e91f5c85147422f648f43a4387802d471d4d1f69f7827dae9c546a8774af",
+          "requestSha256": "dc8e1af3513a8ef62f16167822430d93577ac92ca2a43aa1f58eadd093f44e5c",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:06.356Z",
+          "requestUnits": 135,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_7d7927cd5d4a42e8ae3d3d88e64e94f4",
+          "nativeSha256": "77b0f3886a16f6ea1440fb9af3ec367baa0483e138a74219937433cece9764ca",
+          "characters": 135,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 2025,
+          "actualUsd": 0.002025,
+          "receivedAt": "2026-10-08T23:24:08.202Z"
+        },
+        {
+          "number": 5,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:fb6b507fbd234c26d94dcf61b9cf4fcebdb98ca9a71e09b1ebc3fcfd7c41634c",
+          "requestSha256": "26a2e1b228cf01ebf0188ebf4da395f3aac6882477d392bc5af002d7c44f6542",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:08.401Z",
+          "requestUnits": 139,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_8e155741c7cd4871b76c775dda373536",
+          "nativeSha256": "21a9147a9f4fab03a3c69b4754dfeafbd95adbd286997defd72ab46b276cdeac",
+          "characters": 139,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 2085,
+          "actualUsd": 0.002085,
+          "receivedAt": "2026-10-08T23:24:09.878Z"
+        },
+        {
+          "number": 6,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:aa87546381458e75829058a375e7bb5f0647b7a261a8e1fec5ceca0b7e84ac37",
+          "requestSha256": "59b11651c82e212cc0e4dd3ef5b07639b4bc1d19f02493611634e491d87d6ccd",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:10.232Z",
+          "requestUnits": 126,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_35c6f543cd3b4080a1717e25a1ce4bac",
+          "nativeSha256": "5506ce7c6ac6e0c8471b84b96909d4ad0ff860a83169abab71207fcf1965ed10",
+          "characters": 126,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 1890,
+          "actualUsd": 0.00189,
+          "receivedAt": "2026-10-08T23:24:11.961Z"
+        },
+        {
+          "number": 7,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:6a9f8a38c48925a74c7e3f1e3cb62a6952af9e72e3c73a9e5f8516f4a7cf9a95",
+          "requestSha256": "1857a93928cf1369d7bb3297a260f7ae00ce8c21b355a5c53e20427c4ac3d228",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:12.149Z",
+          "requestUnits": 160,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_58d753863f4749f7aa5c8fdf62b574e7",
+          "nativeSha256": "348a7695eb7b6ad703e96b4d659eb7e742d693d05ba0881eb9e904d3ceed72c4",
+          "characters": 160,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 2400,
+          "actualUsd": 0.0024,
+          "receivedAt": "2026-10-08T23:24:13.678Z"
+        },
+        {
+          "number": 8,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:148320bd4bff8052d09d66a93023b9a2f7e94595bb50fe3b0a6d6740665839a7",
+          "requestSha256": "6795e1285cd75369c461fa30ecf7eec3ae2eea9b380662c6f8a7b81856fddf54",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:13.882Z",
+          "requestUnits": 121,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_86baaf8f34364ce3b2d2416125dd8233",
+          "nativeSha256": "c273487f35f5de292454e349aa454c4647d570b37a3428d9c59686d438190d9f",
+          "characters": 121,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 1815,
+          "actualUsd": 0.001815,
+          "receivedAt": "2026-10-08T23:24:17.611Z"
+        },
+        {
+          "number": 9,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:53c38b5b6a864ef42c2ef6b3532ba0202c99aae2876e73216b2a2524f2cfe0bc",
+          "requestSha256": "a24e80b35b429e49d30e3f3483bd31d181c6c325ab32fd7152e0893a9f4bf281",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:17.804Z",
+          "requestUnits": 127,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_a736ec49ad9648eaad157a0772563a33",
+          "nativeSha256": "38d7b9ad30e178d84b1349fae627431436a3d16c002bbaa1a487caa710ee6bcd",
+          "characters": 127,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 1905,
+          "actualUsd": 0.001905,
+          "receivedAt": "2026-10-08T23:24:19.179Z"
+        },
+        {
+          "number": 10,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:56d56ac54bdb3f90966da3ff1f75741f21326fd850bc79cbb2ec80ced910e5fc",
+          "requestSha256": "41182dbe357843273fb1019cda35db9dd7c09e78f7b28c6b75e34a63b3a29891",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:19.367Z",
+          "requestUnits": 142,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_8a6a041e07e64bb3a0f0e502b9aa04d7",
+          "nativeSha256": "197202dc0175f7bff66ef62b006f6fbd744729e41d4c1fa94d4a57ac18e3ef87",
+          "characters": 142,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 2130,
+          "actualUsd": 0.00213,
+          "receivedAt": "2026-10-08T23:24:21.393Z"
+        },
+        {
+          "number": 11,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:0ddc2418ffec386c24a27d0dc39ca3231fb812476658a0321646d824ad92b92f",
+          "requestSha256": "b2d7607609475dba06bd5c14f2abc3cbc58bbfc99d5f26144f54fd38d71ed526",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:24:21.580Z",
+          "requestUnits": 126,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_4766391aea0d40ffb09128e747be63ce",
+          "nativeSha256": "b11e015ad90d5ff6d705eb71c0a416fb85fb03c7b734af5feeee97c55187589d",
+          "characters": 126,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 1890,
+          "actualUsd": 0.00189,
+          "receivedAt": "2026-10-08T23:24:23.894Z"
+        }
+      ],
+      "createdAt": "2026-10-08T23:23:49.762Z",
+      "actualUsd": 0.042284
+    },
+    {
+      "runId": "live-selected-video-20261008",
+      "stage": "video",
+      "offline": false,
+      "state": "pending",
+      "reservedUsd": 6.3,
+      "manifestSha256": "ee5871d2968ccada3b97cf1dc8285012d417cd3387408a429eec789e9f5dde2e",
+      "calls": [
+        {
+          "number": 1,
+          "kind": "script",
+          "sourceEventId": "provider-attempt:463dcc365a1d58aafa5bd8d35137997d49a991f432e58100c585e8bbef45bbb1",
+          "requestSha256": "d50a9318778022db3ac6d05f77a2ea22b470c6aa45028eb57a3a6a7f84f7ceba",
+          "state": "receipted",
+          "model": "gemini-3.5-flash",
+          "submittedAt": "2026-10-08T23:24:52.779Z",
+          "requestUnits": null,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "RCbIavLzOKe839IP6MCXKQ",
+          "nativeSha256": "0cae3ef3eb33751a1cb242b8cd07369ee9f0539c82a7357085c34b0d5a6bec06",
+          "inputTokens": 1082,
+          "outputTokensIncludingThinking": 2982,
+          "costMicrousd": 28461,
+          "actualUsd": 0.028461,
+          "receivedAt": "2026-10-08T23:25:03.578Z"
+        },
+        {
+          "number": 2,
+          "kind": "tts",
+          "sourceEventId": "provider-attempt:8ffc71ee2d5a62af13be5d5bd4371f3b2abafc4442487969630bcbaf70120f1b",
+          "requestSha256": "8840f921db16c4cafba0e5c28c5ba0ad2064df97897e985c6c380403ac9c450c",
+          "state": "receipted",
+          "model": "tts-1",
+          "submittedAt": "2026-10-08T23:25:03.809Z",
+          "requestUnits": 1223,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0,
+          "providerRequestId": "req_d4b338aa83be42189c1638c019b18397",
+          "nativeSha256": "60a6f085109bb2ca03ce52615bc019e8b7c65d13505274e4ae176f52fd0989e7",
+          "characters": 1223,
+          "billingBasis": "exact request characters; not an invoice",
+          "costMicrousd": 18345,
+          "actualUsd": 0.018345,
+          "receivedAt": "2026-10-08T23:25:08.647Z"
+        },
+        {
+          "number": 3,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:e82472c0a69cd2981e0b29935bdb7db0ee6dffdaab1af69e1a0ddfae04bc8df9",
+          "requestSha256": "5294013228ef08cc6d6ce505dbb1c1124f1e69d9d28432b244df8ac48ed8421e",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.207Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 4,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:13830edf0f975fd44ad1bdc17be5512c583c6924339c8400efbd36e87727d1b5",
+          "requestSha256": "0763c739e0192d8984bc3ec778529cf52361b9848a9f399231f102c856689b2c",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.406Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 5,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:a87530893730d40025a1cecb4fb33b1ddcc5ac1f62998cca753938d4164e9444",
+          "requestSha256": "b9f5bdb4249a6a87df9123126df41848d78e6acd4d32836bdafea0e56e49e3bd",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.427Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 6,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:59a2b2e5606a2f760d3e334ab785848a98e4ec6a606aa08a3996e4d9fc3c517f",
+          "requestSha256": "ee69bd69cfdb6c340e49f87b2dd1a3de9676f221c25d6839aa1b23e09d831fb4",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.444Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 7,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:a9b17717c5cf450eaaec83769b5833fc841584f76e4106f54dccce55173f4e4e",
+          "requestSha256": "ac69486f90bd8308ca2a444f1baee9eec8096178c96e01d9ccdc6456b4788070",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.463Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 8,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:f900af8b3f8e997a18beb186318132df1ffc7c19822c8377e6176f04fedd6507",
+          "requestSha256": "494aa567eaa8313625a6a08f56871c8eb6a1a93ec7a2fa94732e730740c517bc",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.656Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 9,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:83416d90695e556f7031ad457275d6df2b6cf82aaa0f41ee25c7a71f7469353d",
+          "requestSha256": "ae707c3d2574c07e7fc3595ab353beffbd7a31a4ee20bb0e558a6dd7fe77cc1a",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.726Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 10,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:75ef477b5e1a8b7d974d73e51f19da932836264e0ccc20058c9961d375a7d421",
+          "requestSha256": "5541e9616301b36ab97538c7fd41ecb5fbdd83e95b24eaebc46a307f1ad71e22",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.746Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        },
+        {
+          "number": 11,
+          "kind": "clip",
+          "sourceEventId": "provider-attempt:6ff4798f4837b802141de5a68bf10ffb41412e9e3e3d3fdd22016e5f77b03bf1",
+          "requestSha256": "e779c8906ed7ecfb0f6ebb68167a9af2ce5c5b17f20068c1bfa68a72aedf013c",
+          "state": "pending",
+          "model": "veo-3.1-fast-generate-preview",
+          "submittedAt": "2026-10-08T23:25:09.843Z",
+          "requestUnits": 6,
+          "physicalSubmissions": 1,
+          "simulatedSubmissions": 0
+        }
+      ],
+      "createdAt": "2026-10-08T23:24:52.346Z"
+    }
+  ],
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 6.885916,
+    "availableUsd": 16.597013
+  }
+}

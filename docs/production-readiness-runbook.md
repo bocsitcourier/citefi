@@ -187,6 +187,74 @@ recorded `DO_SSH_HOST_FINGERPRINT=SHA256:...` pin. A key fetched at runtime is
 written to `known_hosts` only after its SHA-256 fingerprint matches; absence or
 mismatch aborts before SCP or SSH.
 
+### Approved SSH host fingerprint restoration and rotation
+
+The pin is the production droplet's **ED25519 host public-key** SHA-256
+fingerprint, not the deploy user's authorized key. Missing pins and unexpected
+changes are blockers, never permission to use `StrictHostKeyChecking=no`,
+`accept-new`, or an unverified `ssh-keyscan` result.
+
+1. The security owner and release commander approve the restoration/rotation
+   in a change record. Confirm the intended droplet ID, region, and public IP
+   in the authenticated DigitalOcean control panel against the deployment
+   inventory. Pause deploy/maintenance runs during a planned rotation.
+2. Use the authenticated DigitalOcean droplet console (or a previously pinned,
+   independently trusted administrative channel) to run:
+   ```bash
+   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
+   ```
+   Record only the public `SHA256:...` fingerprint, host identity, UTC timestamp,
+   verification channel, and approver in the change record. Never read, copy,
+   upload, or log `/etc/ssh/ssh_host_ed25519_key` or a deploy private key.
+   A scan over the connection being verified is comparison data, not evidence
+   of ownership. If no trusted channel exists, stop and restore console access.
+3. For a planned host-key change, obtain approval before changing the host,
+   verify the new public fingerprint via that independent channel, and retain
+   the previous public fingerprint in the change record. An unexplained change
+   requires security investigation before any pin update.
+4. In GitHub repository **Settings → Secrets and variables → Actions**, set
+   repository secret `DO_SSH_HOST_FINGERPRINT` to the independently verified
+   `SHA256:...` value only. Check for any organization/environment-scoped
+   overrides, and ensure `DO_HOST` identifies the verified droplet. Do not
+   change `DO_SSH_KEY`: client authentication and host identity are separate.
+5. Run **Deploy to DigitalOcean** on the reviewed ref with
+   **ssh_verify_only=true**. The `Verify pinned SSH host key` job must pass
+   both the real production pin comparison and deliberate wrong-pin rejection.
+   The validate/deploy jobs must be skipped. This mode does not load a private
+   key, authenticate over SSH, upload an artifact, or run migrations.
+6. Attach the Actions run URL, tested commit, UTC timestamp, successful pin
+   comparison, wrong-pin rejection, and approvals to the change record.
+   Do not declare restoration complete from local fixture tests alone.
+   Resume normal manually approved releases only after this evidence exists;
+   the release transport repeats verification before SSH/SCP.
+
+If validation fails, leave deployment blocked. Re-check the host identity via
+the independent channel; do not replace the secret with a scanned key to make
+the check pass. Restore the old pin only when the droplet is independently
+confirmed to be serving that previously approved key again. Maintenance must
+use the same pin verifier and `StrictHostKeyChecking=yes` with its generated
+`UserKnownHostsFile`, never an alternative trust-on-first-use path.
+
+#### Restoration verification evidence — 2026-10-08
+
+- Independent source: the operator supplied the production droplet's ED25519
+  public-key fingerprint after obtaining console access through DigitalOcean.
+  The pin was not derived from an untrusted runtime network scan.
+- Repository Actions secret `DO_SSH_HOST_FINGERPRINT` was set at
+  `2026-10-08T22:07:02Z`; `DO_SSH_KEY` was not changed or retrieved.
+- [Verification-only Actions run](https://github.com/bocsitcourier/citefi/actions/runs/37851398006)
+  tested commit `a403ab5a1a9266d48b5b2e1b76da5be8f10f59ac`, started at
+  `2026-10-08T22:07:03Z`, and completed successfully at `2026-10-08T22:07:13Z`.
+- `Test fail-closed host verification`, `Verify production ED25519 pin`, and
+  `Confirm a mismatched production pin is rejected` all passed. The wrong-pin
+  step checked the explicit mismatch error and absence of a generated trust file.
+- `Validate release` and `SSH deploy to droplet` were both skipped. No SSH
+  authentication, SCP upload, migration, or application restart was performed.
+
+This evidence certifies host-key pin verification only, not application health
+or full production readiness. Private keys, passwords, and secret values are
+intentionally absent from this record.
+
 The release also probes `DO_PUBLIC_HEALTHCHECK_URL` directly after local health;
 connection refusal/no listener or non-2xx is a rollback condition. Failure output
 includes PM2 descriptions, BUILD_ID, socket listeners, a verbose public probe,

@@ -17,6 +17,8 @@ import type { LookupAddress, LookupAllOptions } from "node:dns";
 type Address = { address: string; family: 4 | 6 };
 type RequestRecord = {
   url: string;
+  method?: string;
+  body?: string;
   timeoutMs?: number;
   timeoutCallback?: () => void;
   destroyed: boolean;
@@ -68,9 +70,10 @@ function installTransport(
     return answer;
   }) as typeof dns.promises.lookup;
 
-  const request = ((url: URL | string, options: { lookup?: Function }, callback: (incoming: EventEmitter) => void) => {
+  const request = ((url: URL | string, options: { lookup?: Function; method?: string }, callback: (incoming: EventEmitter) => void) => {
     const record: RequestRecord = {
       url: String(url),
+      method: options.method,
       destroyed: false,
       lookupCalls: [],
     };
@@ -78,7 +81,7 @@ function installTransport(
     const requestEmitter = new EventEmitter() as EventEmitter & {
       setTimeout: (milliseconds: number, callback: () => void) => void;
       destroy: (error?: Error) => void;
-      end: () => void;
+      end: (body?: string) => void;
     };
     requestEmitter.setTimeout = (milliseconds, timeoutCallback) => {
       record.timeoutMs = milliseconds;
@@ -88,7 +91,8 @@ function installTransport(
       record.destroyed = true;
       if (error) queueMicrotask(() => requestEmitter.emit("error", error));
     };
-    requestEmitter.end = () => {
+    requestEmitter.end = (body?: string) => {
+      record.body = body;
       if (options.lookup) {
         options.lookup(
           new URL(String(url)).hostname,
@@ -116,6 +120,48 @@ afterEach(() => {
   dnsCalls = [];
   requests = [];
   responseFactory = null;
+});
+
+test("signed POST uses pinned transport and preserves its method and body", async () => {
+  installTransport((_request, callback) => {
+    const res = response(200, {}, ['{"ok":true}']);
+    callback(res);
+  });
+  dnsAnswers.set("receiver.example", [{ address: "93.184.216.34", family: 4 }]);
+  const result = await safeFetchWithRedirects("https://receiver.example/api/v1/articles", {
+    method: "POST", body: '{"jobId":"owned-test"}', maxRedirects: 0,
+    headers: { "Content-Type": "application/json", "X-Citefi-Signature": "fixture" },
+  });
+  assert.equal(result?.status, 200);
+  assert.equal(requests[0]?.method, "POST");
+  assert.equal(requests[0]?.body, '{"jobId":"owned-test"}');
+  assert.deepEqual(requests[0]?.lookupCalls[0]?.address, [{ address: "93.184.216.34", family: 4 }]);
+});
+
+test("signed POST never replays a body or credentials to a redirect target", async () => {
+  installTransport((_request, callback) => {
+    const res = response(307, { location: "https://redirect.example/" });
+    callback(res);
+  });
+  dnsAnswers.set("receiver.example", [{ address: "93.184.216.34", family: 4 }]);
+  const result = await safeFetchWithRedirects("https://receiver.example/", {
+    method: "POST", body: "signed-body", maxRedirects: 0,
+  });
+  assert.equal(result, null);
+  assert.equal(requests.length, 1);
+  assert.equal(await safeFetchWithRedirects("https://receiver.example/", { method: "POST", body: "signed-body" }), null);
+  assert.equal(requests.length, 1);
+});
+
+test("HEAD verification ignores entity length but still pins the connection", async () => {
+  installTransport((_request, callback) => {
+    const res = response(200, { "content-length": "99999999" });
+    callback(res);
+  });
+  dnsAnswers.set("receiver.example", [{ address: "93.184.216.34", family: 4 }]);
+  const result = await safeFetchWithRedirects("https://receiver.example/", { method: "HEAD", maxBytes: 100 });
+  assert.equal(result?.status, 200);
+  assert.equal(requests[0]?.method, "HEAD");
 });
 
 describe("independent URL validation and pinned transport", { concurrency: false }, () => {

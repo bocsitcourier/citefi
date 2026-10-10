@@ -1,0 +1,16 @@
+{
+  "number": 7,
+  "kind": "clip",
+  "scene": 8,
+  "sourceEventId": "provider-attempt:3c157f901aa354e277205804066675896a789a0615d67476e4646db147473528",
+  "requestSha256": "b9f5bdb4249a6a87df9123126df41848d78e6acd4d32836bdafea0e56e49e3bd",
+  "state": "native_complete",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "providerRequestId": "models/veo-3.1-fast-generate-preview/operations/offline-22",
+  "videoSeconds": 6,
+  "operationName": "models/veo-3.1-fast-generate-preview/operations/offline-22",
+  "polls": 1,
+  "billingBasis": "native completion of requested duration; decoded duration checked separately",
+  "costMicrousd": 600000
+}

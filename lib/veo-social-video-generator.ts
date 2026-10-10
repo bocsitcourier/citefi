@@ -25,7 +25,7 @@ const VEO_STYLE_CONSTANTS = {
   }
 };
 
-function optimizeVeoPrompt(prompt: string, sceneType: "hook" | "solution" | "cta"): string {
+export function optimizeVeoPrompt(prompt: string, sceneType: "hook" | "solution" | "cta"): string {
   let optimized = prompt;
   
   if (!optimized.toLowerCase().includes("cinematic")) {

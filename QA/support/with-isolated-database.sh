@@ -15,11 +15,12 @@
 #   QA/support/with-isolated-database.sh
 #   QA/support/with-isolated-database.sh --with-redis -- tests/pipeline/restart-crash-boundaries.test.ts
 #   QA/support/with-isolated-database.sh --receipt-migration-fixture -- tests/qa/provider-receipt-durability.integration.test.ts
-#   QA/support/with-isolated-database.sh -- tests/auth/auth-api.test.ts \
-#     tests/security/tenant-rls.test.ts
+#   QA/support/with-isolated-database.sh --http -- tests/auth/auth-api.test.ts
+#   QA/support/with-isolated-database.sh --direct -- tests/billing/reservation-state-machine.test.ts
 #
-# Arguments after `--` are one shared `node --test` invocation. Keeping the
-# files in one invocation avoids rebuilding the database once per suite.
+# Arguments after `--` must be explicit test files, never Node flags. Default
+# execution is node --test; --direct runs each file sequentially without IPC.
+# --http owns a route-handler HTTP server and Redis as well as PostgreSQL.
 set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,6 +39,11 @@ REDIS_STARTED=0
 REDIS_PID=""
 WITH_REDIS=0
 WITH_RECEIPT_MIGRATION_FIXTURE=0
+DIRECT=0
+WITH_HTTP=0
+WITH_LIVE_PUBLISHING=0
+HTTP_PORT=15481
+HTTP_PID=""
 
 # Do not allow client-side libpq defaults, NODE_OPTIONS, proxies, or an
 # application's credentials to influence any command in this script. These
@@ -55,6 +61,10 @@ unset \
 
 cleanup() {
   local status=$?
+  if [[ -n "$HTTP_PID" ]]; then
+    kill "$HTTP_PID" >/dev/null 2>&1 || true
+    wait "$HTTP_PID" >/dev/null 2>&1 || true
+  fi
   if [[ "$PG_STARTED" == "1" ]]; then
     # This path was created by this invocation; never discover or stop a
     # process outside it.
@@ -70,6 +80,8 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 die() {
   echo "isolated PostgreSQL QA harness: $*" >&2
@@ -94,11 +106,24 @@ done
 test_args=()
 while (($#)); do
   case "$1" in
+    --live-publishing)
+      WITH_LIVE_PUBLISHING=1
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
       ;;
     --with-redis)
+      WITH_REDIS=1
+      shift
+      ;;
+    --direct)
+      DIRECT=1
+      shift
+      ;;
+    --http)
+      WITH_HTTP=1
       WITH_REDIS=1
       shift
       ;;
@@ -115,6 +140,11 @@ while (($#)); do
       die "unknown harness option '$1'; put test files after --"
       ;;
   esac
+done
+
+for file in "${test_args[@]}"; do
+  [[ "$file" == tests/* && "$file" != *".."* && -f "$file" ]] ||
+    die "expected an explicit test file, not a Node option: $file"
 done
 
 if [[ "$WITH_REDIS" == "1" ]]; then
@@ -153,6 +183,9 @@ fi
 if [[ "$WITH_REDIS" == "1" ]] && port_in_use "$REDIS_PORT"; then
   die "TCP port ${REDIS_PORT} is already in use; refusing to connect to or stop it"
 fi
+if [[ "$WITH_HTTP" == "1" ]] && port_in_use "$HTTP_PORT"; then
+  die "HTTP fixture port ${HTTP_PORT} is in use; refusing to reuse an application server"
+fi
 
 mkdir -p "$SOCKET_DIR"
 initdb -D "$PGDATA" -A trust -U "$DB_USER" --no-locale --encoding=UTF8 \
@@ -176,7 +209,8 @@ if [[ "$WITH_REDIS" == "1" ]]; then
   REDIS_PID=$!
   REDIS_STARTED=1
   for _ in {1..40}; do
-    if port_in_use "$REDIS_PORT"; then
+    if grep -q 'Ready to accept connections' "$FIXTURE_ROOT/redis.log" &&
+       kill -0 "$REDIS_PID" >/dev/null 2>&1; then
       break
     fi
     if ! kill -0 "$REDIS_PID" >/dev/null 2>&1; then
@@ -184,7 +218,8 @@ if [[ "$WITH_REDIS" == "1" ]]; then
     fi
     sleep 0.05
   done
-  port_in_use "$REDIS_PORT" ||
+  grep -q 'Ready to accept connections' "$FIXTURE_ROOT/redis.log" &&
+    kill -0 "$REDIS_PID" >/dev/null 2>&1 ||
     die "owned Redis fixture did not listen on 127.0.0.1:${REDIS_PORT}"
   echo "isolated Redis: owned fixture ready on 127.0.0.1:${REDIS_PORT}"
 fi
@@ -192,13 +227,27 @@ fi
 PSQL=(psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$PORT" -U "$DB_USER")
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}" >/dev/null
 
+QA_ALLOWED_PORTS="$PORT"
+if [[ "$WITH_REDIS" == "1" ]]; then QA_ALLOWED_PORTS+=",${REDIS_PORT}"; fi
+if [[ "$WITH_HTTP" == "1" ]]; then QA_ALLOWED_PORTS+=",${HTTP_PORT}"; fi
+mkdir -p "$FIXTURE_ROOT/home"
 SAFE_ENV=(
   env
   -i
   "PATH=${PATH:-/usr/bin:/bin}"
-  "HOME=${HOME:-$FIXTURE_ROOT/home}"
+  "HOME=$FIXTURE_ROOT/home"
   "DATABASE_URL=${FIXTURE_URL}"
   "NEON_DATABASE_URL=${FIXTURE_URL}"
+  "DATABASE_POOLED_URL=${FIXTURE_URL}"
+  "QA_ISOLATED_DATABASE=true"
+  "QA_TEST_ALLOWED_PORTS=$QA_ALLOWED_PORTS"
+  "NODE_ENV=test"
+  "WORKER_PROCESS=true"
+  "NODE_OPTIONS=--import=$ROOT/QA/support/qa-fixtures.mjs --import=$ROOT/QA/support/offline-guard.mjs"
+  "JWT_SECRET=qa-isolated-only-jwt-secret"
+  "SESSION_SECRET=qa-isolated-only-session-secret"
+  "APPROVAL_TOKEN_SECRET=qa-isolated-only-approval-secret"
+  "CSRF_SECRET=qa-isolated-only-csrf-secret"
   # Some provider-backed modules construct SDK clients at import time even
   # when the child test injects a deterministic provider seam.  This is an
   # intentionally unusable QA sentinel, not a credential; the offline guard
@@ -206,8 +255,20 @@ SAFE_ENV=(
   "OPENAI_API_KEY=qa-isolated-disabled-openai"
   "GEMINI_API_KEY=qa-isolated-disabled-gemini"
 )
+if [[ "$WITH_LIVE_PUBLISHING" == "1" ]]; then
+  [[ "${QA_LIVE_PUBLISHING_CONFIG:-}" == /var/www/citefi-staging/publishing-qa/live-tests.env ]] ||
+    die "live publishing requires the fixed owned staging configuration path"
+  SAFE_ENV+=(
+    "QA_LIVE_PUBLISHING=true"
+    "QA_LIVE_PUBLISHING_CONFIG=$QA_LIVE_PUBLISHING_CONFIG"
+    "NODE_OPTIONS=--import=$ROOT/QA/support/qa-fixtures.mjs --import=$ROOT/QA/support/live-publishing-guard.mjs"
+  )
+fi
 if [[ "$WITH_REDIS" == "1" ]]; then
   SAFE_ENV+=("REDIS_URL=redis://127.0.0.1:${REDIS_PORT}/0")
+fi
+if [[ "$WITH_HTTP" == "1" ]]; then
+  SAFE_ENV+=("QA_HTTP_FIXTURE_URL=http://127.0.0.1:${HTTP_PORT}")
 fi
 
 echo "isolated PostgreSQL: composing source schema on 127.0.0.1:${PORT}"
@@ -478,14 +539,27 @@ fi
 
 if ((${#test_args[@]})); then
   echo "isolated PostgreSQL: running one child test batch (${#test_args[@]} files)"
-  QA_ALLOWED_PORTS="$PORT"
-  if [[ "$WITH_REDIS" == "1" ]]; then
-    QA_ALLOWED_PORTS+=",${REDIS_PORT}"
+  if [[ "$WITH_HTTP" == "1" ]]; then
+    "${SAFE_ENV[@]}" node --import tsx/esm QA/support/http-fixture.ts >"$FIXTURE_ROOT/http.log" 2>&1 &
+    HTTP_PID=$!
+    for _ in {1..200}; do
+      if grep -q 'QA_HTTP_FIXTURE_READY' "$FIXTURE_ROOT/http.log"; then break; fi
+      if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+        cat "$FIXTURE_ROOT/http.log" >&2
+        die "owned HTTP fixture exited before readiness"
+      fi
+      sleep 0.1
+    done
+    if ! grep -q 'QA_HTTP_FIXTURE_READY' "$FIXTURE_ROOT/http.log"; then
+      cat "$FIXTURE_ROOT/http.log" >&2
+      die "owned HTTP fixture did not become ready; no application server will be used"
+    fi
   fi
   # offline-guard is a preload for children only. It permits the fixture TCP
   # ports and rejects every external socket/fetch, while the env below removes
   # provider/email/publishing credentials and worker execution.
-  if ! "${SAFE_ENV[@]}" \
+  run_tests() {
+    "${SAFE_ENV[@]}" \
     WORKER_PROCESS=true \
     NODE_ENV=test \
     QA_ISOLATED_DATABASE=true \
@@ -497,8 +571,14 @@ if ((${#test_args[@]})); then
     SESSION_SECRET=qa-isolated-only-session-secret \
     APPROVAL_TOKEN_SECRET=qa-isolated-only-approval-secret \
     CSRF_SECRET=qa-isolated-only-csrf-secret \
-    node --import "$ROOT/QA/support/offline-guard.mjs" \
-      --import tsx/esm --test-concurrency=1 --test-force-exit --test "${test_args[@]}"; then
+    node --import tsx/esm "$@"
+  }
+  if [[ "$DIRECT" == "1" ]]; then
+    for file in "${test_args[@]}"; do
+      run_tests "$file" || die "child test failed: $file; the isolated cluster will be removed"
+    done
+  elif ! run_tests --test-concurrency=1 --test "${test_args[@]}"; then
+    [[ -z "$HTTP_PID" ]] || cat "$FIXTURE_ROOT/http.log" >&2
     die "child test batch failed; the isolated cluster will be removed"
   fi
 else

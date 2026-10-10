@@ -8,6 +8,7 @@ import {
 import {
   MemoryProviderAttemptReceiptSpool,
   MemoryProviderAttemptReceiptStore,
+  reconcileProviderAttempt,
 } from "../lib/provider-attempt-receipts";
 import {
   providerInvocationIdentityForJob,
@@ -322,6 +323,73 @@ test("Gemini aggregate remains authoritative with missing or invalid thinking", 
   }
 });
 
+test("native image-only response with thoughtSignature preserves IMAGE modality usage", async () => {
+  const { readFileSync } = await import("node:fs");
+  const response = JSON.parse(readFileSync(
+    new URL("../QA/evidence/live-current/live-media-image-20261008/image-native-response.json", import.meta.url),
+    "utf8",
+  ));
+  const fixture = deps();
+  await submitGeminiWithReceipt(
+    { model: "gemini-3.1-flash-image", contents: "offline replay", config: { responseModalities: ["IMAGE"] } },
+    { teamId: 7, operationType: "image_generation" },
+    async () => response,
+    fixture._deps,
+  );
+  const receipt = [...fixture.store.rows.values()][0]!;
+  assert.equal(receipt.status, "accounted");
+  assert.equal(receipt.providerRequestId, response.responseId);
+  assert.equal(receipt.responseUsage?.outputUnits, 1120);
+  assert.equal(receipt.responseUsage?.raw?.imageOutputTokens, 1120);
+  assert.equal(receipt.responseUsage?.raw?.otherOutputTokens, 492);
+  assert.equal(receipt.responseUsage?.raw?.candidatesTokenCount, 1612);
+  assert.equal((fixture.ledger[0] as Record<string, unknown>).outputUnits, 1120);
+  const primary = fixture.ledger[0] as Record<string, unknown>;
+  const secondary = fixture.ledger[1] as Record<string, unknown>;
+  assert.equal(secondary.sourceEventId, `${primary.sourceEventId}:text-output`);
+  assert.equal(secondary.providerRequestId, primary.providerRequestId);
+  assert.equal(secondary.unitType, "tokens");
+  assert.equal(secondary.inputUnits, 0);
+  assert.equal(secondary.outputUnits, 492);
+  assert.equal(secondary.unitCount, 492);
+});
+
+test("image text/thinking reconciliation retries deterministic events after a partial write", async () => {
+  const fixture = deps();
+  const events = new Map<string, any>();
+  let fail = true;
+  fixture._deps.recordUsage = async (value: unknown) => {
+    const input = value as any;
+    const existing = events.get(input.sourceEventId);
+    if (existing) assert.deepEqual(existing, input);
+    events.set(input.sourceEventId, input);
+    if (input.sourceEventId.endsWith(":text-output") && fail) {
+      fail = false;
+      throw new Error("committed then acknowledgement lost");
+    }
+    return { inserted: !existing };
+  };
+  await assert.rejects(submitGeminiWithReceipt(
+    { model: "gemini-3.1-flash-image", contents: "fixture", config: { responseModalities: ["IMAGE"] } },
+    { teamId: 7, operationType: "image_generation" },
+    async () => ({
+      responseId: "fixture-image-split",
+      usageMetadata: {
+        promptTokenCount: 172, candidatesTokenCount: 1600, thoughtsTokenCount: 20, totalTokenCount: 1792,
+        candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }],
+      },
+      candidates: [{ content: { parts: [{ inlineData: { data: "fixture" } }] } }],
+    } as never),
+    fixture._deps,
+  ), { code: "PROVIDER_ATTEMPT_ACCOUNTING_FAILED" });
+  const receipt = [...fixture.store.rows.values()][0]!;
+  await reconcileProviderAttempt({ sourceEventId: receipt.sourceEventId }, fixture._deps);
+  await reconcileProviderAttempt({ sourceEventId: receipt.sourceEventId }, fixture._deps);
+  assert.equal(events.size, 2);
+  assert.equal(events.get(`${receipt.sourceEventId}:text-output`).outputUnits, 500);
+  assert.equal(events.get(`${receipt.sourceEventId}:text-output`).unitCount, 500);
+});
+
 test("Gemini image requests retain image unit semantics with thinking usage", async () => {
   const fixture = deps();
   await submitGeminiWithReceipt(
@@ -337,6 +405,7 @@ test("Gemini image requests retain image unit semantics with thinking usage", as
         candidatesTokenCount: 10,
         thoughtsTokenCount: 5,
         totalTokenCount: 115,
+        candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 10 }],
       },
       candidates: [{
         content: { parts: [{ inlineData: { data: "encoded-image" } }] },
@@ -350,7 +419,7 @@ test("Gemini image requests retain image unit semantics with thinking usage", as
   assert.equal(ledgerInput.outputUnits, 10);
 
   const imageOnlyFixture = deps();
-  await submitGeminiWithReceipt(
+  await assert.rejects(submitGeminiWithReceipt(
     {
       model: "gemini-3.5-flash",
       contents: "safe image request with partial token metadata",
@@ -364,11 +433,37 @@ test("Gemini image requests retain image unit semantics with thinking usage", as
       }],
     } as never),
     imageOnlyFixture._deps,
-  );
+  ));
   const imageReceipt = [...imageOnlyFixture.store.rows.values()][0]!;
-  assert.equal(imageReceipt.responseUsage?.known, true);
+  // Image bytes alone never make a token-priced image billable: without a
+  // complete native split the paid receipt is retained unknown, not zero-priced.
+  assert.equal(imageReceipt.responseUsage?.known, false);
   assert.equal(imageReceipt.responseUsage?.unitCount, 1);
-  assert.equal(imageOnlyFixture.ledger.length, 1);
+  assert.equal(imageOnlyFixture.ledger.length, 0);
+});
+
+test("image responses missing the IMAGE-modality split or with inconsistent totals stay unknown", async () => {
+  for (const usageMetadata of [
+    undefined,
+    { promptTokenCount: 172, candidatesTokenCount: 1600, totalTokenCount: 1772 },
+    { promptTokenCount: 172, candidatesTokenCount: 1600, totalTokenCount: 9999,
+      candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }] },
+    { candidatesTokenCount: 1600, totalTokenCount: 1600,
+      candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }] },
+  ]) {
+    const fixture = deps();
+    await assert.rejects(submitGeminiWithReceipt(
+      { model: "gemini-3.1-flash-image", contents: "fixture", config: { responseModalities: ["IMAGE"] } },
+      { teamId: 7, operationType: "image_generation" },
+      async () => ({ responseId: "fixture", usageMetadata,
+        candidates: [{ content: { parts: [{ inlineData: { data: "encoded-image" } }] } }] } as never),
+      fixture._deps,
+    ));
+    assert.equal(fixture.ledger.length, 0);
+    const receipt = [...fixture.store.rows.values()][0]!;
+    assert.equal(receipt.responseUsage?.known, false);
+    assert.notEqual(receipt.status, "accounted");
+  }
 });
 
 test("separate helper invocations with identical config are distinct attempts", async () => {

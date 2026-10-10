@@ -18,6 +18,10 @@ import {
 } from "../../shared/schema.js";
 import { hashPassword } from "../../lib/auth.js";
 import { eq, inArray } from "drizzle-orm";
+import {
+  SYNTHETIC_ACCOUNT_PASSWORD,
+  syntheticAccountEmail,
+} from "../../QA/support/qa-fixtures.mjs";
 
 export interface SeedResult {
   password: string;
@@ -29,15 +33,15 @@ export interface SeedResult {
 }
 
 export async function seedAuthUsers(runId: string): Promise<SeedResult> {
-  const password = "Test!Pass#123";
+  const password = SYNTHETIC_ACCOUNT_PASSWORD;
   const passwordHash = await hashPassword(password);
-  const prefix = `test_auth_${runId}`;
+  const accountEmail = (role: string) => syntheticAccountEmail(runId, `auth_${role}`);
 
   // 1. Create admin user first (needed as teams.createdBy FK)
   const [adminRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_admin@test.invalid`,
+      email: accountEmail("admin"),
       passwordHash,
       role: "admin",
       accountStatus: "active",
@@ -63,7 +67,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
   const [activeRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_active@test.invalid`,
+      email: accountEmail("active"),
       passwordHash,
       role: "team_member",
       accountStatus: "active",
@@ -75,7 +79,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
   const [suspendedRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_suspended@test.invalid`,
+      email: accountEmail("suspended"),
       passwordHash,
       role: "team_member",
       accountStatus: "suspended",
@@ -87,7 +91,7 @@ export async function seedAuthUsers(runId: string): Promise<SeedResult> {
   const [twoFaRow] = await db
     .insert(users)
     .values({
-      email: `${prefix}_2fa@test.invalid`,
+      email: accountEmail("two_factor"),
       passwordHash,
       role: "team_member",
       accountStatus: "active",

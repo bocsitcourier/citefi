@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { eq, desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
@@ -18,7 +18,7 @@ import { reserveSelectedMediaRun } from "../../QA/support/selected-media-run.mjs
 const exec = promisify(execFile);
 const modelClaims = "selected tts-1 (deprecated), NOT default gpt-4o-mini-tts; durable filesystem adapter, NOT cloud certification";
 
-async function probeAndDecode(path: string, kind: "audio" | "video") {
+export async function probeAndDecode(path: string, kind: "audio" | "video") {
   const { stdout } = await exec("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", path]);
   const probe = JSON.parse(stdout);
   assert.ok(Number(probe.format.duration) > 0);
@@ -38,7 +38,7 @@ async function probeAndDecode(path: string, kind: "audio" | "video") {
     fullDecode: true, audioMeanDb: Number(match![1]) };
 }
 
-async function seedOwnedRates(c: any, runId: string) {
+export async function seedOwnedRates(c: any, runId: string) {
   const { schema: s, systemDb: db } = c;
   const effectiveFrom = new Date("2026-10-08T00:00:00Z");
   const [version] = await db.insert(s.providerRateVersions).values({
@@ -60,7 +60,7 @@ async function seedOwnedRates(c: any, runId: string) {
   ]);
 }
 
-async function fixtureTransport(c: any, stage: string) {
+export async function fixtureTransport(c: any, stage: string) {
   const videoPath = join(c.owned.root, "selected-fixture.mp4");
   const audioPath = join(c.owned.root, "selected-fixture.mp3");
   if (stage === "podcast") {
@@ -131,6 +131,7 @@ async function fixtureTransport(c: any, stage: string) {
 }
 
 export function registerSelectedMediaAcceptance(c: any) {
+  if (process.env.VIDEO_RECOVERY_QA) return;
   if (!process.env.SELECTED_MEDIA_QA) return;
   const stage = process.env.SELECTED_MEDIA_QA;
   const offline = process.env.SELECTED_MEDIA_OFFLINE === "1";
@@ -142,9 +143,14 @@ export function registerSelectedMediaAcceptance(c: any) {
     const root = offline ? join(c.owned.root, "isolated-selected-budget") : EVIDENCE_ROOT;
     if (offline) {
       await mkdir(root, { recursive: true });
-      for (const file of ["budget-baseline.json", "budget-ledger.json"]) {
-        await cp(join(EVIDENCE_ROOT, file), join(root, file));
-      }
+      const baselineBytes = await readFile(join(EVIDENCE_ROOT, "budget-baseline.json"));
+      await writeFile(join(root, "budget-baseline.json"), baselineBytes);
+      await writeFile(join(root, "budget-ledger.json"), JSON.stringify({
+        version: 2,
+        ceilingUsd: 30,
+        budgetBaseline: { sourceSha256: hash(baselineBytes) },
+        runs: [],
+      }, null, 2));
     }
     const run = reserveSelectedMediaRun(stage, runId, { root, offline });
     c.setRun(run);

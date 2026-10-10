@@ -1,0 +1,24 @@
+{
+  "number": 6,
+  "kind": "clip",
+  "scene": 7,
+  "sourceEventId": "provider-attempt:6fe955842a9c0b86e5d9f9502605300b49b4c58a36886460ad013963d49bcf30",
+  "requestSha256": "ae707c3d2574c07e7fc3595ab353beffbd7a31a4ee20bb0e558a6dd7fe77cc1a",
+  "state": "pending",
+  "physicalSubmissions": 0,
+  "simulatedSubmissions": 1,
+  "body": {
+    "instances": [
+      {
+        "prompt": "Cinematic shot of a clean, modern community charging station in Fixture City where electric vehicles are plugged into sleek solar-powered fixtures, camera pans up, bright afternoon sun, 4K film quality, shallow depth of field, film grain. No text of any kind, no letters, no numbers, no captions, no logos, no watermarks, no signs, no billboards, no brand marks, no subtitles anywhere in the frame"
+      }
+    ],
+    "parameters": {
+      "sampleCount": 1,
+      "durationSeconds": 6,
+      "aspectRatio": "16:9",
+      "resolution": "720p"
+    },
+    "model": "veo-3.1-fast-generate-preview"
+  }
+}

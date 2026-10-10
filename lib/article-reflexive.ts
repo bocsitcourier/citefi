@@ -1,4 +1,4 @@
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import { validateArticleOutput } from "./article-output-safety";
 /**
  * ============================================================================
@@ -152,7 +152,7 @@ async function performReflexiveRewrite(
   
   console.log(`🔄 Performing reflexive rewrite to fix ${violations.length} violations and ${cliches.length} clichés...`);
   
-  const model = getModel("geminiFlash");
+  const model = await getResolvedModel("geminiFlash");
   const startedAt = Date.now();
   const providerMetadata = { queryHash: createHash("sha256").update(prompt).digest("hex") };
   let result;

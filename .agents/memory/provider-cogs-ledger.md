@@ -51,3 +51,7 @@ identity risks duplicate charges or invented financial evidence.
 counts as absent, and test both concurrent admission and committed-then-error
 accounting. Keep actual provider usage distinct from request bounds. Future
 receipt coverage does not reconstruct the historical unrecoverable call.
+## Image models bill several token categories
+Rule: Gemini image responses are billed as input tokens + IMAGE-modality output tokens + other text/thinking output tokens, each at a different official rate. One `images` ledger event carries input + image rates; non-image output tokens go to a separate deterministic `:text-output` `tokens` event (none when zero). A flat per-image rate is wrong for these models, and an image is billable only when the native split is complete and the total reconciles; otherwise the paid receipt stays unknown/retained rather than zero-priced.
+**Why:** `rateSnapshot` picks the newest `effectiveFrom`, so a stale flat seed rate silently outranks newer rates with older dates, and treating missing token counts as zero turns a real paid call into $0 COGS.
+**How to apply:** re-price only by adding a forward-only rate version with a newer `effectiveFrom`; never edit historical rows. QA must verify the production seed, not a test-only rate.

@@ -1,0 +1,39 @@
+{
+  "endToEndPass": false,
+  "storageClaim": "This budget helper does not certify cloud object storage; the caller must report its storage boundary explicitly.",
+  "evidence": {
+    "executionBoundary": "Production direct image regeneration route with runtime-selected Gemini 3.1 Flash Image; not the default 2.5 model certification",
+    "asset": {
+      "storageUrl": "/api/public-objects/private/uploads/image/1791507276430-regenerated-1791507276429.png",
+      "storageBoundary": "durable filesystem QA adapter; not cloud object-storage certification",
+      "bytes": 2678405,
+      "sha256": "b49de1d25610fbea1299632d3bd36c403aff8de74e609509808d3154f75811fc",
+      "png": {
+        "width": 1408,
+        "height": 768,
+        "format": "png",
+        "fullPixelDecode": true,
+        "decodedBytes": 3244032,
+        "decodedSha256": "6d8d640ef3f8880f17875cb15d2e10eeed413746d01d62a5826399236b42d042"
+      },
+      "httpStatus": 200,
+      "contentType": "image/png"
+    },
+    "tenantRetrieval": {
+      "authorizedStatus": 200,
+      "otherTenantStatus": 401
+    }
+  },
+  "totalBudget": {
+    "ceilingUsd": 30,
+    "knownPriorUsd": 0.517071,
+    "historicalHoldUsd": 6,
+    "historicalHoldIsActualSpend": false,
+    "historicalCalls": "UNKNOWN / UNRECONCILED",
+    "newCommittedUsd": 7.645916,
+    "availableUsd": 15.837013
+  },
+  "providerUsageUsd": 0.068726,
+  "physicalCalls": 1,
+  "finishedAt": "2026-10-09T00:54:36.578Z"
+}

@@ -1,0 +1,37 @@
+TAP version 13
+# (node:6067) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: development preview login retains a bearer fallback while production remains cookie-only
+ok 1 - development preview login retains a bearer fallback while production remains cookie-only
+  ---
+  duration_ms: 2.490901
+  ...
+# (node:6085) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+# --import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tests/scope-0-alias-loader.mjs", pathToFileURL("./"));'
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:6085) ExperimentalWarning: Module mocking is an experimental feature and might change at any time
+# Subtest: real confirmBrandSnapshot freezes the existing snapshot and records confirmation timestamps
+ok 2 - real confirmBrandSnapshot freezes the existing snapshot and records confirmation timestamps
+  ---
+  duration_ms: 392.97398
+  ...
+# Subtest: real confirmBrandSnapshot returns research_incomplete without updating an unready campaign
+ok 3 - real confirmBrandSnapshot returns research_incomplete without updating an unready campaign
+  ---
+  duration_ms: 1.677125
+  ...
+# Subtest: real confirmBrandSnapshot returns not_found and does not cross tenant boundaries
+ok 4 - real confirmBrandSnapshot returns not_found and does not cross tenant boundaries
+  ---
+  duration_ms: 1.192748
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 898.824222

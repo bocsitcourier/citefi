@@ -1,0 +1,88 @@
+TAP version 13
+# ❌ [q:job-1] PROVIDER_ERROR (retry)
+# ❌ [article-generation:job-1] PROVIDER_ERROR (retry)
+# ❌ [article-generation:job-1] PARSE_ERROR (retry)
+# ❌ [q:job-1] PROVIDER_ERROR (retry) — final attempt
+# ❌ [q:job-1] TIMEOUT (retry)
+# ❌ [q:job-1] TIMEOUT (retry)
+# ❌ [q:job-1] TIMEOUT (retry) — final attempt
+# Subtest: transient failure on NON-final attempt: no release, original error rethrown
+ok 1 - transient failure on NON-final attempt: no release, original error rethrown
+  ---
+  duration_ms: 6.459027
+  ...
+# Subtest: provider 503 is reported to the shared provider circuit breaker
+ok 2 - provider 503 is reported to the shared provider circuit breaker
+  ---
+  duration_ms: 0.319954
+  ...
+# Subtest: non-provider failures do not trip the provider circuit
+ok 3 - non-provider failures do not trip the provider circuit
+  ---
+  duration_ms: 0.214188
+  ...
+# Subtest: transient failure on FINAL attempt: releases reservation exactly once
+ok 4 - transient failure on FINAL attempt: releases reservation exactly once
+  ---
+  duration_ms: 0.30216
+  ...
+# Subtest: full retry lifecycle (3 attempts): release fires exactly once total
+ok 5 - full retry lifecycle (3 attempts): release fires exactly once total
+  ---
+  duration_ms: 0.414017
+  ...
+# Subtest: a failed batch article releases only its share and duplicate final failures are idempotent
+ok 6 - a failed batch article releases only its share and duplicate final failures are idempotent # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.060545
+  ...
+# Subtest: fatal error: releases immediately and throws UnrecoverableError
+ok 7 - fatal error: releases immediately and throws UnrecoverableError # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.059667
+  ...
+# Subtest: DEBIT_FAILED: never releases (content was delivered; only the debit retries)
+ok 8 - DEBIT_FAILED: never releases (content was delivered; only the debit retries) # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.047882
+  ...
+# Subtest: no billing info (missing runId): final failure does not call release
+ok 9 - no billing info (missing runId): final failure does not call release # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.083848
+  ...
+# Subtest: BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once
+ok 10 - BUDGET_EXCEEDED thrown by processor (in-processor gate) is fatal and releases once # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.149375
+  ...
+# Subtest: success path: processor result returned, no release
+ok 11 - success path: processor result returned, no release # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.124197
+  ...
+# Subtest: run-context identity: wrapper enters the SAME runId the processor's budget gate asserts
+ok 12 - run-context identity: wrapper enters the SAME runId the processor's budget gate asserts # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.085265
+  ...
+# Subtest: every metered content type: telemetry under creditRunId attributes AND trips that type's budget gate
+ok 13 - every metered content type: telemetry under creditRunId attributes AND trips that type's budget gate # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.11524
+  ...
+# Subtest: recorded telemetry under the run ID trips the next attempt's budget gate (production ID path)
+ok 14 - recorded telemetry under the run ID trips the next attempt's budget gate (production ID path) # SKIP test name does not match pattern
+  ---
+  duration_ms: 0.079839
+  ...
+# 🔌 DB: pooled pg → local postgres (max 20 conns, semaphore 15)
+1..14
+# tests 14
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 9
+# todo 0
+# duration_ms 856.090118

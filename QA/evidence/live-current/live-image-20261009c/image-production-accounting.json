@@ -1,0 +1,95 @@
+{
+  "executionBoundary": "Production direct image regeneration route with runtime-selected Gemini 3.1 Flash Image; not the default 2.5 model certification",
+  "asset": {
+    "storageUrl": "/api/public-objects/private/uploads/image/1791507795110-regenerated-1791507795109.png",
+    "storageBoundary": "durable filesystem QA adapter; not cloud object-storage certification",
+    "bytes": 2676523,
+    "sha256": "b5f92ea501860d6da49fc6d06c950947ba3504f054da582b2ab6fe0b88b763ac",
+    "png": {
+      "width": 1408,
+      "height": 768,
+      "format": "png",
+      "fullPixelDecode": true,
+      "decodedBytes": 3244032,
+      "decodedSha256": "4fc02291092d3a7a55fd077f48fb315eb2dbe66957ba87a202af3bee009dac22"
+    },
+    "httpStatus": 200,
+    "contentType": "image/png"
+  },
+  "tenantRetrieval": {
+    "authorizedStatus": 200,
+    "otherTenantStatus": 401
+  },
+  "accounting": {
+    "productionProviderAttemptReceipt": {
+      "id": 1,
+      "model": "gemini-3.1-flash-image",
+      "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+      "responseUsage": {
+        "raw": {
+          "totalTokenCount": 1751,
+          "promptTokenCount": 172,
+          "imageOutputTokens": 1120,
+          "otherOutputTokens": 459,
+          "candidatesTokenCount": 1579
+        },
+        "known": true,
+        "unitType": "images",
+        "unitCount": 1,
+        "inputUnits": 172,
+        "outputUnits": 1120
+      },
+      "responseMetadata": {
+        "latencyMs": null,
+        "httpStatus": null,
+        "actualModel": "gemini-3.1-flash-image",
+        "operationId": null,
+        "finishReason": null,
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg"
+      },
+      "status": "accounted",
+      "accountedAt": "2026-10-09T01:03:14.979Z"
+    },
+    "productionProviderUsageLedgerCogsEvents": [
+      {
+        "sourceEventId": "provider-attempt:f73f2fd43bb9b3cb2eda9bbbd8bb380fa6bfb2bcff238937593e0a8aafcbfbc6:text-output",
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+        "operationType": "image_generation",
+        "model": "gemini-3.1-flash-image",
+        "unitType": "tokens",
+        "inputUnits": 0,
+        "outputUnits": 459,
+        "unitCount": 459,
+        "costMicrousd": 1377,
+        "rateSnapshot": {
+          "version": "2026-10-09",
+          "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image",
+          "microusdPerUnit": null,
+          "inputMicrousdPerMillion": 500000,
+          "outputMicrousdPerMillion": 3000000
+        }
+      },
+      {
+        "sourceEventId": "provider-attempt:f73f2fd43bb9b3cb2eda9bbbd8bb380fa6bfb2bcff238937593e0a8aafcbfbc6",
+        "providerRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg",
+        "operationType": "image_generation",
+        "model": "gemini-3.1-flash-image",
+        "unitType": "images",
+        "inputUnits": 172,
+        "outputUnits": 1120,
+        "unitCount": 1,
+        "costMicrousd": 67286,
+        "rateSnapshot": {
+          "version": "2026-10-09",
+          "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.1-flash-image",
+          "microusdPerUnit": null,
+          "inputMicrousdPerMillion": 500000,
+          "outputMicrousdPerMillion": 60000000
+        }
+      }
+    ],
+    "cogsMicrousd": 68663,
+    "liveBudgetPricingReceiptFile": "image-receipt.json",
+    "liveBudgetProviderRequestId": "Sj3IasHWDLr5-8YPwa3T6Qg"
+  }
+}

@@ -4,6 +4,8 @@ import { downloadMultipleMedia } from '../services/media-downloader';
 import { sendCallback, createSuccessCallback, createFailureCallback } from '../services/callbacks';
 import { getLocalStorage } from '../storage/localFilesystem';
 import { logger } from '../utils/logger';
+import { claimSubmission, finishSubmission, submissionBinding } from '../services/publishing-receipts';
+import { getConfig } from '../config';
 
 const router = Router();
 
@@ -17,6 +19,11 @@ router.post('/', async (req: Request, res: Response) => {
   
   try {
     const article = req.body as ArticleRequest;
+    const binding = submissionBinding(req.body, getConfig());
+    if (binding && !(await claimSubmission(binding, getConfig()))) {
+      res.status(409).json({ success: false, error: 'Operation already claimed; read its retained receipt', errorCode: 'OPERATION_FENCED' });
+      return;
+    }
     
     if (!article.jobId) {
       res.status(400).json({
@@ -28,6 +35,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
     
     if (!article.title || !article.slug || !article.bodyHtml) {
+      if (binding) await finishSubmission(binding, 'not_accepted', getConfig());
       res.status(400).json({
         success: false,
         error: 'Missing required fields: title, slug, bodyHtml',
@@ -62,6 +70,7 @@ router.post('/', async (req: Request, res: Response) => {
     // record for the CMS, updates index.json, and writes the HTML page.
     const storage = getLocalStorage();
     const result = await storage.upsertArticleByTitle(article, mediaMap);
+    if (binding) await finishSubmission(binding, 'accepted', getConfig(), result.pageUrl);
     
     const mediaUrls: Record<string, string> = {};
     mediaMap.forEach((downloadResult, id) => {
@@ -89,12 +98,12 @@ router.post('/', async (req: Request, res: Response) => {
     } as ReceiverResponse);
     
     // ── Fire-and-forget: notify the engine of success ───────────────────────
-    sendCallback(createSuccessCallback(
+    sendCallback({ ...createSuccessCallback(
       article.jobId,
       result.pageUrl,
       result.slug,
       mediaUrls
-    )).catch(err => {
+    ), ...(binding ? { dispatchAttempt: binding.dispatchAttempt } : {}) }).catch(err => {
       logger.error('Failed to send success callback', { 
         jobId: article.jobId, 
         error: err.message 
@@ -121,11 +130,11 @@ router.post('/', async (req: Request, res: Response) => {
     } as ReceiverResponse);
     
     if (jobId) {
-      sendCallback(createFailureCallback(
+      sendCallback({ ...createFailureCallback(
         jobId,
         `Failed to create article: ${errorMessage}`,
         'PROCESSING_ERROR'
-      )).catch(err => {
+      ), ...(typeof req.body?.dispatchAttempt === 'string' ? { dispatchAttempt: req.body.dispatchAttempt } : {}) }).catch(err => {
         logger.error('Failed to send failure callback', { 
           jobId, 
           error: err.message 

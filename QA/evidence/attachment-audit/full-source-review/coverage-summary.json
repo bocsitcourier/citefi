@@ -1,0 +1,199 @@
+{
+  "sourceHead": "3f8e15291a06d8630cea046fa924a38648f81529",
+  "manifest": "manifest.json",
+  "sourceFiles": 736,
+  "sourceLines": 176249,
+  "sourceBytes": 6993038,
+  "coverage": {
+    "uniqueManifestPaths": 736,
+    "matchedPaths": 736,
+    "inputRanges": 892,
+    "nonemptyLineRanges": 891,
+    "coveredNonemptyLines": 176249,
+    "gaps": 0,
+    "overlaps": 0,
+    "batchAnswers": 182,
+    "exactRangeSetBatchAnswers": 182,
+    "emptyTrackedFiles": [
+      "package.json.tmp"
+    ]
+  },
+  "review": {
+    "method": "Full files read and SHA-256 hashed; line-boundary chunks submitted to internal queryWithLLM with explicit path/local-line labels. This is internal batch-aided line-by-line source review, not independent manual reread and not runtime certification.",
+    "batchAnswerFiles": [
+      "review-batches-001.jsonl",
+      "review-batches-002.jsonl",
+      "review-batches-003.jsonl",
+      "review-batches-004.jsonl",
+      "review-batches-005.jsonl",
+      "review-batches-006.jsonl",
+      "review-batches-007.jsonl"
+    ],
+    "candidateObservations": 333,
+    "candidateObservationCountsByReturnedSeverity": {
+      "operational": 108,
+      "medium": 67,
+      "low": 37,
+      "correctness": 35,
+      "conditional": 45,
+      "High": 1,
+      "Medium": 1,
+      "Low": 1,
+      "high": 25,
+      "warning": 4,
+      "billing/receipt/idempotency": 3,
+      "security": 3,
+      "critical": 2,
+      "idempotency": 1
+    },
+    "highCriticalCandidateCount": 28,
+    "highCriticalAdjudication": "All 28 source-validated against cited code and relevant call/cross-file paths. No newly confirmed high/critical issue beyond Part 17 F-01–F-07. Conditional Apex receiver SSRF/XSS sinks are disclosed in source-coverage.md §9 and are not represented as reproduced findings."
+  },
+  "testExecution": {
+    "rerun": false,
+    "priorCombinedTAP": "204 total: 193 pass, 2 fail, 9 filtered skips; see part-17-audit-report.md §G",
+    "sourceChanged": false
+  },
+  "exclusions": [
+    "test-only source and fixtures",
+    "generated output/metadata",
+    "dependency/vendor source and lockfile resolution",
+    "docs/README, QA evidence/report output",
+    "images/assets/screenshots",
+    "environment files and secrets"
+  ],
+  "filesByTopLevel": {
+    "app": {
+      "files": 340,
+      "lines": 68102
+    },
+    "client": {
+      "files": 1,
+      "lines": 27
+    },
+    "components": {
+      "files": 49,
+      "lines": 6186
+    },
+    "drizzle.config.ts": {
+      "files": 1,
+      "lines": 22
+    },
+    "ecosystem.config.cjs": {
+      "files": 1,
+      "lines": 82
+    },
+    "ecosystem.config.js": {
+      "files": 1,
+      "lines": 61
+    },
+    "ecosystem.staging.config.cjs": {
+      "files": 1,
+      "lines": 59
+    },
+    "eslint.config.js": {
+      "files": 1,
+      "lines": 47
+    },
+    "hooks": {
+      "files": 3,
+      "lines": 303
+    },
+    "lib": {
+      "files": 197,
+      "lines": 77511
+    },
+    "migrations": {
+      "files": 47,
+      "lines": 7667
+    },
+    "next.config.mjs": {
+      "files": 1,
+      "lines": 45
+    },
+    "packages": {
+      "files": 21,
+      "lines": 2132
+    },
+    "proxy.ts": {
+      "files": 1,
+      "lines": 207
+    },
+    "scripts": {
+      "files": 48,
+      "lines": 6389
+    },
+    "server": {
+      "files": 5,
+      "lines": 1265
+    },
+    "shared": {
+      "files": 1,
+      "lines": 4422
+    },
+    "tailwind.config.ts": {
+      "files": 1,
+      "lines": 110
+    },
+    "types": {
+      "files": 1,
+      "lines": 450
+    },
+    "vite.config.ts": {
+      "files": 1,
+      "lines": 40
+    },
+    "workers": {
+      "files": 1,
+      "lines": 436
+    },
+    ".github": {
+      "files": 2,
+      "lines": 162
+    },
+    ".npmrc": {
+      "files": 1,
+      "lines": 1
+    },
+    ".replit": {
+      "files": 1,
+      "lines": 140
+    },
+    "components.json": {
+      "files": 1,
+      "lines": 20
+    },
+    "deploy.sh": {
+      "files": 1,
+      "lines": 9
+    },
+    "nginx.conf": {
+      "files": 1,
+      "lines": 53
+    },
+    "package.json": {
+      "files": 1,
+      "lines": 204
+    },
+    "package.json.tmp": {
+      "files": 1,
+      "lines": 0
+    },
+    "playwright.config.ts": {
+      "files": 1,
+      "lines": 31
+    },
+    "postcss.config.js": {
+      "files": 1,
+      "lines": 6
+    },
+    "replit.nix": {
+      "files": 1,
+      "lines": 6
+    },
+    "tsconfig.json": {
+      "files": 1,
+      "lines": 54
+    }
+  }
+}

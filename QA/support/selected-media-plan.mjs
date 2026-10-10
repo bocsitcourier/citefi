@@ -1,9 +1,19 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { resolve, sep } from "node:path";
+import { assertPaidQaLedgerResolved } from "./budget-ledger-dispute.mjs";
 
 export const EVIDENCE_ROOT = resolve("QA/evidence/live-current");
 export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+function assertBudgetRoot(root) {
+  const requested = resolve(root);
+  const actual = realpathSync(requested);
+  const retained = realpathSync(EVIDENCE_ROOT);
+  if (actual !== requested || (actual !== retained &&
+      (actual.startsWith(retained + sep) || retained.startsWith(actual + sep)))) {
+    throw new Error("Budget root must be canonical and isolated from retained owner evidence");
+  }
+}
 export const LIMITS = Object.freeze({
   scriptModel: "gemini-3.5-flash",
   ttsModel: "tts-1",
@@ -28,6 +38,8 @@ export const LIMITS = Object.freeze({
 });
 
 export function sharedBudget(root = EVIDENCE_ROOT) {
+  if (resolve(root) === EVIDENCE_ROOT) assertPaidQaLedgerResolved();
+  assertBudgetRoot(root);
   const baselineBytes = readFileSync(resolve(root, "budget-baseline.json"));
   const baseline = JSON.parse(baselineBytes);
   const ledger = JSON.parse(readFileSync(resolve(root, "budget-ledger.json")));
@@ -103,6 +115,7 @@ export function selectedMediaManifest() {
 }
 
 export function assertPaidMediaPermission(stage, root = EVIDENCE_ROOT) {
+  assertPaidQaLedgerResolved();
   const manifest = selectedMediaManifest();
   const manifestSha256 = hash(JSON.stringify(manifest));
   if (!["podcast", "video"].includes(stage)) throw new Error("Unknown stage");
@@ -135,6 +148,7 @@ export function assertPaidMediaPermission(stage, root = EVIDENCE_ROOT) {
 }
 
 export function selectedMediaPreflight(stage) {
+  assertPaidQaLedgerResolved();
   const manifest = selectedMediaManifest();
   if (stage && !manifest.stages[stage]) throw new Error("Unknown stage");
   const { totalBudget } = sharedBudget();

@@ -1,6 +1,7 @@
 import { openaiClient, callOpenAI } from "../openai-client";
 import { isProviderAccountingError } from "../cost-telemetry";
 import { isProviderAttemptTerminalError } from "../provider-attempt-receipts";
+import { getResolvedModel } from "../model-resolver";
 
 export interface SocialSnippets {
   openGraph: {
@@ -89,10 +90,11 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
 - Twitter description: "📍 What if I told you there's a proven SEO strategy that 94102/94110 businesses use to get 300% more local customers? 10+ years serving SF neighborhoods. Real results. No BS. 🚀 #LocalSEO #SanFrancisco #94102"
 - LinkedIn description: "💼 After analyzing 500+ San Francisco businesses across Castro, Mission, and SOMA neighborhoods, we discovered something surprising: The ones dominating local search aren't spending more on SEO—they're using hyper-local strategies in 94102, 94110, and 94103 ZIP codes. With 10+ years serving SF businesses and features in SF Chronicle, we break down the exact frameworks working RIGHT NOW. Real data from actual local businesses. 📊 #LocalSEO #SanFrancisco #DigitalMarketing #SmallBusiness #CastroDistrict"`;
 
+  const model = await getResolvedModel("gptMini");
   try {
     const completion = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -103,7 +105,7 @@ EXCELLENT Examples (TASK 7: with local SEO + authority):
       }),
       `Social Snippets: ${title.substring(0, 50)}`,
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 1000 } },
+      { request: { model, maxOutputTokens: 1000 } },
     );
 
     const responseText = completion.choices[0]?.message?.content || "{}";

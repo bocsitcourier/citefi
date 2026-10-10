@@ -17,6 +17,7 @@ import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
 import { validateArticleOutput } from "./article-output-safety";
+import { getResolvedModel } from "./model-resolver";
 
 export type Dimension = "completeness" | "factuality" | "structure" | "humanness" | "engagement";
 const ALL_DIMS: Dimension[] = ["completeness", "factuality", "structure", "humanness", "engagement"];
@@ -256,16 +257,17 @@ Return ONLY valid JSON:
 CONTENT:
 ${content.slice(0, 8000)}`;
 
+    const model = await getResolvedModel("gptReview");
     const raw = await callOpenAI(
       (client) => client.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         max_tokens: 2048,
       }),
       "ContentReview judge",
       undefined,
-      { request: { model: "gpt-4.1-mini", maxOutputTokens: 2048 } },
+      { request: { model, maxOutputTokens: 2048 } },
     );
 
     const text = raw.choices[0]?.message?.content || "{}";

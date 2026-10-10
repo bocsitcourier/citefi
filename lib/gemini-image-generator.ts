@@ -16,7 +16,7 @@ import {
 } from "./cost-telemetry";
 import { createImageBrandLockPromptSegment } from "./branding";
 import { findReusableHeroImage } from "./image-memory";
-import { getModel } from "./model-resolver";
+import { getResolvedModel } from "./model-resolver";
 import {
   providerAttemptSourceEventIdForResponse,
   type ProviderAttemptReceiptDependencies,
@@ -194,12 +194,13 @@ export async function generateImagesForArticle(
   console.log(`🎨 Generating hero image for article ${articleId} (1 API call, hero only)...`);
 
   const MAX_RETRIES = 3;
+  const model = await getResolvedModel("geminiImage");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: generationRunId,
     attemptKey: "hero",
     provider: "gemini",
     operationType: "image_generation",
-    model: getModel("geminiImage"),
+    model,
   });
   let lastError: Error | null = null;
 
@@ -209,7 +210,6 @@ export async function generateImagesForArticle(
     try {
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
-      const model = getModel("geminiImage");
       const generationRequest = {
         model,
         contents: [{ role: "user" as const, parts: [{ text: heroPrompt }] }],
@@ -256,7 +256,7 @@ export async function generateImagesForArticle(
       // the attempt in the idempotency material so a retry is never collapsed.
       await logCostTelemetry(
         {
-           operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+           operationType: "image_generation", provider: "gemini", model,
           teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
           attempt, providerRequestId: (response as any).responseId ?? `${generationRunId ?? articleId}:hero:${attempt}`,
         },
@@ -280,7 +280,7 @@ export async function generateImagesForArticle(
         altText: `Hero image - ${heroPromptRaw.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: getModel("geminiImage"),
+          model,
           isHeroImage: true,
           originalPrompt: heroPromptRaw,
           ...(generationRunId ? { articleRunId: generationRunId } : {}),
@@ -320,7 +320,7 @@ export async function generateImagesForArticle(
       // attempt, but never record the local SVG fallback below as spend.
       await logFailedProviderAttempt(
         {
-           operationType: "image_generation", provider: "gemini", model: getModel("geminiImage"),
+           operationType: "image_generation", provider: "gemini", model,
           teamId: accountingTeamId, articleId, runId: generationRunId, resourceType: "article", resourceId: articleId,
           attempt, providerRequestId: `${generationRunId ?? articleId}:hero:${attempt}`,
         },
@@ -394,6 +394,8 @@ export async function generateSingleImage(
     resourceId?: string | number;
     /** Logical invocation/idempotency identity; never derive this from resource identity. */
     invocationKey?: string;
+    /** Already-resolved by a caller that must persist the same model selection. */
+    model?: string;
   },
   _deps: {
     generateContent?: (request: Parameters<typeof genAI.models.generateContent>[0]) => Promise<any>;
@@ -403,7 +405,7 @@ export async function generateSingleImage(
   } = {}
 ): Promise<string | null> {
   const accountingTeamId = requireImageGenerationTeamId(telemetry.teamId, "Single image generation");
-  const model = getModel("geminiImage");
+  const model = telemetry.model ?? await getResolvedModel("geminiImage");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: telemetry.invocationKey,
     attemptKey: "single-image",
@@ -523,12 +525,13 @@ export async function generateAndStoreHeroImage(
   } = {}
 ): Promise<string> {
   const accountingTeamId = requireImageGenerationTeamId(teamId, "Stored hero image generation");
+  const model = await getResolvedModel("geminiImage");
   const providerAttemptIdentity = allocateProviderAttemptIdentity({
     invocationKey: options.invocationKey,
     attemptKey: "stored-hero",
     provider: "gemini",
     operationType: "image_generation",
-    model: "gemini-2.5-flash-image",
+    model,
   });
   console.log(`🖼️ Generating hero image with Gemini for article ${articleId}...`);
 
@@ -551,7 +554,7 @@ export async function generateAndStoreHeroImage(
       console.log(`  📸 Attempt ${attempt}/${MAX_RETRIES}...`);
 
       const generationRequest = {
-          model: "gemini-2.5-flash-image",
+          model,
           contents: [{ role: "user", parts: [{ text: enhancedPrompt }] }],
           config: { responseModalities: ["Image"] },
       };
@@ -595,7 +598,7 @@ export async function generateAndStoreHeroImage(
       }
       await (_deps.logSuccess ?? logCostTelemetry)(
         {
-          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          operationType: "image_generation", provider: "gemini", model,
           teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
           providerRequestId: (response as any).responseId ?? `${articleId}:stored-hero:${attempt}`,
         },
@@ -619,7 +622,7 @@ export async function generateAndStoreHeroImage(
         altText: `Hero image - ${prompt.slice(0, 100)}`,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: getModel("geminiImage"),
+          model,
           isHeroImage: true,
           originalPrompt: prompt,
         },
@@ -639,7 +642,7 @@ export async function generateAndStoreHeroImage(
       }
       await logFailedProviderAttempt(
         {
-          operationType: "image_generation", provider: "gemini", model: "gemini-2.5-flash-image",
+          operationType: "image_generation", provider: "gemini", model,
           teamId: accountingTeamId, articleId, batchId, resourceType: "article", resourceId: articleId, attempt,
           providerRequestId: `${articleId}:stored-hero:${attempt}`,
         },

@@ -15,6 +15,7 @@
 import { callOpenAI } from "./openai-client";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 
 export interface GuardianAuditReport {
   passed: boolean;
@@ -91,8 +92,9 @@ async function checkToneWithAI(
 ): Promise<{ passed: boolean; reason: string }> {
   try {
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 2000);
+    const model = await getResolvedModel("gptMini");
     const response = await callOpenAI((client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         {
           role: "system",
@@ -115,8 +117,8 @@ Return ONLY this JSON (no markdown, no code fences):
       max_tokens: 100,
     }), "Guardian tone audit", undefined, {
       operationType: "article_review",
-      model: "gpt-4.1-mini",
-      request: { model: "gpt-4.1-mini", maxOutputTokens: 100 },
+      model,
+      request: { model, maxOutputTokens: 100 },
     });
 
     const raw = response.choices[0]?.message?.content || '{"passed":true,"reason":"tone check skipped"}';

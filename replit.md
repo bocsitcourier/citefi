@@ -10,6 +10,11 @@ Citefi is a dual-AI SEO content generation platform specializing in scalable, hi
 - Google and Meta approvals never block export-only behavior. Direct ad publishing remains disabled until the platform-specific approval and certification gates pass.
 - The Release Owner must use `reports/launch-certification-checklist.md`; until its blocking gates are green, the product is an advanced beta / conditional launch candidate, not blueprint-complete.
 
+## Production Deployment Documentation
+- The production target is DigitalOcean. Start with [the deployment guide](docs/digitalocean-deployment.md), which links the existing GitHub-held SSH access path, read-only inspection, release workflow, and supporting runbooks.
+- The detailed release and rollback contract is [the production readiness runbook](docs/production-readiness-runbook.md). Do not replace it with remembered commands from older deployment sessions.
+- Keep deployment evidence dated and distinguish host verification, SSH authentication, source preparation, and a verified application release. Never save credentials in project documentation.
+
 ## User Preferences
 - **Communication style:** Simple, everyday language
 - **Development approach:** Get core working first, then expand features incrementally

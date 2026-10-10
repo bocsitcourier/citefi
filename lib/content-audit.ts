@@ -10,6 +10,7 @@ import { articles } from "@/shared/schema";
 import { eq } from "drizzle-orm";
 import { isProviderAccountingError } from "./cost-telemetry";
 import { isProviderAttemptTerminalError } from "./provider-attempt-receipts";
+import { getResolvedModel } from "./model-resolver";
 
 export interface AuditCriterion {
   criterion: string;
@@ -156,9 +157,10 @@ ${articleHtml}
 
 **IMPORTANT:** Return ONLY valid JSON. Be specific in rationales and suggested edits.`;
 
+  const model = await getResolvedModel("gptReview");
   try {
     const response = await callOpenAI((client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         {
           role: "system",
@@ -174,8 +176,8 @@ ${articleHtml}
       response_format: { type: "json_object" }
     }), "Content quality audit", undefined, {
       operationType: "article_review",
-      model: "gpt-4.1-mini",
-      request: { model: "gpt-4.1-mini", maxOutputTokens: 2000 },
+      model,
+      request: { model, maxOutputTokens: 2000 },
     });
 
     const content = response.choices[0]?.message?.content;
@@ -277,8 +279,9 @@ ${targets.slice(0, 20).map((t, i) => `${i + 1}. "${t.title}" (ID: ${t.id})`).joi
 
 Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highest first).`;
 
+    const model = await getResolvedModel("gptHyperlinkExtract");
     const response = await callOpenAI((client) => client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       messages: [
         {
           role: "system",
@@ -294,10 +297,10 @@ Return ONLY valid JSON with 3-5 opportunities, ordered by relevanceScore (highes
       response_format: { type: "json_object" }
     }), `Internal link discovery: article ${articleId}`, undefined, {
       operationType: "article_hyperlink",
-      model: "gpt-4.1-mini",
+      model,
       teamId,
       articleId,
-      request: { model: "gpt-4.1-mini", maxOutputTokens: 1500 },
+      request: { model, maxOutputTokens: 1500 },
     });
 
     const content = response.choices[0]?.message?.content;

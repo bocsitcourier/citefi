@@ -1,3 +1,4 @@
+import { safeFetchWithRedirects } from '../../../url-validation';
 import type { PublishingConnection, Article, ArticleAsset, VideoIdea } from '../../../../shared/schema';
 import type { 
   ChannelAdapter, 
@@ -61,7 +62,7 @@ function sanitizeMetaField(value: string): string {
 // Priority: NEXTAUTH_URL → NEXT_PUBLIC_APP_URL → REPLIT_DOMAINS (first domain).
 // Returns undefined for non-http(s) URI schemes (data:, blob:, etc.) — callers
 // must treat undefined as "no image" and omit the field from the payload.
-function makeAbsoluteUrl(url: string): string | undefined {
+export function makeAbsoluteUrl(url: string): string | undefined {
   if (!url) return undefined;
 
   // Any URI with a scheme other than http/https (e.g. data:, blob:, mailto:)
@@ -479,6 +480,9 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     // at the domain origin, e.g. https://example.com/api/v1/articles.
     const receiverOrigin = new URL(connection.baseUrl).origin;
     const endpoint = `${receiverOrigin}${endpointMap[content.type ?? ''] || '/api/v1/articles'}`;
+    if (new URL(endpoint).protocol !== 'https:') {
+      return { success: false, error: 'Publishing receivers require HTTPS', errorCode: 'UNSAFE_RECEIVER_URL' };
+    }
     const payload = {
       ...content.payload,
       jobId,
@@ -519,7 +523,7 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     }
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await safeFetchWithRedirects(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -530,7 +534,11 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
           'X-Api-Key': apiKey,
         },
         body,
+        maxRedirects: 0,
+        timeoutMs: 30000,
+        maxBytes: 1000000,
       });
+      if (!response) throw new Error('Receiver URL blocked or request exceeded safe network limits');
 
       const rawText = await response.text();
       console.log(`[PUBLISH] ← status=${response.status} contentType="${response.headers.get('content-type')}" body=${rawText.slice(0, 600)}`);
@@ -637,9 +645,12 @@ export class WebsiteChannelAdapter implements ChannelAdapter {
     }
 
     try {
-      const response = await fetch(publishResult.publishedUrl, {
+      const response = await safeFetchWithRedirects(publishResult.publishedUrl, {
         method: 'HEAD',
+        timeoutMs: 12000,
+        maxBytes: 65536,
       });
+      if (!response) return { verified: false, status: 'failed', details: { message: 'Verification URL blocked or request exceeded safe network limits' } };
 
       return {
         verified: response.ok,

@@ -9,6 +9,7 @@ export interface ReceiverConfig {
   storagePath: string;
   baseUrl: string;
   enableDebugLogging: boolean;
+  publishingReceiptFenceReady: boolean;
 }
 
 export function loadConfig(): ReceiverConfig {
@@ -34,6 +35,9 @@ export function loadConfig(): ReceiverConfig {
     storagePath: process.env.STORAGE_PATH || './uploads',
     baseUrl,
     enableDebugLogging: process.env.DEBUG === 'true',
+    // An operator must attest the claim volume is persistent and shared by all
+    // processes serving this site before we promise an irrevocable rejection.
+    publishingReceiptFenceReady: process.env.PUBLISHING_RECEIPT_FENCE_READY === 'true',
   };
 }
 
