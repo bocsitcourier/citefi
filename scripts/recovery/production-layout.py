@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 
 ROOT = Path("/var/www/citefi")
@@ -135,9 +136,41 @@ def prepare(root):
     return {**receipt, "release": str(target), "current": str(current.resolve())}
 
 
+def finalize(root):
+    current = root / "current"
+    if not current.is_symlink():
+        raise RuntimeError("No immutable release is active")
+    release = current.resolve(strict=True)
+    if release.parent != root / "releases":
+        raise RuntimeError("Active release is outside the release store")
+    sha = source_sha(release)
+    status = json.loads((root / ".deploy/release-status.json").read_text())
+    if (status.get("status") != "succeeded" or status.get("knownGoodSha") != sha
+            or status.get("activeRelease") != str(release)):
+        raise RuntimeError("Release has not passed the activation gates")
+    rows = json.loads(subprocess.check_output(["pm2", "jlist"], text=True))
+    wanted = {"citefi-web", "citefi-worker"}
+    selected = [row for row in rows if row.get("name") in wanted]
+    if len(selected) != 2 or {row["name"] for row in selected} != wanted:
+        raise RuntimeError("Expected exactly the two named production processes")
+    for row in selected:
+        environment = row.get("pm2_env", {})
+        if (environment.get("status") != "online"
+                or Path(environment.get("pm_exec_path", "")).resolve()
+                != release / "scripts/process-bootstrap.ts"
+                or Path(environment.get("pm_cwd", "")).resolve() != release):
+            raise RuntimeError("Production process is not using the active bootstrap")
+    with urllib.request.urlopen("http://127.0.0.1:5000/api/health?full=1", timeout=20) as response:
+        if json.load(response).get("ok") is not True:
+            raise RuntimeError("Full production health is not ready")
+    subprocess.run(["pm2", "save"], check=True, capture_output=True)
+    return {"state": "verified_process_configuration_saved", "releaseSha": sha,
+            "processes": sorted(wanted), "processesReloaded": False}
+
+
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ["inspect", "prepare"]:
-        raise RuntimeError("Only fixed inspect/prepare operations are supported")
+    if len(sys.argv) != 2 or sys.argv[1] not in ["inspect", "prepare", "finalize"]:
+        raise RuntimeError("Only fixed inspect/prepare/finalize operations are supported")
     if pwd.getpwuid(os.getuid()).pw_name != "citefi":
         raise RuntimeError("Production layout operations require the citefi service account")
     if sys.argv[1] == "inspect":
@@ -148,7 +181,8 @@ def main():
         raise RuntimeError("Owned deployment state directory is required")
     with (state / "release.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        print(json.dumps(prepare(ROOT), indent=2))
+        operation = finalize if sys.argv[1] == "finalize" else prepare
+        print(json.dumps(operation(ROOT), indent=2))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SOURCE = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location(
@@ -80,6 +82,35 @@ class ProductionLayoutTests(unittest.TestCase):
             self.assertNotIn("fixture-not-a-real-secret", report)
             self.assertEqual(before, set(root.rglob("*")))
             self.assertFalse((root / "releases").exists())
+
+    def test_saves_only_after_exact_release_and_process_health_are_verified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            receipt = layout.prepare(root)
+            release = Path(receipt["release"])
+            (root / ".deploy/release-status.json").write_text(json.dumps({
+                "status": "succeeded", "knownGoodSha": receipt["sourceSha"],
+                "activeRelease": str(release)}))
+            rows = [{"name": name, "pm2_env": {
+                "status": "online", "pm_exec_path": str(root / "current/scripts/process-bootstrap.ts"),
+                "pm_cwd": str(root / "current")}} for name in ["citefi-web", "citefi-worker"]]
+            with patch.object(layout.subprocess, "check_output", return_value=json.dumps(rows)), \
+                    patch.object(layout.subprocess, "run") as run, \
+                    patch.object(layout.urllib.request, "urlopen", return_value=io.BytesIO(b'{"ok":true}')):
+                self.assertEqual(layout.finalize(root)["state"], "verified_process_configuration_saved")
+                run.assert_called_once_with(["pm2", "save"], check=True, capture_output=True)
+            rows[0]["pm2_env"]["pm_exec_path"] = str(root / "legacy-next.js")
+            with patch.object(layout.subprocess, "check_output", return_value=json.dumps(rows)), \
+                    patch.object(layout.subprocess, "run") as run:
+                with self.assertRaises(RuntimeError):
+                    layout.finalize(root)
+                run.assert_not_called()
+            (root / ".deploy/release-status.json").write_text('{"status":"deploying"}')
+            with patch.object(layout.subprocess, "run") as run:
+                with self.assertRaises(RuntimeError):
+                    layout.finalize(root)
+                run.assert_not_called()
 
 
 if __name__ == "__main__":
