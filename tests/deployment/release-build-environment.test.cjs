@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const os = require('node:os');
 const yaml = require('js-yaml');
 const root = path.resolve(__dirname, '../..');
 
@@ -39,4 +40,33 @@ test('both off-host release builds scope the fixture preload to compilation only
   assert.doesNotMatch(transport.slice(transport.indexOf('remote_env=(')), /NODE_OPTIONS|qa-fixtures/);
   const host = fs.readFileSync(path.join(root, 'scripts/host-release.sh'), 'utf8');
   assert.doesNotMatch(host, /qa-fixtures/);
+});
+
+test('the exact release tar command archives outside its source tree and excludes dotenv files', () => {
+  const transport = fs.readFileSync(path.join(root, 'scripts/deploy-to-do.sh'), 'utf8');
+  assert.match(transport, /artifact="\$\{work\}\.tar\.gz"/);
+  assert.match(transport, /trap 'rm -rf "\$work"; rm -f "\$artifact"' EXIT/);
+  const tarCommand = transport.match(/^tar -C "\$work"[\s\S]*? -czf "\$artifact" \.$/m)?.[0];
+  assert.ok(tarCommand, 'Expected the real transport archive command');
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'release-tar-test-'));
+  const artifact = `${work}.tar.gz`;
+  try {
+    fs.mkdirSync(path.join(work, '.next'));
+    fs.writeFileSync(path.join(work, '.next/BUILD_ID'), 'test-build');
+    fs.writeFileSync(path.join(work, '.release-sha'), 'test-source');
+    fs.writeFileSync(path.join(work, '.env.local'), 'DO_NOT_PACKAGE=test');
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    execFileSync('bash', ['-eu', '-c', tarCommand], {
+      env: { PATH: process.env.PATH, work, artifact, ROOT: root, sha },
+      encoding: 'utf8',
+    });
+    const listing = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' });
+    assert.match(listing, /\.next\/BUILD_ID/);
+    assert.match(listing, /\.release-sha/);
+    assert.doesNotMatch(listing, /\.env/);
+    assert.doesNotMatch(listing, /release-tar-test/);
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+    fs.rmSync(artifact, { force: true });
+  }
 });
