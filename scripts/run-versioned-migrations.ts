@@ -33,6 +33,7 @@ const files = [
   "0036_gemini31_image_native_rates.sql",
   "0037_publishing_client_summary.sql",
   "0038_public_article_trial.sql",
+  "0039_public_article_trial_forced_rls.sql",
 ];
 const url = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required for versioned migrations");
@@ -200,7 +201,15 @@ async function main() {
           WHERE attrelid=to_regclass('public.articles')
             AND attname='podcast_billing_settled_at' AND NOT attisdropped
         ) AS podcast_settlement,
-         to_regclass('public.provider_attempt_receipts') IS NOT NULL AS provider_attempt_receipts,
+          to_regclass('public.provider_attempt_receipts') IS NOT NULL AS provider_attempt_receipts,
+          (
+            SELECT relrowsecurity AND relforcerowsecurity
+            FROM pg_class WHERE oid=to_regclass('public.public_trial_documents')
+          ) AS public_trial_documents_rls,
+          (
+            SELECT relrowsecurity AND relforcerowsecurity
+            FROM pg_class WHERE oid=to_regclass('public.public_trial_sponsor')
+          ) AS public_trial_sponsor_rls,
          (
            SELECT count(*) FROM pg_constraint
            WHERE conrelid=to_regclass('public.provider_attempt_receipts')

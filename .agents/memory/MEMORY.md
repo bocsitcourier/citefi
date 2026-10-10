@@ -59,3 +59,4 @@
 - [Free article product policy](trial-product-policy.md) — signup unlocks full watermarked reading; approval remains separate, and website screenshot prevention is not a promise.
 - [City marketing evidence](city-evidence-policy.md) — genuine reviews and consented portraits only; match complete Census place/state names, never prefix aliases.
 - [Full-platform marketing](marketing-positioning.md) — free article is an entry offer; selling pages must explain multi-format value and answer small-business buying questions.
+- [Workspace config merges](workspace-config-merges.md) — invalid merged TOML can hide Nix tools; restore validated configuration before reinstalling anything.
