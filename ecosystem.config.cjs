@@ -12,6 +12,8 @@ const cwd = process.env.DO_CURRENT_DIR || "/var/www/citefi/current";
 
 // Next.js loads .env.local automatically.
 // The worker uses --env-file so env vars are injected before any imports run.
+// Both processes load the separately approved, non-secret recovery settings.
+// The shared application file remains authoritative; never replace its secrets.
 
 module.exports = {
   apps: [
@@ -21,7 +23,7 @@ module.exports = {
       script: "scripts/process-bootstrap.ts",
       args: "--web",
       interpreter: "node",
-      interpreter_args: "--import tsx/esm --env-file=.env.local",
+      interpreter_args: "--import tsx/esm --env-file=/var/www/citefi/ops-recovery/recovery.env --env-file=.env.local",
       cwd,
       instances: 1,
       exec_mode: "fork",
@@ -55,7 +57,7 @@ module.exports = {
       script: "scripts/process-bootstrap.ts",
       args: "--worker",
       interpreter: "node",
-      interpreter_args: "--import tsx/esm --env-file=.env.local",
+      interpreter_args: "--import tsx/esm --env-file=/var/www/citefi/ops-recovery/recovery.env --env-file=.env.local",
       cwd,
       instances: 1,
       exec_mode: "fork",
