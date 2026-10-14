@@ -40,6 +40,9 @@ export function planAdditions(sql, diff) {
     if (sql.includes(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY;`)) {
       if (!["provider_attempt_receipts", "credit_reservations"].includes(table)) throw new Error("New protected table policies require explicit review");
       if (table === "provider_attempt_receipts") additions.push(`ALTER TABLE provider_attempt_receipts FORCE ROW LEVEL SECURITY;
+CREATE UNIQUE INDEX provider_attempt_receipts_team_id_id_unique ON provider_attempt_receipts(team_id,id);
+ALTER TABLE provider_attempt_receipts ADD CONSTRAINT provider_attempt_receipts_campaign_team_fk
+ FOREIGN KEY(team_id,campaign_id) REFERENCES campaigns(team_id,id);
 GRANT SELECT, INSERT, UPDATE ON provider_attempt_receipts TO citefi_tenant;
 GRANT USAGE, SELECT ON SEQUENCE provider_attempt_receipts_id_seq TO citefi_tenant;
 CREATE POLICY provider_attempt_receipts_select ON provider_attempt_receipts FOR SELECT TO citefi_tenant
@@ -89,6 +92,12 @@ BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME; END $$;`);
  ADD CONSTRAINT telemetry_incidents_count_check CHECK(occurrence_count > 0 AND evidence_version > 0);`);
   if (tables.has("telemetry_events")) additions.push(`ALTER TABLE telemetry_events
  ADD CONSTRAINT telemetry_events_severity_check CHECK(severity IN ('warning','error','critical'));`);
+  if (tables.has("credit_reservations")) additions.push(`-- Owner-approved reconstruction: preserve balances and historical ledger.
+INSERT INTO credit_reservations(team_id,run_id,operation_type,original_amount,remaining_amount,
+ status,reconciliation_required_at,reconciliation_reason,created_at)
+SELECT team_id,run_id,operation_type,amount,amount-settled,'RESERVED',now(),
+ 'Inherited ledger-verified hold; explicit outcome reconciliation required before refund',created_at
+FROM recovery_verified_legacy_holds WHERE amount>settled;`);
   return additions.join("\n\n") + "\n";
 }
 

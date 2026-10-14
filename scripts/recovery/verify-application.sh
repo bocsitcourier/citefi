@@ -6,7 +6,7 @@ source "$(dirname "$0")/ssh-session.sh"
 : "${CANDIDATE_ID:?Missing staged release identifier}"
 [[ "$CANDIDATE_ID" =~ ^[a-f0-9]{40}-[a-f0-9]{16}$ ]]
 plan="$RECOVERY_TMP/additions.sql"
-"${SSH[@]}" "cat /var/www/citefi/.deploy/recovery-plans/$CANDIDATE_ID/additions.sql" > "$plan"
+"${SSH[@]}" "cat /var/www/citefi/.deploy/recovery-plans/$CANDIDATE_ID/additions-protected.sql" > "$plan"
 digest="$(sha256sum "$plan" | awk '{print $1}')"
 DATABASE_URL="postgresql:///citefi_restore_verify?host=/var/run/postgresql" \
   node "$RECOVERY_ROOT/scripts/recovery/apply-additions.mjs" "$plan" "$digest" --isolated

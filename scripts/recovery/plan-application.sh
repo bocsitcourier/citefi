@@ -17,6 +17,6 @@ umask 077
 mkdir -p "$plan"
 cd "$candidate"
 node --env-file=.env.local --import tsx/esm scripts/recovery/schema-diff.ts > "$plan/schema.json"
-node "$root/.deploy/recovery-tools/scripts/recovery/plan-additions.mjs" .recovery-schema.sql "$plan/schema.json" "$plan/additions.sql"
-cat "$plan/additions.sql"
+node "$root/.deploy/recovery-tools/scripts/recovery/plan-additions.mjs" .recovery-schema.sql "$plan/schema.json" "$plan/additions-protected.sql"
+cat "$plan/additions-protected.sql"
 SH
