@@ -181,8 +181,8 @@ process_uses_bootstrap() {
 let source="";
 process.stdin.on("data", chunk => source += chunk);
 process.stdin.on("end", () => {
-  const process = JSON.parse(source).find(item => item.name === process.env.PROCESS_NAME);
-  const executable = process?.pm2_env?.pm_exec_path ?? "";
+  const application = JSON.parse(source).find(item => item.name === process.env.PROCESS_NAME);
+  const executable = application?.pm2_env?.pm_exec_path ?? "";
   process.exit(executable.endsWith("/scripts/process-bootstrap.ts") ? 0 : 1);
 });
 '
@@ -386,6 +386,13 @@ main() {
   CUTOVER_DONE=true
   PHASE=reload
   reload_processes
+  if [[ "${DO_RECOVERY_CANARY:-false}" == true ]]; then
+    PHASE=recovery_canary
+    (
+      cd "$DO_CURRENT_LINK"
+      node --env-file="$DO_SHARED_ENV_FILE" --import tsx/esm scripts/recovery/run-canary.ts
+    )
+  fi
   PHASE=health
   health_check "$web_before" "$worker_before"
   PHASE=public_listener

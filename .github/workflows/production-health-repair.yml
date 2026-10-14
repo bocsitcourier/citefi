@@ -1,0 +1,55 @@
+name: Approved production health repair
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [protect-verified-hold, deploy-and-canary]
+permissions:
+  contents: read
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify pinned SSH contract
+        run: bash tests/deployment/ssh-host-key.test.sh
+      - name: Restore a real backup before protecting the verified hold
+        if: inputs.operation == 'protect-verified-hold'
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          PROTECT_LEGACY_HOLD: "true"
+        run: |
+          node scripts/normalize-release-lockfiles.cjs .
+          npm ci --registry https://registry.npmjs.org
+          sudo systemctl start postgresql
+          sudo -u postgres createuser --superuser "$USER"
+          createdb citefi_restore_verify
+          bash scripts/recovery/verify-restore.sh
+          DATABASE_URL="postgresql:///citefi_restore_verify?host=/var/run/postgresql" node scripts/recovery/protect-existing-hold.mjs --isolated
+          source scripts/recovery/ssh-session.sh
+          "${SSH[@]}" 'cd /var/www/citefi/current; PROTECT_LEGACY_HOLD=true node --env-file=.env.local --input-type=module -' < scripts/recovery/protect-existing-hold.mjs
+      - name: Deploy validated release and run one real accounted canary
+        if: inputs.operation == 'deploy-and-canary'
+        env:
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: citefi
+          DO_APP_DIR: /var/www/citefi
+          DO_PUBLIC_HEALTHCHECK_URL: https://citefi.co/api/health
+          DO_RECOVERY_CANARY: "true"
+          DO_VALIDATION_COMMAND: npm run validate:release && node --import tsx --test tests/provider-attempt-object-spool.test.ts
+        run: |
+          export PRODUCTION_DEPLOY_CONFIRMATION="DEPLOY_CITEFI_PRODUCTION_UNTIL_$(($(date +%s)+300))"
+          bash scripts/deploy-to-do.sh
