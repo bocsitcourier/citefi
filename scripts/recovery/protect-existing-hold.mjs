@@ -33,6 +33,7 @@ try {
       AND r.remaining_amount=h.amount-h.settled) matching`);
   if(proof.ambiguous||proof.mismatched||proof.outstanding!==1||proof.active!==1||proof.matching!==1) refuse("HOLD_NOT_EXACTLY_VERIFIED");
   await client.query(`UPDATE credit_reservations SET
+    updated_at=now(),
     reconciliation_required_at=COALESCE(reconciliation_required_at,now()),
     reconciliation_reason=COALESCE(reconciliation_reason,'Inherited ledger-verified hold; explicit outcome reconciliation required before refund')
     WHERE status='RESERVED'`);

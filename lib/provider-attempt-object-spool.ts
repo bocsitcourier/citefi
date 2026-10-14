@@ -116,6 +116,10 @@ function isMissingObjectError(error: unknown): boolean {
     $response?: { statusCode?: unknown };
     message?: unknown;
   };
+  // Transport status is authoritative even if an intermediary supplies a
+  // misleading error code/message. Never turn a 403 or 5xx into "absent".
+  const transportStatus = candidate.$metadata?.httpStatusCode ?? candidate.$response?.statusCode;
+  if (transportStatus !== undefined) return transportStatus === 404;
   const code = String(candidate.code ?? "").toLowerCase();
   if (
     code === "enoent" ||
@@ -128,8 +132,6 @@ function isMissingObjectError(error: unknown): boolean {
   // Spaces can return &#xD; in its XML 404, which some SDK parsers reject
   // before constructing NoSuchKey. Retain the verified transport status.
   // An XML parsing error alone is never evidence that a receipt is absent.
-  const transportStatus = candidate.$metadata?.httpStatusCode ?? candidate.$response?.statusCode;
-  if (transportStatus !== undefined) return transportStatus === 404;
   if (candidate.statusCode === 404 || candidate.status === 404) return true;
   const message = String(candidate.message ?? "").toLowerCase();
   return (

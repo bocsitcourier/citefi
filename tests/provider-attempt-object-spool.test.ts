@@ -111,6 +111,14 @@ test("confirmed SDK XML 404 is absent; permission and server failures remain fat
   }
 });
 
+test("transport permission failure overrides misleading missing-object codes", async () => {
+  const error=Object.assign(new Error("Not found"),{code:"NoSuchKey",$metadata:{httpStatusCode:403}});
+  const spool=createProviderAttemptObjectSpool({...codecs(),bucketName:"fixture",
+    storage:{bucket:()=>({file:()=>({save:async()=>{},delete:async()=>{},
+      createReadStream:()=>Readable.from((async function*(){throw error;})())})})}});
+  await assert.rejects(spool.read("provider-attempt:test-denied"),candidate=>candidate===error);
+});
+
 function codecs() {
   return {
     serialize: (value: object) => JSON.stringify(value),

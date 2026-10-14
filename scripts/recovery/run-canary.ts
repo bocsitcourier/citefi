@@ -22,6 +22,9 @@ try {
     throw new Error("Real recovery canary did not pass");
   }
   console.log("Real accounted recovery canary passed on the normal worker.");
+} catch {
+  console.error("Recovery canary failed; no health requirement was relaxed.");
+  process.exitCode=1;
 } finally {
   await events.close();
   await connection.quit();
