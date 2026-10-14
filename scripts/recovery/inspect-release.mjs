@@ -15,6 +15,10 @@ try {
   const registry = rows.find(row => row.name === "citefi_schema_migrations");
   const migrations = registry.present ? (await db.query("SELECT version,sha256 FROM citefi_schema_migrations ORDER BY version")).rows : [];
   const { rows: [holds] } = await db.query("SELECT count(*)::int AS affected_team_count FROM credit_balances WHERE reserved_credits <> 0");
+  const reservationsPresent=(await db.query("SELECT to_regclass('public.credit_reservations') IS NOT NULL AS present")).rows[0].present;
+  const reservationState=reservationsPresent?(await db.query(`SELECT count(*)::int AS outstanding_records,
+    count(*) FILTER(WHERE reconciliation_required_at IS NOT NULL)::int AS protected_records
+    FROM credit_reservations WHERE status='RESERVED'`)).rows[0]:null;
   const { rows: [holdReconstruction] } = await db.query(`WITH candidates AS (
     SELECT r.id,r.team_id,r.run_id,r.amount,
       COALESCE(SUM(CASE WHEN s.event_type IN ('debit','release') THEN abs(s.amount) ELSE 0 END),0) settled,
@@ -34,7 +38,7 @@ try {
     (SELECT count(*)::int FROM totals t LEFT JOIN credit_balances b ON b.team_id=t.team_id
       WHERE b.team_id IS NULL AND t.remaining<>0) AS missing_balance_teams`);
   await db.query("ROLLBACK");
-  console.log(JSON.stringify({ identity, requiredTables: rows, appliedMigrations: migrations, historicalHeldCreditTeams: holds.affected_team_count, holdReconstruction }));
+  console.log(JSON.stringify({ identity, requiredTables: rows, appliedMigrations: migrations, historicalHeldCreditTeams: holds.affected_team_count, holdReconstruction, reservationState }));
 } catch {
   console.error("Read-only release compatibility inspection failed.");
   process.exitCode = 1;
