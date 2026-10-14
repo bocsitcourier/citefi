@@ -92,6 +92,25 @@ function record(sourceEventId = "provider-attempt:test-123") {
   };
 }
 
+test("confirmed SDK XML 404 is absent; permission and server failures remain fatal", async () => {
+  for (const status of [404, 403, 500, undefined]) {
+    for (const metadata of [false, true]) {
+      const error = Object.assign(new Error("[EntityReplacer] Invalid character '#'"), metadata
+        ? { $metadata: { httpStatusCode: status } }
+        : { $response: { statusCode: status } });
+      const spool = createProviderAttemptObjectSpool({
+        ...codecs(), bucketName: "fixture",
+        storage: { bucket: () => ({ file: () => ({
+          save: async () => {}, delete: async () => {},
+          createReadStream: () => Readable.from((async function* () { throw error; })()),
+        }) }) },
+      });
+      if (status === 404) assert.equal(await spool.read("provider-attempt:test-404"), null);
+      else await assert.rejects(spool.read("provider-attempt:test-404"), candidate => candidate === error);
+    }
+  }
+});
+
 function codecs() {
   return {
     serialize: (value: object) => JSON.stringify(value),

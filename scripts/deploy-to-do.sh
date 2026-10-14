@@ -45,14 +45,12 @@ git -C "$ROOT" archive "$sha" | tar -x -C "$work"
   node scripts/normalize-release-lockfiles.cjs .
   npm ci --registry https://registry.npmjs.org
   bash -o pipefail -c "$DO_VALIDATION_COMMAND"
-  # Build-only inert configuration; never exported to the host or PM2.
   NODE_OPTIONS="${NODE_OPTIONS:-} --import=$(pwd)/QA/support/qa-fixtures.mjs" npm run build
   test -s .next/BUILD_ID
   printf '%s\n' "$sha" > .release-sha
   printf '%s\n' "$(cat .next/BUILD_ID)" > .release-build-id
 )
-# Keep the output outside the source tree: creating it inside changes the
-# directory while tar reads it, causing a fatal "file changed as we read it".
+# The archive must not change the directory being read by tar.
 tar -C "$work" --exclude="./$(basename "$artifact")" --exclude='./.env*' \
   --sort=name --mtime="@$(git -C "$ROOT" show -s --format=%ct "$sha")" \
   --owner=0 --group=0 --numeric-owner -czf "$artifact" .
@@ -80,6 +78,7 @@ remote_env=(
   DO_RELEASES_DIR DO_CURRENT_LINK DO_SHARED_ENV_FILE
   DO_ARTIFACT_PATH DO_ARTIFACT_SHA256 DO_ARTIFACT_SIZE DO_RELEASE_SHA
   DO_INITIAL_RELEASE
+  DO_RECOVERY_CANARY
   STAGING_DATABASE_NAME STAGING_REDIS_DB STAGING_STORAGE_PREFIX
   STAGING_PORT STAGING_LOG_DIR SYNTHETIC_DATA_ACKNOWLEDGEMENT
 )

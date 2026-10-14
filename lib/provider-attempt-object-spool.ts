@@ -112,6 +112,8 @@ function isMissingObjectError(error: unknown): boolean {
     code?: unknown;
     statusCode?: unknown;
     status?: unknown;
+    $metadata?: { httpStatusCode?: unknown };
+    $response?: { statusCode?: unknown };
     message?: unknown;
   };
   const code = String(candidate.code ?? "").toLowerCase();
@@ -123,6 +125,11 @@ function isMissingObjectError(error: unknown): boolean {
   ) {
     return true;
   }
+  // Spaces can return &#xD; in its XML 404, which some SDK parsers reject
+  // before constructing NoSuchKey. Retain the verified transport status.
+  // An XML parsing error alone is never evidence that a receipt is absent.
+  const transportStatus = candidate.$metadata?.httpStatusCode ?? candidate.$response?.statusCode;
+  if (transportStatus !== undefined) return transportStatus === 404;
   if (candidate.statusCode === 404 || candidate.status === 404) return true;
   const message = String(candidate.message ?? "").toLowerCase();
   return (
