@@ -61,6 +61,6 @@ test("native preflight stays read-only, selects accepted locked rates, retains a
   assert.match(source, /logError/);
   assert.match(source, /recordTrialFailure/);
   const health = readFileSync("app/api/health/route.ts", "utf8");
-  assert.match(health, /getCanaryHealthForCurrentWorker/);
+  assert.match(health, /evaluateCanaryHealth/);
   assert.doesNotMatch(health, /getTrialReadiness/);
 });
