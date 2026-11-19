@@ -269,18 +269,7 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
       status: "generating", teamId, input: input.data,
       reserveMicrousd: TRIAL_RESERVE_MICROUSD, startedAt: admittedAt,
     }).where(eq(publicTrialDocuments.id, fresh.id));
-    return {
-      id: fresh.id,
-      teamId,
-      lockedRateBinding: {
-        providerRateId: Number(rate.provider_rate_id),
-        rateVersionId: Number(rate.rate_version_id),
-        provider: String(rate.provider),
-        model: String(rate.model),
-        unitType: String(rate.unit_type),
-        admittedAt: admittedAt.toISOString(),
-      },
-    };
+    return { id: fresh.id, teamId };
   }));
   if (!admitted) return readTrial(req);
   try {
@@ -299,8 +288,6 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
         teamId: admitted.teamId, operationType: "article_generation",
         resourceType: "public_trial", resourceId: admitted.id,
         invocationKey: `public-trial:${admitted.id}`, attemptKey: `public-trial:${admitted.id}:1`,
-        lockedRateBinding: admitted.lockedRateBinding,
-        maxCostMicrousd: TRIAL_RESERVE_MICROUSD,
       }, () => client.models.generateContent(request));
       await logCostTelemetry({
         teamId: admitted.teamId, operationType: "article_generation", provider: "gemini",

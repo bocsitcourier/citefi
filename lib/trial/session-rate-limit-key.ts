@@ -2,7 +2,10 @@ import { createHmac } from "node:crypto";
 
 /** The key protects IP fingerprints, not the independently random trial token. */
 export function getTrialSessionRateLimitKey(
-  env: Readonly<NodeJS.ProcessEnv> = process.env,
+  env: { readonly SESSION_SECRET?: string; readonly JWT_SECRET?: string } = {
+    SESSION_SECRET: process.env.SESSION_SECRET,
+    JWT_SECRET: process.env.JWT_SECRET,
+  },
 ): string | Buffer | null {
   // Preserve the active 24-hour per-IP counters where this key was configured.
   if (env.SESSION_SECRET) return env.SESSION_SECRET;
