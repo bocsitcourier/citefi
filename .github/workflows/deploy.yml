@@ -66,7 +66,7 @@ jobs:
         # Compile without customer databases or paid provider credentials.
         # Only this step and its child processes receive the inert values.
         env:
-          NODE_OPTIONS: --import=./QA/support/qa-fixtures.mjs
+          NODE_OPTIONS: --max-old-space-size=4096 --import=./QA/support/qa-fixtures.mjs
 
   deploy:
     name: SSH deploy to droplet
