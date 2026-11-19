@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { recordTrialFailure, trialFailureDiagnostic } from "./diagnostics";
 import { trialRateFitsReservation } from "./readiness";
 import { getTrialReadiness } from "./readiness-server";
+import { getTrialSessionRateLimitKey } from "./session-rate-limit-key";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { getTxDb } from "@/lib/db";
@@ -136,7 +137,7 @@ export async function createTrialSession(req: NextRequest): Promise<NextResponse
   }
   const token = randomBytes(32).toString("hex");
   // Salt IP identities with the existing signing secret; never retain raw IPs.
-  const salt = process.env.SESSION_SECRET;
+  const salt = getTrialSessionRateLimitKey();
   if (!salt) reject("Article trial configuration unavailable.", 503);
   const ipHash = createHmac("sha256", salt).update(getClientIp(req)).digest("hex");
   await scope(async () => {
@@ -268,7 +269,18 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
       status: "generating", teamId, input: input.data,
       reserveMicrousd: TRIAL_RESERVE_MICROUSD, startedAt: admittedAt,
     }).where(eq(publicTrialDocuments.id, fresh.id));
-    return { id: fresh.id, teamId };
+    return {
+      id: fresh.id,
+      teamId,
+      lockedRateBinding: {
+        providerRateId: Number(rate.provider_rate_id),
+        rateVersionId: Number(rate.rate_version_id),
+        provider: String(rate.provider),
+        model: String(rate.model),
+        unitType: String(rate.unit_type),
+        admittedAt: admittedAt.toISOString(),
+      },
+    };
   }));
   if (!admitted) return readTrial(req);
   try {
@@ -287,6 +299,8 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
         teamId: admitted.teamId, operationType: "article_generation",
         resourceType: "public_trial", resourceId: admitted.id,
         invocationKey: `public-trial:${admitted.id}`, attemptKey: `public-trial:${admitted.id}:1`,
+        lockedRateBinding: admitted.lockedRateBinding,
+        maxCostMicrousd: TRIAL_RESERVE_MICROUSD,
       }, () => client.models.generateContent(request));
       await logCostTelemetry({
         teamId: admitted.teamId, operationType: "article_generation", provider: "gemini",
