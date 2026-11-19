@@ -3,8 +3,11 @@
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import stat
 import subprocess
+import sys
 
 CITEFI = Path("/var/www/citefi")
 TOTALS = {
@@ -74,6 +77,59 @@ def opened_deleted_files(device):
     return {"count": len(blocks), "allocatedBytes": sum(blocks.values())}
 
 
+def log_family(relative):
+    if relative.parts[0] == "journal":
+        return "system journal"
+    if relative.parts[0] in ("nginx", "postgresql", "redis", "apt", "unattended-upgrades"):
+        return relative.parts[0]
+    for family in ("syslog", "auth.log", "kern.log", "ufw.log", "cloud-init.log", "cloud-init-output.log"):
+        if relative.name == family or relative.name.startswith(family + "."):
+            return family
+    return "other"
+
+
+def log_usage(root):
+    totals = {}
+    visited = set()
+    opaque = 0
+    device = root.stat().st_dev
+    for directory, names, files in os.walk(root, followlinks=False):
+        directory = Path(directory)
+        names[:] = sorted(n for n in names if not (directory / n).is_symlink()
+                          and (directory / n).lstat().st_dev == device)
+        for name in sorted(files):
+            p = directory / name
+            try:
+                info = p.lstat()
+            except FileNotFoundError:
+                opaque += 1
+                continue
+            if info.st_dev != device or not stat.S_ISREG(info.st_mode) or info.st_ino in visited:
+                continue
+            visited.add(info.st_ino)
+            row = totals.setdefault(log_family(p.relative_to(root)),
+                                    {"currentBytes": 0, "rotatedBytes": 0, "largestFileBytes": 0})
+            key = "rotatedBytes" if re.search(r"\.\d+(?:\.(?:gz|xz|zst))?$|\.(?:gz|xz|zst)$|@\S+\.journal$", name) else "currentBytes"
+            row[key] += info.st_blocks * 512
+            row["largestFileBytes"] = max(row["largestFileBytes"], info.st_blocks * 512)
+    return {"logGroups": totals, "vanishedFiles": opaque}
+
+
+def report_logs():
+    result = log_usage(Path("/var/log"))
+    conf = Path("/etc/logrotate.d")
+    result["logrotateRulesPresent"] = {k: (conf / k).is_file()
+                                      for k in ("rsyslog", "nginx", "postgresql-common", "redis-server", "ufw")}
+    if shutil.which("logrotate"):
+        # Debug mode never changes files or the rotation state. Log entries and
+        # raw daemon configuration are not relayed to the runner.
+        validation = subprocess.run(["logrotate", "--debug", "/etc/logrotate.conf"],
+                                    capture_output=True, text=True, errors="replace", timeout=25)
+        result["logrotateDryRunOk"] = validation.returncode == 0
+        result["rotationDue"] = len(re.findall(r"\blog needs rotating\b", validation.stderr))
+    print(json.dumps(result, sort_keys=True))
+
+
 def main():
     if os.geteuid() != 0 or not (CITEFI / "current").is_symlink():
         raise SystemExit("Expected privileged inspection of the existing Citefi host")
@@ -83,6 +139,11 @@ def main():
     device = Path("/").stat().st_dev
     if CITEFI.stat().st_dev != device:
         raise SystemExit("Unexpected application filesystem; root-only accounting not representative")
+    if sys.argv[1:] == ["--logs"]:
+        report_logs()
+        return
+    if sys.argv[1:]:
+        raise SystemExit("Unknown disk inspection mode")
     scan = subprocess.run(["du", "-x", "-B1", "--max-depth=5", "--", "/"],
                           capture_output=True, text=True, errors="replace", timeout=210)
     disk = os.statvfs("/")
