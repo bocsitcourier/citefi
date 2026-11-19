@@ -35,4 +35,6 @@ jobs:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
         run: |
           source scripts/recovery/ssh-session.sh
-          "${SSH[@]}" 'python3 -' < scripts/recovery/cleanup-failed-7dd7fe00.py
+          "${SSH[@]:0:${#SSH[@]}-1}" -T -o ClearAllForwardings=yes -o ForwardAgent=no \
+            "root@${DO_HOST}" 'python3 -B - --privileged-verification' \
+            < scripts/recovery/cleanup-failed-7dd7fe00.py

@@ -17,6 +17,16 @@ spec.loader.exec_module(controller)
 
 
 class CleanupContract(unittest.TestCase):
+    def test_privileged_verification_drops_all_root_identity_before_deletion(self):
+        account = SimpleNamespace(pw_uid=1001, pw_gid=1002)
+        with patch.object(os, "setgroups") as groups, patch.object(os, "setresgid") as gid, \
+                patch.object(os, "setresuid") as uid, patch.object(os, "getresuid", return_value=(1001,) * 3), \
+                patch.object(os, "getresgid", return_value=(1002,) * 3):
+            controller.drop_privileges(account)
+        groups.assert_called_once_with([])
+        gid.assert_called_once_with(1002, 1002, 1002)
+        uid.assert_called_once_with(1001, 1001, 1001)
+
     def fixture(self, root):
         live = root / "releases" / controller.ACTIVE
         (live / ".next").mkdir(parents=True)
