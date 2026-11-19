@@ -37,7 +37,8 @@ const inheritedNodeOptions = process.env.NODE_OPTIONS ?? "";
 if (inheritedNodeOptions.split(offlineGuardOption).length !== 2) {
   throw new Error("Expected exactly one offline-guard preload before starting the owned build");
 }
-const buildNodeOptions = inheritedNodeOptions.replace(offlineGuardOption, ownedPreloadOption);
+// Keep the release heap allowance scoped to the owned, guarded build.
+const buildNodeOptions = `--max-old-space-size=4096 ${inheritedNodeOptions.replace(offlineGuardOption, ownedPreloadOption)}`;
 const scratch = await mkdtemp(join(evidence, "owned-build-"));
 const sourceModules = join(root, "node_modules");
 const ownedModules = join(scratch, "node_modules");

@@ -31,11 +31,11 @@ test('both off-host release builds scope the fixture preload to compilation only
   const workflow = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8'));
   const steps = workflow.jobs.validate.steps;
   const build = steps.find(step => step.run === 'npm run build');
-  assert.equal(build.env.NODE_OPTIONS, '--import=./QA/support/qa-fixtures.mjs');
+  assert.equal(build.env.NODE_OPTIONS, '--max-old-space-size=4096 --import=./QA/support/qa-fixtures.mjs');
   assert.equal(workflow.env?.NODE_OPTIONS, undefined);
   assert.equal(workflow.jobs.deploy.env?.NODE_OPTIONS, undefined);
   const transport = fs.readFileSync(path.join(root, 'scripts/deploy-to-do.sh'), 'utf8');
-  assert.match(transport, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --import=\$\(pwd\)\/QA\/support\/qa-fixtures\.mjs" npm run build/);
+  assert.match(transport, /NODE_OPTIONS="\$\{NODE_OPTIONS:-\} --max-old-space-size=4096 --import=\$\(pwd\)\/QA\/support\/qa-fixtures\.mjs" npm run build/);
   assert.doesNotMatch(transport, /export NODE_OPTIONS=/);
   assert.doesNotMatch(transport.slice(transport.indexOf('remote_env=(')), /NODE_OPTIONS|qa-fixtures/);
   const host = fs.readFileSync(path.join(root, 'scripts/host-release.sh'), 'utf8');

@@ -45,7 +45,7 @@ git -C "$ROOT" archive "$sha" | tar -x -C "$work"
   node scripts/normalize-release-lockfiles.cjs .
   npm ci --registry https://registry.npmjs.org
   bash -o pipefail -c "$DO_VALIDATION_COMMAND"
-  NODE_OPTIONS="${NODE_OPTIONS:-} --import=$(pwd)/QA/support/qa-fixtures.mjs" npm run build
+  NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=4096 --import=$(pwd)/QA/support/qa-fixtures.mjs" npm run build
   test -s .next/BUILD_ID
   printf '%s\n' "$sha" > .release-sha
   printf '%s\n' "$(cat .next/BUILD_ID)" > .release-build-id
