@@ -67,10 +67,19 @@ test("native readiness and trial admission agree without replaying or releasing 
     assert.equal((await inspectTrialReadiness()).ok, true, "the real accepted locked fixture rate is usable");
 
     const secret = process.env.SESSION_SECRET;
+    const jwt = process.env.JWT_SECRET;
     try {
       delete process.env.SESSION_SECRET;
+      process.env.JWT_SECRET = "isolated-trial-production-fallback-fixture";
+      assert.equal((await inspectTrialReadiness()).ok, true, "production can use the stable trial-only fallback");
+      delete process.env.JWT_SECRET;
       assert.deepEqual((await inspectTrialReadiness()).failures, ["initialization_blocked"]);
-    } finally { process.env.SESSION_SECRET = secret; }
+    } finally {
+      if (secret === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = secret;
+      if (jwt === undefined) delete process.env.JWT_SECRET;
+      else process.env.JWT_SECRET = jwt;
+    }
 
     await client.query(`INSERT INTO public_trial_documents(token_hash,ip_hash,team_id,status,reserve_microusd,started_at,expires_at)
       SELECT repeat(md5('readiness-hold-'||i),2),repeat(md5('synthetic'),2),$1,'generating',50000,
@@ -89,7 +98,15 @@ test("native readiness and trial admission agree without replaying or releasing 
 
     const now = Date.now();
     const readinessClock = t.mock.method(Date, "now", () => now + 61_000);
-    const session = await createTrialSession(makeSession()).finally(() => readinessClock.mock.restore());
+    delete process.env.SESSION_SECRET;
+    process.env.JWT_SECRET = "isolated-trial-production-fallback-fixture";
+    const session = await createTrialSession(makeSession()).finally(() => {
+      readinessClock.mock.restore();
+      if (secret === undefined) delete process.env.SESSION_SECRET;
+      else process.env.SESSION_SECRET = secret;
+      if (jwt === undefined) delete process.env.JWT_SECRET;
+      else process.env.JWT_SECRET = jwt;
+    });
     assert.equal(session.status, 200);
     const cookie = session.headers.get("set-cookie")!.split(";")[0]!;
     const read = await readTrial(new NextRequest("http://trial.test.invalid/api/trial", { headers: { cookie } }));

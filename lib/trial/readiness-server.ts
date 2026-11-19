@@ -5,6 +5,7 @@ import { runWithSystemContext } from "@/lib/tenant-context";
 import { TRIAL_MODEL, TRIAL_STALE_AFTER_MS } from "./contracts";
 import { evaluateTrialReadiness, type TrialReadiness } from "./readiness";
 import { recordTrialFailure } from "./diagnostics";
+import { getTrialSessionRateLimitKey } from "./session-rate-limit-key";
 
 /** Only aggregate reads under the same explicit system boundary as the trial.
  * Never call readTrial here: it can change stale generating rows to uncertain.
@@ -43,7 +44,7 @@ export async function inspectTrialReadiness(): Promise<TrialReadiness> {
         spent: spent.rows[0]?.total, daily: counts?.daily, hourly: counts?.hourly,
         concurrent: counts?.concurrent, sessions: counts?.sessions,
         generatorConfigured: Boolean(process.env.GEMINI_API_KEY),
-        sessionConfigured: Boolean(process.env.SESSION_SECRET),
+        sessionConfigured: getTrialSessionRateLimitKey() !== null,
       });
     }, { accessMode: "read only", isolationLevel: "repeatable read" }));
 }

@@ -2,6 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { evaluateTrialReadiness, trialRateFitsReservation, type TrialReadinessSnapshot } from "../lib/trial/readiness";
+import { createHmac } from "node:crypto";
+import { getTrialSessionRateLimitKey } from "../lib/trial/session-rate-limit-key";
+
+test("trial rate limiting preserves existing keys and derives a distinct, stable production fallback", () => {
+  const jwt = "unit-fixture-only-jwt-key";
+  assert.equal(getTrialSessionRateLimitKey({ SESSION_SECRET: "existing-trial-key", JWT_SECRET: jwt }), "existing-trial-key");
+  const fallback = getTrialSessionRateLimitKey({ SESSION_SECRET: undefined, JWT_SECRET: jwt });
+  assert.ok(Buffer.isBuffer(fallback) && fallback.length === 32);
+  assert.deepEqual(getTrialSessionRateLimitKey({ SESSION_SECRET: "", JWT_SECRET: jwt }), fallback);
+  assert.notDeepEqual(getTrialSessionRateLimitKey({ SESSION_SECRET: "", JWT_SECRET: "different-fixture-key" }), fallback);
+  const ip = "192.0.2.42";
+  assert.notEqual(createHmac("sha256", fallback).update(ip).digest("hex"),
+    createHmac("sha256", jwt).update(ip).digest("hex"));
+  assert.equal(getTrialSessionRateLimitKey({ SESSION_SECRET: "", JWT_SECRET: "" }), null);
+});
 
 const ready: TrialReadinessSnapshot = {
   sponsor: true, rate: { input: "100000", output: "400000" }, spent: "0",
@@ -46,6 +61,6 @@ test("native preflight stays read-only, selects accepted locked rates, retains a
   assert.match(source, /logError/);
   assert.match(source, /recordTrialFailure/);
   const health = readFileSync("app/api/health/route.ts", "utf8");
-  assert.match(health, /evaluateCanaryHealth/);
+  assert.match(health, /getCanaryHealthForCurrentWorker/);
   assert.doesNotMatch(health, /getTrialReadiness/);
 });
