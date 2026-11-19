@@ -9,7 +9,25 @@ const { spawnSync } = require('node:child_process');
 const yaml = require('js-yaml');
 
 const root = path.resolve(__dirname, '../..');
-const workflow = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/deploy.yml'), 'utf8'));
+const workflowDirectory = path.join(root, '.github/workflows');
+const versionFile = '.node-version';
+const nodeMajor = fs.readFileSync(path.join(root, versionFile), 'utf8').trim();
+assert.match(nodeMajor, /^[1-9]\d*$/, 'keep a single, explicit Node major in .node-version');
+const workspaceConfig = fs.readFileSync(path.join(root, '.replit'), 'utf8');
+const workspaceModules = workspaceConfig.match(/^modules\s*=\s*\[(.*?)\]/m)?.[1] ?? '';
+assert.deepEqual([...workspaceModules.matchAll(/"nodejs-(\d+)"/g)].map((m) => m[1]), [nodeMajor],
+  'the Replit workspace and GitHub build must use the same Node major');
+for (const filename of fs.readdirSync(workflowDirectory).filter((name) => /\.ya?ml$/.test(name))) {
+  const config = yaml.load(fs.readFileSync(path.join(workflowDirectory, filename), 'utf8'));
+  for (const job of Object.values(config.jobs ?? {})) {
+    for (const step of job.steps ?? []) {
+      if (!step.uses?.startsWith('actions/setup-node@')) continue;
+      assert.equal(step.with?.['node-version-file'], versionFile, `${filename} must use the shared Node version`);
+      assert.equal(step.with?.['node-version'], undefined, `${filename} must not override the shared Node version`);
+    }
+  }
+}
+const workflow = yaml.load(fs.readFileSync(path.join(workflowDirectory, 'deploy.yml'), 'utf8'));
 const dependencies = (job) => job.needs === undefined ? [] : [].concat(job.needs).sort();
 const expression = (value = '') => value.replace(/^\s*\$\{\{\s*|\s*\}\}\s*$/g, '').trim();
 const deployCondition = "!inputs.ssh_verify_only && needs.verify-ssh.result == 'success' && needs.validate.result == 'success'";
@@ -90,7 +108,7 @@ function assertCiContract(w) {
         'timeout-minutes': 5,
         steps: [
           { uses: 'actions/checkout@v4', with: { 'persist-credentials': false } },
-          { uses: 'actions/setup-node@v4', with: { 'node-version': 22 } },
+          { uses: 'actions/setup-node@v4', with: { 'node-version-file': versionFile } },
           {
             name: 'Install YAML parser without lifecycle scripts',
             run: 'mkdir -p "$RUNNER_TEMP/deployment-contract"\n'
