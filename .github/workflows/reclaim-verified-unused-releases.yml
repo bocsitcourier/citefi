@@ -1,0 +1,48 @@
+name: Reclaim reviewed unused release directories
+
+on:
+  workflow_dispatch:
+    inputs:
+      review_digest:
+        type: string
+        required: true
+        description: Digest from the reviewed read-only inventory
+      release_ids:
+        type: string
+        required: true
+        description: Space-separated environment/release IDs, no wildcards
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  reclaim:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify retention contract and SSH pin off-host
+        run: |
+          python3 -B tests/deployment/inspect-unused-releases.test.py
+          bash tests/deployment/ssh-host-key.test.sh
+      - name: Revalidate reviewed evidence, then reclaim only the selected releases
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          REVIEW_DIGEST: ${{ inputs.review_digest }}
+          RELEASE_IDS: ${{ inputs.release_ids }}
+        run: |
+          source scripts/recovery/ssh-session.sh
+          [[ "$REVIEW_DIGEST" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$RELEASE_IDS" =~ ^(production|staging)/[a-f0-9]{40}-[a-f0-9]{16}(\ (production|staging)/[a-f0-9]{40}-[a-f0-9]{16}){0,5}$ ]]
+          "${SSH[@]:0:${#SSH[@]}-1}" -T -o ClearAllForwardings=yes -o ForwardAgent=no \
+            "root@${DO_HOST}" "nice -n 10 ionice -c 2 -n 7 python3 -B - --reclaim $REVIEW_DIGEST $RELEASE_IDS" \
+            < scripts/recovery/inspect-unused-releases.py
