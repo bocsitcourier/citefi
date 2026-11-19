@@ -6,7 +6,7 @@ on:
       scope:
         description: Read-only report scope
         type: choice
-        options: [filesystem, logs]
+        options: [filesystem, logs, storage-categories]
         default: filesystem
 
 permissions:
@@ -40,6 +40,7 @@ jobs:
           case "$DISK_SCOPE" in
             filesystem) command='nice -n 15 ionice -c 3 python3 -B -' ;;
             logs) command='nice -n 15 ionice -c 3 python3 -B - --logs' ;;
+            storage-categories) command='nice -n 15 ionice -c 3 python3 -B - --storage-categories' ;;
             *) exit 1 ;;
           esac
           "${SSH[@]:0:${#SSH[@]}-1}" -T -o ClearAllForwardings=yes -o ForwardAgent=no \
