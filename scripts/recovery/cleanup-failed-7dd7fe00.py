@@ -53,6 +53,26 @@ def is_root_parented_ssh_transport(entry, proc):
         return False
 
 
+def own_ssh_transport_ancestors(proc):
+    # The SSH session executing this exact cleanup has never received either
+    # artifact as input. Its restricted OpenSSH parent may be non-dumpable
+    # even if the root parent cannot be read from the service account.
+    ancestors = set()
+    pid = os.getppid()
+    while pid > 1 and len(ancestors) < 12:
+        entry = proc / str(pid)
+        try:
+            if (entry / "comm").read_text().strip() in ("sshd", "sshd-session", "sshd-auth"):
+                ancestors.add(entry)
+            match = re.search(r"^PPid:[ \t]+([1-9][0-9]*)$", (entry / "status").read_text(), re.M)
+            if not match or int(match.group(1)) >= pid:
+                break
+            pid = int(match.group(1))
+        except OSError:
+            break
+    return ancestors
+
+
 def verify_live_refs(targets):
     for record in Path("/proc/self/mountinfo").read_text().splitlines():
         mount = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), record.split()[4])
@@ -61,6 +81,7 @@ def verify_live_refs(targets):
     # Check the processes owned by the deployment account, including PM2 and
     # its children. Never read or emit argv, environment variables or file data.
     proc = Path("/proc")
+    own_transport = own_ssh_transport_ancestors(proc)
     for entry in proc.iterdir():
         if not entry.name.isdecimal():
             continue
@@ -79,8 +100,13 @@ def verify_live_refs(targets):
         except FileNotFoundError:
             continue
         except PermissionError:
-            if not is_root_parented_ssh_transport(entry, proc):
-                raise
+            if entry not in own_transport and not is_root_parented_ssh_transport(entry, proc):
+                try:
+                    kind = (entry / "comm").read_text().strip()
+                except OSError:
+                    kind = ""
+                safe_kind = kind if re.fullmatch(r"[a-zA-Z0-9._-]{1,15}", kind) else "unknown"
+                raise RuntimeError(f"Cannot verify release references for process type {safe_kind}") from None
 
 
 def cleanup(root):

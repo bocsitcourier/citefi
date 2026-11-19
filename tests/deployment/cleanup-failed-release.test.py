@@ -117,6 +117,17 @@ class CleanupContract(unittest.TestCase):
                 (parent / "comm").write_text("node\n")
                 self.assertFalse(controller.is_root_parented_ssh_transport(child, proc))
 
+    def test_own_ssh_exemption_is_limited_to_actual_ssh_ancestors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            for pid, parent, comm in [(30, 20, "bash"), (20, 1, "sshd-session"), (25, 1, "sshd")]:
+                entry = proc / str(pid)
+                entry.mkdir()
+                (entry / "comm").write_text(comm + "\n")
+                (entry / "status").write_text(f"PPid:\t{parent}\n")
+            with patch.object(os, "getppid", return_value=30):
+                self.assertEqual(controller.own_ssh_transport_ancestors(proc), {proc / "20"})
+
 
 if __name__ == "__main__":
     unittest.main()
