@@ -1,9 +1,12 @@
 import fcntl
 import hashlib
 import importlib.util
+import io
 import os
+from contextlib import redirect_stdout
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -53,7 +56,7 @@ class CleanupContract(unittest.TestCase):
                 return fake if path == archive else actual
             with patch.object(controller, "information", side_effect=safe_info), \
                     patch.object(controller, "verify_live_refs") as check, \
-                    patch.object(hashlib, "file_digest") as digest:
+                    patch.object(hashlib, "file_digest") as digest, redirect_stdout(io.StringIO()):
                 digest.return_value.hexdigest.return_value = controller.FAILED.split("-")[1] + "0" * 48
                 controller.cleanup(root)
                 check.assert_called_once_with((archive, unpack))
@@ -92,6 +95,27 @@ class CleanupContract(unittest.TestCase):
                 controller.cleanup(root)
             self.assertTrue(unpack.is_dir())
             self.assertTrue(archive.is_symlink())
+
+    def test_process_exemption_is_only_for_root_parented_ssh_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            parent = proc / "100"
+            child = proc / "101"
+            parent.mkdir()
+            child.mkdir()
+            (parent / "comm").write_text("sshd\n")
+            (child / "comm").write_text("sshd-session\n")
+            (child / "status").write_text("PPid:\t100\n")
+            real_stat = Path.stat
+            def fake_stat(path, **options):
+                return SimpleNamespace(st_uid=0) if path == parent else real_stat(path, **options)
+            with patch.object(Path, "stat", fake_stat):
+                self.assertTrue(controller.is_root_parented_ssh_transport(child, proc))
+                (child / "comm").write_text("node\n")
+                self.assertFalse(controller.is_root_parented_ssh_transport(child, proc))
+                (child / "comm").write_text("sshd-session\n")
+                (parent / "comm").write_text("node\n")
+                self.assertFalse(controller.is_root_parented_ssh_transport(child, proc))
 
 
 if __name__ == "__main__":
