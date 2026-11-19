@@ -6,6 +6,7 @@ export const TRIAL_MODEL = "gemini-2.5-flash-lite";
 export const TRIAL_RESERVE_MICROUSD = 50_000;
 export const TRIAL_DAILY_LIMIT = 100;
 export const TRIAL_HOURLY_LIMIT = 10;
+export const TRIAL_STALE_AFTER_MS = 10 * 60 * 1000;
 export const trialInputSchema = z.object({
   topic: z.string().trim().min(8).max(180),
   businessName: z.string().trim().min(2).max(100),

@@ -1,4 +1,7 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
+import { recordTrialFailure, trialFailureDiagnostic } from "./diagnostics";
+import { trialRateFitsReservation } from "./readiness";
+import { getTrialReadiness } from "./readiness-server";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { getTxDb } from "@/lib/db";
@@ -12,7 +15,7 @@ import { extractGeminiUsage, logCostTelemetry } from "@/lib/cost-telemetry";
 import {
   excerpt, isPaidArticleAccess, presentTrial, trialInputSchema,
   TRIAL_COOKIE, TRIAL_LIFETIME_SECONDS, TRIAL_MODEL,
-  TRIAL_RESERVE_MICROUSD, TRIAL_DAILY_LIMIT, TRIAL_HOURLY_LIMIT,
+  TRIAL_RESERVE_MICROUSD, TRIAL_DAILY_LIMIT, TRIAL_HOURLY_LIMIT, TRIAL_STALE_AFTER_MS,
 } from "./contracts";
 import type { TrialInput } from "./contracts";
 
@@ -44,10 +47,28 @@ export function privateResponse(data: unknown, status = 200): NextResponse {
     "X-Robots-Tag": "noindex, nofollow, noarchive", "Vary": "Cookie, X-Trial-Token, Authorization",
   } });
 }
-export function trialError(error: unknown): NextResponse {
+async function reportTrialFailure(error: unknown, operation: string,
+  identity?: { trialDocumentId: number; sponsorTeamId: number }): Promise<string> {
+  return recordTrialFailure(trialFailureDiagnostic(error, operation, identity), diagnostic =>
+    scope(async () => {
+      const { logError } = await import("@/lib/error-logger");
+      await logError({
+        errorType: "SYSTEM", severity: "error", component: "PublicArticleTrial",
+        errorMessage: "Free article request failed; inspect the scoped diagnostic reference.",
+        requestId: diagnostic.reference,
+        context: { ...diagnostic },
+      });
+    }));
+}
+export async function trialError(error: unknown, operation = "request"): Promise<NextResponse> {
   const e = error as { statusCode?: number; message?: string };
-  const status = e.statusCode ?? 503;
-  return privateResponse({ error: status < 500 ? e.message : "The free article service is temporarily unavailable. Please try again later." }, status);
+  const status = Number.isInteger(e?.statusCode) && e.statusCode! >= 400 && e.statusCode! <= 599 ? e.statusCode! : 503;
+  const reference = status >= 500 ? await reportTrialFailure(error, operation) : undefined;
+  return privateResponse({
+    error: status < 500 ? e?.message || "The article request could not be completed."
+      : `The free article service is temporarily unavailable. Support reference: ${reference}.`,
+    ...(reference ? { reference } : {}),
+  }, status);
 }
 function reject(message: string, statusCode: number): never {
   throw Object.assign(new Error(message), { statusCode });
@@ -86,7 +107,7 @@ async function paidForOwner(req: NextRequest, ownerUserId: number | null): Promi
 export async function readTrial(req: NextRequest): Promise<NextResponse> {
   let row = await findTrial(req);
   if (!row) return privateResponse({ status: "empty", access: "preview", canExport: false });
-  if (row.status === "generating" && row.startedAt && Date.now() - row.startedAt.getTime() > 600_000) {
+  if (row.status === "generating" && row.startedAt && Date.now() - row.startedAt.getTime() > TRIAL_STALE_AFTER_MS) {
     await scope(() => getTxDb().update(publicTrialDocuments).set({ status: "uncertain" })
       .where(and(eq(publicTrialDocuments.id, row!.id), eq(publicTrialDocuments.status, "generating"))));
     row = { ...row, status: "uncertain" };
@@ -104,6 +125,15 @@ export async function readTrial(req: NextRequest): Promise<NextResponse> {
 export async function createTrialSession(req: NextRequest): Promise<NextResponse> {
   trialMutationGuard(req);
   if (await findTrial(req)) return readTrial(req);
+  // Keep existing drafts readable even when new generation is unavailable.
+  // Readiness is only a preflight; the transactional generation limits still apply.
+  const readiness = await getTrialReadiness();
+  if (!readiness.ok) {
+    return privateResponse({
+      error: `The free article service is temporarily unavailable. Support reference: ${readiness.reference}.`,
+      reference: readiness.reference,
+    }, 503);
+  }
   const token = randomBytes(32).toString("hex");
   // Salt IP identities with the existing signing secret; never retain raw IPs.
   const salt = process.env.SESSION_SECRET;
@@ -197,21 +227,27 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
     const sponsor = await tx.execute(sql`SELECT s.team_id FROM public_trial_sponsor s JOIN teams t ON t.id=s.team_id WHERE t.deleted_at IS NULL`);
     const teamId = Number(sponsor.rows[0]?.team_id);
     if (!teamId) reject("The free article sponsor has not been provisioned.", 503);
-    const pricing = await tx.execute(sql`SELECT r.input_microusd_per_million AS input,
+    const admittedAt = new Date();
+    const pricing = await tx.execute(sql`SELECT r.id AS provider_rate_id,
+      r.rate_version_id, r.provider, r.model, r.unit_type,
+      r.input_microusd_per_million AS input,
       r.output_microusd_per_million AS output FROM provider_rates r
       JOIN provider_rate_versions v ON v.id=r.rate_version_id
       WHERE r.provider='gemini' AND r.model=${TRIAL_MODEL} AND r.unit_type='tokens'
-        AND v.locked_at IS NOT NULL AND r.effective_from<=now() AND (r.effective_to IS NULL OR r.effective_to>now())
-      ORDER BY r.effective_from DESC LIMIT 1`);
+        AND v.locked_at IS NOT NULL
+        AND r.effective_from<=${admittedAt} AND (r.effective_to IS NULL OR r.effective_to>${admittedAt})
+        AND v.effective_from<=${admittedAt} AND (v.effective_to IS NULL OR v.effective_to>${admittedAt})
+      ORDER BY r.effective_from DESC, r.id DESC LIMIT 1`);
     const rate = pricing.rows[0];
     // Input is < 1,000 characters. 4,096 is deliberately conservative even
     // for adversarial multibyte content; the serialized output limit is 1,800.
-    if (!rate || !Number.isSafeInteger(Number(rate.input)) || !Number.isSafeInteger(Number(rate.output)) ||
-      Number(rate.input) < 0 || Number(rate.output) < 0 ||
-      Math.ceil((Number(rate.input) * 4096 + Number(rate.output) * 1800) / 1_000_000) > TRIAL_RESERVE_MICROUSD)
+    if (!rate || !Number.isSafeInteger(Number(rate.provider_rate_id)) || Number(rate.provider_rate_id) <= 0 ||
+      !Number.isSafeInteger(Number(rate.rate_version_id)) || Number(rate.rate_version_id) <= 0 ||
+      rate.provider !== "gemini" || rate.model !== TRIAL_MODEL || rate.unit_type !== "tokens" ||
+      !trialRateFitsReservation({ input: rate.input, output: rate.output }))
       reject("Free article pricing is unavailable within its sponsor budget.", 503);
     await tx.execute(sql`UPDATE public_trial_documents SET status='uncertain'
-      WHERE status='generating' AND started_at<now()-interval '10 minutes'`);
+      WHERE status='generating' AND started_at<now()-${TRIAL_STALE_AFTER_MS}*interval '1 millisecond'`);
     const spent = await tx.execute(sql`SELECT coalesce(sum(cost_microusd),0) AS total
       FROM provider_usage_ledger WHERE team_id=${teamId} AND occurred_at>=date_trunc('day',now())`);
     if (Number(spent.rows[0]?.total) >= TRIAL_DAILY_LIMIT * TRIAL_RESERVE_MICROUSD)
@@ -230,7 +266,7 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
     // at most 100 requests / $5 reserved daily, ten hourly, three in flight.
     await tx.update(publicTrialDocuments).set({
       status: "generating", teamId, input: input.data,
-      reserveMicrousd: TRIAL_RESERVE_MICROUSD, startedAt: new Date(),
+      reserveMicrousd: TRIAL_RESERVE_MICROUSD, startedAt: admittedAt,
     }).where(eq(publicTrialDocuments.id, fresh.id));
     return { id: fresh.id, teamId };
   }));
@@ -266,16 +302,16 @@ export async function generateArticleTrial(req: NextRequest, verificationProvide
       status: "ready", title: fullText.split("\n")[0]!.replace(/^#+\s*/, "").slice(0, 200),
       preview: excerpt(fullText), fullText,
     }).where(and(eq(publicTrialDocuments.id, admitted.id), eq(publicTrialDocuments.status, "generating"))));
-  } catch {
+  } catch (error) {
     // Never leak provider responses/prompts or replay ambiguous paid attempts.
+    const reference = await reportTrialFailure(error, "generation_outcome", {
+      trialDocumentId: admitted.id, sponsorTeamId: admitted.teamId,
+    });
     await scope(() => getTxDb().update(publicTrialDocuments).set({ status: "uncertain" })
       .where(and(eq(publicTrialDocuments.id, admitted.id), eq(publicTrialDocuments.status, "generating"))));
-    await scope(async () => {
-      const { logError } = await import("@/lib/error-logger");
-      await logError({ errorType: "SYSTEM", severity: "error", component: "PublicArticleTrial",
-        errorMessage: "Trial generation outcome requires reconciliation; automatic provider replay is blocked.",
-        context: { trialDocumentId: admitted.id, sponsorTeamId: admitted.teamId } });
-    });
+    const response = await readTrial(req);
+    const view = await response.json();
+    return privateResponse({ ...view, message: `${view.message || "Your request is retained for support; automatic replay is blocked."} Support reference: ${reference}.` });
   }
   return readTrial(req);
 }

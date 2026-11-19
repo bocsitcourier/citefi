@@ -51,7 +51,9 @@ export async function persistTelemetryEvent(event: TelemetryEvent): Promise<Pers
       // Serialize the read/upsert/classification/audit unit for one aggregate.
       // The unique index alone prevents duplicate rows but cannot make the
       // previous-state classification race-free.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${event.fingerprint + "\0" + event.environment}, 0))`);
+      // PostgreSQL text parameters cannot contain NUL. A JSON tuple is
+      // unambiguous without sending an invalid text value to the database.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([event.fingerprint, event.environment])}, 0))`);
       let previous = await tx.select({
         id: telemetryIncidents.id,
         severity: telemetryIncidents.severity,
