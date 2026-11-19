@@ -82,9 +82,15 @@ def log_family(relative):
         return "system journal"
     if relative.parts[0] in ("nginx", "postgresql", "redis", "apt", "unattended-upgrades"):
         return relative.parts[0]
-    for family in ("syslog", "auth.log", "kern.log", "ufw.log", "cloud-init.log", "cloud-init-output.log"):
+    for family in ("syslog", "auth.log", "kern.log", "ufw.log", "cloud-init.log", "cloud-init-output.log",
+                   "btmp", "wtmp", "lastlog", "daemon.log", "messages", "mail.log",
+                   "citefi", "pm2", "fail2ban.log", "gitlab", "audit", "apache2"):
         if relative.name == family or relative.name.startswith(family + "."):
             return family
+    if relative.parts[0] in ("citefi", "pm2", "audit", "apache2"):
+        return relative.parts[0]
+    if re.fullmatch(r"citefi[-_.][a-z-]{1,30}\.log(?:\.\d+(?:\.gz)?)?", relative.name):
+        return "citefi"
     return "other"
 
 
@@ -119,7 +125,8 @@ def report_logs():
     result = log_usage(Path("/var/log"))
     conf = Path("/etc/logrotate.d")
     result["logrotateRulesPresent"] = {k: (conf / k).is_file()
-                                      for k in ("rsyslog", "nginx", "postgresql-common", "redis-server", "ufw")}
+                                      for k in ("rsyslog", "nginx", "postgresql-common", "redis-server", "ufw",
+                                                "btmp", "wtmp", "citefi", "pm2")}
     if shutil.which("logrotate"):
         # Debug mode never changes files or the rotation state. Log entries and
         # raw daemon configuration are not relayed to the runner.
@@ -142,6 +149,9 @@ def main():
     if sys.argv[1:] == ["--logs"]:
         report_logs()
         return
+    if sys.argv[1:] == ["--storage-categories"]:
+        report_storage_categories()
+        return
     if sys.argv[1:]:
         raise SystemExit("Unknown disk inspection mode")
     scan = subprocess.run(["du", "-x", "-B1", "--max-depth=5", "--", "/"],
@@ -158,6 +168,54 @@ def main():
         p.stat().st_blocks * 512 for p in (Path("/swapfile"), Path("/swap.img"), Path("/swap"))
         if not p.is_symlink() and p.is_file() and p.stat().st_dev == device)
     print(json.dumps(result, sort_keys=True))
+
+
+def report_storage_categories():
+    """Categorize only the measured large files and staging's first level."""
+    root = Path("/var/log")
+    scan = log_usage(root)
+    leaders = []
+    for folder, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in dirs if (Path(folder) / d).lstat().st_dev == root.stat().st_dev
+                   and not (Path(folder) / d).is_symlink()]
+        for name in names:
+            f = Path(folder) / name
+            try:
+                data = f.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(data.st_mode) or data.st_blocks * 512 < 100 * 1024 * 1024:
+                continue
+            rel = f.relative_to(root)
+            family = log_family(rel)
+            # Prefer known system/application families. A new log identity
+            # is shown only as a basename and only for standard log naming;
+            # never print content, arbitrary filenames, or inner directory names.
+            label = name if re.fullmatch(r"[a-z][a-z-]{0,45}(?:\.(?:log|[0-9]{1,2}|gz)){0,3}", name) else None
+            leaders.append({"family": family, "logBasename": label, "allocatedBytes": data.st_blocks * 512,
+                            "inode": data.st_ino, "hardLinks": data.st_nlink})
+    stage = Path("/var/www/citefi-staging")
+    p = subprocess.run(["du", "-x", "-B1", "--max-depth=2", "--", str(stage)],
+                       capture_output=True, text=True, errors="replace", timeout=150)
+    named = {"publishing-qa", "node_modules", ".next", "current", "releases", "incoming", ".deploy",
+             "logs", "ops-recovery", ".git", ".pnpm-store", "artifacts", "public"}
+    groups = {}
+    for line in p.stdout.splitlines():
+        amount, sep, full = line.partition("\t")
+        if not sep or not amount.isdecimal():
+            continue
+        rel = Path(full).relative_to(stage)
+        if not rel.parts:
+            continue
+        if rel.parts[0] == "publishing-qa" and len(rel.parts) == 2:
+            key = "QA source snapshots" if re.fullmatch(r"source-[a-f0-9]{64}", rel.parts[1]) else f"QA {rel.parts[1]}" if rel.parts[1] in named else "QA other"
+        elif len(rel.parts) == 1:
+            key = rel.parts[0] if rel.parts[0] in named else "other staging"
+        else:
+            continue
+        groups[key] = groups.get(key, 0) + int(amount)
+    print(json.dumps({**scan, "largestLogs": sorted(leaders, key=lambda row: -row["allocatedBytes"])[:15],
+                      "stagingGroups": groups, "stagingScanComplete": p.returncode == 0}, sort_keys=True))
 
 
 if __name__ == "__main__":
