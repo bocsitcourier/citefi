@@ -1,7 +1,13 @@
 name: Read-only production root disk breakdown
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Read-only report scope
+        type: choice
+        options: [filesystem, logs]
+        default: filesystem
 
 permissions:
   contents: read
@@ -28,8 +34,14 @@ jobs:
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+          DISK_SCOPE: ${{ inputs.scope }}
         run: |
           source scripts/recovery/ssh-session.sh
+          case "$DISK_SCOPE" in
+            filesystem) command='nice -n 15 ionice -c 3 python3 -B -' ;;
+            logs) command='nice -n 15 ionice -c 3 python3 -B - --logs' ;;
+            *) exit 1 ;;
+          esac
           "${SSH[@]:0:${#SSH[@]}-1}" -T -o ClearAllForwardings=yes -o ForwardAgent=no \
-            "root@${DO_HOST}" 'nice -n 15 ionice -c 3 python3 -B -' \
+            "root@${DO_HOST}" "$command" \
             < scripts/recovery/digitalocean-disk-breakdown.py

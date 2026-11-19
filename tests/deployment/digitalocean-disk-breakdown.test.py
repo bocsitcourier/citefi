@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 path = Path(__file__).resolve().parents[2] / "scripts/recovery/digitalocean-disk-breakdown.py"
@@ -10,6 +11,19 @@ spec.loader.exec_module(breakdown)
 
 
 class BreakdownTest(unittest.TestCase):
+    def test_log_report_distinguishes_rotated_and_current_without_names(self):
+        with TemporaryDirectory() as d:
+            path = Path(d)
+            (path / "syslog").write_text("active logs")
+            (path / "nginx").mkdir()
+            (path / "nginx" / "unknown-client.access.log.1").write_text("rotated logs")
+            (path / "other-host.log").symlink_to(path / "syslog")
+            result = breakdown.log_usage(path)
+            self.assertGreater(result["logGroups"]["syslog"]["currentBytes"], 0)
+            self.assertGreater(result["logGroups"]["nginx"]["rotatedBytes"], 0)
+            self.assertNotIn("unknown-client", json.dumps(result))
+            self.assertNotIn("other", result["logGroups"])
+
     def test_reports_only_fixed_categories_and_no_release_names(self):
         base = "/var/www/citefi"
         active = f"{base}/releases/active-fixture"
