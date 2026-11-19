@@ -61,8 +61,8 @@ export default function SignupPage() {
   }, [selectedPlan, selectedAnnual]);
 
   useEffect(() => {
-    if (user) router.replace(selectedPlan ? planPricingPath(selectedPlan, selectedAnnual) : "/home");
-  }, [user, router, selectedPlan, selectedAnnual]);
+    if (user) router.replace(trialSignup ? "/free-article" : selectedPlan ? planPricingPath(selectedPlan, selectedAnnual) : "/home");
+  }, [user, router, trialSignup, selectedPlan, selectedAnnual]);
 
   const reqs = {
     minLength: password.length >= 8,
@@ -86,9 +86,12 @@ export default function SignupPage() {
     }
     setIsLoading(true);
     try {
-      const trialToken = trialSignup && process.env.NODE_ENV === "development"
-        ? sessionStorage.getItem("citefi-trial-dev") || undefined
-        : undefined;
+      let trialToken: string | undefined;
+      if (trialSignup && process.env.NODE_ENV === "development") {
+        try { trialToken = sessionStorage.getItem("citefi-trial-dev") || undefined; } catch {
+          // The same-origin trial cookie remains the normal continuity mechanism.
+        }
+      }
       await signup(email, password, fullName, teamName || undefined, trialToken);
       if (trialSignup) {
         router.replace("/free-article");
