@@ -8,9 +8,13 @@ import os
 from pathlib import Path
 import pwd
 import re
+import shutil
 import stat
 import subprocess
+import sys
 import time
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 PROD = Path("/var/www/citefi")
 STAGING = Path("/var/www/citefi-staging")
@@ -19,6 +23,15 @@ LEGACY_ROLLBACKS = {"5b44cd1178b4d32778a54d5e2c96dc2799c3a355-c30a792f8f170098",
                     "3f85ef0ef9b0156f0f392f8eba20e1fcf79d6886-a754b8cf49f55f7c"}
 LIVE_PATH = re.compile(r"/var/www/citefi(?:-staging)?/(?:releases/[a-f0-9]{40}-[a-f0-9]{16}|current)(?=[/ \t\r\n\"'\0]|$)")
 EVIDENCE = {"ops-recovery", "retained-media", "uploads", "evidence", "db-backups", ".git", "storage"}
+# These two directories are versioned application source in the one inspected
+# October release. Exact Git tree IDs come from that release's independent
+# GitHub source. An extra, missing or changed byte keeps the release protected.
+FROZEN_SOURCE = {
+    "4aa8bddcfbf615d643110cbb6514b3666c5fa260-aef3ab7b759ac3ae": {
+        "QA/evidence": "a71cf009d8734887a38b5de0d78fcb71f84d7514",
+        "packages/apex-receiver/src/storage": "6fff913730ff0dbcc023d819d133dc631dffc926",
+    },
+}
 LOCK_PATHS = tuple(root / ".deploy/release.lock" for root in (PROD, STAGING))
 QA_LOCK = STAGING / "publishing-qa/.source-operation.lock"
 MAX_RECLAIM = 8 * 1024**3
@@ -101,9 +114,45 @@ def protected_closure(initial, edges):
     return keep
 
 
+def git_object(kind, payload):
+    return hashlib.sha1(kind + str(len(payload)).encode() + b"\0" + payload, usedforsecurity=False).digest()
+
+
+def git_tree(path, device):
+    entries = []
+    for p in path.iterdir():
+        info = p.lstat()
+        if info.st_dev != device:
+            raise ValueError("Source subtree crossed a filesystem")
+        name = os.fsencode(p.name)
+        if stat.S_ISDIR(info.st_mode):
+            mode, digest, sort_key = b"40000", git_tree(p, device), name + b"/"
+        elif stat.S_ISLNK(info.st_mode):
+            mode, digest, sort_key = b"120000", git_object(b"blob ", os.fsencode(os.readlink(p))), name
+        elif stat.S_ISREG(info.st_mode) and info.st_size <= 128 * 1024**2:
+            mode = b"100755" if info.st_mode & stat.S_IXUSR else b"100644"
+            with os.fdopen(os.open(p, os.O_RDONLY | os.O_NOFOLLOW), "rb") as source:
+                if disk_identity(os.fstat(source.fileno())) != disk_identity(info):
+                    raise ValueError("Source evidence changed during verification")
+                digest = git_object(b"blob ", source.read(128 * 1024**2 + 1))
+            sort_key = name
+        else:
+            raise ValueError("Unexpected frozen source file")
+        entries.append((sort_key, mode + b" " + name + b"\0" + digest))
+    return git_object(b"tree ", b"".join(payload for _, payload in sorted(entries)))
+
+
+def matching_source(path, relative, device):
+    expected = FROZEN_SOURCE.get(path.name, {}).get(str(relative))
+    full = path / relative
+    return (expected is not None and full.resolve(strict=True) == full
+            and git_tree(full, device).hex() == expected)
+
+
 def inspect_tree(root, candidates, rows, edges, protected):
     """Observe retained links and ownership without opening application file contents."""
     device = root.stat().st_dev
+    source_roots = {}
     for directory, dirs, names in os.walk(root, followlinks=False, onerror=lambda e: fail_walk(e)):
         here = Path(directory)
         owner = next((p for p in here.parents if p in candidates), None)
@@ -121,7 +170,12 @@ def inspect_tree(root, candidates, rows, edges, protected):
             if owner and info.st_uid != rows[owner]["identity"][2]:
                 protected.setdefault(owner, set()).add("mixed file ownership")
             if owner and (name in EVIDENCE or name.endswith((".sql.gz", ".log", ".receipt.json"))):
-                if "node_modules" not in p.relative_to(owner).parts:
+                relative = p.relative_to(owner)
+                verified = source_roots.setdefault(owner, set())
+                if stat.S_ISDIR(info.st_mode) and matching_source(owner, relative, device):
+                    verified.add(relative)
+                if "node_modules" not in relative.parts and not any(
+                        relative == source or source in relative.parents for source in verified):
                     protected.setdefault(owner, set()).add("contains possible evidence or runtime data")
             if stat.S_ISLNK(info.st_mode):
                 hits = anchors(p, candidates)
@@ -191,6 +245,8 @@ def lock_releases(stack):
     if os.geteuid() != 0:
         raise ValueError("Expected privileged read-only process inspection")
     for path in LOCK_PATHS:
+        if path.resolve(strict=True) != path:
+            raise ValueError("Release lock does not resolve to its canonical path")
         f = stack.enter_context(os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb"))
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     if os.path.lexists(QA_LOCK):
@@ -220,6 +276,9 @@ def preview():
                 protected.setdefault(p, set()).add("no verified current build")
             continue
         protected.setdefault(current, set()).add("current build")
+        if root == PROD and current not in runtime:
+            for p in local:
+                protected.setdefault(p, set()).add("production current not confirmed by running processes")
         backups = sorted((p for p in local if p != current and rows[p]["buildIdentityOk"]),
                          key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True)
         for p in backups[:2]:
@@ -257,10 +316,119 @@ def preview():
     return {**proof, "digest": digest, "availableBytes": volume.f_bavail * volume.f_frsize}
 
 
+def choose_removals(report, digest, release_ids):
+    if report["digest"] != digest:
+        raise ValueError("Live release inventory differs from the reviewed plan")
+    if not release_ids or len(set(release_ids)) != len(release_ids):
+        raise ValueError("An explicit set of distinct release identities is required")
+    selected = []
+    for identifier in release_ids:
+        matching = [r for r in report["releases"] if f'{r["environment"]}/{r["release"]}' == identifier]
+        if len(matching) != 1 or matching[0]["keepReasons"] or not matching[0]["buildIdentityOk"]:
+            raise ValueError("An approved release is not eligible")
+        selected.append(matching[0])
+    if sum(r["allocatedBytes"] for r in selected) > MAX_RECLAIM:
+        raise ValueError("Approved removal batch exceeds the per-operation bound")
+    return selected
+
+
+def backup_health():
+    try:
+        response = urlopen("https://citefi.co/api/health?full=1", timeout=12)
+    except HTTPError as error:
+        if error.code != 503:
+            raise
+        response = error
+    with response:
+        if response.url != "https://citefi.co/api/health?full=1":
+            raise ValueError("Unexpected production readiness endpoint")
+        services = json.loads(response.read(524288))["services"]
+    for key in ("backup", "restoreVerification", "redis", "worker", "storage"):
+        if services.get(key, {}).get("ok") is not True:
+            raise ValueError("Production recovery prerequisites did not pass")
+
+
+def remove_as_owner(path, identity):
+    uid, gid = identity[2:4]
+    if uid == 0 or gid == 0 or uid != pwd.getpwnam("citefi").pw_uid:
+        raise ValueError("Expected the approved service account as release owner")
+    if disk_identity(path.lstat()) != identity or not shutil.rmtree.avoids_symlink_attacks:
+        raise ValueError("Release tree changed or safe removal is unavailable")
+    parent = path.parent
+    removed = parent / (".reclaim-" + path.name)
+    if os.path.lexists(removed):
+        raise ValueError("An earlier reclamation tree exists; review it separately")
+    child = os.fork()
+    if child == 0:
+        try:
+            os.setgroups([])
+            os.setresgid(gid, gid, gid)
+            os.setresuid(uid, uid, uid)
+            if os.getresuid() != (uid,) * 3 or os.getresgid() != (gid,) * 3:
+                raise ValueError("Could not drop privileged filesystem access")
+            if disk_identity(path.lstat()) != identity or path.resolve(strict=True) != path:
+                raise ValueError("Approved release changed before reclamation")
+            os.rename(path, removed)
+            # The release packer marks its tree read-only. Open and make
+            # directories writable as the owner without following any links.
+            for _, _, _, dir_fd in os.fwalk(removed, topdown=True, follow_symlinks=False):
+                node = os.fstat(dir_fd)
+                if node.st_dev != identity[0] or node.st_uid != uid:
+                    raise ValueError("Unexpected ownership or filesystem in release")
+                os.fchmod(dir_fd, stat.S_IMODE(node.st_mode) | stat.S_IRWXU)
+            shutil.rmtree(removed)
+        except Exception:
+            os._exit(1)
+        os._exit(0)
+    _, status = os.waitpid(child, 0)
+    if status != 0 or os.path.lexists(path) or os.path.lexists(removed):
+        raise RuntimeError("Scoped release removal stopped; inspect its location before retrying")
+
+
+def reclaim(digest, release_ids):
+    if not re.fullmatch(r"[0-9a-f]{64}", digest) or not all(
+            re.fullmatch(r"(?:production|staging)/[a-f0-9]{40}-[a-f0-9]{16}", item) for item in release_ids):
+        raise ValueError("Invalid reviewed reclamation request")
+    # Use the same lock as staging QA. A simultaneous QA operation must fail
+    # closed; do not interrupt it, break stale locks, or remove its evidence.
+    QA_LOCK.mkdir(mode=0o700)
+    lock_identity = disk_identity(QA_LOCK.lstat())
+    try:
+        report = preview()
+        approved = choose_removals(report, digest, release_ids)
+        backup_health()
+        paths = {(PROD if r["environment"] == "production" else STAGING) / "releases" / r["release"]
+                 for r in approved}
+        if process_refs(paths) or config_refs(paths):
+            raise ValueError("An approved directory acquired a live reference")
+        print(json.dumps({"phase": "verified listing", "releases": release_ids,
+                          "availableBytesBefore": report["availableBytes"]}), flush=True)
+        for row in approved:
+            root = PROD if row["environment"] == "production" else STAGING
+            path = root / "releases" / row["release"]
+            if root.joinpath("current").resolve(strict=True).name != report["current"][root.name]:
+                raise ValueError("Current release changed")
+            remove_as_owner(path, row["identity"])
+            print(json.dumps({"phase": "removed", "environment": row["environment"],
+                              "release": row["release"], "allocatedBytesBefore": row["allocatedBytes"]}), flush=True)
+        volume = os.statvfs(PROD)
+        print(json.dumps({"phase": "completed", "availableBytesAfter": volume.f_bavail * volume.f_frsize}), flush=True)
+    finally:
+        if disk_identity(QA_LOCK.lstat()) != lock_identity:
+            raise ValueError("Staging lock changed; it was not removed")
+        QA_LOCK.rmdir()
+
+
 def main():
     with ExitStack() as stack:
         lock_releases(stack)
-        print(json.dumps(preview(), sort_keys=True), flush=True)
+        args = sys.argv[1:]
+        if not args:
+            print(json.dumps(preview(), sort_keys=True), flush=True)
+        elif len(args) >= 3 and args[0] == "--reclaim":
+            reclaim(args[1], args[2:])
+        else:
+            raise ValueError("Unknown release operation")
 
 
 if __name__ == "__main__":

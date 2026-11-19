@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 script = Path(__file__).resolve().parents[2] / "scripts/recovery/inspect-unused-releases.py"
 spec = importlib.util.spec_from_file_location("release_inventory", script)
@@ -10,6 +11,32 @@ spec.loader.exec_module(inventory)
 
 
 class RetainedDependencies(unittest.TestCase):
+    def test_versioned_evidence_exception_rejects_new_files(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            p = root / "evidence"
+            p.mkdir()
+            (p / "original.txt").write_text("versioned content")
+            device = p.stat().st_dev
+            digest = inventory.git_tree(p, device).hex()
+            with patch.object(inventory, "FROZEN_SOURCE", {root.name: {"evidence": digest}}):
+                self.assertTrue(inventory.matching_source(root, Path("evidence"), device))
+                (p / "new-production-proof.txt").write_text("unversioned content")
+                self.assertFalse(inventory.matching_source(root, Path("evidence"), device))
+
+    def test_refuses_changed_plan_and_protected_release(self):
+        report = {"digest": "preview", "releases": [
+            {"environment": "production", "release": "current", "keepReasons": ["current build"],
+             "buildIdentityOk": True, "allocatedBytes": 20},
+            {"environment": "production", "release": "unused", "keepReasons": [],
+             "buildIdentityOk": True, "allocatedBytes": 20},
+        ]}
+        for digest, selection in (("old", ["production/unused"]), ("preview", ["production/current"]),
+                                  ("preview", ["production/unused", "production/unused"])):
+            with self.assertRaises(ValueError):
+                inventory.choose_removals(report, digest, selection)
+        self.assertEqual(inventory.choose_removals(report, "preview", ["production/unused"]), report["releases"][1:])
+
     def test_keeps_intermediate_link_owners(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
