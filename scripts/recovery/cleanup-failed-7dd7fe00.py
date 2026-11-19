@@ -36,6 +36,23 @@ def identity(info):
             ("dev", "ino", "uid", "mtime_ns", "size", "blocks", "nlink")}
 
 
+def is_root_parented_ssh_transport(entry, proc):
+    # OpenSSH's unprivileged transport can be non-dumpable, so a same-user
+    # process may not inspect its file descriptors. Exempt only the transport
+    # directly parented by root, not a service or a same-user SSH child.
+    try:
+        if (entry / "comm").read_text().strip() not in ("sshd", "sshd-session", "sshd-auth"):
+            return False
+        match = re.search(r"^PPid:\s+([1-9][0-9]*)$", (entry / "status").read_text(), re.M)
+        if not match:
+            return False
+        parent = proc / match.group(1)
+        return (parent.stat().st_uid == 0 and
+                (parent / "comm").read_text().strip() in ("sshd", "sshd-session"))
+    except OSError:
+        return False
+
+
 def verify_live_refs(targets):
     for record in Path("/proc/self/mountinfo").read_text().splitlines():
         mount = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), record.split()[4])
@@ -43,7 +60,8 @@ def verify_live_refs(targets):
             raise RuntimeError("Approved artifact contains a mount")
     # Check the processes owned by the deployment account, including PM2 and
     # its children. Never read or emit argv, environment variables or file data.
-    for entry in Path("/proc").iterdir():
+    proc = Path("/proc")
+    for entry in proc.iterdir():
         if not entry.name.isdecimal():
             continue
         try:
@@ -60,6 +78,9 @@ def verify_live_refs(targets):
                     raise RuntimeError("A live process references an approved artifact")
         except FileNotFoundError:
             continue
+        except PermissionError:
+            if not is_root_parented_ssh_transport(entry, proc):
+                raise
 
 
 def cleanup(root):
