@@ -1,0 +1,40 @@
+name: Compress two verified archived production logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        type: string
+        required: true
+        description: Enter COMPRESS-MEASURED-CITEFI-LOGS to preserve the two measured logs in gzip archives
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.confirmation == 'COMPRESS-MEASURED-CITEFI-LOGS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test content preservation and SSH pin off-host
+        run: |
+          python3 -B tests/deployment/compress-archived-citefi-logs.test.py
+          bash tests/deployment/ssh-host-key.test.sh
+      - name: Compress only the unchanged closed log candidates
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_HOST_FINGERPRINT: ${{ secrets.DO_SSH_HOST_FINGERPRINT }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: |
+          source scripts/recovery/ssh-session.sh
+          "${SSH[@]:0:${#SSH[@]}-1}" -T -o ClearAllForwardings=yes -o ForwardAgent=no \
+            "root@${DO_HOST}" 'nice -n 10 ionice -c 2 -n 7 python3 -B -' \
+            < scripts/recovery/compress-archived-citefi-logs.py
