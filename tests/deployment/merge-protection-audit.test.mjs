@@ -209,7 +209,7 @@ test('scheduled audit stays separate from PRs, GET-only and free of deploy crede
       name: 'Audit live main merge protections', 'runs-on': 'ubuntu-latest', 'timeout-minutes': 5,
       steps: [
         { uses: 'actions/checkout@v4', with: { 'persist-credentials': false } },
-        { uses: 'actions/setup-node@v4', with: { 'node-version': 22 } },
+        { uses: 'actions/setup-node@v4', with: { 'node-version-file': '.node-version' } },
         {
           name: 'Read effective rules and report protection drift',
           env: { MERGE_PROTECTION_AUDIT_TOKEN: '${{ secrets.MERGE_PROTECTION_AUDIT_TOKEN }}' },

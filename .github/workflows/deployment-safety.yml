@@ -19,7 +19,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
       # Install only the parser in a disposable directory, not the application.
       # No repository lifecycle scripts, environment files or credentials.
       - name: Install YAML parser without lifecycle scripts
