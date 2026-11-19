@@ -39,9 +39,62 @@ def build_identity(root):
     return {"sourceSha": source_sha(root), "buildId": build}
 
 
+def allocated_bytes(path, timeout):
+    # Avoid crossing mounts or following symlinks, and do not emit child names.
+    if not path.is_dir() or path.resolve() != path:
+        return None
+    try:
+        output = subprocess.run(["du", "-sx", "-B1", "--", str(path)],
+                                capture_output=True, text=True, check=True, timeout=timeout)
+        return int(output.stdout.split("\t", 1)[0])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def storage_inventory(root):
+    disk = os.statvfs(root)
+    filesystem = root.stat().st_dev
+    usage = {
+        label: {"allocatedBytes": allocated_bytes(path, 18), "onReleaseFilesystem":
+                path.is_dir() and path.resolve() == path and path.stat().st_dev == filesystem}
+        for label, path in {
+            "liveReleaseTree": root / "releases",
+            "deploymentState": root / ".deploy",
+            "legacyDependencies": root / "node_modules",
+            "legacyBuild": root / ".next",
+            "recoveryFiles": root / "ops-recovery",
+            **({"hostLogs": Path("/var/log"), "localBackups": Path("/var/backups/citefi-db"),
+                "staging": Path("/var/www/citefi-staging")} if root == ROOT else {}),
+        }.items()
+    }
+    transients = []
+    for group, directory, pattern in (
+        ("incoming", root / ".deploy/incoming", r"artifact-[a-f0-9]{40}-[a-f0-9]{16}-[A-Za-z0-9]+\.tar\.gz(?:\.part)?"),
+        ("unpack", root / "releases", r"\.unpack-[a-f0-9]{40}-[a-f0-9]{16}-[0-9]+"),
+    ):
+        if not directory.is_dir() or directory.resolve() != directory:
+            continue
+        matches = []
+        for item in directory.iterdir():
+            if not re.fullmatch(pattern, item.name) or item.is_symlink():
+                continue
+            try:
+                info = item.lstat()
+            except FileNotFoundError:
+                continue
+            if info.st_dev == filesystem and (item.is_file() if group == "incoming" else item.is_dir()):
+                matches.append((info.st_mtime_ns, item, info.st_blocks * 512))
+        for modified, item, blocks in sorted(matches, reverse=True)[:12]:
+            transients.append({"group": group, "name": item.name, "mtimeNs": modified,
+                               "allocatedBytes": blocks if group == "incoming" else allocated_bytes(item, 12)})
+    return {"availableBytes": disk.f_bavail * disk.f_frsize, "totalBytes": disk.f_blocks * disk.f_frsize,
+            "freeInodes": disk.f_favail, "usage": usage, "observedTransientPaths": transients}
+
+
 def inspect(root):
     result = {"root": str(root), "currentIsSymlink": (root / "current").is_symlink(),
-              "sharedEnvironmentPresent": (root / ".env.local").is_file()}
+              "sharedEnvironmentPresent": (root / ".env.local").is_file(),
+              "storage": storage_inventory(root)}
     try:
         result["legacyArtifact"] = build_identity(root)
     except (RuntimeError, subprocess.CalledProcessError):

@@ -83,6 +83,28 @@ class ProductionLayoutTests(unittest.TestCase):
             self.assertEqual(before, set(root.rglob("*")))
             self.assertFalse((root / "releases").exists())
 
+    def test_storage_inventory_measures_release_transients_without_following_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            identity = f"{'a' * 40}-{'b' * 16}"
+            incoming = root / ".deploy/incoming"
+            archive = incoming / f"artifact-{identity}-abcd.tar.gz"
+            archive.write_bytes(b"x" * 4096)
+            (incoming / f"artifact-{identity}-aliased.tar.gz").symlink_to(archive)
+            partial = root / "releases" / f".unpack-{identity}-123"
+            partial.mkdir(parents=True)
+            (partial / "keep").write_bytes(b"x" * 4096)
+            (root / "releases" / identity).mkdir()
+            before = set(root.rglob("*"))
+            result = layout.inspect(root)["storage"]
+            self.assertGreater(result["totalBytes"], 0)
+            self.assertEqual({item["name"] for item in result["observedTransientPaths"]},
+                             {archive.name, partial.name})
+            self.assertTrue(result["usage"]["deploymentState"]["onReleaseFilesystem"])
+            self.assertTrue(all(item["allocatedBytes"] > 0 for item in result["observedTransientPaths"]))
+            self.assertEqual(before, set(root.rglob("*")))
+
     def test_saves_only_after_exact_release_and_process_health_are_verified(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
